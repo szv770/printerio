@@ -1,0 +1,40 @@
+{
+  "name": "@printos/agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "PrintOS on-premises Windows Print Agent - claims approved print jobs, downloads them, and submits them to a local Windows print queue.",
+  "main": "./dist/index.js",
+  "bin": {
+    "printos-agent": "./dist/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts start",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "tsx src/index.ts start",
+    "register": "tsx src/index.ts register",
+    "install-service": "tsx src/index.ts install-service",
+    "uninstall-service": "tsx src/index.ts uninstall-service",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint src test"
+  },
+  "dependencies": {
+    "@printos/shared": "workspace:*",
+    "tsx": "^4.19.2"
+  },
+  "optionalDependencies": {
+    "node-windows": "^1.0.0-beta.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "eslint": "^9.18.0",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.19.1",
+    "vitest": "^3.0.5"
+  }
+}

@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+:root {
+  --color-bg: #f8fafc;
+  --color-surface: #ffffff;
+  --color-border: #e2e8f0;
+  --color-text: #0f172a;
+  --color-muted: #64748b;
+  --color-primary: #2563eb;
+  --color-primary-fg: #ffffff;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* Large, touch-friendly controls by default - see docs/architecture.md sec 43. */
+button,
+input,
+select,
+textarea {
+  font-size: 1rem;
+}

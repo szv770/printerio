@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Next.js
+apps/web/.next/
+apps/web/out/
+apps/web/next-env.d.ts
+
+# Agent build output
+apps/agent/dist/
+apps/agent/*.exe
+
+# Env files (never commit secrets)
+.env
+.env.local
+.env.*.local
+!.env.example
+!*.env.example
+
+# Supabase local dev
+supabase/.branches/
+supabase/.temp/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Test / coverage
+coverage/
+.turbo/
+
+# TypeScript build info
+*.tsbuildinfo

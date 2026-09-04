@@ -1,0 +1,31 @@
+import { apiError } from "@/lib/api-errors";
+import { authenticateAgentRequest } from "@/lib/agent-auth";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+
+/** See docs/agent-api.md. Jobs in `approved` status whose printer_profiles.agent_id
+ *  is this agent, unclaimed or with an expired lease. */
+export async function GET(request: Request) {
+  const agent = await authenticateAgentRequest(request);
+  if (!agent) return apiError(401, "unauthenticated", "Invalid or revoked agent credentials.");
+
+  const supabase = createServiceRoleClient();
+
+  const { data: profiles } = await supabase.from("printer_profiles").select("id").eq("agent_id", agent.id);
+  const profileIds = (profiles ?? []).map((p) => p.id);
+  if (profileIds.length === 0) return Response.json({ jobs: [] });
+
+  const nowIso = new Date().toISOString();
+  const { data: jobs, error } = await supabase
+    .from("print_jobs")
+    .select("id, job_number, printer_profile_id, lease_expires_at")
+    .eq("organization_id", agent.organizationId)
+    .eq("status", "approved")
+    .in("printer_profile_id", profileIds)
+    .or(`lease_expires_at.is.null,lease_expires_at.lt.${nowIso}`);
+
+  if (error) return apiError(500, "internal_error", "Failed to list claimable jobs.");
+
+  return Response.json({
+    jobs: (jobs ?? []).map((j) => ({ jobId: j.id, printerProfileId: j.printer_profile_id, jobNumber: j.job_number })),
+  });
+}

@@ -1,0 +1,79 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
+import { jobStatusDisplay } from "@/lib/job-status-labels";
+
+interface JobRow {
+  id: string;
+  job_number: string;
+  original_file_name: string;
+  status: string;
+  source_pdf_pages: number;
+  color_mode: string;
+  duplex: boolean;
+  copies: number;
+  created_at: string;
+}
+
+export function JobsList({ initialJobs, userId }: { initialJobs: JobRow[]; userId: string }) {
+  const [jobs, setJobs] = useState(initialJobs);
+
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`jobs-own-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "print_jobs", filter: `created_by=eq.${userId}` },
+        (payload) => {
+          setJobs((prev) => {
+            if (payload.eventType === "DELETE") {
+              return prev.filter((j) => j.id !== (payload.old as JobRow).id);
+            }
+            const row = payload.new as JobRow;
+            const exists = prev.some((j) => j.id === row.id);
+            if (exists) return prev.map((j) => (j.id === row.id ? row : j));
+            return [row, ...prev];
+          });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
+
+  if (jobs.length === 0) {
+    return <p className="text-sm text-[var(--color-muted)]">No print jobs yet.</p>;
+  }
+
+  return (
+    <ul className="flex flex-col gap-3">
+      {jobs.map((job) => {
+        const status = jobStatusDisplay(job.status);
+        return (
+          <li key={job.id}>
+            <Link
+              href={`/jobs/${job.id}`}
+              className="block rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 hover:border-[var(--color-primary)]"
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-medium">{job.original_file_name}</span>
+                <span>
+                  {status.emoji} {status.label}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-[var(--color-muted)]">
+                {job.job_number} • {job.source_pdf_pages} pages • {job.color_mode === "color" ? "Color" : "B&W"} •{" "}
+                {job.duplex ? "Duplex" : "Simplex"} • {job.copies} {job.copies === 1 ? "copy" : "copies"}
+              </p>
+            </Link>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}

@@ -1,0 +1,1401 @@
+-- PrintOS consolidated schema reference.
+-- Generated from supabase/migrations/*.sql - migrations remain the source of truth.
+-- Regenerate after adding a migration: run this same concatenation again.
+
+-- ===================================================================
+-- Source: migrations/0001_core_tables.sql
+-- ===================================================================
+-- PrintOS: organizations, membership, profiles, invitations, groups.
+-- See docs/architecture.md sec 2 for the auth/bootstrap model.
+
+create table organizations (
+  id uuid primary key default gen_random_uuid(),
+  name text not null check (char_length(name) between 1 and 200),
+  slug text not null unique check (slug ~ '^[a-z0-9]([a-z0-9-]{0,98}[a-z0-9])?$'),
+  -- UX hint only (prefill an invitation-request screen). Never used to grant
+  -- membership or role - see docs/architecture.md sec 2.2.
+  allowed_domains text[] not null default '{}',
+  created_at timestamptz not null default now()
+);
+
+comment on column organizations.allowed_domains is
+  'UX hint only - suggests this org on sign-in. Never grants membership or role.';
+
+create table organization_settings (
+  organization_id uuid primary key references organizations(id) on delete cascade,
+  quota_basis text not null default 'physical_sheets'
+    check (quota_basis in ('pdf_pages', 'printed_sides', 'physical_sheets', 'color_weighted')),
+  default_policy_action text not null default 'require_approval'
+    check (default_policy_action in ('allow', 'require_approval', 'deny')),
+  job_approval_expiry_hours int not null default 72 check (job_approval_expiry_hours > 0),
+  job_lease_minutes int not null default 10 check (job_lease_minutes > 0),
+  retention_pending_days int check (retention_pending_days is null or retention_pending_days > 0),
+  retention_completed_days int not null default 7 check (retention_completed_days > 0),
+  retention_rejected_days int not null default 3 check (retention_rejected_days > 0),
+  retention_failed_days int not null default 7 check (retention_failed_days > 0),
+  max_upload_size_bytes bigint not null default 52428800 check (max_upload_size_bytes > 0), -- 50 MiB
+  updated_at timestamptz not null default now()
+);
+
+comment on column organization_settings.quota_basis is
+  'Which computed metric quotas are measured in. Default physical_sheets - see '
+  'docs/architecture.md sec 7.';
+
+-- NOTE: the organization_settings_set_updated_at trigger (private.set_updated_at)
+-- and the on_auth_user_created trigger (private.handle_new_auth_user, which
+-- creates this row automatically) are both created in
+-- 0005_extensions_and_helpers.sql, alongside the rest of the private.* helper
+-- functions, once all referenced tables exist.
+
+-- Mirrors auth.users 1:1. Never duplicates authentication identity - see
+-- docs/architecture.md sec 2.1.
+create table profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  email text not null,
+  display_name text,
+  avatar_url text,
+  -- Platform-level flag only. Grants no org-scoped access by itself.
+  platform_role text not null default 'user' check (platform_role in ('user', 'super_admin')),
+  created_at timestamptz not null default now()
+);
+
+create table organization_members (
+  user_id uuid not null references profiles(id) on delete cascade,
+  organization_id uuid not null references organizations(id) on delete cascade,
+  role text not null default 'student'
+    check (role in ('org_admin', 'approver', 'staff', 'student')),
+  department text,
+  status text not null default 'active' check (status in ('active', 'disabled')),
+  created_at timestamptz not null default now(),
+  primary key (user_id, organization_id)
+);
+
+create index organization_members_org_idx on organization_members (organization_id);
+create index organization_members_user_idx on organization_members (user_id);
+
+-- Enrollment codes / targeted invitations. Redemption is a service-role server
+-- action (never client-side RLS) that validates token/expiry/use-count and inserts
+-- the organization_members row - see docs/architecture.md sec 2.2.
+create table organization_invitations (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete cascade,
+  -- Exactly one of code/email is expected to be set by application logic:
+  --   code  -> open enrollment code (any redeemer with the code, up to max_uses)
+  --   email -> targeted invitation (only that email may redeem)
+  code text unique,
+  email text,
+  role text not null default 'student'
+    check (role in ('org_admin', 'approver', 'staff', 'student')),
+  max_uses int check (max_uses is null or max_uses > 0),
+  uses_count int not null default 0,
+  expires_at timestamptz,
+  created_by uuid not null references profiles(id),
+  created_at timestamptz not null default now(),
+  constraint organization_invitations_code_or_email check (code is not null or email is not null)
+);
+
+create index organization_invitations_org_idx on organization_invitations (organization_id);
+
+-- Departments/classes/custom cohorts. Membership is many-to-many via group_members
+-- (a user may belong to multiple groups) - see docs/architecture.md sec re: spec's
+-- groups/group_members tables.
+create table groups (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 200),
+  kind text not null default 'custom' check (kind in ('department', 'class', 'custom')),
+  created_at timestamptz not null default now(),
+  unique (organization_id, name)
+);
+
+create index groups_org_idx on groups (organization_id);
+
+create table group_members (
+  group_id uuid not null references groups(id) on delete cascade,
+  user_id uuid not null references profiles(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (group_id, user_id)
+);
+
+create index group_members_user_idx on group_members (user_id);
+
+-- ===================================================================
+-- Source: migrations/0002_printing_tables.sql
+-- ===================================================================
+-- PrintOS: agents, printers, printer profiles (Windows queue mapping), policies.
+-- See docs/architecture.md sec 4 (agent auth) and sec 9 (driver/finishing architecture).
+
+create table agents (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 200),
+  -- Salted hash of the device credential. The plaintext secret is shown to the
+  -- admin exactly once at registration/rotation time and never stored.
+  device_secret_hash text,
+  -- One-time enrollment code exchanged for a device secret on first run.
+  -- Cleared once redeemed.
+  enrollment_code text unique,
+  enrollment_code_expires_at timestamptz,
+  status text not null default 'pending' check (status in ('pending', 'active', 'disabled')),
+  version text,
+  last_seen_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create index agents_org_idx on agents (organization_id);
+
+create table printers (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 200),
+  vendor text,
+  model text,
+  location text,
+  status text not null default 'unknown' check (status in ('unknown', 'online', 'offline', 'error')),
+  last_status_at timestamptz,
+  -- Model-specific SNMP OID overrides (never hardcoded across models - see
+  -- docs/architecture.md sec 9 / known-limitations.md). Null/empty = SNMP telemetry
+  -- disabled for this printer; printing is unaffected either way.
+  snmp_config jsonb not null default '{}',
+  created_at timestamptz not null default now()
+);
+
+create index printers_org_idx on printers (organization_id);
+
+-- Logical print profile -> Windows queue mapping. Finishing options are baked into
+-- the Windows queue's driver "Printing Defaults" out-of-band (see printer-setup.md);
+-- PrintOS never programs finishing options itself. windows_queue_name is only ever
+-- resolved server-side/agent-side, never sent to an untrusted client - see
+-- docs/architecture.md sec 9.
+create table printer_profiles (
+  id uuid primary key default gen_random_uuid(),
+  printer_id uuid not null references printers(id) on delete cascade,
+  agent_id uuid not null references agents(id) on delete restrict,
+  key text not null check (key ~ '^[a-z0-9_]+$'),
+  label text not null check (char_length(label) between 1 and 200),
+  windows_queue_name text not null,
+  -- Administrator-declared, not cloud-verified against the physical device -
+  -- see docs/architecture.md sec 9.
+  declared_paper_sizes text[] not null default '{letter}',
+  declared_capabilities jsonb not null default
+    '{"duplex": false, "color": false, "staple": false, "booklet": false, "punch": false}',
+  -- Optional per-side/per-sheet pricing for this profile (spec sec 42). Null = no
+  -- cost tracking configured; organizations may track pages/sheets with no
+  -- financial dimension at all.
+  pricing jsonb,
+  is_default boolean not null default false,
+  created_at timestamptz not null default now(),
+  unique (printer_id, key)
+);
+
+create index printer_profiles_printer_idx on printer_profiles (printer_id);
+create index printer_profiles_agent_idx on printer_profiles (agent_id);
+
+create table print_policies (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 200),
+  applies_to_role text[], -- optional simple targeting, in addition to rule conditions
+  enabled boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create index print_policies_org_idx on print_policies (organization_id);
+
+-- See docs/architecture.md sec 6 for the rule shape and precedence model.
+-- `conditions` is a JSON array of {field, op, value} objects, implicitly AND-ed.
+-- Valid field/op tokens are validated at the application layer
+-- (packages/shared/src/policy-engine.ts) rather than by a DB CHECK, since the set
+-- of supported fact fields is expected to grow.
+create table policy_rules (
+  id uuid primary key default gen_random_uuid(),
+  policy_id uuid not null references print_policies(id) on delete cascade,
+  action text not null check (action in ('allow', 'require_approval', 'deny')),
+  conditions jsonb not null default '[]',
+  reason_label text not null check (char_length(reason_label) between 1 and 300),
+  priority int not null default 100,
+  enabled boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create index policy_rules_policy_idx on policy_rules (policy_id);
+
+-- Configurable quotas (spec sec 31/32). scope_value's meaning depends on scope_type:
+--   role         -> one of organization_members.role
+--   department   -> organization_members.department
+--   group        -> groups.id (as text)
+--   user         -> profiles.id (as text)
+--   organization -> null (org-wide cap)
+create table quotas (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete cascade,
+  scope_type text not null check (scope_type in ('role', 'department', 'group', 'user', 'organization')),
+  scope_value text,
+  period text not null default 'monthly' check (period in ('monthly')),
+  limit_value int not null check (limit_value > 0),
+  created_at timestamptz not null default now(),
+  constraint quotas_scope_value_required check (
+    (scope_type = 'organization' and scope_value is null) or
+    (scope_type <> 'organization' and scope_value is not null)
+  )
+);
+
+create index quotas_org_idx on quotas (organization_id);
+
+-- ===================================================================
+-- Source: migrations/0003_jobs_tables.sql
+-- ===================================================================
+-- PrintOS: print jobs, audit trail, approvals, monthly usage.
+-- Status/event-type values must stay in sync with
+-- packages/shared/src/job-state.ts (JOB_STATES / JOB_EVENT_TYPES).
+-- See docs/architecture.md sec 13 (state machine / leasing) and sec 14 (quotas).
+
+create sequence if not exists print_jobs_number_seq;
+
+create table print_jobs (
+  id uuid primary key default gen_random_uuid(),
+  -- Human-readable id for logs/support, e.g. JOB-2026-000184 (spec sec 35/41).
+  job_number text not null unique default (
+    'JOB-' || to_char(now(), 'YYYY') || '-' || lpad(nextval('print_jobs_number_seq')::text, 6, '0')
+  ),
+  organization_id uuid not null references organizations(id) on delete cascade,
+  created_by uuid not null references profiles(id),
+  printer_id uuid references printers(id),
+  printer_profile_id uuid references printer_profiles(id),
+
+  status text not null default 'draft' check (status in (
+    'draft', 'pending_approval', 'approved', 'denied', 'rejected', 'expired',
+    'cancelled', 'claimed', 'downloading', 'downloaded', 'printing',
+    'submitted_to_spooler', 'completed', 'failed'
+  )),
+
+  -- Storage paths (private bucket, org-scoped - see docs/architecture.md sec 3.3).
+  -- Never modified once written; a booklet-padded (or other) transformation
+  -- always produces a new derived_file_path, never overwrites original_file_path.
+  original_file_path text not null,
+  derived_file_path text,
+  original_file_name text not null,
+
+  -- Server-verified facts. Never trust client-supplied values for any of these
+  -- (see docs/architecture.md sec 3.2 / sec 5).
+  source_pdf_pages int not null check (source_pdf_pages > 0),
+  file_size_bytes bigint not null check (file_size_bytes > 0),
+  copies int not null default 1 check (copies > 0),
+  color_mode text not null default 'bw' check (color_mode in ('bw', 'color')),
+  duplex boolean not null default false,
+  paper_size text not null default 'letter',
+  finishing jsonb not null default '{"staple": false, "booklet": false, "punch": false}',
+  booklet_padding_added int not null default 0 check (booklet_padding_added >= 0),
+
+  -- Computed print math (docs/architecture.md sec 7). Populated at submission time.
+  estimated_printed_sides int not null check (estimated_printed_sides > 0),
+  estimated_physical_sheets int not null check (estimated_physical_sheets > 0),
+  estimated_cost_cents int check (estimated_cost_cents is null or estimated_cost_cents >= 0),
+
+  -- Policy engine result, stored for audit (docs/architecture.md sec 6.3).
+  policy_action text check (policy_action in ('allow', 'require_approval', 'deny')),
+  policy_reasons text[] not null default '{}',
+
+  -- Job leasing (docs/architecture.md sec 13). Only one agent may hold a job.
+  lease_owner_agent_id uuid references agents(id),
+  lease_expires_at timestamptz,
+
+  attempt_count int not null default 0 check (attempt_count >= 0),
+  max_attempts int not null default 3 check (max_attempts > 0),
+  error_message text,
+
+  approved_at timestamptz,
+  approved_by uuid references profiles(id),
+  completed_at timestamptz,
+  -- Deadline for a pending_approval job before it auto-expires
+  -- (organization_settings.job_approval_expiry_hours).
+  expires_at timestamptz,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index print_jobs_org_idx on print_jobs (organization_id);
+create index print_jobs_created_by_idx on print_jobs (created_by);
+create index print_jobs_status_idx on print_jobs (organization_id, status);
+create index print_jobs_lease_idx on print_jobs (lease_owner_agent_id) where lease_owner_agent_id is not null;
+
+-- NOTE: the print_jobs_set_updated_at trigger (private.set_updated_at) is created
+-- in 0005_extensions_and_helpers.sql alongside the rest of the private.* helpers.
+
+-- Immutable audit trail (spec sec 41). No update/delete grant beyond service-role -
+-- see 0006_rls_policies.sql.
+create table print_job_events (
+  id uuid primary key default gen_random_uuid(),
+  job_id uuid not null references print_jobs(id) on delete cascade,
+  event_type text not null check (event_type in (
+    'JOB_CREATED', 'PDF_UPLOADED', 'PREFLIGHT_COMPLETED', 'PREFLIGHT_REJECTED',
+    'POLICY_EVALUATED', 'APPROVAL_REQUIRED', 'APPROVED', 'REJECTED', 'DENIED',
+    'JOB_EXPIRED', 'JOB_CANCELLED', 'AGENT_CLAIMED', 'LEASE_EXPIRED',
+    'DOWNLOAD_STARTED', 'DOWNLOAD_COMPLETED', 'PRINT_SUBMITTED', 'SPOOLER_ACCEPTED',
+    'PRINT_FAILED', 'JOB_COMPLETED', 'RETRY_SCHEDULED'
+  )),
+  actor_type text not null check (actor_type in ('user', 'system', 'agent', 'admin')),
+  actor_id uuid,
+  metadata jsonb not null default '{}',
+  created_at timestamptz not null default now()
+);
+
+create index print_job_events_job_idx on print_job_events (job_id, created_at);
+
+create table approval_actions (
+  id uuid primary key default gen_random_uuid(),
+  job_id uuid not null references print_jobs(id) on delete cascade,
+  approver_id uuid not null references profiles(id),
+  decision text not null check (decision in ('approved', 'rejected')),
+  reason text,
+  created_at timestamptz not null default now()
+);
+
+create index approval_actions_job_idx on approval_actions (job_id);
+
+-- Per-user, per-org, per-month usage + in-flight reservations (docs/architecture.md
+-- sec 14). reserved_* is incremented at submission time under a row lock and
+-- released/converted to *_used on the job's terminal outcome.
+create table monthly_usage (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete cascade,
+  user_id uuid not null references profiles(id) on delete cascade,
+  period text not null check (period ~ '^\d{4}-\d{2}$'), -- 'YYYY-MM'
+  pdf_pages_used int not null default 0 check (pdf_pages_used >= 0),
+  printed_sides_used int not null default 0 check (printed_sides_used >= 0),
+  physical_sheets_used int not null default 0 check (physical_sheets_used >= 0),
+  color_weighted_used int not null default 0 check (color_weighted_used >= 0),
+  reserved_pdf_pages int not null default 0 check (reserved_pdf_pages >= 0),
+  reserved_printed_sides int not null default 0 check (reserved_printed_sides >= 0),
+  reserved_physical_sheets int not null default 0 check (reserved_physical_sheets >= 0),
+  reserved_color_weighted int not null default 0 check (reserved_color_weighted >= 0),
+  updated_at timestamptz not null default now(),
+  unique (organization_id, user_id, period)
+);
+
+create index monthly_usage_org_idx on monthly_usage (organization_id, period);
+
+-- NOTE: the monthly_usage_set_updated_at trigger (private.set_updated_at) is
+-- created in 0005_extensions_and_helpers.sql alongside the rest of the
+-- private.* helpers.
+
+-- ===================================================================
+-- Source: migrations/0004_admin_tables.sql
+-- ===================================================================
+-- PrintOS: security-sensitive admin audit log + the remote-command allowlist.
+-- See docs/architecture.md sec 12 (no arbitrary remote command execution).
+
+create table audit_logs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid references organizations(id) on delete cascade, -- null = platform-level action
+  actor_id uuid references profiles(id),
+  action text not null check (char_length(action) between 1 and 200),
+  target_type text,
+  target_id text,
+  metadata jsonb not null default '{}',
+  created_at timestamptz not null default now()
+);
+
+create index audit_logs_org_idx on audit_logs (organization_id, created_at);
+
+-- Fixed, allow-listed remote commands only - never a raw shell/PowerShell string.
+-- The Agent's command handler is a switch over this exact set
+-- (apps/agent/src/commands.ts); adding a new command means adding both a DB enum
+-- value here and a handler case there, in the same change.
+create table remote_commands (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete cascade,
+  agent_id uuid not null references agents(id) on delete cascade,
+  printer_id uuid references printers(id),
+  command text not null check (command in (
+    'REFRESH_PRINTER_STATUS', 'CANCEL_PRINT_JOB', 'RESTART_PRINT_QUEUE',
+    'RESTART_AGENT_SERVICE', 'CLEAR_AGENT_TEMP_FILES'
+  )),
+  payload jsonb not null default '{}',
+  issued_by uuid not null references profiles(id),
+  status text not null default 'pending' check (status in ('pending', 'acknowledged', 'completed', 'failed')),
+  result jsonb,
+  created_at timestamptz not null default now(),
+  completed_at timestamptz
+);
+
+create index remote_commands_agent_idx on remote_commands (agent_id, status);
+
+-- ===================================================================
+-- Source: migrations/0005_extensions_and_helpers.sql
+-- ===================================================================
+-- PrintOS: extensions, private schema, RLS helper functions, and the small set
+-- of generic triggers (updated_at bookkeeping, auth.users -> profiles mirroring)
+-- that reference tables created in migrations 0001-0004.
+-- See docs/architecture.md sec 3 for why these helpers exist (join-free RLS policies).
+
+create extension if not exists pgcrypto;
+
+-- Non-API-exposed schema for internal helper functions (security definer, etc.).
+-- Never exposed via PostgREST (only `public` and any explicitly configured schemas are).
+create schema if not exists private;
+
+-- Cleanup: drop the placeholder created while sequencing this migration set.
+drop function if exists private_handle_new_auth_user_placeholder();
+
+-- Returns the calling user's active organization memberships.
+-- SECURITY DEFINER + empty search_path per Supabase's documented RLS performance
+-- guidance: policies use `organization_id in (select private.user_org_ids())`
+-- instead of joining organization_members inside every policy body.
+create or replace function private.user_org_ids()
+returns setof uuid
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select organization_id
+  from public.organization_members
+  where user_id = auth.uid()
+    and status = 'active'
+$$;
+
+comment on function private.user_org_ids() is
+  'Active organization ids for the calling user. Used by RLS policies to avoid '
+  'per-row joins against organization_members (see docs/architecture.md sec 3.1).';
+
+-- Returns true if the calling user is an active org_admin of the given organization.
+create or replace function private.is_org_admin(target_org uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.organization_members m
+    where m.user_id = auth.uid()
+      and m.organization_id = target_org
+      and m.status = 'active'
+      and m.role = 'org_admin'
+  )
+$$;
+
+-- Returns true if the calling user is an active approver or org_admin of the org
+-- (approvers and org_admins can both act on the approval queue).
+create or replace function private.is_org_approver(target_org uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.organization_members m
+    where m.user_id = auth.uid()
+      and m.organization_id = target_org
+      and m.status = 'active'
+      and m.role in ('org_admin', 'approver')
+  )
+$$;
+
+-- Returns the organization ids where the calling user is an active org_admin.
+-- Used by profile-visibility and cross-table admin-management policies so they
+-- don't need a per-target-org parameter (unlike is_org_admin(target_org)).
+create or replace function private.org_admin_org_ids()
+returns setof uuid
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select organization_id
+  from public.organization_members
+  where user_id = auth.uid()
+    and status = 'active'
+    and role = 'org_admin'
+$$;
+
+-- Returns true if the calling user is a platform super_admin (profiles.platform_role).
+-- Note: being a super_admin grants NO implicit org-scoped access by itself (see
+-- docs/architecture.md sec 2.1) - it is only used for platform-level operations like
+-- creating organizations.
+create or replace function private.is_super_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = auth.uid() and p.platform_role = 'super_admin'
+  )
+$$;
+
+-- Generic updated_at trigger.
+create or replace function private.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+create trigger organization_settings_set_updated_at
+  before update on organization_settings
+  for each row execute function private.set_updated_at();
+
+create trigger print_jobs_set_updated_at
+  before update on print_jobs
+  for each row execute function private.set_updated_at();
+
+create trigger monthly_usage_set_updated_at
+  before update on monthly_usage
+  for each row execute function private.set_updated_at();
+
+-- Auto-create a profile row whenever a new auth.users row is created (e.g. on
+-- first Google OAuth sign-in). SECURITY DEFINER so it can insert into
+-- public.profiles regardless of the caller's RLS grants.
+create or replace function private.handle_new_auth_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  insert into public.profiles (id, email, display_name, avatar_url)
+  values (
+    new.id,
+    new.email,
+    coalesce(new.raw_user_meta_data ->> 'full_name', new.raw_user_meta_data ->> 'name'),
+    new.raw_user_meta_data ->> 'avatar_url'
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function private.handle_new_auth_user();
+
+-- ===================================================================
+-- Source: migrations/0006_rls_policies.sql
+-- ===================================================================
+-- PrintOS: Row Level Security. Enabled on every multi-tenant table - see
+-- docs/architecture.md sec 3. Nothing in apps/web queries these tables through a
+-- policy-free path except the small, explicit set of service-role operations
+-- documented inline (agent bearer-auth handlers, invitation redemption, org
+-- bootstrap) - see apps/web/lib/server/service-role.ts.
+
+-- ============================================================================
+-- profiles
+-- ============================================================================
+alter table profiles enable row level security;
+
+-- Defense in depth: even though the update policy below lets a user update their
+-- own profile row, platform_role must never change except via service-role
+-- (which bypasses RLS entirely - this trigger only fires for the RLS-governed
+-- authenticated/anon paths, i.e. it stops a user from granting themselves
+-- super_admin through the ordinary "edit my profile" action).
+create or replace function private.prevent_platform_role_escalation()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.platform_role is distinct from old.platform_role
+     and coalesce(auth.role(), 'anon') <> 'service_role' then
+    raise exception 'platform_role can only be changed by a service-role operation';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger profiles_prevent_privilege_escalation
+  before update on profiles
+  for each row execute function private.prevent_platform_role_escalation();
+
+create policy "users can view own profile or org_admins can view their org's members"
+on profiles for select
+to authenticated
+using (
+  id = (select auth.uid())
+  or exists (
+    select 1 from organization_members m
+    where m.user_id = profiles.id
+      and m.organization_id in (select private.org_admin_org_ids())
+  )
+);
+
+create policy "users can update own profile"
+on profiles for update
+to authenticated
+using (id = (select auth.uid()))
+with check (id = (select auth.uid()));
+
+-- No insert/delete policy for authenticated: rows are created by the
+-- on_auth_user_created trigger (security definer) and deleted only via
+-- auth.users cascade.
+
+-- ============================================================================
+-- organizations / organization_settings
+-- ============================================================================
+alter table organizations enable row level security;
+alter table organization_settings enable row level security;
+
+create policy "members can view their organizations"
+on organizations for select
+to authenticated
+using (id in (select private.user_org_ids()));
+
+create policy "org_admins can update their organization"
+on organizations for update
+to authenticated
+using (private.is_org_admin(id))
+with check (private.is_org_admin(id));
+
+-- No insert/delete policy for authenticated: organization creation is a
+-- privileged, explicit action performed via the service-role bootstrap/
+-- super-admin server action - see docs/architecture.md sec 2.2.
+
+create policy "members can view their organization's settings"
+on organization_settings for select
+to authenticated
+using (organization_id in (select private.user_org_ids()));
+
+create policy "org_admins can manage their organization's settings"
+on organization_settings for all
+to authenticated
+using (private.is_org_admin(organization_id))
+with check (private.is_org_admin(organization_id));
+
+-- ============================================================================
+-- organization_members / organization_invitations / groups / group_members
+-- ============================================================================
+alter table organization_members enable row level security;
+alter table organization_invitations enable row level security;
+alter table groups enable row level security;
+alter table group_members enable row level security;
+
+create policy "members can view their org's roster"
+on organization_members for select
+to authenticated
+using (organization_id in (select private.user_org_ids()));
+
+create policy "org_admins can manage members"
+on organization_members for insert
+to authenticated
+with check (private.is_org_admin(organization_id));
+
+create policy "org_admins can update members"
+on organization_members for update
+to authenticated
+using (private.is_org_admin(organization_id))
+with check (private.is_org_admin(organization_id));
+
+create policy "org_admins can remove members"
+on organization_members for delete
+to authenticated
+using (private.is_org_admin(organization_id));
+
+create policy "org_admins can manage invitations"
+on organization_invitations for all
+to authenticated
+using (private.is_org_admin(organization_id))
+with check (private.is_org_admin(organization_id) and created_by = (select auth.uid()));
+
+-- Note: invitation *redemption* (turning a code into an organization_members row)
+-- is a service-role server action, not a client-side insert against
+-- organization_members - see docs/architecture.md sec 2.2.
+
+create policy "members can view their org's groups"
+on groups for select
+to authenticated
+using (organization_id in (select private.user_org_ids()));
+
+create policy "org_admins can manage groups"
+on groups for all
+to authenticated
+using (private.is_org_admin(organization_id))
+with check (private.is_org_admin(organization_id));
+
+create policy "members can view their org's group memberships"
+on group_members for select
+to authenticated
+using (
+  exists (
+    select 1 from groups g
+    where g.id = group_members.group_id
+      and g.organization_id in (select private.user_org_ids())
+  )
+);
+
+create policy "org_admins can manage group memberships"
+on group_members for all
+to authenticated
+using (
+  exists (
+    select 1 from groups g
+    where g.id = group_members.group_id and private.is_org_admin(g.organization_id)
+  )
+)
+with check (
+  exists (
+    select 1 from groups g
+    where g.id = group_members.group_id and private.is_org_admin(g.organization_id)
+  )
+);
+
+-- ============================================================================
+-- agents (dashboard visibility only - the Agent itself authenticates with its
+-- own bearer device secret via a service-role route handler, never a Supabase
+-- Auth JWT, so these policies never apply to the Agent's own calls)
+-- ============================================================================
+alter table agents enable row level security;
+
+create policy "org_admins can manage agents"
+on agents for all
+to authenticated
+using (private.is_org_admin(organization_id))
+with check (private.is_org_admin(organization_id));
+
+-- ============================================================================
+-- printers / printer_profiles
+-- ============================================================================
+alter table printers enable row level security;
+alter table printer_profiles enable row level security;
+
+create policy "members can view their org's printers"
+on printers for select
+to authenticated
+using (organization_id in (select private.user_org_ids()));
+
+create policy "org_admins can manage printers"
+on printers for insert
+to authenticated
+with check (private.is_org_admin(organization_id));
+
+create policy "org_admins can update printers"
+on printers for update
+to authenticated
+using (private.is_org_admin(organization_id))
+with check (private.is_org_admin(organization_id));
+
+create policy "org_admins can delete printers"
+on printers for delete
+to authenticated
+using (private.is_org_admin(organization_id));
+
+create policy "members can view their org's printer profiles"
+on printer_profiles for select
+to authenticated
+using (
+  exists (
+    select 1 from printers p
+    where p.id = printer_profiles.printer_id
+      and p.organization_id in (select private.user_org_ids())
+  )
+);
+
+create policy "org_admins can manage printer profiles"
+on printer_profiles for all
+to authenticated
+using (exists (select 1 from printers p where p.id = printer_profiles.printer_id and private.is_org_admin(p.organization_id)))
+with check (exists (select 1 from printers p where p.id = printer_profiles.printer_id and private.is_org_admin(p.organization_id)));
+
+-- ============================================================================
+-- print_policies / policy_rules / quotas (admin-facing internals; regular
+-- members see the *result* of policy evaluation on their own jobs, not the
+-- rule definitions themselves)
+-- ============================================================================
+alter table print_policies enable row level security;
+alter table policy_rules enable row level security;
+alter table quotas enable row level security;
+
+create policy "org_admins can manage policies"
+on print_policies for all
+to authenticated
+using (private.is_org_admin(organization_id))
+with check (private.is_org_admin(organization_id));
+
+create policy "org_admins can manage policy rules"
+on policy_rules for all
+to authenticated
+using (exists (select 1 from print_policies pp where pp.id = policy_rules.policy_id and private.is_org_admin(pp.organization_id)))
+with check (exists (select 1 from print_policies pp where pp.id = policy_rules.policy_id and private.is_org_admin(pp.organization_id)));
+
+create policy "org_admins can manage quotas"
+on quotas for all
+to authenticated
+using (private.is_org_admin(organization_id))
+with check (private.is_org_admin(organization_id));
+
+-- ============================================================================
+-- print_jobs
+-- ============================================================================
+alter table print_jobs enable row level security;
+
+-- Defense in depth mirroring packages/shared/src/job-state.ts ALLOWED_TRANSITIONS.
+-- Runs for every UPDATE regardless of which client role performs it (RLS-governed
+-- user session or service-role agent/admin code), so a bug in application code
+-- cannot skip a state (e.g. approved -> completed directly).
+create or replace function private.print_job_transition_allowed(from_status text, to_status text)
+returns boolean
+language sql
+immutable
+as $$
+  select case from_status
+    when 'draft' then to_status in ('pending_approval', 'approved', 'denied', 'cancelled')
+    when 'pending_approval' then to_status in ('approved', 'rejected', 'expired', 'cancelled')
+    when 'approved' then to_status in ('claimed', 'expired', 'cancelled')
+    when 'claimed' then to_status in ('downloading', 'approved', 'cancelled', 'failed')
+    when 'downloading' then to_status in ('downloaded', 'failed', 'cancelled')
+    when 'downloaded' then to_status in ('printing', 'failed', 'cancelled')
+    when 'printing' then to_status in ('submitted_to_spooler', 'failed')
+    when 'submitted_to_spooler' then to_status in ('completed', 'failed')
+    when 'failed' then to_status in ('claimed', 'cancelled')
+    else false
+  end
+$$;
+
+create or replace function private.validate_print_job_transition()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.status is distinct from old.status
+     and not private.print_job_transition_allowed(old.status, new.status) then
+    raise exception 'illegal print_jobs status transition: % -> %', old.status, new.status;
+  end if;
+  return new;
+end;
+$$;
+
+create trigger print_jobs_validate_transition
+  before update on print_jobs
+  for each row execute function private.validate_print_job_transition();
+
+create policy "users can view own jobs; approvers/admins view their org's jobs"
+on print_jobs for select
+to authenticated
+using (
+  created_by = (select auth.uid())
+  or private.is_org_approver(organization_id)
+);
+
+create policy "members can create jobs in their own organization"
+on print_jobs for insert
+to authenticated
+with check (
+  created_by = (select auth.uid())
+  and organization_id in (select private.user_org_ids())
+);
+
+create policy "owners can update own jobs; approvers/admins update their org's jobs"
+on print_jobs for update
+to authenticated
+using (
+  created_by = (select auth.uid())
+  or private.is_org_approver(organization_id)
+)
+with check (
+  created_by = (select auth.uid())
+  or private.is_org_approver(organization_id)
+);
+
+-- No delete policy: jobs are retired via status (cancelled/expired) and cleaned
+-- up by the retention sweep (service-role), never hard-deleted by end users.
+
+-- ============================================================================
+-- print_job_events (append-only audit trail)
+-- ============================================================================
+alter table print_job_events enable row level security;
+
+create policy "visibility mirrors the parent job"
+on print_job_events for select
+to authenticated
+using (
+  exists (
+    select 1 from print_jobs j
+    where j.id = print_job_events.job_id
+      and (j.created_by = (select auth.uid()) or private.is_org_approver(j.organization_id))
+  )
+);
+
+create policy "authenticated actors can append events on jobs they can act on"
+on print_job_events for insert
+to authenticated
+with check (
+  actor_id = (select auth.uid())
+  and actor_type in ('user', 'admin')
+  and exists (
+    select 1 from print_jobs j
+    where j.id = print_job_events.job_id
+      and (j.created_by = (select auth.uid()) or private.is_org_approver(j.organization_id))
+  )
+);
+
+-- No update/delete policy for anyone: this table is append-only by convention
+-- and by grant (agent/system events are inserted via service-role, which must
+-- still only ever INSERT here, never UPDATE/DELETE).
+
+-- ============================================================================
+-- approval_actions
+-- ============================================================================
+alter table approval_actions enable row level security;
+
+create policy "visibility mirrors the parent job"
+on approval_actions for select
+to authenticated
+using (
+  exists (
+    select 1 from print_jobs j
+    where j.id = approval_actions.job_id
+      and (j.created_by = (select auth.uid()) or private.is_org_approver(j.organization_id))
+  )
+);
+
+create policy "approvers can record decisions on jobs in their org"
+on approval_actions for insert
+to authenticated
+with check (
+  approver_id = (select auth.uid())
+  and exists (
+    select 1 from print_jobs j
+    where j.id = approval_actions.job_id and private.is_org_approver(j.organization_id)
+  )
+);
+
+-- ============================================================================
+-- monthly_usage
+-- ============================================================================
+alter table monthly_usage enable row level security;
+
+create policy "users view own usage; org_admins view their org's usage"
+on monthly_usage for select
+to authenticated
+using (user_id = (select auth.uid()) or private.is_org_admin(organization_id));
+
+-- Quota reservation/consumption runs as the submitting user's own authenticated
+-- session (see docs/architecture.md sec 14) so it stays RLS-governed rather than
+-- needing service-role for an ordinary print submission.
+create policy "users can reserve/consume their own usage row"
+on monthly_usage for insert
+to authenticated
+with check (user_id = (select auth.uid()) or private.is_org_admin(organization_id));
+
+create policy "users can update their own usage row; org_admins can adjust"
+on monthly_usage for update
+to authenticated
+using (user_id = (select auth.uid()) or private.is_org_admin(organization_id))
+with check (user_id = (select auth.uid()) or private.is_org_admin(organization_id));
+
+create policy "org_admins can reset usage"
+on monthly_usage for delete
+to authenticated
+using (private.is_org_admin(organization_id));
+
+-- ============================================================================
+-- audit_logs (immutable)
+-- ============================================================================
+alter table audit_logs enable row level security;
+
+create policy "org_admins view their org's audit log; super_admins view platform log"
+on audit_logs for select
+to authenticated
+using (
+  (organization_id is not null and private.is_org_admin(organization_id))
+  or (organization_id is null and private.is_super_admin())
+);
+
+create policy "org_admins can record their own actions"
+on audit_logs for insert
+to authenticated
+with check (
+  actor_id = (select auth.uid())
+  and organization_id is not null
+  and private.is_org_admin(organization_id)
+);
+
+-- No update/delete policy for anyone via RLS: immutable audit trail.
+
+-- ============================================================================
+-- remote_commands
+-- ============================================================================
+alter table remote_commands enable row level security;
+
+create policy "org_admins can view their org's remote commands"
+on remote_commands for select
+to authenticated
+using (private.is_org_admin(organization_id));
+
+create policy "org_admins can issue remote commands"
+on remote_commands for insert
+to authenticated
+with check (private.is_org_admin(organization_id) and issued_by = (select auth.uid()));
+
+create policy "org_admins can cancel pending commands they issued"
+on remote_commands for update
+to authenticated
+using (private.is_org_admin(organization_id))
+with check (private.is_org_admin(organization_id));
+
+-- ===================================================================
+-- Source: migrations/0007_storage.sql
+-- ===================================================================
+-- PrintOS: private storage bucket + path-scoped RLS.
+-- Path convention: org/{organizationId}/jobs/{jobId}/original.pdf|derived.pdf
+-- See docs/architecture.md sec 3.3. Never a public bucket; downloads always go
+-- through createSignedUrl(), never a public URL.
+
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('print-jobs', 'print-jobs', false, 104857600) -- 100 MiB hard ceiling; per-org
+                                                       -- limits are enforced at the
+                                                       -- application layer from
+                                                       -- organization_settings.max_upload_size_bytes
+on conflict (id) do nothing;
+
+create policy "org members can read their org's job files"
+on storage.objects for select
+to authenticated
+using (
+  bucket_id = 'print-jobs'
+  and (storage.foldername(name))[1] = 'org'
+  and (storage.foldername(name))[2]::uuid in (select private.user_org_ids())
+);
+
+create policy "org members can upload their org's job files"
+on storage.objects for insert
+to authenticated
+with check (
+  bucket_id = 'print-jobs'
+  and (storage.foldername(name))[1] = 'org'
+  and (storage.foldername(name))[2]::uuid in (select private.user_org_ids())
+);
+
+-- Derived files (e.g. booklet padding) are written by server-side application
+-- code as the requesting user, so update is allowed under the same scope; the
+-- original upload itself is never overwritten by application logic (a new
+-- object path is used for derived files) - this policy exists for storage
+-- housekeeping only (e.g. re-running a failed derived-file generation).
+create policy "org members can update their org's job files"
+on storage.objects for update
+to authenticated
+using (
+  bucket_id = 'print-jobs'
+  and (storage.foldername(name))[1] = 'org'
+  and (storage.foldername(name))[2]::uuid in (select private.user_org_ids())
+)
+with check (
+  bucket_id = 'print-jobs'
+  and (storage.foldername(name))[1] = 'org'
+  and (storage.foldername(name))[2]::uuid in (select private.user_org_ids())
+);
+
+create policy "org_admins can delete their org's job files"
+on storage.objects for delete
+to authenticated
+using (
+  bucket_id = 'print-jobs'
+  and (storage.foldername(name))[1] = 'org'
+  and private.is_org_admin((storage.foldername(name))[2]::uuid)
+);
+
+-- Note: the retention-policy cleanup sweep (docs/architecture.md sec 16/§33 of the
+-- spec) runs as a service-role Vercel Cron job and therefore does not depend on
+-- this delete policy; this policy only covers ad-hoc admin deletes from the
+-- dashboard.
+
+-- ===================================================================
+-- Source: migrations/0008_realtime.sql
+-- ===================================================================
+-- PrintOS: Realtime Authorization for private, per-organization channels.
+-- See docs/architecture.md sec 3.4.
+--
+-- Topic convention: 'org-{organizationId}:{stream}', e.g.
+--   org-<uuid>:jobs        (job status changes)
+--   org-<uuid>:approvals   (approval queue add/remove)
+--   org-<uuid>:agents      (agent online/offline)
+--
+-- Operational note (not SQL, do at project setup time - see docs/deployment.md):
+-- disable "Allow public access" in Supabase Dashboard -> Realtime -> Settings so
+-- no unauthenticated/public channel can be joined at all, as defense in depth on
+-- top of these policies. Every client-side subscribe call must pass
+-- { config: { private: true } } for these policies to be consulted.
+
+create policy "org members can receive broadcast on their org's channels"
+on realtime.messages for select
+to authenticated
+using (
+  realtime.messages.extension = 'broadcast'
+  and exists (
+    select 1 from organization_members m
+    where m.user_id = (select auth.uid())
+      and m.status = 'active'
+      and (select realtime.topic()) like ('org-' || m.organization_id::text || ':%')
+  )
+);
+
+create policy "org members can send broadcast on their org's channels"
+on realtime.messages for insert
+to authenticated
+with check (
+  realtime.messages.extension = 'broadcast'
+  and exists (
+    select 1 from organization_members m
+    where m.user_id = (select auth.uid())
+      and m.status = 'active'
+      and (select realtime.topic()) like ('org-' || m.organization_id::text || ':%')
+  )
+);
+
+-- Note: postgres_changes subscriptions (used for a couple of simple list-refresh
+-- cases, e.g. print_jobs) need no separate policy here - visibility is governed
+-- by RLS on the source table itself (0006_rls_policies.sql), which is consulted
+-- per-row by the Realtime server. This gives defense in depth: even a
+-- misconfigured broadcast-channel policy could not leak rows a user's own table
+-- RLS would not otherwise show them.
+
+-- ===================================================================
+-- Source: migrations/0009_lint_fixes.sql
+-- ===================================================================
+-- PrintOS: fixes for Supabase database-linter findings surfaced by get_advisors
+-- after the initial schema/RLS migrations landed (see docs/architecture.md sec 3).
+-- 1. Pin search_path on the 4 functions that were missing it (security lint).
+-- 2. Split 4 "org_admins manage X" FOR ALL policies into insert/update/delete
+--    only, so they stop overlapping with the existing members-can-view SELECT
+--    policy on the same table (performance lint: multiple_permissive_policies).
+-- 3. Add covering indexes for foreign keys the linter flagged as unindexed.
+--
+-- Not addressed: `public.rls_auto_enable()` (SECURITY DEFINER, callable by
+-- anon/authenticated) is a pre-existing Supabase-platform-managed event trigger
+-- function (owner: postgres) that auto-enables RLS on newly created tables as a
+-- safety net - it was not created by any PrintOS migration and is left alone.
+
+-- ============================================================================
+-- 1. search_path fixes
+-- ============================================================================
+create or replace function private.set_updated_at()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+create or replace function private.prevent_platform_role_escalation()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.platform_role is distinct from old.platform_role
+     and coalesce(auth.role(), 'anon') <> 'service_role' then
+    raise exception 'platform_role can only be changed by a service-role operation';
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function private.print_job_transition_allowed(from_status text, to_status text)
+returns boolean
+language sql
+immutable
+set search_path = ''
+as $$
+  select case from_status
+    when 'draft' then to_status in ('pending_approval', 'approved', 'denied', 'cancelled')
+    when 'pending_approval' then to_status in ('approved', 'rejected', 'expired', 'cancelled')
+    when 'approved' then to_status in ('claimed', 'expired', 'cancelled')
+    when 'claimed' then to_status in ('downloading', 'approved', 'cancelled', 'failed')
+    when 'downloading' then to_status in ('downloaded', 'failed', 'cancelled')
+    when 'downloaded' then to_status in ('printing', 'failed', 'cancelled')
+    when 'printing' then to_status in ('submitted_to_spooler', 'failed')
+    when 'submitted_to_spooler' then to_status in ('completed', 'failed')
+    when 'failed' then to_status in ('claimed', 'cancelled')
+    else false
+  end
+$$;
+
+create or replace function private.validate_print_job_transition()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.status is distinct from old.status
+     and not private.print_job_transition_allowed(old.status, new.status) then
+    raise exception 'illegal print_jobs status transition: % -> %', old.status, new.status;
+  end if;
+  return new;
+end;
+$$;
+
+-- ============================================================================
+-- 2. Split FOR ALL policies that overlapped an existing SELECT policy
+-- ============================================================================
+drop policy "org_admins can manage their organization's settings" on organization_settings;
+create policy "org_admins can insert their organization's settings"
+  on organization_settings for insert to authenticated
+  with check (private.is_org_admin(organization_id));
+create policy "org_admins can update their organization's settings"
+  on organization_settings for update to authenticated
+  using (private.is_org_admin(organization_id)) with check (private.is_org_admin(organization_id));
+create policy "org_admins can delete their organization's settings"
+  on organization_settings for delete to authenticated
+  using (private.is_org_admin(organization_id));
+
+drop policy "org_admins can manage groups" on groups;
+create policy "org_admins can insert groups"
+  on groups for insert to authenticated
+  with check (private.is_org_admin(organization_id));
+create policy "org_admins can update groups"
+  on groups for update to authenticated
+  using (private.is_org_admin(organization_id)) with check (private.is_org_admin(organization_id));
+create policy "org_admins can delete groups"
+  on groups for delete to authenticated
+  using (private.is_org_admin(organization_id));
+
+drop policy "org_admins can manage group memberships" on group_members;
+create policy "org_admins can insert group memberships"
+  on group_members for insert to authenticated
+  with check (exists (select 1 from groups g where g.id = group_members.group_id and private.is_org_admin(g.organization_id)));
+create policy "org_admins can update group memberships"
+  on group_members for update to authenticated
+  using (exists (select 1 from groups g where g.id = group_members.group_id and private.is_org_admin(g.organization_id)))
+  with check (exists (select 1 from groups g where g.id = group_members.group_id and private.is_org_admin(g.organization_id)));
+create policy "org_admins can delete group memberships"
+  on group_members for delete to authenticated
+  using (exists (select 1 from groups g where g.id = group_members.group_id and private.is_org_admin(g.organization_id)));
+
+drop policy "org_admins can manage printer profiles" on printer_profiles;
+create policy "org_admins can insert printer profiles"
+  on printer_profiles for insert to authenticated
+  with check (exists (select 1 from printers p where p.id = printer_profiles.printer_id and private.is_org_admin(p.organization_id)));
+create policy "org_admins can update printer profiles"
+  on printer_profiles for update to authenticated
+  using (exists (select 1 from printers p where p.id = printer_profiles.printer_id and private.is_org_admin(p.organization_id)))
+  with check (exists (select 1 from printers p where p.id = printer_profiles.printer_id and private.is_org_admin(p.organization_id)));
+create policy "org_admins can delete printer profiles"
+  on printer_profiles for delete to authenticated
+  using (exists (select 1 from printers p where p.id = printer_profiles.printer_id and private.is_org_admin(p.organization_id)));
+
+-- ============================================================================
+-- 3. Covering indexes for flagged foreign keys
+-- ============================================================================
+create index approval_actions_approver_idx on approval_actions (approver_id);
+create index audit_logs_actor_idx on audit_logs (actor_id);
+create index monthly_usage_user_idx on monthly_usage (user_id);
+create index organization_invitations_created_by_idx on organization_invitations (created_by);
+create index print_jobs_approved_by_idx on print_jobs (approved_by);
+create index print_jobs_printer_idx on print_jobs (printer_id);
+create index print_jobs_printer_profile_idx on print_jobs (printer_profile_id);
+create index remote_commands_issued_by_idx on remote_commands (issued_by);
+create index remote_commands_org_idx on remote_commands (organization_id);
+create index remote_commands_printer_idx on remote_commands (printer_id);
+
+-- ===================================================================
+-- Source: migrations/0010_quota_functions.sql
+-- ===================================================================
+-- PrintOS: atomic quota reserve/release/consume.
+-- See docs/architecture.md sec 14 - a single UPDATE ... WHERE <limit check>
+-- is atomic per-row in Postgres, so two concurrent submissions from the same
+-- user cannot both read a stale "under quota" snapshot and both succeed: the
+-- second UPDATE re-evaluates the WHERE clause against the first one's
+-- already-committed increment.
+--
+-- SECURITY INVOKER (the default - no `security definer` here) deliberately:
+-- this runs as the calling user's own authenticated session, so it stays
+-- governed by the existing monthly_usage RLS policies (a user may only ever
+-- adjust their own row, or an org_admin any row in their org) rather than
+-- needing service-role for an ordinary print submission.
+create or replace function adjust_monthly_usage(
+  p_organization_id uuid,
+  p_user_id uuid,
+  p_period text,
+  p_pdf_pages int,
+  p_printed_sides int,
+  p_physical_sheets int,
+  p_color_weighted int,
+  p_quota_basis text,
+  p_limit int, -- null = no quota configured for this scope (always allowed)
+  p_mode text  -- 'reserve' | 'release' | 'consume'
+)
+returns boolean
+language plpgsql
+as $$
+declare
+  v_rows int;
+begin
+  if p_mode not in ('reserve', 'release', 'consume') then
+    raise exception 'invalid adjust_monthly_usage mode: %', p_mode;
+  end if;
+
+  insert into monthly_usage (organization_id, user_id, period)
+  values (p_organization_id, p_user_id, p_period)
+  on conflict (organization_id, user_id, period) do nothing;
+
+  if p_mode = 'release' then
+    update monthly_usage set
+      reserved_pdf_pages = greatest(0, reserved_pdf_pages - p_pdf_pages),
+      reserved_printed_sides = greatest(0, reserved_printed_sides - p_printed_sides),
+      reserved_physical_sheets = greatest(0, reserved_physical_sheets - p_physical_sheets),
+      reserved_color_weighted = greatest(0, reserved_color_weighted - p_color_weighted)
+    where organization_id = p_organization_id and user_id = p_user_id and period = p_period;
+    return true;
+  end if;
+
+  if p_mode = 'consume' then
+    update monthly_usage set
+      reserved_pdf_pages = greatest(0, reserved_pdf_pages - p_pdf_pages),
+      reserved_printed_sides = greatest(0, reserved_printed_sides - p_printed_sides),
+      reserved_physical_sheets = greatest(0, reserved_physical_sheets - p_physical_sheets),
+      reserved_color_weighted = greatest(0, reserved_color_weighted - p_color_weighted),
+      pdf_pages_used = pdf_pages_used + p_pdf_pages,
+      printed_sides_used = printed_sides_used + p_printed_sides,
+      physical_sheets_used = physical_sheets_used + p_physical_sheets,
+      color_weighted_used = color_weighted_used + p_color_weighted
+    where organization_id = p_organization_id and user_id = p_user_id and period = p_period;
+    return true;
+  end if;
+
+  -- p_mode = 'reserve'
+  if p_limit is null then
+    update monthly_usage set
+      reserved_pdf_pages = reserved_pdf_pages + p_pdf_pages,
+      reserved_printed_sides = reserved_printed_sides + p_printed_sides,
+      reserved_physical_sheets = reserved_physical_sheets + p_physical_sheets,
+      reserved_color_weighted = reserved_color_weighted + p_color_weighted
+    where organization_id = p_organization_id and user_id = p_user_id and period = p_period;
+    return true;
+  end if;
+
+  update monthly_usage set
+    reserved_pdf_pages = reserved_pdf_pages + p_pdf_pages,
+    reserved_printed_sides = reserved_printed_sides + p_printed_sides,
+    reserved_physical_sheets = reserved_physical_sheets + p_physical_sheets,
+    reserved_color_weighted = reserved_color_weighted + p_color_weighted
+  where organization_id = p_organization_id and user_id = p_user_id and period = p_period
+    and (
+      case p_quota_basis
+        when 'pdf_pages' then pdf_pages_used + reserved_pdf_pages + p_pdf_pages
+        when 'printed_sides' then printed_sides_used + reserved_printed_sides + p_printed_sides
+        when 'physical_sheets' then physical_sheets_used + reserved_physical_sheets + p_physical_sheets
+        when 'color_weighted' then color_weighted_used + reserved_color_weighted + p_color_weighted
+        else physical_sheets_used + reserved_physical_sheets + p_physical_sheets
+      end
+    ) <= p_limit;
+
+  get diagnostics v_rows = row_count;
+  return v_rows > 0;
+end;
+$$;
+
+comment on function adjust_monthly_usage is
+  'Atomic quota reserve/release/consume - see docs/architecture.md sec 14. '
+  'SECURITY INVOKER: runs as the caller, governed by monthly_usage RLS.';
+
