@@ -2,6 +2,7 @@
 
 import { useActionState, useState } from "react";
 import type { Tables } from "@/lib/database.types";
+import { Button, Input, Select, FieldLabel, FormError, EmptyState } from "@/components/ui";
 import { createPrinterAction, createPrinterProfileAction, initialPrinterActionState } from "./actions";
 
 type Printer = Tables<"printers">;
@@ -26,25 +27,25 @@ export function PrintersPanel({
       {canManage && (
         <form action={createPrinterAct} className="flex flex-wrap items-end gap-3 rounded-lg border border-[var(--color-border)] p-4">
           <div>
-            <label className="mb-1 block text-xs font-medium">Name</label>
-            <input name="name" required placeholder="Main Office Kyocera" className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm" />
+            <FieldLabel htmlFor="name">Name</FieldLabel>
+            <Input id="name" name="name" required placeholder="Main Office Kyocera" />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium">Vendor</label>
-            <input name="vendor" placeholder="Kyocera" className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm" />
+            <FieldLabel htmlFor="vendor">Vendor</FieldLabel>
+            <Input id="vendor" name="vendor" placeholder="Kyocera" />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium">Model</label>
-            <input name="model" placeholder="TASKalfa MZ2501ci" className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm" />
+            <FieldLabel htmlFor="model">Model</FieldLabel>
+            <Input id="model" name="model" placeholder="TASKalfa MZ2501ci" />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium">Location</label>
-            <input name="location" placeholder="Front office" className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm" />
+            <FieldLabel htmlFor="location">Location</FieldLabel>
+            <Input id="location" name="location" placeholder="Front office" />
           </div>
-          <button type="submit" disabled={creatingPrinter} className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm text-white disabled:opacity-60">
-            {creatingPrinter ? "Adding..." : "Add printer"}
-          </button>
-          {createPrinterState.error && <p className="w-full text-sm text-[var(--color-danger)]">{createPrinterState.error}</p>}
+          <Button type="submit" size="sm" pending={creatingPrinter} pendingLabel="Adding...">
+            Add printer
+          </Button>
+          <FormError message={createPrinterState.error} />
         </form>
       )}
 
@@ -91,7 +92,7 @@ export function PrintersPanel({
             </li>
           );
         })}
-        {printers.length === 0 && <p className="text-sm text-[var(--color-muted)]">No printers yet.</p>}
+        {printers.length === 0 && <EmptyState message="No printers yet." />}
       </ul>
 
       <p className="text-xs text-[var(--color-muted)]">
@@ -115,18 +116,18 @@ function NewProfileForm({
   return (
     <form action={formAction} className="mt-3 grid grid-cols-2 gap-2 rounded-lg border border-[var(--color-border)] p-3 text-sm">
       <input type="hidden" name="printerId" value={printerId} />
-      <input name="key" placeholder="key (e.g. booklet_saddle)" required className="rounded border border-[var(--color-border)] px-2 py-1.5" />
-      <input name="label" placeholder="Label (e.g. Booklet + Staple)" required className="rounded border border-[var(--color-border)] px-2 py-1.5" />
-      <input name="windowsQueueName" placeholder="Windows queue name" required className="col-span-2 rounded border border-[var(--color-border)] px-2 py-1.5" />
-      <input name="paperSizes" placeholder="letter,a4,11x17" className="col-span-2 rounded border border-[var(--color-border)] px-2 py-1.5" />
-      <select name="agentId" required className="col-span-2 rounded border border-[var(--color-border)] px-2 py-1.5">
+      <Input name="key" placeholder="key (e.g. booklet_saddle)" required />
+      <Input name="label" placeholder="Label (e.g. Booklet + Staple)" required />
+      <Input name="windowsQueueName" placeholder="Windows queue name" required className="col-span-2" />
+      <Input name="paperSizes" placeholder="letter,a4,11x17" className="col-span-2" />
+      <Select name="agentId" required className="col-span-2">
         <option value="">Choose the agent that owns this queue…</option>
         {agents.map((a) => (
           <option key={a.id} value={a.id}>
             {a.name}
           </option>
         ))}
-      </select>
+      </Select>
       <div className="col-span-2 flex flex-wrap gap-3">
         {(["duplex", "color", "staple", "booklet", "punch"] as const).map((cap) => (
           <label key={cap} className="flex items-center gap-1">
@@ -137,10 +138,14 @@ function NewProfileForm({
           <input type="checkbox" name="isDefault" /> default
         </label>
       </div>
-      <button type="submit" disabled={pending} className="col-span-2 rounded bg-[var(--color-primary)] px-3 py-1.5 text-white disabled:opacity-60">
-        {pending ? "Saving..." : "Save profile"}
-      </button>
-      {state.error && <p className="col-span-2 text-[var(--color-danger)]">{state.error}</p>}
+      <div className="col-span-2">
+        <Button type="submit" size="sm" pending={pending} pendingLabel="Saving..." className="w-full">
+          Save profile
+        </Button>
+      </div>
+      <div className="col-span-2">
+        <FormError message={state.error} />
+      </div>
     </form>
   );
 }

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/auth/session";
+import { Card } from "@/components/ui";
 import { JobStatusLive } from "./JobStatusLive";
 
 export default async function JobDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -24,7 +25,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
 
       <JobStatusLive jobId={job.id} initialStatus={job.status} initialErrorMessage={job.error_message} />
 
-      <div className="mt-6 grid grid-cols-2 gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-sm">
+      <Card className="mt-6 grid grid-cols-2 gap-4 text-sm">
         <div>
           <p className="text-[var(--color-muted)]">Pages</p>
           <p className="font-medium">{job.source_pdf_pages}</p>
@@ -49,10 +50,10 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
           <p className="text-[var(--color-muted)]">Physical sheets</p>
           <p className="font-medium">{job.estimated_physical_sheets}</p>
         </div>
-      </div>
+      </Card>
 
       {job.policy_reasons.length > 0 && (
-        <div className="mt-4 rounded-lg border border-[var(--color-border)] p-4 text-sm">
+        <Card className="mt-4 text-sm">
           <p className="mb-1 font-medium">
             {job.policy_action === "deny" ? "Denied" : job.policy_action === "require_approval" ? "Approval required" : "Auto-approved"}
           </p>
@@ -61,7 +62,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               <li key={i}>{r}</li>
             ))}
           </ul>
-        </div>
+        </Card>
       )}
 
       {events && events.length > 0 && (

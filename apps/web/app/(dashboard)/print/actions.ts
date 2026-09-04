@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/auth/session";
+import { routes } from "@/lib/routes";
 import { preflightPdf } from "@/lib/pdf/preflight";
 import { createBookletPaddedPdf } from "@/lib/pdf/booklet";
 import { computePrintMath, computeCostCents, computeBookletPadding, type PricingConfig } from "@printos/shared";
@@ -232,5 +233,5 @@ export async function submitPrintJobAction(_prev: SubmitJobState, formData: Form
     })),
   );
 
-  redirect(`/jobs/${jobId}`);
+  redirect(routes.job(jobId));
 }

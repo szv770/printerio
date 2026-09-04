@@ -1,11 +1,12 @@
 import { redirect } from "next/navigation";
 import { getCurrentSession } from "@/lib/auth/session";
+import { routes } from "@/lib/routes";
 import { RedeemForm } from "./RedeemForm";
 
 export default async function NoAccessPage() {
   const session = await getCurrentSession();
-  if (!session) redirect("/login");
-  if (session.membership) redirect("/");
+  if (!session) redirect(routes.login);
+  if (session.membership) redirect(routes.home);
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-6 px-4">

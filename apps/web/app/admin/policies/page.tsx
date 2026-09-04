@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
+import { PageHeader } from "@/components/ui";
 import { PoliciesPanel } from "./PoliciesPanel";
 
 export default async function PoliciesPage() {
@@ -16,12 +17,12 @@ export default async function PoliciesPage() {
 
   return (
     <div>
-      <h1 className="mb-2 text-2xl font-semibold">Policies</h1>
-      <p className="mb-6 max-w-xl text-sm text-[var(--color-muted)]">
-        Precedence: any matching DENY rule wins first, then any matching REQUIRE_APPROVAL rule, then ALLOW, then the
-        organization default. All conditions on a rule are AND-ed - express &quot;OR&quot; as separate rules in the same
-        action tier. See docs/architecture.md sec 6.
-      </p>
+      <PageHeader
+        title="Policies"
+        description={
+          'Precedence: any matching DENY rule wins first, then any matching REQUIRE_APPROVAL rule, then ALLOW, then the organization default. All conditions on a rule are AND-ed - express "OR" as separate rules in the same action tier. See docs/architecture.md sec 6.'
+        }
+      />
       <PoliciesPanel
         policies={policies ?? []}
         rules={rules ?? []}

@@ -2,11 +2,13 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/auth/session";
+import { routes } from "@/lib/routes";
+import { PageHeader } from "@/components/ui";
 import { JobsList } from "./JobsList";
 
 export default async function JobsPage() {
   const session = await requireSession();
-  if (!session.membership) redirect("/no-access");
+  if (!session.membership) redirect(routes.noAccess);
 
   const supabase = await createClient();
   const { data: jobs } = await supabase
@@ -18,12 +20,14 @@ export default async function JobsPage() {
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-10">
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">My jobs</h1>
-        <Link href="/print" className="text-sm font-medium text-[var(--color-primary)]">
-          + New print job
-        </Link>
-      </div>
+      <PageHeader
+        title="My jobs"
+        action={
+          <Link href={routes.print} className="text-sm font-medium text-[var(--color-primary)]">
+            + New print job
+          </Link>
+        }
+      />
       <JobsList initialJobs={jobs ?? []} userId={session.userId} />
     </main>
   );

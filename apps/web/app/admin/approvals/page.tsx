@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
+import { PageHeader } from "@/components/ui";
 import { ApprovalQueue } from "./ApprovalQueue";
 
 export default async function ApprovalsPage() {
@@ -15,7 +16,7 @@ export default async function ApprovalsPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-semibold">Print approvals</h1>
+      <PageHeader title="Print approvals" />
       <ApprovalQueue initialJobs={jobs ?? []} organizationId={session.membership.organization_id} />
     </div>
   );

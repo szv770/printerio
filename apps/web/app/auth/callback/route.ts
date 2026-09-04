@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { maybeBootstrapOrganization } from "@/lib/auth/bootstrap";
+import { routes } from "@/lib/routes";
 
 /** Google OAuth redirect target. Exchanges the auth code for a session, runs
  *  the (usually-a-no-op) single-org bootstrap check, then redirects home. */
@@ -22,5 +23,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.redirect(`${origin}/`);
+  return NextResponse.redirect(`${origin}${routes.home}`);
 }

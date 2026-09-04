@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { Button, Input, Select, FieldLabel, FormError } from "@/components/ui";
 import { createInvitationAction, type InviteState } from "./actions";
 
 const initialState: InviteState = {};
@@ -11,26 +12,26 @@ export function InviteForm() {
   return (
     <form action={formAction} className="flex flex-wrap items-end gap-3 rounded-lg border border-[var(--color-border)] p-4">
       <div>
-        <label className="mb-1 block text-xs font-medium">Role</label>
-        <select name="role" defaultValue="student" className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm">
+        <FieldLabel htmlFor="role">Role</FieldLabel>
+        <Select id="role" name="role" defaultValue="student">
           <option value="student">Student</option>
           <option value="staff">Staff</option>
           <option value="approver">Approver</option>
           <option value="org_admin">Org admin</option>
-        </select>
+        </Select>
       </div>
       <div>
-        <label className="mb-1 block text-xs font-medium">Max uses</label>
-        <input name="maxUses" type="number" min={1} placeholder="unlimited" className="w-28 rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm" />
+        <FieldLabel htmlFor="maxUses">Max uses</FieldLabel>
+        <Input id="maxUses" name="maxUses" type="number" min={1} placeholder="unlimited" className="w-28" />
       </div>
       <div>
-        <label className="mb-1 block text-xs font-medium">Expires in (days)</label>
-        <input name="expiresInDays" type="number" min={1} placeholder="never" className="w-28 rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm" />
+        <FieldLabel htmlFor="expiresInDays">Expires in (days)</FieldLabel>
+        <Input id="expiresInDays" name="expiresInDays" type="number" min={1} placeholder="never" className="w-28" />
       </div>
-      <button type="submit" disabled={pending} className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm text-white disabled:opacity-60">
-        {pending ? "Creating..." : "Create code"}
-      </button>
-      {state.error && <p className="w-full text-sm text-[var(--color-danger)]">{state.error}</p>}
+      <Button type="submit" size="sm" pending={pending} pendingLabel="Creating...">
+        Create code
+      </Button>
+      <FormError message={state.error} />
       {state.code && (
         <p className="w-full text-sm">
           Enrollment code: <code className="rounded bg-gray-100 px-2 py-1 font-mono">{state.code}</code> — share this with the

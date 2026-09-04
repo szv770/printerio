@@ -1,5 +1,6 @@
 import "server-only";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { getBootstrapEnv } from "@/lib/env";
 
 /**
  * Single-org bootstrap (this session's scope: prototype on the operator's own
@@ -19,7 +20,8 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
  * no-op once bootstrapped.
  */
 export async function maybeBootstrapOrganization(userId: string, email: string): Promise<void> {
-  const bootstrapEmail = process.env.PRINTOS_BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase();
+  const { PRINTOS_BOOTSTRAP_ADMIN_EMAIL } = getBootstrapEnv();
+  const bootstrapEmail = PRINTOS_BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase();
   if (!bootstrapEmail) return;
   if (email.trim().toLowerCase() !== bootstrapEmail) return;
 
@@ -33,7 +35,7 @@ export async function maybeBootstrapOrganization(userId: string, email: string):
   if (countError) throw countError;
   if ((count ?? 0) > 0) return;
 
-  const orgName = process.env.PRINTOS_BOOTSTRAP_ORG_NAME?.trim() || "My Organization";
+  const orgName = getBootstrapEnv().PRINTOS_BOOTSTRAP_ORG_NAME?.trim() || "My Organization";
   const slug = slugify(orgName) || `org-${userId.slice(0, 8)}`;
 
   const { data: org, error: orgError } = await supabase

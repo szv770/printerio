@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
+import { getPublicEnv, getServiceRoleEnv } from "@/lib/env";
 
 /**
  * Service-role client - BYPASSES ROW LEVEL SECURITY ENTIRELY. Never import
@@ -18,12 +19,9 @@ import type { Database } from "@/lib/database.types";
  * (or client.ts in the browser) so RLS is always the enforcement point.
  */
 export function createServiceRoleClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error("SUPABASE_SERVICE_ROLE_KEY / NEXT_PUBLIC_SUPABASE_URL not configured");
-  }
-  return createSupabaseClient<Database>(url, key, {
+  const { NEXT_PUBLIC_SUPABASE_URL } = getPublicEnv();
+  const { SUPABASE_SERVICE_ROLE_KEY } = getServiceRoleEnv();
+  return createSupabaseClient<Database>(NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 }

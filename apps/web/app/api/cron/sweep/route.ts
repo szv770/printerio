@@ -2,6 +2,7 @@ import { apiError } from "@/lib/api-errors";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { adjustMonthlyUsage } from "@/lib/quota";
 import { PRINT_JOBS_BUCKET } from "@/lib/storage";
+import { getCronSecret } from "@/lib/env";
 
 /**
  * Periodic sweep (Vercel Cron -> this route). Idempotent: safe to run
@@ -10,9 +11,19 @@ import { PRINT_JOBS_BUCKET } from "@/lib/storage";
  * docs/architecture.md sec 13 (lease expiry) and sec 16 (retention).
  */
 export async function GET(request: Request) {
-  const expected = process.env.PRINTOS_CRON_SECRET;
+  let expected: string;
+  try {
+    expected = getCronSecret();
+  } catch (err) {
+    // Distinct from a bad caller-supplied secret (401 below): this is an
+    // operator misconfiguration (PRINTOS_CRON_SECRET was never set), and
+    // should surface as a clear 500 rather than silently 401ing every call
+    // forever with no clue why.
+    return apiError(500, "misconfigured", err instanceof Error ? err.message : "Cron secret not configured.");
+  }
+
   const authHeader = request.headers.get("authorization");
-  if (!expected || authHeader !== `Bearer ${expected}`) {
+  if (authHeader !== `Bearer ${expected}`) {
     return apiError(401, "unauthenticated", "Invalid cron secret.");
   }
 

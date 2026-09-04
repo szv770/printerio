@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { Select, EmptyState, FormError, Badge } from "@/components/ui";
 import { changeMemberRoleAction, type RoleChangeState } from "./actions";
 
 interface Member {
@@ -14,7 +15,7 @@ interface Member {
 const initialState: RoleChangeState = {};
 
 export function MembersTable({ members, canEdit }: { members: Member[]; canEdit: boolean }) {
-  if (members.length === 0) return <p className="text-sm text-[var(--color-muted)]">No members yet.</p>;
+  if (members.length === 0) return <EmptyState message="No members yet." />;
 
   return (
     <div className="overflow-x-auto">
@@ -48,20 +49,20 @@ function MemberRow({ member, canEdit }: { member: Member; canEdit: boolean }) {
         {canEdit ? (
           <form action={formAction} className="inline-flex items-center gap-2">
             <input type="hidden" name="userId" value={member.userId} />
-            <select name="role" defaultValue={member.role} className="rounded border border-[var(--color-border)] px-2 py-1 text-xs">
+            <Select name="role" defaultValue={member.role} className="w-auto py-1 text-xs">
               <option value="student">Student</option>
               <option value="staff">Staff</option>
               <option value="approver">Approver</option>
               <option value="org_admin">Org admin</option>
-            </select>
+            </Select>
             <button type="submit" className="text-xs text-[var(--color-primary)]">
               Save
             </button>
           </form>
         ) : (
-          member.role
+          <Badge>{member.role}</Badge>
         )}
-        {state.error && <span className="ml-2 text-xs text-[var(--color-danger)]">{state.error}</span>}
+        <FormError message={state.error} />
       </td>
       <td className="py-2 pr-4">{member.status}</td>
     </tr>

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
 import type { RuleCondition } from "@printos/shared";
 import type { Json } from "@/lib/database.types";
+import { routes } from "@/lib/routes";
 
 export interface PolicyActionState {
   error?: string;
@@ -21,7 +22,7 @@ export async function createPolicyAction(_prev: PolicyActionState, formData: For
   const { error } = await supabase.from("print_policies").insert({ organization_id: session.membership.organization_id, name });
   if (error) return { error: error.message };
 
-  revalidatePath("/admin/policies");
+  revalidatePath(routes.adminPolicies);
   return {};
 }
 
@@ -62,7 +63,7 @@ export async function createPolicyRuleAction(_prev: PolicyActionState, formData:
   });
   if (error) return { error: error.message };
 
-  revalidatePath("/admin/policies");
+  revalidatePath(routes.adminPolicies);
   return {};
 }
 
@@ -75,6 +76,6 @@ export async function toggleRuleEnabledAction(_prev: PolicyActionState, formData
   const { error } = await supabase.from("policy_rules").update({ enabled: !enabled }).eq("id", ruleId);
   if (error) return { error: error.message };
 
-  revalidatePath("/admin/policies");
+  revalidatePath(routes.adminPolicies);
   return {};
 }

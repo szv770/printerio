@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { jobStatusDisplay } from "@/lib/job-status-labels";
+import { Card } from "@/components/ui";
 
 export function JobStatusLive({
   jobId,
@@ -39,7 +40,7 @@ export function JobStatusLive({
   const display = jobStatusDisplay(status);
 
   return (
-    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+    <Card>
       <p className="text-lg font-medium">
         {display.emoji} {display.label}
       </p>
@@ -50,6 +51,6 @@ export function JobStatusLive({
           what that does and doesn&apos;t guarantee about physical output.
         </p>
       )}
-    </div>
+    </Card>
   );
 }

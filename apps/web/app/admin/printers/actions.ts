@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
+import { routes } from "@/lib/routes";
 
 export interface PrinterActionState {
   error?: string;
@@ -26,7 +27,7 @@ export async function createPrinterAction(_prev: PrinterActionState, formData: F
   });
   if (error) return { error: error.message };
 
-  revalidatePath("/admin/printers");
+  revalidatePath(routes.adminPrinters);
   return {};
 }
 
@@ -83,6 +84,6 @@ export async function createPrinterProfileAction(_prev: PrinterActionState, form
   });
   if (error) return { error: error.message };
 
-  revalidatePath("/admin/printers");
+  revalidatePath(routes.adminPrinters);
   return {};
 }

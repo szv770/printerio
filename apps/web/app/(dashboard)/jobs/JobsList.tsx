@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { jobStatusDisplay } from "@/lib/job-status-labels";
+import { routes } from "@/lib/routes";
+import { EmptyState } from "@/components/ui";
 
 interface JobRow {
   id: string;
@@ -47,7 +49,7 @@ export function JobsList({ initialJobs, userId }: { initialJobs: JobRow[]; userI
   }, [userId]);
 
   if (jobs.length === 0) {
-    return <p className="text-sm text-[var(--color-muted)]">No print jobs yet.</p>;
+    return <EmptyState message="No print jobs yet." />;
   }
 
   return (
@@ -57,7 +59,7 @@ export function JobsList({ initialJobs, userId }: { initialJobs: JobRow[]; userI
         return (
           <li key={job.id}>
             <Link
-              href={`/jobs/${job.id}`}
+              href={routes.job(job.id)}
               className="block rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 hover:border-[var(--color-primary)]"
             >
               <div className="flex items-center justify-between">

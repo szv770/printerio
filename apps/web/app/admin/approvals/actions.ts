@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
 import { adjustMonthlyUsage } from "@/lib/quota";
+import { routes } from "@/lib/routes";
 
 export interface ApprovalActionState {
   error?: string;
@@ -40,7 +41,7 @@ export async function approveJobAction(_prev: ApprovalActionState, formData: For
     });
 
     void job; // reservation already made at submission time; nothing to release on approval.
-    revalidatePath("/admin/approvals");
+    revalidatePath(routes.adminApprovals);
     return {};
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Failed to approve job" };
@@ -85,7 +86,7 @@ export async function rejectJobAction(_prev: ApprovalActionState, formData: Form
       "release",
     );
 
-    revalidatePath("/admin/approvals");
+    revalidatePath(routes.adminApprovals);
     return {};
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Failed to reject job" };

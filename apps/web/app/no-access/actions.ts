@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth/session";
 import { redeemInvitation } from "@/lib/auth/invitations";
+import { routes } from "@/lib/routes";
 
 export interface RedeemState {
   error?: string;
@@ -26,5 +27,5 @@ export async function redeemInvitationAction(_prev: RedeemState, formData: FormD
     return { error: messages[result.reason] };
   }
 
-  redirect("/");
+  redirect(routes.home);
 }

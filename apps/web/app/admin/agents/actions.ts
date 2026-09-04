@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
+import { routes } from "@/lib/routes";
 
 export interface AgentActionState {
   error?: string;
@@ -31,7 +32,7 @@ export async function createAgentAction(_prev: AgentActionState, formData: FormD
   });
   if (error) return { error: error.message };
 
-  revalidatePath("/admin/agents");
+  revalidatePath(routes.adminAgents);
   return { enrollmentCode: code };
 }
 
@@ -66,7 +67,7 @@ export async function rotateAgentAction(_prev: AgentActionState, formData: FormD
     metadata: {},
   });
 
-  revalidatePath("/admin/agents");
+  revalidatePath(routes.adminAgents);
   return { enrollmentCode: code };
 }
 
@@ -91,6 +92,6 @@ export async function disableAgentAction(_prev: AgentActionState, formData: Form
     metadata: {},
   });
 
-  revalidatePath("/admin/agents");
+  revalidatePath(routes.adminAgents);
   return {};
 }

@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
+import { PageHeader, Card } from "@/components/ui";
 
 export default async function AdminOverviewPage() {
   const session = await requireOrgRole(["org_admin", "approver"]);
@@ -47,13 +48,13 @@ export default async function AdminOverviewPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-semibold">Overview</h1>
+      <PageHeader title="Overview" />
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
         {stats.map((s) => (
-          <div key={s.label} className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+          <Card key={s.label} className="p-5">
             <p className="text-sm text-[var(--color-muted)]">{s.label}</p>
             <p className="mt-1 text-2xl font-semibold">{s.value}</p>
-          </div>
+          </Card>
         ))}
       </div>
     </div>

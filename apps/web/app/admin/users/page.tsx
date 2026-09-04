@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
+import { PageHeader } from "@/components/ui";
 import { InviteForm } from "./InviteForm";
 import { MembersTable } from "./MembersTable";
 
@@ -23,7 +24,7 @@ export default async function UsersPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-semibold">Users</h1>
+      <PageHeader title="Users" />
 
       {isOrgAdmin && (
         <div className="mb-8">

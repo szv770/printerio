@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Tables } from "@/lib/database.types";
+import { Button, Input, EmptyState, FormError } from "@/components/ui";
 import { approveJobAction, rejectJobAction, type ApprovalActionState } from "./actions";
 
 type PrintJob = Tables<"print_jobs">;
@@ -41,7 +42,7 @@ export function ApprovalQueue({ initialJobs, organizationId }: { initialJobs: Pr
   }, [organizationId]);
 
   if (jobs.length === 0) {
-    return <p className="text-sm text-[var(--color-muted)]">No jobs awaiting approval.</p>;
+    return <EmptyState message="No jobs awaiting approval." />;
   }
 
   return (
@@ -82,53 +83,31 @@ function ApprovalCard({ job }: { job: PrintJob }) {
         </div>
       )}
 
-      {(approveState.error || rejectState.error) && (
-        <p className="mb-2 text-sm text-[var(--color-danger)]">{approveState.error ?? rejectState.error}</p>
-      )}
+      <FormError message={approveState.error ?? rejectState.error} />
 
       {showReject ? (
-        <form action={rejectAction} className="flex flex-col gap-2">
+        <form action={rejectAction} className="mt-2 flex flex-col gap-2">
           <input type="hidden" name="jobId" value={job.id} />
-          <input
-            name="reason"
-            placeholder="Reason (optional)"
-            className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm"
-          />
+          <Input name="reason" placeholder="Reason (optional)" />
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setShowReject(false)}
-              className="rounded-lg border border-[var(--color-border)] px-4 py-2 text-sm"
-            >
+            <Button type="button" variant="outline" size="sm" onClick={() => setShowReject(false)}>
               Back
-            </button>
-            <button
-              type="submit"
-              disabled={rejectPending}
-              className="rounded-lg bg-[var(--color-danger)] px-4 py-2 text-sm text-white disabled:opacity-60"
-            >
-              {rejectPending ? "Rejecting..." : "Confirm reject"}
-            </button>
+            </Button>
+            <Button type="submit" variant="danger" size="sm" pending={rejectPending} pendingLabel="Rejecting...">
+              Confirm reject
+            </Button>
           </div>
         </form>
       ) : (
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => setShowReject(true)}
-            className="rounded-lg border border-[var(--color-danger)] px-4 py-2 text-sm text-[var(--color-danger)]"
-          >
+        <div className="mt-2 flex gap-2">
+          <Button type="button" variant="outline-danger" size="sm" onClick={() => setShowReject(true)}>
             Reject
-          </button>
+          </Button>
           <form action={approveAction}>
             <input type="hidden" name="jobId" value={job.id} />
-            <button
-              type="submit"
-              disabled={approvePending}
-              className="rounded-lg bg-[var(--color-success)] px-4 py-2 text-sm text-white disabled:opacity-60"
-            >
-              {approvePending ? "Approving..." : "Approve"}
-            </button>
+            <Button type="submit" variant="success" size="sm" pending={approvePending} pendingLabel="Approving...">
+              Approve
+            </Button>
           </form>
         </div>
       )}

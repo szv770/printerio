@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import type { Tables } from "@/lib/database.types";
+import { Button, Input, FieldLabel, FormError, EmptyState } from "@/components/ui";
 import { createAgentAction, rotateAgentAction, disableAgentAction, type AgentActionState } from "./actions";
 
 const initialState: AgentActionState = {};
@@ -14,13 +15,13 @@ export function AgentsPanel({ agents, canManage }: { agents: Tables<"agents">[];
       {canManage && (
         <form action={createAction} className="mb-8 flex items-end gap-3 rounded-lg border border-[var(--color-border)] p-4">
           <div>
-            <label className="mb-1 block text-xs font-medium">Agent name</label>
-            <input name="name" required placeholder="Main Office PC" className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm" />
+            <FieldLabel htmlFor="agentName">Agent name</FieldLabel>
+            <Input id="agentName" name="name" required placeholder="Main Office PC" />
           </div>
-          <button type="submit" disabled={createPending} className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm text-white disabled:opacity-60">
-            {createPending ? "Creating..." : "Register new agent"}
-          </button>
-          {createState.error && <p className="text-sm text-[var(--color-danger)]">{createState.error}</p>}
+          <Button type="submit" size="sm" pending={createPending} pendingLabel="Creating...">
+            Register new agent
+          </Button>
+          <FormError message={createState.error} />
           {createState.enrollmentCode && (
             <p className="w-full text-sm">
               Enrollment code: <code className="rounded bg-gray-100 px-2 py-1 font-mono">{createState.enrollmentCode}</code> — valid
@@ -35,7 +36,7 @@ export function AgentsPanel({ agents, canManage }: { agents: Tables<"agents">[];
         {agents.map((agent) => (
           <AgentRow key={agent.id} agent={agent} canManage={canManage} />
         ))}
-        {agents.length === 0 && <p className="text-sm text-[var(--color-muted)]">No agents registered yet.</p>}
+        {agents.length === 0 && <EmptyState message="No agents registered yet." />}
       </ul>
     </div>
   );
@@ -63,22 +64,20 @@ function AgentRow({ agent, canManage }: { agent: Tables<"agents">; canManage: bo
           <div className="flex gap-2">
             <form action={rotateAction}>
               <input type="hidden" name="agentId" value={agent.id} />
-              <button type="submit" className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs">
+              <Button type="submit" variant="outline" size="sm">
                 Rotate credential
-              </button>
+              </Button>
             </form>
             <form action={disableAction}>
               <input type="hidden" name="agentId" value={agent.id} />
-              <button type="submit" className="rounded-lg border border-[var(--color-danger)] px-3 py-1.5 text-xs text-[var(--color-danger)]">
+              <Button type="submit" variant="outline-danger" size="sm">
                 Disable
-              </button>
+              </Button>
             </form>
           </div>
         )}
       </div>
-      {(rotateState.error || disableState.error) && (
-        <p className="mt-1 text-xs text-[var(--color-danger)]">{rotateState.error ?? disableState.error}</p>
-      )}
+      <FormError message={rotateState.error ?? disableState.error} />
       {rotateState.enrollmentCode && (
         <p className="mt-2 text-sm">
           New enrollment code: <code className="rounded bg-gray-100 px-2 py-1 font-mono">{rotateState.enrollmentCode}</code>

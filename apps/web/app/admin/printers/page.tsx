@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
+import { PageHeader } from "@/components/ui";
 import { PrintersPanel } from "./PrintersPanel";
 
 export default async function PrintersPage() {
@@ -15,7 +16,7 @@ export default async function PrintersPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-semibold">Printers</h1>
+      <PageHeader title="Printers" />
       <PrintersPanel
         printers={printers ?? []}
         profiles={(profiles ?? []).map(({ printers: _p, ...rest }) => rest)}

@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
+import { PageHeader } from "@/components/ui";
 
 export default async function AuditPage() {
   const session = await requireOrgRole(["org_admin"]);
@@ -14,7 +15,7 @@ export default async function AuditPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-semibold">Audit log</h1>
+      <PageHeader title="Audit log" />
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>

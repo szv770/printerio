@@ -1,11 +1,13 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
+import { Button, Card } from "@/components/ui";
+import { routes } from "@/lib/routes";
 
 export default function LoginPage() {
   async function signInWithGoogle() {
     const supabase = createClient();
-    const redirectTo = `${window.location.origin}/auth/callback`;
+    const redirectTo = `${window.location.origin}${routes.authCallback}`;
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo },
@@ -14,16 +16,13 @@ export default function LoginPage() {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 px-4">
-      <div className="w-full max-w-sm rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 text-center shadow-sm">
+      <Card className="w-full max-w-sm text-center shadow-sm">
         <h1 className="mb-2 text-2xl font-semibold">PrintOS</h1>
         <p className="mb-8 text-sm text-[var(--color-muted)]">Sign in to upload and track print jobs.</p>
-        <button
-          onClick={signInWithGoogle}
-          className="w-full rounded-lg bg-[var(--color-primary)] px-4 py-3 text-base font-medium text-[var(--color-primary-fg)] hover:opacity-90"
-        >
+        <Button onClick={signInWithGoogle} className="w-full">
           Sign in with Google
-        </button>
-      </div>
+        </Button>
+      </Card>
     </main>
   );
 }

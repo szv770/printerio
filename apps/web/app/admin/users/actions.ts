@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
+import { routes } from "@/lib/routes";
 import type { OrgRole } from "@printos/shared";
 
 export interface InviteState {
@@ -38,7 +39,7 @@ export async function createInvitationAction(_prev: InviteState, formData: FormD
   });
   if (error) return { error: error.message };
 
-  revalidatePath("/admin/users");
+  revalidatePath(routes.adminUsers);
   return { code };
 }
 
@@ -69,6 +70,6 @@ export async function changeMemberRoleAction(_prev: RoleChangeState, formData: F
     metadata: { role },
   });
 
-  revalidatePath("/admin/users");
+  revalidatePath(routes.adminUsers);
   return {};
 }

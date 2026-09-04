@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
+import { PageHeader } from "@/components/ui";
 import { AgentsPanel } from "./AgentsPanel";
 
 export default async function AgentsPage() {
@@ -14,7 +15,7 @@ export default async function AgentsPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-semibold">Agents</h1>
+      <PageHeader title="Agents" />
       <AgentsPanel agents={agents ?? []} canManage={session.membership.role === "org_admin"} />
     </div>
   );

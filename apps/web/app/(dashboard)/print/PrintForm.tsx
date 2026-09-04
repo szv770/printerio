@@ -1,7 +1,8 @@
 "use client";
 
-import { useActionState, useMemo, useRef, useState } from "react";
+import { useActionState, useMemo, useState } from "react";
 import { computePrintMath } from "@printos/shared";
+import { Button, Input, Select, FieldLabel, FormError, Card } from "@/components/ui";
 import { submitPrintJobAction, initialSubmitJobState } from "./actions";
 
 interface PrinterProfileOption {
@@ -25,7 +26,6 @@ interface PrinterProfileOption {
  */
 export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfileOption[] }) {
   const [state, formAction, pending] = useActionState(submitPrintJobAction, initialSubmitJobState);
-  const formRef = useRef<HTMLFormElement>(null);
 
   const [profileId, setProfileId] = useState(printerProfiles[0]?.id ?? "");
   const [estimatedPages, setEstimatedPages] = useState<number | null>(null);
@@ -65,16 +65,17 @@ export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfile
   const needsBookletConfirm = state.needsBookletConfirm;
 
   return (
-    <form ref={formRef} action={formAction} className="flex flex-col gap-6">
+    <form action={formAction} className="flex flex-col gap-6">
       <div>
-        <label className="mb-1 block text-sm font-medium">Document</label>
+        <FieldLabel htmlFor="file">Document</FieldLabel>
         <input
+          id="file"
           type="file"
           name="file"
           accept="application/pdf"
           required
           onChange={onFileChange}
-          className="block w-full rounded-lg border border-[var(--color-border)] p-3"
+          className="block w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-sm"
         />
         {estimatedPages !== null && (
           <p className="mt-1 text-xs text-[var(--color-muted)]">Estimated {estimatedPages} page(s).</p>
@@ -82,59 +83,49 @@ export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfile
       </div>
 
       <div>
-        <label className="mb-1 block text-sm font-medium">Printer</label>
-        <select
-          name="printerProfileId"
-          value={profileId}
-          onChange={(e) => setProfileId(e.target.value)}
-          className="block w-full rounded-lg border border-[var(--color-border)] p-3"
-        >
+        <FieldLabel htmlFor="printerProfileId">Printer</FieldLabel>
+        <Select id="printerProfileId" name="printerProfileId" value={profileId} onChange={(e) => setProfileId(e.target.value)}>
           {printerProfiles.map((p) => (
             <option key={p.id} value={p.id}>
               {p.label}
               {!p.printerOnline ? " (offline)" : ""}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="mb-1 block text-sm font-medium">Copies</label>
-          <input
+          <FieldLabel htmlFor="copies">Copies</FieldLabel>
+          <Input
+            id="copies"
             type="number"
             name="copies"
             min={1}
             max={99}
             value={copies}
             onChange={(e) => setCopies(Math.max(1, parseInt(e.target.value, 10) || 1))}
-            className="block w-full rounded-lg border border-[var(--color-border)] p-3"
           />
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium">Paper size</label>
-          <select
-            name="paperSize"
-            value={paperSize}
-            onChange={(e) => setPaperSize(e.target.value)}
-            className="block w-full rounded-lg border border-[var(--color-border)] p-3"
-          >
+          <FieldLabel htmlFor="paperSize">Paper size</FieldLabel>
+          <Select id="paperSize" name="paperSize" value={paperSize} onChange={(e) => setPaperSize(e.target.value)}>
             {(profile?.declaredPaperSizes ?? ["letter"]).map((size) => (
               <option key={size} value={size}>
                 {size}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
       </div>
 
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-1 text-sm font-medium">Color</legend>
-        <label className="flex items-center gap-2">
+        <label className="flex items-center gap-2 text-sm">
           <input type="radio" name="colorMode" value="bw" checked={colorMode === "bw"} onChange={() => setColorMode("bw")} />
           Black &amp; white
         </label>
-        <label className="flex items-center gap-2">
+        <label className="flex items-center gap-2 text-sm">
           <input
             type="radio"
             name="colorMode"
@@ -147,7 +138,7 @@ export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfile
         </label>
       </fieldset>
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2 text-sm">
         <label className="flex items-center gap-2">
           <input type="checkbox" name="duplex" checked={duplex} onChange={(e) => setDuplex(e.target.checked)} disabled={!profile?.declaredCapabilities.duplex} />
           Double-sided (duplex)
@@ -167,14 +158,14 @@ export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfile
       </div>
 
       {preview && (
-        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-sm">
+        <Card className="text-sm">
           <p className="font-medium">Estimated usage</p>
           <p>{preview.printedSides} printed sides</p>
           <p>{preview.physicalSheets} physical sheets</p>
           <p className="mt-1 text-xs text-[var(--color-muted)]">
             Final page count, print math, and approval decision are confirmed by the server after you submit.
           </p>
-        </div>
+        </Card>
       )}
 
       {needsBookletConfirm && (
@@ -184,41 +175,28 @@ export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfile
           </p>
           <p className="mt-1">Add {needsBookletConfirm.blankPagesAdded} blank page(s) to make {needsBookletConfirm.paddedPages}?</p>
           <div className="mt-3 flex gap-2">
-            <button
-              type="button"
-              onClick={() => setBooklet(false)}
-              className="rounded-lg border border-[var(--color-border)] px-4 py-2"
-            >
+            <Button type="button" variant="outline" size="sm" onClick={() => setBooklet(false)}>
               Cancel booklet
-            </button>
+            </Button>
             {/* A submit button's own name/value is included in the FormData
                 by native browser form semantics when it's the element that
                 triggered submission - this is deliberately NOT done via React
                 state, since a state update from onClick is not guaranteed to
                 flush into the DOM before the browser reads form fields for
                 the same-tick native submission. */}
-            <button
-              type="submit"
-              name="confirmBookletPadding"
-              value="true"
-              className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-[var(--color-primary-fg)]"
-            >
+            <Button type="submit" name="confirmBookletPadding" value="true" size="sm">
               Add blank pages &amp; submit
-            </button>
+            </Button>
           </div>
         </div>
       )}
 
-      {state.error && <p className="text-sm text-[var(--color-danger)]">{state.error}</p>}
+      <FormError message={state.error} />
 
       {!needsBookletConfirm && (
-        <button
-          type="submit"
-          disabled={pending}
-          className="rounded-lg bg-[var(--color-primary)] px-4 py-3 text-base font-medium text-[var(--color-primary-fg)] disabled:opacity-60"
-        >
-          {pending ? "Submitting..." : "Submit Job"}
-        </button>
+        <Button type="submit" pending={pending} pendingLabel="Submitting...">
+          Submit Job
+        </Button>
       )}
     </form>
   );
