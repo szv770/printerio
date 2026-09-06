@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { jobStatusDisplay } from "@/lib/job-status-labels";
 import { routes } from "@/lib/routes";
 import { EmptyState } from "@/components/ui";
+import { ReprintButton } from "./[id]/ReprintButton";
 
 interface JobRow {
   id: string;
@@ -71,14 +72,14 @@ export function JobsList({ initialJobs, userId }: { initialJobs: JobRow[]; userI
       {jobs.map((job) => {
         const status = jobStatusDisplay(job.status);
         return (
-          <li key={job.id}>
-            <Link
-              href={routes.job(job.id)}
-              className="block rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 hover:border-[var(--color-primary)]"
-            >
-              <div className="flex items-center justify-between">
-                <span className="font-medium">{job.original_file_name}</span>
-                <span className="flex items-center gap-1.5 text-sm">
+          <li
+            key={job.id}
+            className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 hover:border-[var(--color-primary)]"
+          >
+            <Link href={routes.job(job.id)} className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate font-medium">{job.original_file_name}</span>
+                <span className="flex shrink-0 items-center gap-1.5 text-sm">
                   <status.Icon className="h-4 w-4" />
                   {status.label}
                 </span>
@@ -88,6 +89,7 @@ export function JobsList({ initialJobs, userId }: { initialJobs: JobRow[]; userI
                 {job.duplex ? "Duplex" : "Simplex"} • {job.copies} {job.copies === 1 ? "copy" : "copies"}
               </p>
             </Link>
+            <ReprintButton jobId={job.id} />
           </li>
         );
       })}
