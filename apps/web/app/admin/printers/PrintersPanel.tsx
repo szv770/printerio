@@ -5,6 +5,12 @@ import { Printer as PrinterIcon, Wifi, WifiOff } from "lucide-react";
 import type { Tables } from "@/lib/database.types";
 import { Button, Input, Select, FieldLabel, FormError, EmptyState, Badge, Card } from "@/components/ui";
 import {
+  PRINTER_PROFILE_ICON_KEYS,
+  PRINTER_PROFILE_ICON_LABELS,
+  PRINTER_PROFILE_ICON_COMPONENTS,
+  type PrinterProfileIconKey,
+} from "@/lib/printer-profile-icons";
+import {
   createPrinterAction,
   createPrinterProfileAction,
   refreshPrinterStatusAction,
@@ -34,11 +40,16 @@ export function PrintersPanel({
   profiles,
   agents,
   canManage,
+  defaultBookletBindingSide,
 }: {
   printers: Printer[];
   profiles: PrinterProfile[];
   agents: AgentInfo[];
   canManage: boolean;
+  /** organization_settings.default_booklet_binding_side - prefills a new
+   *  booklet-capable profile's binding side (see NewProfileForm) rather than
+   *  always defaulting to "left". */
+  defaultBookletBindingSide: "left" | "right";
 }) {
   const [createPrinterState, createPrinterAct, creatingPrinter] = useActionState(createPrinterAction, initialPrinterActionState);
   const [showNewProfileFor, setShowNewProfileFor] = useState<string | null>(null);
@@ -58,7 +69,7 @@ export function PrintersPanel({
             </div>
             <div>
               <FieldLabel htmlFor="model">Model</FieldLabel>
-              <Input id="model" name="model" placeholder="TASKalfa MZ2501ci" />
+              <Input id="model" name="model" placeholder="TASKalfa MZ8500i" />
             </div>
             <div>
               <FieldLabel htmlFor="location">Location</FieldLabel>
@@ -117,14 +128,22 @@ export function PrintersPanel({
                 <ul className="flex flex-col gap-1 text-sm">
                   {printerProfiles.map((p) => {
                     const owningAgent = agents.find((a) => a.id === p.agent_id);
+                    const ProfileIcon =
+                      p.icon_key && p.icon_key in PRINTER_PROFILE_ICON_COMPONENTS
+                        ? PRINTER_PROFILE_ICON_COMPONENTS[p.icon_key as PrinterProfileIconKey]
+                        : null;
                     return (
                       <li key={p.id} className="rounded bg-gray-50 px-3 py-2">
                         <div className="flex items-center justify-between">
-                          <span>
-                            <span className="font-medium">{p.label}</span> ({p.key}) — queue <code>{p.windows_queue_name}</code>
+                          <span className="flex items-center gap-2">
+                            {ProfileIcon && <ProfileIcon className="h-4 w-4 shrink-0 text-[var(--color-muted)]" />}
+                            <span>
+                              <span className="font-medium">{p.label}</span> ({p.key}) — queue <code>{p.windows_queue_name}</code>
+                            </span>
                           </span>
                           {canManage && <ProfileRemoteActions printer={printer} profile={p} />}
                         </div>
+                        {p.description && <p className="mt-1 text-xs text-[var(--color-text)]">{p.description}</p>}
                         <p className="mt-1 flex items-center gap-2 text-xs text-[var(--color-muted)]">
                           <span>
                             Declared: {p.declared_paper_sizes.join(", ")} •{" "}
@@ -144,7 +163,9 @@ export function PrintersPanel({
                   {printerProfiles.length === 0 && <p className="text-xs text-[var(--color-muted)]">No finishing profiles yet.</p>}
                 </ul>
 
-                {showNewProfileFor === printer.id && <NewProfileForm printerId={printer.id} agents={agents} />}
+                {showNewProfileFor === printer.id && (
+                  <NewProfileForm printerId={printer.id} agents={agents} defaultBookletBindingSide={defaultBookletBindingSide} />
+                )}
               </Card>
             </li>
           );
@@ -210,11 +231,19 @@ function ProfileRemoteActions({ printer, profile }: { printer: Printer; profile:
 function NewProfileForm({
   printerId,
   agents,
+  defaultBookletBindingSide,
 }: {
   printerId: string;
   agents: AgentInfo[];
+  defaultBookletBindingSide: "left" | "right";
 }) {
   const [state, formAction, pending] = useActionState(createPrinterProfileAction, initialPrinterActionState);
+  const [iconKey, setIconKey] = useState<PrinterProfileIconKey | "">("");
+  // Tracked separately from the other capability checkboxes (which stay
+  // uncontrolled) purely so the binding-side field below can be shown/hidden
+  // - it's meaningless for a non-booklet profile (see the column's own
+  // comment in supabase/migrations/0017_*.sql).
+  const [bookletChecked, setBookletChecked] = useState(false);
 
   return (
     <form action={formAction} className="mt-3 grid grid-cols-2 gap-3 rounded-lg border border-[var(--color-border)] p-3 text-sm">
@@ -237,6 +266,49 @@ function NewProfileForm({
           Label
         </FieldLabel>
         <Input id="profileLabel" name="label" placeholder="Booklet + Staple" required />
+      </div>
+
+      <div className="col-span-2">
+        <FieldLabel htmlFor="profileDescription" hint="optional - what a user sees below the label when picking a profile">
+          Description
+        </FieldLabel>
+        <Input
+          id="profileDescription"
+          name="description"
+          placeholder="Black & white, double-sided - everyday documents"
+        />
+      </div>
+
+      <div className="col-span-2">
+        <FieldLabel hint="optional - shown next to the label wherever this profile is presented for selection">Icon</FieldLabel>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setIconKey("")}
+            className={`rounded-lg border px-2 py-1.5 text-xs ${
+              iconKey === "" ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10" : "border-[var(--color-border)]"
+            }`}
+          >
+            None
+          </button>
+          {PRINTER_PROFILE_ICON_KEYS.map((key) => {
+            const Icon = PRINTER_PROFILE_ICON_COMPONENTS[key];
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setIconKey(key)}
+                className={`flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs ${
+                  iconKey === key ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10" : "border-[var(--color-border)]"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                {PRINTER_PROFILE_ICON_LABELS[key]}
+              </button>
+            );
+          })}
+        </div>
+        <input type="hidden" name="iconKey" value={iconKey} />
       </div>
 
       <div className="col-span-2">
@@ -280,13 +352,34 @@ function NewProfileForm({
           Capabilities
         </FieldLabel>
         <div className="flex flex-wrap gap-3">
-          {(["duplex", "color", "staple", "booklet", "punch"] as const).map((cap) => (
-            <label key={cap} className="flex items-center gap-1">
-              <input type="checkbox" name={cap} /> {cap}
-            </label>
-          ))}
+          {(["duplex", "color", "staple", "booklet", "punch"] as const).map((cap) =>
+            cap === "booklet" ? (
+              <label key={cap} className="flex items-center gap-1">
+                <input type="checkbox" name={cap} checked={bookletChecked} onChange={(e) => setBookletChecked(e.target.checked)} /> {cap}
+              </label>
+            ) : (
+              <label key={cap} className="flex items-center gap-1">
+                <input type="checkbox" name={cap} /> {cap}
+              </label>
+            ),
+          )}
         </div>
       </div>
+
+      {bookletChecked && (
+        <div className="col-span-2">
+          <FieldLabel
+            htmlFor="profileBindingSide"
+            hint='matches the Kyocera KX driver’s own booklet "Left edge binding"/"Right edge binding" terminology (docs/printer-setup.md)'
+          >
+            Booklet binding side
+          </FieldLabel>
+          <Select id="profileBindingSide" name="bookletBindingSide" defaultValue={defaultBookletBindingSide}>
+            <option value="left">Left edge binding (LTR reading)</option>
+            <option value="right">Right edge binding (RTL reading, e.g. Hebrew)</option>
+          </Select>
+        </div>
+      )}
 
       <label className="col-span-2 flex items-center gap-1">
         <input type="checkbox" name="isDefault" /> Pre-select this profile in the print form

@@ -13,7 +13,8 @@ babysitting a print queue by hand.
 
 This repository is currently a **single-organization prototype build-out** — the
 author's own organization and a single physical printer (a Kyocera TASKalfa
-MZ2501ci) — not yet a live multi-tenant SaaS deployment. It is deliberately built on
+MZ8500i, a monochrome A3/SRA3 MFP with a hybrid finisher) — not yet a live
+multi-tenant SaaS deployment. It is deliberately built on
 top of the **full multi-tenant architecture** described in
 [docs/architecture.md](./docs/architecture.md) (organizations, membership roles,
 per-org RLS, per-org policies and quotas) rather than a single-tenant shortcut, so

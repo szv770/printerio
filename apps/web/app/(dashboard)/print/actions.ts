@@ -37,6 +37,11 @@ interface JobOptions {
   booklet: boolean;
   punch: boolean;
   confirmBookletPadding: boolean;
+  /** Per-job override of the target printer_profile's own
+   *  booklet_binding_side (PrintForm.tsx's binding-side select, shown only
+   *  for a booklet-capable profile). Undefined = use the profile's stored
+   *  default - see the bindingSide resolution below. */
+  bindingSideOverride?: "left" | "right";
 }
 
 /**
@@ -57,7 +62,7 @@ async function createPrintJob(
   opts: JobOptions,
 ): Promise<SubmitJobState> {
   const organizationId = session.membership.organization_id;
-  const { printerProfileId, copies, colorMode, duplex, paperSize, staple, booklet, punch, confirmBookletPadding } = opts;
+  const { printerProfileId, copies, colorMode, duplex, paperSize, staple, booklet, punch, confirmBookletPadding, bindingSideOverride } = opts;
 
   if (!printerProfileId) return { error: "Choose a printer." };
 
@@ -136,7 +141,14 @@ async function createPrintJob(
     const padded = await createBookletPaddedPdf(originalBytes);
     effectivePageCount = padded.paddedPages;
     blankPagesAdded = padded.blankPagesAdded;
-    derivedBytes = await imposeBookletPdf(padded.bytes, resolvePaperSizePoints(paperSize));
+
+    // Defaults to the target profile's own stored binding side
+    // (printer_profiles.booklet_binding_side) - PrintForm.tsx's per-job
+    // override, when present, wins for this one job only, without touching
+    // the profile's own default (docs/architecture.md sec 8).
+    const bindingSide: "left" | "right" =
+      bindingSideOverride ?? (printerProfile.booklet_binding_side === "right" ? "right" : "left");
+    derivedBytes = await imposeBookletPdf(padded.bytes, resolvePaperSizePoints(paperSize), bindingSide);
   }
 
   const printMath = computePrintMath({ pageCount: effectivePageCount, copies, duplex, booklet });
@@ -305,7 +317,17 @@ export async function submitPrintJobAction(_prev: SubmitJobState, formData: Form
     booklet: formData.get("booklet") === "on",
     punch: formData.get("punch") === "on",
     confirmBookletPadding: formData.get("confirmBookletPadding") === "true",
+    bindingSideOverride: parseBindingSideOverride(formData),
   });
+}
+
+/** Parses PrintForm.tsx's optional per-job booklet binding-side override -
+ *  only present (and only meaningful) when a booklet-capable profile is
+ *  selected; absent means "use the target profile's own default" (resolved
+ *  in createPrintJob). */
+function parseBindingSideOverride(formData: FormData): "left" | "right" | undefined {
+  const raw = formData.get("bookletBindingSide");
+  return raw === "left" || raw === "right" ? raw : undefined;
 }
 
 /**
@@ -354,6 +376,10 @@ export async function reprintJobAction(_prev: SubmitJobState, formData: FormData
     staple: finishing.staple,
     booklet: finishing.booklet,
     punch: finishing.punch,
+    // No stored per-job binding-side override to reuse (print_jobs doesn't
+    // carry one) - reprinting a booklet job resolves against the target
+    // profile's CURRENT booklet_binding_side default, same as any other
+    // fresh submission to that profile.
     confirmBookletPadding: true,
   });
 }

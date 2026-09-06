@@ -132,6 +132,33 @@ function slotRegions(outputWidth: number, outputHeight: number): { left: SlotReg
 }
 
 /**
+ * Which physical edge a booklet job binds on - matching the Kyocera KX
+ * driver's own booklet Layout-tab terminology for this printer family
+ * ("Left edge binding" for LTR text, "Right edge binding" - explicitly
+ * documented as intended for RTL text - see docs/printer-setup.md).
+ *
+ * `"left"` (the default) is today's existing, unchanged behavior: sheet
+ * slot assignment straight from `bookletPageOrder`. `"right"` mirrors which
+ * physical half-sheet slot each page lands in, sheet by sheet, so that
+ * folding the sheet and reading right-to-left (e.g. Hebrew) produces the
+ * pages in the correct order.
+ *
+ * Why mirroring left/right slot assignment (rather than, say, reversing the
+ * page sequence) is the correct transform: the saddle-stitch fold-and-staple
+ * hardware is left/right-symmetric - it always folds down the same vertical
+ * centerline regardless of what content is on either side, so "which page
+ * number ends up in which slot" is the only thing under this module's
+ * control. Swapping every sheet's left/right slot contents produces the
+ * exact mirror image of the `"left"` imposition; reading a mirrored physical
+ * object in the mirrored (right-to-left) direction recovers the ORIGINAL
+ * page sequence, not the reverse of it - see `imposition.test.ts`'s
+ * `bindingSide: "right"` proof, which decodes the actual output PDF and
+ * walks the physical RTL reading path term-by-term to confirm pages 1..N
+ * really do appear in order for a right-to-left reader.
+ */
+export type BindingSide = "left" | "right";
+
+/**
  * Imposes a padded booklet PDF (page count a multiple of 4, as produced by
  * `createBookletPaddedPdf`) into N/2 landscape output pages, two source
  * pages per side, in standard saddle-stitch signature order, each source
@@ -147,8 +174,16 @@ function slotRegions(outputWidth: number, outputHeight: number): { left: SlotReg
  * 612x792) - read from the printer profile / job's own `paperSize`, never
  * hardcoded. The output page itself is the sheet in LANDSCAPE orientation
  * (width/height swapped), since two portrait half-pages sit side by side.
+ *
+ * `bindingSide` defaults to `"left"` (today's existing, unchanged behavior)
+ * - see the `BindingSide` doc comment above for what `"right"` does and why
+ * it's correct for RTL reading.
  */
-export async function imposeBookletPdf(paddedBytes: Uint8Array, sheetSize: SheetSizePt): Promise<Uint8Array> {
+export async function imposeBookletPdf(
+  paddedBytes: Uint8Array,
+  sheetSize: SheetSizePt,
+  bindingSide: BindingSide = "left",
+): Promise<Uint8Array> {
   const sourceDoc = await PDFDocument.load(paddedBytes);
   const totalPages = sourceDoc.getPageCount();
   const sheets = bookletPageOrder(totalPages);
@@ -181,14 +216,24 @@ export async function imposeBookletPdf(paddedBytes: Uint8Array, sheetSize: Sheet
     outPage.drawPage(embedded, { x, y, xScale: scale, yScale: scale });
   }
 
-  for (const sheet of sheets) {
-    const frontPage = outDoc.addPage([outputWidth, outputHeight]);
-    drawSlot(frontPage, sheet.front[0], leftRegion);
-    drawSlot(frontPage, sheet.front[1], rightRegion);
+  // For "right edge binding", swap which physical slot each pair's two page
+  // numbers land in - the mirroring described in the `BindingSide` doc
+  // comment above. `bookletPageOrder`'s own sheet order/nesting is untouched
+  // either way; only the left/right slot assignment within each sheet flips.
+  function mirroredIfNeeded(pair: [number, number]): [number, number] {
+    return bindingSide === "right" ? [pair[1], pair[0]] : pair;
+  }
 
+  for (const sheet of sheets) {
+    const [frontLeft, frontRight] = mirroredIfNeeded(sheet.front);
+    const frontPage = outDoc.addPage([outputWidth, outputHeight]);
+    drawSlot(frontPage, frontLeft, leftRegion);
+    drawSlot(frontPage, frontRight, rightRegion);
+
+    const [backLeft, backRight] = mirroredIfNeeded(sheet.back);
     const backPage = outDoc.addPage([outputWidth, outputHeight]);
-    drawSlot(backPage, sheet.back[0], leftRegion);
-    drawSlot(backPage, sheet.back[1], rightRegion);
+    drawSlot(backPage, backLeft, leftRegion);
+    drawSlot(backPage, backRight, rightRegion);
   }
 
   return outDoc.save();

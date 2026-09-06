@@ -3,13 +3,24 @@
 import { useActionState, useMemo, useRef, useState } from "react";
 import { computePrintMath } from "@printio/shared";
 import { Button, Input, Select, FieldLabel, FormError, Card } from "@/components/ui";
+import { PRINTER_PROFILE_ICON_COMPONENTS, type PrinterProfileIconKey } from "@/lib/printer-profile-icons";
 import { submitPrintJobAction, initialSubmitJobState } from "./actions";
 
 interface PrinterProfileOption {
   id: string;
   label: string;
+  /** Admin-written blurb (printer_profiles.description) - shown under the
+   *  label so a user picks a profile by what it does, not a cryptic internal
+   *  label. Null if the admin never set one. */
+  description: string | null;
+  /** printer_profiles.icon_key - one of PRINTER_PROFILE_ICON_KEYS, or null. */
+  iconKey: string | null;
   declaredPaperSizes: string[];
   declaredCapabilities: { duplex: boolean; color: boolean; staple: boolean; booklet: boolean; punch: boolean };
+  /** This profile's own stored booklet_binding_side default (only meaningful
+   *  when declaredCapabilities.booklet is true) - prefills the per-job
+   *  override below rather than always showing "left". */
+  bookletBindingSide: "left" | "right";
   printerOnline: boolean;
 }
 
@@ -79,8 +90,20 @@ export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfile
   const [staple, setStaple] = useState(false);
   const [booklet, setBooklet] = useState(false);
   const [punch, setPunch] = useState(false);
+  // null = "use the selected profile's own default" (bookletBindingSide
+  // below resolves it); set explicitly once the user touches the override
+  // control. Reset to null whenever the profile changes so switching
+  // printers re-derives from the newly-selected profile's own default
+  // rather than carrying over a stale explicit choice.
+  const [bindingSideOverride, setBindingSideOverride] = useState<"left" | "right" | null>(null);
 
   const profile = printerProfiles.find((p) => p.id === profileId);
+  const bookletBindingSide = bindingSideOverride ?? profile?.bookletBindingSide ?? "left";
+
+  function onProfileChange(id: string) {
+    setProfileId(id);
+    setBindingSideOverride(null);
+  }
 
   async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -159,17 +182,40 @@ export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfile
       <Card>
         <p className="mb-3 text-sm font-medium">How it prints</p>
         <div className="flex flex-col gap-4">
-          <div>
-            <FieldLabel htmlFor="printerProfileId">Printer</FieldLabel>
-            <Select id="printerProfileId" name="printerProfileId" value={profileId} onChange={(e) => setProfileId(e.target.value)}>
-              {printerProfiles.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                  {!p.printerOnline ? " (offline)" : ""}
-                </option>
-              ))}
-            </Select>
-          </div>
+          <fieldset className="flex flex-col gap-2">
+            <legend className="mb-1 text-sm font-medium">Printer</legend>
+            {/* Icon + description shown per option (not a plain <select>) so a
+             *  user picks a profile by what it actually does - duplex,
+             *  color, booklet, etc. - rather than a cryptic internal label. */}
+            {printerProfiles.map((p) => {
+              const Icon = p.iconKey ? PRINTER_PROFILE_ICON_COMPONENTS[p.iconKey as PrinterProfileIconKey] : null;
+              return (
+                <label
+                  key={p.id}
+                  className={`flex items-start gap-3 rounded-lg border p-3 text-sm ${
+                    profileId === p.id ? "border-[var(--color-primary)] bg-[var(--color-primary)]/5" : "border-[var(--color-border)]"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="printerProfileId"
+                    value={p.id}
+                    checked={profileId === p.id}
+                    onChange={() => onProfileChange(p.id)}
+                    className="mt-0.5"
+                  />
+                  {Icon && <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-muted)]" />}
+                  <span className="flex flex-col">
+                    <span className="font-medium">
+                      {p.label}
+                      {!p.printerOnline ? " (offline)" : ""}
+                    </span>
+                    {p.description && <span className="text-xs text-[var(--color-muted)]">{p.description}</span>}
+                  </span>
+                </label>
+              );
+            })}
+          </fieldset>
 
           <fieldset className="flex flex-col gap-2">
             <legend className="mb-1 text-sm font-medium">Color</legend>
@@ -208,6 +254,26 @@ export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfile
               Hole punch
             </label>
           </div>
+
+          {profile?.declaredCapabilities.booklet && (
+            <div>
+              <FieldLabel
+                htmlFor="bookletBindingSide"
+                hint="most jobs should use the profile's own default - only change this for a one-off LTR/RTL exception"
+              >
+                Booklet binding side
+              </FieldLabel>
+              <Select
+                id="bookletBindingSide"
+                name="bookletBindingSide"
+                value={bookletBindingSide}
+                onChange={(e) => setBindingSideOverride(e.target.value === "right" ? "right" : "left")}
+              >
+                <option value="left">Left edge binding (LTR reading)</option>
+                <option value="right">Right edge binding (RTL reading, e.g. Hebrew)</option>
+              </Select>
+            </div>
+          )}
 
           {anyFinishingDisabled && (
             <p className="text-xs text-[var(--color-muted)]">

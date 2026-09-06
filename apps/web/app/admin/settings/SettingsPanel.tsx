@@ -1,21 +1,24 @@
 "use client";
 
 import { useActionState } from "react";
-import { Globe, Mail } from "lucide-react";
-import { Button, Textarea, FieldLabel, FormError, Card, Badge } from "@/components/ui";
+import { Globe, Mail, BookOpen } from "lucide-react";
+import { Button, Textarea, FieldLabel, FormError, Card, Badge, Select } from "@/components/ui";
 import {
   updateAllowedDomainsAction,
   updateMagicLinkDomainToggleAction,
+  updateDefaultBookletBindingSideAction,
   initialSettingsActionState,
 } from "./actions";
 
 export function SettingsPanel({
   allowedDomains,
   magicLinkRequiresAllowedDomain,
+  defaultBookletBindingSide,
   canManage,
 }: {
   allowedDomains: string[];
   magicLinkRequiresAllowedDomain: boolean;
+  defaultBookletBindingSide: "left" | "right";
   canManage: boolean;
 }) {
   const [domainsState, domainsFormAction, domainsPending] = useActionState(
@@ -24,6 +27,10 @@ export function SettingsPanel({
   );
   const [magicLinkState, magicLinkFormAction, magicLinkPending] = useActionState(
     updateMagicLinkDomainToggleAction,
+    initialSettingsActionState,
+  );
+  const [bindingSideState, bindingSideFormAction, bindingSidePending] = useActionState(
+    updateDefaultBookletBindingSideAction,
     initialSettingsActionState,
   );
 
@@ -108,6 +115,45 @@ export function SettingsPanel({
             <FormError message={magicLinkState.error} />
             <div>
               <Button type="submit" size="sm" pending={magicLinkPending} pendingLabel="Saving...">
+                Save
+              </Button>
+            </div>
+          </form>
+        )}
+      </Card>
+
+      <Card>
+        <div className="mb-3 flex items-center gap-2">
+          <BookOpen className="h-4 w-4 text-[var(--color-muted)]" />
+          <h2 className="text-sm font-semibold">Default booklet binding side</h2>
+        </div>
+        <p className="mb-3 text-sm text-[var(--color-muted)]">
+          Which edge a new booklet-capable printer profile defaults to binding on - &quot;left edge binding&quot; for
+          LTR reading, &quot;right edge binding&quot; for RTL (e.g. Hebrew) reading, matching the Kyocera KX
+          driver&apos;s own booklet Layout-tab terminology. Only prefills profiles created from now on (Admin →
+          Printers) - it does not change any existing profile or in-flight job, and can always be overridden per
+          profile or per job.
+        </p>
+
+        {!canManage && (
+          <p className="text-sm text-[var(--color-muted)]">
+            New booklet profiles default to{" "}
+            {defaultBookletBindingSide === "right" ? "right edge binding (RTL)" : "left edge binding (LTR)"}.
+          </p>
+        )}
+
+        {canManage && (
+          <form action={bindingSideFormAction} className="flex flex-col gap-3">
+            <div>
+              <FieldLabel htmlFor="defaultBookletBindingSide">Binding side</FieldLabel>
+              <Select id="defaultBookletBindingSide" name="defaultBookletBindingSide" defaultValue={defaultBookletBindingSide}>
+                <option value="left">Left edge binding (LTR reading)</option>
+                <option value="right">Right edge binding (RTL reading, e.g. Hebrew)</option>
+              </Select>
+            </div>
+            <FormError message={bindingSideState.error} />
+            <div>
+              <Button type="submit" size="sm" pending={bindingSidePending} pendingLabel="Saving...">
                 Save
               </Button>
             </div>
