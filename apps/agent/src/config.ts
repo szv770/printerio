@@ -21,6 +21,8 @@ export interface AgentConfig {
   logLevel: LogLevel;
   maxLocalStorageMb: number;
   pollIntervalSeconds: number;
+  /** Ceiling (seconds) the outer poll loop's cycle-failure backoff may grow to - see orchestrator.ts computeNextPollDelayMs(). Never shrinks the happy-path cadence; only bounds how far it escalates during a sustained cloud outage. */
+  maxPollIntervalSeconds: number;
   sumatraPath: string;
   spoolerPollIntervalMs: number;
   spoolerTimeoutSeconds: number;
@@ -99,6 +101,22 @@ export function loadConfig(options: LoadConfigOptions = {}): AgentConfig {
     );
   }
 
+  const pollIntervalSeconds = parsePositiveInt(
+    "PRINTOS_POLL_INTERVAL_SECONDS",
+    env.PRINTOS_POLL_INTERVAL_SECONDS,
+    15,
+  );
+  const maxPollIntervalSeconds = parsePositiveInt(
+    "PRINTOS_MAX_POLL_INTERVAL_SECONDS",
+    env.PRINTOS_MAX_POLL_INTERVAL_SECONDS,
+    300,
+  );
+  if (maxPollIntervalSeconds < pollIntervalSeconds) {
+    throw new ConfigError(
+      `PRINTOS_MAX_POLL_INTERVAL_SECONDS (${maxPollIntervalSeconds}) must be >= PRINTOS_POLL_INTERVAL_SECONDS (${pollIntervalSeconds})`,
+    );
+  }
+
   return {
     apiUrl: apiUrl.replace(/\/+$/, ""),
     agentId,
@@ -106,7 +124,8 @@ export function loadConfig(options: LoadConfigOptions = {}): AgentConfig {
     localStoragePath: env.PRINTOS_LOCAL_STORAGE_PATH?.trim() || defaultLocalStoragePath(),
     logLevel: logLevelRaw,
     maxLocalStorageMb: parsePositiveInt("PRINTOS_MAX_LOCAL_STORAGE_MB", env.PRINTOS_MAX_LOCAL_STORAGE_MB, 2048),
-    pollIntervalSeconds: parsePositiveInt("PRINTOS_POLL_INTERVAL_SECONDS", env.PRINTOS_POLL_INTERVAL_SECONDS, 15),
+    pollIntervalSeconds,
+    maxPollIntervalSeconds,
     sumatraPath: env.PRINTOS_SUMATRA_PATH?.trim() || "SumatraPDF.exe",
     spoolerPollIntervalMs: parsePositiveInt(
       "PRINTOS_SPOOLER_POLL_INTERVAL_MS",
