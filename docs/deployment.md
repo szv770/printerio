@@ -96,7 +96,7 @@ before assuming this step applies to your deployment.
 | `NEXT_PUBLIC_SUPABASE_URL` | Browser + server | Project URL, safe to expose client-side. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser + server | Anon/publishable key; RLS is the actual enforcement point, so this being public is expected and safe. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server only | **Never** prefix with `NEXT_PUBLIC_`. Used only in the small, explicit set of service-role operations described in architecture.md sec 3 (invitation redemption, agent registration, cross-tenant super-admin provisioning) — isolated to `apps/web/lib/supabase/service-role.ts` per that section, never imported into a client component. |
-| `PRINTOS_BOOTSTRAP_ADMIN_EMAIL` | Server (one-time bootstrap) | The email of the person who becomes the first `org_admin` of the first organization, per the super-admin bootstrap path in architecture.md sec 2.2. |
+| `PRINTOS_BOOTSTRAP_ADMIN_EMAIL` | Server (one-time bootstrap) | The email of the person who becomes the first `org_admin` of the first organization, per the super-admin bootstrap path in architecture.md sec 2.2. This email's own domain also seeds that organization's `allowed_domains` (architecture.md sec 19) — no separate env var is needed for domain-restricted sign-in; an org_admin can widen/narrow/clear the list afterward from `/admin/settings`. |
 | `PRINTOS_BOOTSTRAP_ORG_NAME` | Server (one-time bootstrap) | Name of the organization created by that same bootstrap path. |
 | `PRINTOS_CRON_SECRET` | Server only | Shared secret Vercel Cron (or any external caller) presents as `Authorization: Bearer <value>` to `/api/cron/sweep`. Generate a random string. |
 

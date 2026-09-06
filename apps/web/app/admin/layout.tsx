@@ -9,6 +9,7 @@ import {
   Cpu,
   ShieldCheck,
   Gauge,
+  Globe,
   BarChart3,
   ScrollText,
   type LucideIcon,
@@ -85,6 +86,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </NavLink>
           <NavLink href={routes.adminQuotas} icon={Gauge}>
             Quotas
+          </NavLink>
+          <NavLink href={routes.adminSettings} icon={Globe}>
+            Settings
           </NavLink>
         </NavGroup>
 

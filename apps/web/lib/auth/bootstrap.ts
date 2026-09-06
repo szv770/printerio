@@ -1,6 +1,7 @@
 import "server-only";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getBootstrapEnv } from "@/lib/env";
+import { emailDomain, isValidDomain } from "@/lib/auth/domains";
 
 /**
  * Single-org bootstrap (this session's scope: prototype on the operator's own
@@ -38,9 +39,21 @@ export async function maybeBootstrapOrganization(userId: string, email: string):
   const orgName = getBootstrapEnv().PRINTOS_BOOTSTRAP_ORG_NAME?.trim() || "My Organization";
   const slug = slugify(orgName) || `org-${userId.slice(0, 8)}`;
 
+  // Seed allowed_domains from the bootstrap admin's own email domain (e.g.
+  // svogel@lecfl.com -> ["lecfl.com"]) so domain restriction (see
+  // docs/architecture.md sec 19, email_domain_allowed() in
+  // supabase/migrations/0013_*.sql) works out of the box for the common
+  // single-org case with zero manual admin setup. An org_admin can widen or
+  // clear this later from app/admin/settings. If the bootstrap email's
+  // domain somehow isn't a valid bare domain (shouldn't happen - it's
+  // already a validated email address), fall back to unrestricted ('{}')
+  // rather than fail the whole bootstrap over it.
+  const bootstrapDomain = emailDomain(bootstrapEmail);
+  const allowedDomains = isValidDomain(bootstrapDomain) ? [bootstrapDomain] : [];
+
   const { data: org, error: orgError } = await supabase
     .from("organizations")
-    .insert({ name: orgName, slug })
+    .insert({ name: orgName, slug, allowed_domains: allowedDomains })
     .select("id")
     .single();
   if (orgError) throw orgError;

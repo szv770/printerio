@@ -25,6 +25,7 @@ export const routes = {
   adminUsers: "/admin/users",
   adminGroups: "/admin/groups",
   adminQuotas: "/admin/quotas",
+  adminSettings: "/admin/settings",
   adminPolicies: "/admin/policies",
   adminPrinters: "/admin/printers",
   adminAgents: "/admin/agents",

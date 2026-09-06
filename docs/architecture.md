@@ -97,9 +97,12 @@ granted:
    invitation is a service-role server action that validates the token/expiry/use-count and
    inserts the `organization_members` row; it is never derived from email-domain matching.
 
-`organizations.allowed_domains` exists only as a UX hint (e.g. "suggest this org to people
-signing in from @school.org") — it is read to prefill an invitation-request screen, never
-to grant membership or role.
+`organizations.allowed_domains` is enforced as a sign-in gate for brand-new users (see §19)
+— but it still grants no membership or role by itself, and it never gates an *existing*
+member. This does not weaken the invariant above: passing the domain check gives a
+brand-new user nothing but the ability to reach the enrollment-code screen
+(`app/no-access`) instead of being signed back out; actual admission is still,
+unconditionally, one of the two bootstrap paths above.
 
 ### 2.3 Session claims
 
@@ -547,7 +550,76 @@ itself fails open (logged, request proceeds) rather than blocking legitimate use
 unrelated outage - it's defense in depth, not the primary security boundary (that's still
 RLS, §3, and the enrollment code's own 48 bits of entropy, §4).
 
-## 19. What this system does not guarantee
+## 19. Domain-restricted sign-in & forced re-authentication
+
+This organization is a single Google Workspace domain (a school). Two access controls were
+added on top of the base auth flow (§2), both enforced server-side and both configurable/
+auditable rather than hardcoded:
+
+### 19.1 Domain restriction on sign-in
+
+`organizations.allowed_domains` (previously a UX-hint-only column, §2.2) is now checked in
+`app/auth/callback/route.ts`, right after `exchangeCodeForSession` succeeds, via a
+Postgres function (`email_domain_allowed()`, `supabase/migrations/0013_*.sql`). The check
+is deliberately narrow:
+
+- **Existing members are never gated by domain.** `email_domain_allowed()`'s first check is
+  "does this user already have an active `organization_members` row?" — if so, it returns
+  `true` unconditionally. An admin may have deliberately invited someone outside the usual
+  domain, or the allowed list may have been tightened after that person already joined;
+  either way, domain-check gates *new* joins, it does not silently lock out someone already
+  in.
+- **A brand-new user with no membership row** is checked against every organization's
+  `allowed_domains`: allowed if any organization either lists that domain or has not
+  configured a restriction yet (empty array — the schema default). Passing this grants
+  nothing beyond reaching `app/no-access`'s existing enrollment-code flow; failing it signs
+  the user out immediately and redirects to `app/no-access?reason=domain_not_allowed`, a
+  distinct, specific explanation rather than a generic error.
+- **The check is SECURITY DEFINER and argument-less**, reading the caller's own
+  `auth.uid()`/email server-side rather than trusting a client-supplied email (§3.2's "never
+  trust client-supplied identity", applied to email too) — and it has to be SECURITY
+  DEFINER because a brand-new user cannot `SELECT` the `organizations` table under RLS
+  (that policy requires membership) to check the list themselves.
+- **It fails open on an unexpected DB error** (logged, sign-in proceeds) — the same
+  philosophy already documented for `check_rate_limit` (§18): this is a narrower gate on top
+  of RLS/invitations, not itself the security boundary, so an unrelated outage here must not
+  lock out every legitimate user.
+- **Bootstrap seeds it automatically.** `maybeBootstrapOrganization` (`lib/auth/bootstrap.ts`)
+  sets the first organization's `allowed_domains` from `PRINTOS_BOOTSTRAP_ADMIN_EMAIL`'s own
+  domain (e.g. `svogel@lecfl.com` → `['lecfl.com']`), so the single-org case is restricted
+  out of the box with no additional env var and no manual admin step. An org_admin can widen,
+  narrow, or clear this list afterward from `app/admin/settings` (`allowed_domains` is still
+  just a `text[]` column, edited through the ordinary `organizations` RLS update policy — no
+  new table, no new RLS pattern).
+
+### 19.2 Forced re-authentication every 30 days
+
+Supabase's own Google-OAuth session refreshes silently forever via the refresh token — there
+is no built-in "expire the session for real after N days" primitive, so this is an explicit
+timestamp check independent of Supabase's own token expiry:
+
+- `profiles.last_authenticated_at` is set to `now()` in exactly one place:
+  `app/auth/callback/route.ts`, immediately after a real `exchangeCodeForSession` succeeds
+  (and only for a sign-in that passed the domain gate above). This is deliberately the only
+  writer — the silent background token refresh that runs on every request
+  (`proxy.ts`/`lib/supabase/middleware.ts`) calls only `supabase.auth.getUser()`, which never
+  calls `exchangeCodeForSession`, so it cannot reset this clock. Getting this backwards (e.g.
+  updating it on every page load) would mean the 30-day cap never actually bites — this was
+  checked against how `@supabase/ssr`'s server client behaves before relying on it.
+- The check itself (`lib/auth/reauth.ts`'s `isReauthRequired`, unit tested) is pure: given
+  `lastAuthenticatedAt` and `now`, it returns whether more than 30 days have elapsed. A
+  `null`/unparseable timestamp is treated as expired (fail closed) — the 0013 migration
+  backfills every existing profile to `now()` at deploy time specifically so this doesn't
+  immediately force-log-out the entire existing user base.
+- **Enforced in exactly one place:** `lib/auth/session.ts`'s `getCurrentSession()`, right
+  after the profile row is loaded. Every Server Component/Server Action/Route Handler that
+  needs the current user flows through `getCurrentSession` (directly, or via
+  `requireSession`/`requireOrgRole`, which both call it) — this is what makes it a single
+  point of enforcement instead of a per-route check that's easy to forget on a new route.
+  When expired, it calls `supabase.auth.signOut()` and `redirect("/login?reason=reauth_required")`
+  — a labeled reason the login page reads and displays, not a bare unexplained logout.
+
+## 20. What this system does not guarantee
 
 Kept short here; the full list with rationale is in
 [known-limitations.md](./known-limitations.md). The headline one, because it shapes the
