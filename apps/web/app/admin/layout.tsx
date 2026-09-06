@@ -21,9 +21,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <NavLink href={routes.admin}>Overview</NavLink>
           <NavLink href={routes.adminApprovals}>Approvals</NavLink>
           <NavLink href={routes.adminUsers}>Users</NavLink>
+          <NavLink href={routes.adminGroups}>Groups</NavLink>
+          <NavLink href={routes.adminQuotas}>Quotas</NavLink>
           <NavLink href={routes.adminPolicies}>Policies</NavLink>
           <NavLink href={routes.adminPrinters}>Printers</NavLink>
           <NavLink href={routes.adminAgents}>Agents</NavLink>
+          <NavLink href={routes.adminReports}>Reports</NavLink>
           <NavLink href={routes.adminAudit}>Audit log</NavLink>
         </ul>
         <div className="mt-6 flex flex-col gap-1 border-t border-[var(--color-border)] pt-4 text-sm">

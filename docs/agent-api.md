@@ -35,6 +35,8 @@ secret, stores only its hash, clears the enrollment code, sets `status = 'active
 Response: `{ "agentId": string, "deviceSecret": string, "organizationId": string }` - the
 plaintext secret is returned exactly once and never retrievable again; rotation issues a
 new one and invalidates the old.
+Rate limited per source IP (10 attempts / 5 minutes, `docs/architecture.md` sec 18) - a
+`429` means back off and retry later, it does not consume the enrollment code.
 
 ### `POST /api/agents/heartbeat`
 Body:

@@ -1,0 +1,62 @@
+name: CI
+
+# Runs the same checks a contributor would run locally before pushing -
+# typecheck, lint, test, build - across every workspace (packages/shared,
+# apps/web, apps/agent). See docs/testing.md for what each package's test
+# suite actually covers.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same branch/PR so pushing twice in a row
+# doesn't burn double the CI minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: typecheck / lint / test / build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # pnpm/action-setup reads the "packageManager" field in package.json
+      # (pnpm@10.33.0) when no explicit version is given, so this stays in
+      # sync with root package.json automatically.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      - name: Lint
+        run: pnpm -r lint
+
+      - name: Test
+        run: pnpm -r test
+
+      # apps/web's Supabase clients (lib/supabase/*.ts, lib/env.ts) are only
+      # constructed inside request-time functions, never at module scope, so
+      # `next build` does not need real Supabase credentials to succeed - but
+      # every var lib/env.ts validates is still supplied here (shaped like the
+      # real thing, per apps/web/.env.example) so a build never fails on a
+      # missing-var error that would only ever show up in CI, not locally.
+      - name: Build
+        run: pnpm -r build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role-key
+          PRINTOS_CRON_SECRET: ci-placeholder-cron-secret

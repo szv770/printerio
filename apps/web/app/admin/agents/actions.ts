@@ -4,14 +4,12 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
+import { generateEnrollmentCode } from "@/lib/auth/invitations";
+import { issueRemoteCommand } from "@/lib/remote-commands";
 
 export interface AgentActionState {
   error?: string;
   enrollmentCode?: string;
-}
-
-function generateEnrollmentCode(): string {
-  return crypto.randomUUID().replace(/-/g, "").slice(0, 12);
 }
 
 /** Registers a new agent record with a one-time enrollment code (24h TTL) -
@@ -91,6 +89,44 @@ export async function disableAgentAction(_prev: AgentActionState, formData: Form
     target_id: agentId,
     metadata: {},
   });
+
+  revalidatePath(routes.adminAgents);
+  return {};
+}
+
+/** "Restart service" button - a last-resort, whole-machine recovery action.
+ *  See docs/architecture.md sec 12/18. */
+export async function restartAgentServiceAction(_prev: AgentActionState, formData: FormData): Promise<AgentActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const agentId = String(formData.get("agentId") ?? "");
+
+  const supabase = await createClient();
+  const result = await issueRemoteCommand(supabase, {
+    organizationId: session.membership.organization_id,
+    issuedBy: session.userId,
+    agentId,
+    command: "RESTART_AGENT_SERVICE",
+  });
+  if (!result.ok) return { error: result.error };
+
+  revalidatePath(routes.adminAgents);
+  return {};
+}
+
+/** "Clear temp files" button - only ever deletes files under this Agent's own
+ *  configured local storage path (see apps/agent/src/commands.ts). */
+export async function clearAgentTempFilesAction(_prev: AgentActionState, formData: FormData): Promise<AgentActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const agentId = String(formData.get("agentId") ?? "");
+
+  const supabase = await createClient();
+  const result = await issueRemoteCommand(supabase, {
+    organizationId: session.membership.organization_id,
+    issuedBy: session.userId,
+    agentId,
+    command: "CLEAR_AGENT_TEMP_FILES",
+  });
+  if (!result.ok) return { error: result.error };
 
   revalidatePath(routes.adminAgents);
   return {};

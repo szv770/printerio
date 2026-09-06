@@ -10,6 +10,7 @@ import { computePrintMath, computeCostCents, computeBookletPadding, type Pricing
 import { evaluateJobPolicy } from "@/lib/policy/build-facts";
 import { adjustMonthlyUsage, getApplicableQuotaLimit } from "@/lib/quota";
 import { jobFilePath, PRINT_JOBS_BUCKET } from "@/lib/storage";
+import { logger } from "@/lib/logger";
 
 export interface SubmitJobState {
   error?: string;
@@ -47,6 +48,22 @@ export async function submitPrintJobAction(_prev: SubmitJobState, formData: Form
 
   const supabase = await createClient();
 
+  // Fixed-window rate limit, checked before any expensive work (PDF parsing,
+  // storage upload) - see supabase/migrations/0012_rate_limiting.sql for why
+  // this has to be DB-backed rather than in-memory on Vercel. Scoped per
+  // user, not per org, so one runaway script/loop can't starve the rest of
+  // the organization's submit capacity either.
+  const { data: withinLimit, error: rateLimitError } = await supabase.rpc("check_rate_limit", {
+    p_key: `print_submit:${session.userId}`,
+    p_max_count: 20,
+    p_window_seconds: 300,
+  });
+  if (rateLimitError) {
+    logger.error("rate limit check failed", { userId: session.userId, error: rateLimitError.message });
+  } else if (!withinLimit) {
+    return { error: "You're submitting jobs too quickly. Wait a few minutes and try again." };
+  }
+
   const { data: printerProfile, error: profileError } = await supabase
     .from("printer_profiles")
     .select("*, printers!inner(id, organization_id)")
@@ -68,6 +85,17 @@ export async function submitPrintJobAction(_prev: SubmitJobState, formData: Form
     | "physical_sheets"
     | "color_weighted";
   const approvalExpiryHours = settings?.job_approval_expiry_hours ?? 72;
+
+  // Check the browser-reported size before reading the whole file into
+  // memory - avoids an unnecessary allocation when the org's configured
+  // limit is smaller than the framework's own request-body ceiling
+  // (next.config.ts serverActions.bodySizeLimit). This is a fast-path
+  // optimization, not the authoritative check: preflightPdf() below still
+  // re-validates against the actual byte length either way.
+  if (file.size > maxUploadBytes) {
+    const maxMb = (maxUploadBytes / (1024 * 1024)).toFixed(0);
+    return { error: `File exceeds this organization's ${maxMb} MB upload limit.` };
+  }
 
   const originalBytes = new Uint8Array(await file.arrayBuffer());
   const preflight = await preflightPdf(originalBytes, { maxSizeBytes: maxUploadBytes });
@@ -210,7 +238,13 @@ export async function submitPrintJobAction(_prev: SubmitJobState, formData: Form
         ? new Date(now.getTime() + approvalExpiryHours * 3600 * 1000).toISOString()
         : null,
   });
-  if (insertError) return { error: `Failed to create the print job: ${insertError.message}` };
+  if (insertError) {
+    // Never surface a raw Postgres error to a student/staff user (column
+    // names, constraint details) - log server-side only and return a
+    // generic message. See docs/architecture.md sec 3.2.
+    logger.error("print_jobs insert failed", { jobId, organizationId, error: insertError.message });
+    return { error: "Failed to create the print job. Please try again." };
+  }
 
   const events = [
     { event_type: "JOB_CREATED" as const, metadata: {} },

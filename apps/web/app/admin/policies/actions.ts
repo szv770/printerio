@@ -35,7 +35,7 @@ export async function createPolicyAction(_prev: PolicyActionState, formData: For
  * (packages/shared/src/policy-engine.ts) does not change either way.
  */
 export async function createPolicyRuleAction(_prev: PolicyActionState, formData: FormData): Promise<PolicyActionState> {
-  await requireOrgRole(["org_admin"]);
+  const session = await requireOrgRole(["org_admin"]);
   const policyId = String(formData.get("policyId") ?? "");
   const action = String(formData.get("action") ?? "");
   const reasonLabel = String(formData.get("reasonLabel") ?? "").trim();
@@ -54,6 +54,16 @@ export async function createPolicyRuleAction(_prev: PolicyActionState, formData:
   }
 
   const supabase = await createClient();
+
+  // Defense in depth: RLS already enforces this (policy_rules insert requires
+  // is_org_admin() on the parent policy's organization_id), but every other
+  // admin action re-checks ownership explicitly rather than relying on RLS
+  // alone - stay consistent in case this ever moves to a service-role client.
+  const { data: policy } = await supabase.from("print_policies").select("organization_id").eq("id", policyId).maybeSingle();
+  if (policy?.organization_id !== session.membership.organization_id) {
+    return { error: "Policy not found." };
+  }
+
   const { error } = await supabase.from("policy_rules").insert({
     policy_id: policyId,
     action,
@@ -68,11 +78,21 @@ export async function createPolicyRuleAction(_prev: PolicyActionState, formData:
 }
 
 export async function toggleRuleEnabledAction(_prev: PolicyActionState, formData: FormData): Promise<PolicyActionState> {
-  await requireOrgRole(["org_admin"]);
+  const session = await requireOrgRole(["org_admin"]);
   const ruleId = String(formData.get("ruleId") ?? "");
   const enabled = formData.get("enabled") === "true";
 
   const supabase = await createClient();
+
+  const { data: rule } = await supabase
+    .from("policy_rules")
+    .select("policy_id, print_policies!inner(organization_id)")
+    .eq("id", ruleId)
+    .maybeSingle();
+  if (rule?.print_policies.organization_id !== session.membership.organization_id) {
+    return { error: "Rule not found." };
+  }
+
   const { error } = await supabase.from("policy_rules").update({ enabled: !enabled }).eq("id", ruleId);
   if (error) return { error: error.message };
 

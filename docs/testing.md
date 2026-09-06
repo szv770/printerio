@@ -14,16 +14,15 @@ TASKalfa MZ2501ci stapled in the right corner.
 ### Running them
 
 ```bash
-pnpm --filter @printos/shared test
+pnpm -r test
 ```
 
-runs the `packages/shared` suite (Vitest). Once `apps/web` and `apps/agent`
-have their own test suites, the equivalent commands will be `pnpm --filter
-@printos/web test` and `pnpm --filter @printos/agent test` (or `pnpm -r test`
-to run every workspace package's tests at once, per the root `package.json`'s
-`test` script) — confirm those filters exist before relying on them, since
-both apps are currently empty workspace packages (no application code checked
-in yet; see the root [README.md](../README.md)).
+runs every workspace package's suite (Vitest) in one shot, per the root
+`package.json`'s `test` script. Individually: `pnpm --filter @printos/shared
+test`, `pnpm --filter @printos/web test`, `pnpm --filter @printos/agent test`.
+As of this writing all three pass clean (26 + 16 + 57 = 99 tests) — see the
+root [README.md](../README.md) "Current status & next phase" for the
+up-to-date count.
 
 ### What's covered
 
@@ -59,6 +58,30 @@ These three modules are exactly the logic that must be provably correct
 independent of any real database, browser, or printer — which is why they're
 unit-tested in isolation rather than only exercised end-to-end.
 
+`apps/web/lib/pdf/*.test.ts` covers server-side PDF handling in isolation
+(via `pdf-lib`, no network/DB): `preflight.test.ts` — a well-formed PDF
+returns the real page count regardless of what a caller might claim, a
+missing `%PDF-` header is rejected without attempting a full parse, a
+truncated/malformed body is rejected cleanly (no crash), and an oversized
+file is rejected before/without being treated as valid; `booklet.test.ts` —
+the 6→8-page padding worked example from architecture.md sec 8, a no-op on a
+document already a multiple of 4, and confirmation that the original bytes
+are never mutated. `lib/reports.test.ts` covers the admin Reports page's pure
+aggregation helpers (by-user/department/printer grouping, color-usage split,
+recently-denied/failed filtering, monthly usage summation) independent of any
+database, exercising the "sheets only count for jobs that actually reached a
+printer" rule directly.
+
+`apps/agent/test/*.test.ts` (57 tests) covers the Agent logic that *can* be
+isolated from real Windows/hardware: `print-executor.test.ts` (the
+SumatraPDF settings-string builder only emits the allow-listed token
+vocabulary and never shell-interpolates), `spooler-monitor.test.ts` (job
+status classification - `JOB_STATUS_PRINTED` vs the real error signals),
+`commands.test.ts` (the fixed remote-command switch rejects anything outside
+`REMOTE_COMMANDS`), `job-queue.test.ts` (local persistent queue, including
+recovering from a corrupt state file instead of throwing), `cloud-client.test.ts`
+(retry/backoff, normalizing raw fetch failures), and `secure-storage.test.ts`.
+
 ### What's NOT yet automated (and why)
 
 - **RLS cross-org isolation as a scripted test.** There is no automated test
@@ -68,22 +91,22 @@ unit-tested in isolation rather than only exercised end-to-end.
   writing it is a manual procedure, not a CI-run script. Building one
   (e.g. a Vitest/Playwright suite against a local Supabase instance seeded
   with two orgs) is a reasonable next step, not yet done.
-- **PDF preflight edge cases beyond unit-level.** Preflight (architecture.md
-  sec 5 — MIME/structure validation, server-side page counting, size limits,
-  rejecting malformed PDFs before they reach the policy engine) has no
-  dedicated corpus of malformed/edge-case PDFs exercised in an automated
-  suite yet. `packages/shared` doesn't own PDF parsing itself (that's
-  `apps/web` server code once it exists), so this gap will live in `apps/web`'s
-  own test suite, not `packages/shared`'s.
-- **Agent integration tests.** There is no automated test that runs
-  `apps/agent` against a real (or even mocked) Windows Print Spooler,
-  SumatraPDF process, or PowerShell PrintManagement module. The Agent's
-  logic that *can* be isolated from Windows/hardware (e.g. command parsing,
-  the allow-listed remote-command switch, argv construction for SumatraPDF)
-  is a reasonable target for unit tests once `apps/agent` has code; the parts
-  that inherently require Windows and a real printer are covered only by the
-  physical validation procedure below, and there is no realistic way to fully
-  substitute for that with a mock.
+- **Agent integration tests against real Windows/hardware.** There is no
+  automated test that runs `apps/agent` against a real (or even mocked)
+  Windows Print Spooler, SumatraPDF process, or PowerShell PrintManagement
+  module — the parts of the Agent that inherently require Windows and a real
+  printer are covered only by the physical validation procedure below, and
+  there is no realistic way to fully substitute for that with a mock. The
+  logic that *doesn't* require real Windows (command parsing, argv
+  construction, job-state handling) is unit-tested per above.
+- **End-to-end web app tests (Playwright or similar).** Every `apps/web`
+  route/Server Action is covered by real, passing `typecheck`/`build`/`lint`,
+  and the PDF-handling logic is unit-tested, but there is no browser-driven
+  test exercising a full user flow (sign in → upload → approve → see status
+  update live) against a running instance. This requires a real Supabase
+  project with Google OAuth configured (see docs/deployment.md), which is why
+  it hasn't been built in this environment - a reasonable next step once a
+  real deployment exists to point it at.
 
 ## 2. Mandatory physical validation procedure
 

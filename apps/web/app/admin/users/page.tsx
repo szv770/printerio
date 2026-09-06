@@ -41,6 +41,7 @@ export default async function UsersPage() {
           displayName: m.profiles?.display_name ?? null,
           role: m.role,
           status: m.status,
+          department: m.department,
         }))}
         canEdit={isOrgAdmin}
       />

@@ -923,6 +923,14 @@ export type Database = {
         };
         Returns: boolean;
       };
+      check_rate_limit: {
+        Args: {
+          p_key: string;
+          p_max_count: number;
+          p_window_seconds: number;
+        };
+        Returns: boolean;
+      };
     };
     Enums: { [_ in never]: never };
     CompositeTypes: { [_ in never]: never };

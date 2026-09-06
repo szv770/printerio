@@ -3,7 +3,14 @@
 import { useActionState } from "react";
 import type { Tables } from "@/lib/database.types";
 import { Button, Input, FieldLabel, FormError, EmptyState } from "@/components/ui";
-import { createAgentAction, rotateAgentAction, disableAgentAction, type AgentActionState } from "./actions";
+import {
+  createAgentAction,
+  rotateAgentAction,
+  disableAgentAction,
+  restartAgentServiceAction,
+  clearAgentTempFilesAction,
+  type AgentActionState,
+} from "./actions";
 
 const initialState: AgentActionState = {};
 
@@ -45,6 +52,8 @@ export function AgentsPanel({ agents, canManage }: { agents: Tables<"agents">[];
 function AgentRow({ agent, canManage }: { agent: Tables<"agents">; canManage: boolean }) {
   const [rotateState, rotateAction] = useActionState(rotateAgentAction, initialState);
   const [disableState, disableAction] = useActionState(disableAgentAction, initialState);
+  const [restartState, restartAction, restartPending] = useActionState(restartAgentServiceAction, initialState);
+  const [clearState, clearAction, clearPending] = useActionState(clearAgentTempFilesAction, initialState);
 
   // Deliberately impure (Date.now()) - "online" is a snapshot at render time,
   // not a value that needs to stay referentially stable across re-renders.
@@ -68,6 +77,18 @@ function AgentRow({ agent, canManage }: { agent: Tables<"agents">; canManage: bo
                 Rotate credential
               </Button>
             </form>
+            <form action={restartAction}>
+              <input type="hidden" name="agentId" value={agent.id} />
+              <Button type="submit" variant="outline" size="sm" pending={restartPending} pendingLabel="…">
+                Restart service
+              </Button>
+            </form>
+            <form action={clearAction}>
+              <input type="hidden" name="agentId" value={agent.id} />
+              <Button type="submit" variant="outline" size="sm" pending={clearPending} pendingLabel="…">
+                Clear temp files
+              </Button>
+            </form>
             <form action={disableAction}>
               <input type="hidden" name="agentId" value={agent.id} />
               <Button type="submit" variant="outline-danger" size="sm">
@@ -77,7 +98,7 @@ function AgentRow({ agent, canManage }: { agent: Tables<"agents">; canManage: bo
           </div>
         )}
       </div>
-      <FormError message={rotateState.error ?? disableState.error} />
+      <FormError message={rotateState.error ?? disableState.error ?? restartState.error ?? clearState.error} />
       {rotateState.enrollmentCode && (
         <p className="mt-2 text-sm">
           New enrollment code: <code className="rounded bg-gray-100 px-2 py-1 font-mono">{rotateState.enrollmentCode}</code>

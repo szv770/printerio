@@ -2,11 +2,24 @@
 
 import { useActionState, useState } from "react";
 import type { Tables } from "@/lib/database.types";
-import { Button, Input, Select, FieldLabel, FormError, EmptyState } from "@/components/ui";
-import { createPrinterAction, createPrinterProfileAction, initialPrinterActionState } from "./actions";
+import { Button, Input, Select, FieldLabel, FormError, EmptyState, Badge } from "@/components/ui";
+import {
+  createPrinterAction,
+  createPrinterProfileAction,
+  refreshPrinterStatusAction,
+  restartPrintQueueAction,
+  initialPrinterActionState,
+} from "./actions";
 
 type Printer = Tables<"printers">;
 type PrinterProfile = Tables<"printer_profiles">;
+
+const STATUS_TONE: Record<string, "success" | "warning" | "danger" | "neutral"> = {
+  online: "success",
+  offline: "neutral",
+  error: "danger",
+  unknown: "warning",
+};
 
 export function PrintersPanel({
   printers,
@@ -56,9 +69,13 @@ export function PrintersPanel({
             <li key={printer.id} className="rounded-xl border border-[var(--color-border)] p-4">
               <div className="mb-2 flex items-center justify-between">
                 <div>
-                  <p className="font-medium">{printer.name}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium">{printer.name}</p>
+                    <Badge tone={STATUS_TONE[printer.status] ?? "neutral"}>{printer.status}</Badge>
+                  </div>
                   <p className="text-xs text-[var(--color-muted)]">
                     {printer.vendor} {printer.model} {printer.location ? `• ${printer.location}` : ""}
+                    {printer.last_status_at && ` • last reported ${new Date(printer.last_status_at).toLocaleString()}`}
                   </p>
                 </div>
                 {canManage && (
@@ -75,7 +92,12 @@ export function PrintersPanel({
               <ul className="flex flex-col gap-1 text-sm">
                 {printerProfiles.map((p) => (
                   <li key={p.id} className="rounded bg-gray-50 px-3 py-2">
-                    <span className="font-medium">{p.label}</span> ({p.key}) — queue <code>{p.windows_queue_name}</code>
+                    <div className="flex items-center justify-between">
+                      <span>
+                        <span className="font-medium">{p.label}</span> ({p.key}) — queue <code>{p.windows_queue_name}</code>
+                      </span>
+                      {canManage && <ProfileRemoteActions printer={printer} profile={p} />}
+                    </div>
                     <p className="text-xs text-[var(--color-muted)]">
                       Declared: {p.declared_paper_sizes.join(", ")} •{" "}
                       {Object.entries(p.declared_capabilities as Record<string, boolean>)
@@ -98,8 +120,38 @@ export function PrintersPanel({
       <p className="text-xs text-[var(--color-muted)]">
         Capabilities and paper sizes above are administrator-declared, not verified against the physical device by
         PrintOS - see docs/printer-setup.md for how to actually configure a Windows queue&apos;s finishing defaults before
-        declaring them here.
+        declaring them here. Status only ever reflects what the Agent last reported at heartbeat time (docs/architecture.md
+        sec 11) - it is not polled live.
       </p>
+    </div>
+  );
+}
+
+/** "Refresh status"/"Restart queue" - issues a fixed, allow-listed remote
+ *  command (docs/architecture.md sec 12) via a Server Action, never a raw
+ *  fetch() from the client. */
+function ProfileRemoteActions({ printer, profile }: { printer: Printer; profile: PrinterProfile }) {
+  const [refreshState, refreshAction, refreshPending] = useActionState(refreshPrinterStatusAction, initialPrinterActionState);
+  const [restartState, restartAction, restartPending] = useActionState(restartPrintQueueAction, initialPrinterActionState);
+
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      <form action={refreshAction}>
+        <input type="hidden" name="agentId" value={profile.agent_id} />
+        <input type="hidden" name="printerId" value={printer.id} />
+        <Button type="submit" variant="outline" size="sm" pending={refreshPending} pendingLabel="…">
+          Refresh status
+        </Button>
+      </form>
+      <form action={restartAction}>
+        <input type="hidden" name="agentId" value={profile.agent_id} />
+        <input type="hidden" name="printerId" value={printer.id} />
+        <input type="hidden" name="printerProfileId" value={profile.id} />
+        <Button type="submit" variant="outline" size="sm" pending={restartPending} pendingLabel="…">
+          Restart queue
+        </Button>
+      </form>
+      <FormError message={refreshState.error ?? restartState.error} />
     </div>
   );
 }

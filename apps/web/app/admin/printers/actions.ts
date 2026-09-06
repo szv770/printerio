@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
+import { issueRemoteCommand } from "@/lib/remote-commands";
 
 export interface PrinterActionState {
   error?: string;
@@ -83,6 +84,51 @@ export async function createPrinterProfileAction(_prev: PrinterActionState, form
     is_default: formData.get("isDefault") === "on",
   });
   if (error) return { error: error.message };
+
+  revalidatePath(routes.adminPrinters);
+  return {};
+}
+
+/** "Refresh status" button - asks the owning Agent to re-report queue status
+ *  on its next poll rather than waiting for the regular heartbeat interval.
+ *  See docs/architecture.md sec 12/18. */
+export async function refreshPrinterStatusAction(_prev: PrinterActionState, formData: FormData): Promise<PrinterActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const agentId = String(formData.get("agentId") ?? "");
+  const printerId = String(formData.get("printerId") ?? "");
+
+  const supabase = await createClient();
+  const result = await issueRemoteCommand(supabase, {
+    organizationId: session.membership.organization_id,
+    issuedBy: session.userId,
+    agentId,
+    printerId,
+    command: "REFRESH_PRINTER_STATUS",
+  });
+  if (!result.ok) return { error: result.error };
+
+  revalidatePath(routes.adminPrinters);
+  return {};
+}
+
+/** "Restart queue" button - a last-resort, whole-queue recovery action (never
+ *  a routine per-job step) - see docs/architecture.md sec 11/17. */
+export async function restartPrintQueueAction(_prev: PrinterActionState, formData: FormData): Promise<PrinterActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const agentId = String(formData.get("agentId") ?? "");
+  const printerId = String(formData.get("printerId") ?? "");
+  const printerProfileId = String(formData.get("printerProfileId") ?? "");
+
+  const supabase = await createClient();
+  const result = await issueRemoteCommand(supabase, {
+    organizationId: session.membership.organization_id,
+    issuedBy: session.userId,
+    agentId,
+    printerId,
+    command: "RESTART_PRINT_QUEUE",
+    payload: { printerProfileId },
+  });
+  if (!result.ok) return { error: result.error };
 
   revalidatePath(routes.adminPrinters);
   return {};

@@ -1,10 +1,14 @@
 import { apiError } from "@/lib/api-errors";
 import { generateDeviceSecret, hashDeviceSecret } from "@/lib/agent-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { logger } from "@/lib/logger";
 
 /** One-time: exchanges an admin-issued enrollment code for a device secret.
  *  See docs/agent-api.md. No Authorization header on this endpoint - the
- *  enrollment code itself is the (single-use, expiring) credential. */
+ *  enrollment code itself is the (single-use, expiring) credential, so this
+ *  route is rate-limited per source IP to slow down brute-force guessing
+ *  (the code has 48 bits of entropy per lib/auth/invitations.ts, but this is
+ *  cheap defense in depth - see supabase/migrations/0012_rate_limiting.sql). */
 export async function POST(request: Request) {
   let body: unknown;
   try {
@@ -18,6 +22,21 @@ export async function POST(request: Request) {
   }
 
   const supabase = createServiceRoleClient();
+
+  // x-forwarded-for's first entry is the original client per Vercel's edge
+  // network; falls back to a shared bucket (still rate-limited, just
+  // coarser) if it's ever absent rather than skipping the check entirely.
+  const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const { data: withinLimit, error: rateLimitError } = await supabase.rpc("check_rate_limit", {
+    p_key: `agent_register:${clientIp}`,
+    p_max_count: 10,
+    p_window_seconds: 300,
+  });
+  if (rateLimitError) {
+    logger.error("rate limit check failed", { route: "agents/register", error: rateLimitError.message });
+  } else if (!withinLimit) {
+    return apiError(429, "rate_limited", "Too many registration attempts. Try again later.");
+  }
   const { data: agent, error } = await supabase
     .from("agents")
     .select("*")

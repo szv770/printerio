@@ -73,3 +73,30 @@ export async function changeMemberRoleAction(_prev: RoleChangeState, formData: F
   revalidatePath(routes.adminUsers);
   return {};
 }
+
+export interface DepartmentChangeState {
+  error?: string;
+}
+
+/** Sets organization_members.department - the free-text field quotas/policies
+ *  can scope on (scope_type: "department"). Previously only editable by hand
+ *  in Postgres; there was no admin UI path to it at all. */
+export async function changeMemberDepartmentAction(
+  _prev: DepartmentChangeState,
+  formData: FormData,
+): Promise<DepartmentChangeState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const userId = String(formData.get("userId") ?? "");
+  const department = String(formData.get("department") ?? "").trim();
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("organization_members")
+    .update({ department: department || null })
+    .eq("organization_id", session.membership.organization_id)
+    .eq("user_id", userId);
+  if (error) return { error: error.message };
+
+  revalidatePath(routes.adminUsers);
+  return {};
+}

@@ -1,8 +1,24 @@
+import { timingSafeEqual } from "node:crypto";
 import { apiError } from "@/lib/api-errors";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { adjustMonthlyUsage } from "@/lib/quota";
 import { PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { getCronSecret } from "@/lib/env";
+
+/** Constant-time compare of two equal-or-different-length strings - avoids
+ *  the length/content timing signal a plain `!==` would leak (consistent
+ *  with lib/agent-auth.ts's device-secret comparison). */
+function safeCompare(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) {
+    // Still run a comparison of equal length so the "wrong length" case
+    // doesn't return measurably faster than a "right length, wrong content" one.
+    timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return timingSafeEqual(bufA, bufB);
+}
 
 /**
  * Periodic sweep (Vercel Cron -> this route). Idempotent: safe to run
@@ -22,8 +38,8 @@ export async function GET(request: Request) {
     return apiError(500, "misconfigured", err instanceof Error ? err.message : "Cron secret not configured.");
   }
 
-  const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${expected}`) {
+  const authHeader = request.headers.get("authorization") ?? "";
+  if (!safeCompare(authHeader, `Bearer ${expected}`)) {
     return apiError(401, "unauthenticated", "Invalid cron secret.");
   }
 

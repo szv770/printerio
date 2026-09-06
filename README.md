@@ -88,7 +88,8 @@ pnpm -r test                                    # every workspace package's unit
 root `package.json` scripts (`dev:web`, `dev:agent`, `build`, `test`, `lint`,
 `typecheck`) for the other entry points. All three packages have real, tested code
 today (see [docs/testing.md](./docs/testing.md)) — `pnpm -r build`, `pnpm -r test`,
-and `pnpm -r typecheck` all pass clean as of this writing.
+and `pnpm -r typecheck` all pass clean as of this writing, and `.github/workflows/ci.yml`
+runs the same four checks on every push/PR.
 
 ## Current status & next phase
 
@@ -101,7 +102,7 @@ not Phase 4–6):
 | **2** | Approval engine: policies, rules, approval queue, realtime, audit events | Implemented |
 | **3** | Windows Agent: registration, heartbeat, printer discovery, download, printing, spooler monitoring, reconciliation | Implemented, **physically untested** — no Windows machine exists in this build environment; see [docs/testing.md](./docs/testing.md) for the mandatory validation procedure before trusting it on a real job |
 | **4** | Printer management: multiple printers, profiles, advanced options, Windows queue mappings | Basic version implemented (`printer_profiles`, `windows_queue_name` mapping); room to grow (bulk queue management, richer capability UI) |
-| **5** | Quotas/reporting: usage, quotas, reports, cost estimation | Quotas implemented (race-safe reservation, see architecture.md sec 14); reporting is minimal/V1 (raw usage numbers, no dashboards/exports yet) |
+| **5** | Quotas/reporting: usage, quotas, reports, cost estimation | Quotas implemented (race-safe reservation, see architecture.md sec 14) with a full admin UI (organization/role/department/group/user scopes, `/admin/quotas`), including groups management (`/admin/groups`); Reports V1 shipped (`/admin/reports` — pages-by-month, color usage, by-user/department/printer breakdowns, recently denied/failed — tables only, no charts/exports yet) |
 | **6** | Advanced features: booklet padding, previews, SNMP telemetry, Google Drive, additional integrations | Booklet padding implemented (architecture.md sec 8); SNMP telemetry, Drive/365 submission, PDF previews, and a packaged Windows installer are architecturally reserved (schema columns, doc sections) but not built — see [docs/known-limitations.md](./docs/known-limitations.md) "V1 scope" |
 
 As of this writing, `apps/web` (Next.js cloud app: auth/bootstrap, upload+preflight,

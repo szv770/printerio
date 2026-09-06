@@ -515,7 +515,24 @@ whichever side has the more advanced, valid state-machine transition). If the Ag
 vanishes mid-job from the cloud's perspective, the job's lease simply expires (§13) — the
 cloud does not need the Agent to explicitly report failure for the system to recover.
 
-## 18. What this system does not guarantee
+## 18. Rate limiting
+
+Two endpoints are fixed-window rate limited, both via a single shared Postgres function
+(`check_rate_limit`, `supabase/migrations/0012_rate_limiting.sql`): print job submission
+(`app/(dashboard)/print/actions.ts`, keyed per user - 20 submissions / 5 minutes) and agent
+enrollment (`app/api/agents/register/route.ts`, keyed per source IP - 10 attempts / 5
+minutes, slowing down brute-force guessing of an enrollment code). Deliberately **not**
+in-memory: `apps/web` runs on Vercel, where a single serverless function is not one
+long-lived process, so a module-scope counter has no visibility across instances and would
+not actually limit anything under real traffic. A shared Postgres row is centralized and
+correct regardless of which instance handles the request; if the hot agent-polling paths
+(§4) ever need this too, an external low-latency store (e.g. Upstash Redis) is the natural
+upgrade, but isn't required for correctness at this scale. A failure of the rate-limit check
+itself fails open (logged, request proceeds) rather than blocking legitimate use on an
+unrelated outage - it's defense in depth, not the primary security boundary (that's still
+RLS, §3, and the enrollment code's own 48 bits of entropy, §4).
+
+## 19. What this system does not guarantee
 
 Kept short here; the full list with rationale is in
 [known-limitations.md](./known-limitations.md). The headline one, because it shapes the

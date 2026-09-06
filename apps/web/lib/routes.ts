@@ -22,10 +22,13 @@ export const routes = {
   admin: "/admin",
   adminApprovals: "/admin/approvals",
   adminUsers: "/admin/users",
+  adminGroups: "/admin/groups",
+  adminQuotas: "/admin/quotas",
   adminPolicies: "/admin/policies",
   adminPrinters: "/admin/printers",
   adminAgents: "/admin/agents",
   adminAudit: "/admin/audit",
+  adminReports: "/admin/reports",
 } as const;
 
 /** API routes the Agent and the admin dashboard call - kept alongside the
