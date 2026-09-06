@@ -89,6 +89,21 @@ claims-based checks, not a prerequisite for RLS to function. Confirm against the
 actual migration set whether a `custom_access_token_hook` function exists yet
 before assuming this step applies to your deployment.
 
+### 2.4 Enable Email as an auth provider (magic-link sign-in)
+
+Magic-link (email OTP) sign-in (architecture.md sec 19.3) relies on Supabase's built-in
+**Email** provider — same category of manual step as 2.1's Google OAuth client-id setup,
+except there's no external OAuth client to create; it's purely a dashboard toggle:
+
+1. In the Supabase Dashboard: **Authentication → Providers → Email**, toggle it on.
+2. Leave "Confirm email" per your own project's needs — magic-link sign-in (`signInWithOtp`)
+   works the same either way; that setting affects password-based signup, not the OTP link
+   flow this app uses.
+3. No redirect URI step is needed here (unlike 2.1's Google setup) — `emailRedirectTo` is
+   passed directly in the `signInWithOtp()` call (`app/login/MagicLinkForm.tsx`) and just
+   needs to be an allowed redirect URL under **Authentication → URL Configuration**, same as
+   the Google flow's callback already requires.
+
 ## 3. Environment variables (`apps/web`)
 
 | Variable | Where used | Notes |

@@ -392,9 +392,30 @@ export type Database = {
         ];
       };
       organizations: {
-        Row: { allowed_domains: string[]; created_at: string; id: string; name: string; slug: string };
-        Insert: { allowed_domains?: string[]; created_at?: string; id?: string; name: string; slug: string };
-        Update: { allowed_domains?: string[]; created_at?: string; id?: string; name?: string; slug?: string };
+        Row: {
+          allowed_domains: string[];
+          created_at: string;
+          id: string;
+          magic_link_requires_allowed_domain: boolean;
+          name: string;
+          slug: string;
+        };
+        Insert: {
+          allowed_domains?: string[];
+          created_at?: string;
+          id?: string;
+          magic_link_requires_allowed_domain?: boolean;
+          name: string;
+          slug: string;
+        };
+        Update: {
+          allowed_domains?: string[];
+          created_at?: string;
+          id?: string;
+          magic_link_requires_allowed_domain?: boolean;
+          name?: string;
+          slug?: string;
+        };
         Relationships: [];
       };
       policy_rules: {
@@ -935,6 +956,10 @@ export type Database = {
         Returns: boolean;
       };
       email_domain_allowed: {
+        Args: { [_ in never]: never };
+        Returns: boolean;
+      };
+      email_domain_allowed_for_magic_link: {
         Args: { [_ in never]: never };
         Returns: boolean;
       };
