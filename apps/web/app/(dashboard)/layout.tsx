@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getCurrentSession } from "@/lib/auth/session";
 import { signOutAction } from "@/lib/auth/actions";
 import { routes } from "@/lib/routes";
+import { HelpMenu } from "@/components/help/HelpMenu";
 
 /** Shared shell for the student/staff-facing pages (Print, My Jobs, Usage,
  *  Profile - spec sec 29). Previously /print and /jobs had no nav between
@@ -43,11 +44,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
               </Link>
             )}
           </nav>
-          <form action={signOutAction}>
-            <button type="submit" className="text-sm text-[var(--color-muted)] hover:text-[var(--color-text)]">
-              Sign out
-            </button>
-          </form>
+          <div className="flex items-center gap-4">
+            <HelpMenu userId={session.userId} variant="student" />
+            <form action={signOutAction}>
+              <button type="submit" className="text-sm text-[var(--color-muted)] hover:text-[var(--color-text)]">
+                Sign out
+              </button>
+            </form>
+          </div>
         </div>
       </header>
       {children}

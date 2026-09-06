@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useMemo, useRef, useState } from "react";
 import { computePrintMath } from "@printos/shared";
 import { Button, Input, Select, FieldLabel, FormError, Card } from "@/components/ui";
 import { submitPrintJobAction, initialSubmitJobState } from "./actions";
@@ -13,6 +13,40 @@ interface PrinterProfileOption {
   printerOnline: boolean;
 }
 
+const THUMBNAIL_MAX_WIDTH_PX = 200;
+
+/**
+ * Renders page 1 of a locally-selected PDF onto a canvas, entirely
+ * client-side (pdfjs-dist) - no upload/server round trip needed just to show
+ * the user what they're about to print. Dynamically imported so pdfjs-dist's
+ * ~1MB never ends up in the initial page bundle for users who haven't picked
+ * a file yet. Swallows its own errors (malformed/encrypted PDF, worker load
+ * failure) - the thumbnail is a nicety, never a blocker; the server's own
+ * preflight (lib/pdf/preflight.ts) is the authoritative validation either way.
+ */
+async function renderFirstPageThumbnail(file: File, canvas: HTMLCanvasElement): Promise<boolean> {
+  try {
+    const pdfjs = await import("pdfjs-dist");
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+
+    const bytes = await file.arrayBuffer();
+    const pdf = await pdfjs.getDocument({ data: bytes }).promise;
+    const page = await pdf.getPage(1);
+    const unscaledViewport = page.getViewport({ scale: 1 });
+    const scale = THUMBNAIL_MAX_WIDTH_PX / unscaledViewport.width;
+    const viewport = page.getViewport({ scale });
+
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const context = canvas.getContext("2d");
+    if (!context) return false;
+    await page.render({ canvas, canvasContext: context, viewport }).promise;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * V1 scope note: this form shows a LIVE, CLIENT-COMPUTED estimate (page count
  * via a best-effort in-browser PDF parse, sides/sheets via the same pure
@@ -23,12 +57,21 @@ interface PrinterProfileOption {
  * server-computed page count, print math, and policy decision are only ever
  * produced by submitPrintJobAction, and the user is taken straight to the job
  * status page to see that authoritative result immediately after submitting.
+ *
+ * Layout groups every "how this prints" decision (printer, color, duplex,
+ * finishing) into one section, since they're really one decision the user is
+ * making, not four unrelated ones - copies/paper size are a separate, lower-
+ * priority section below.
  */
 export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfileOption[] }) {
   const [state, formAction, pending] = useActionState(submitPrintJobAction, initialSubmitJobState);
 
   const [profileId, setProfileId] = useState(printerProfiles[0]?.id ?? "");
   const [estimatedPages, setEstimatedPages] = useState<number | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [thumbnailReady, setThumbnailReady] = useState(false);
+  const [thumbnailLoading, setThumbnailLoading] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [copies, setCopies] = useState(1);
   const [colorMode, setColorMode] = useState<"bw" | "color">("bw");
   const [duplex, setDuplex] = useState(true);
@@ -42,7 +85,10 @@ export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfile
   async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     setEstimatedPages(null);
+    setFileName(file?.name ?? null);
+    setThumbnailReady(false);
     if (!file) return;
+
     try {
       const { PDFDocument } = await import("pdf-lib");
       const bytes = await file.arrayBuffer();
@@ -50,6 +96,13 @@ export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfile
       setEstimatedPages(doc.getPageCount());
     } catch {
       setEstimatedPages(null); // not a fatal UI error - server preflight is authoritative anyway
+    }
+
+    if (canvasRef.current) {
+      setThumbnailLoading(true);
+      const ok = await renderFirstPageThumbnail(file, canvasRef.current);
+      setThumbnailLoading(false);
+      setThumbnailReady(ok);
     }
   }
 
@@ -63,36 +116,106 @@ export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfile
   }, [estimatedPages, copies, duplex, booklet]);
 
   const needsBookletConfirm = state.needsBookletConfirm;
+  const anyFinishingDisabled =
+    !profile?.declaredCapabilities.duplex ||
+    !profile?.declaredCapabilities.color ||
+    !profile?.declaredCapabilities.staple ||
+    !profile?.declaredCapabilities.booklet ||
+    !profile?.declaredCapabilities.punch;
 
   return (
     <form action={formAction} className="flex flex-col gap-6">
       <div>
         <FieldLabel htmlFor="file">Document</FieldLabel>
-        <input
-          id="file"
-          type="file"
-          name="file"
-          accept="application/pdf"
-          required
-          onChange={onFileChange}
-          className="block w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-sm"
-        />
+        <div className="flex items-start gap-4">
+          <input
+            id="file"
+            type="file"
+            name="file"
+            accept="application/pdf"
+            required
+            onChange={onFileChange}
+            className="block w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-sm"
+          />
+          {/* Canvas always mounted (just hidden when empty) so its ref is
+           *  available the moment a file is chosen - no render-order race
+           *  with the async thumbnail draw. */}
+          <div
+            className="flex h-24 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--color-border)] bg-gray-50"
+            hidden={!fileName}
+          >
+            {thumbnailLoading && <span className="text-xs text-[var(--color-muted)]">…</span>}
+            <canvas ref={canvasRef} className="max-h-full max-w-full" hidden={!thumbnailReady} />
+            {!thumbnailLoading && !thumbnailReady && fileName && (
+              <span className="px-1 text-center text-[10px] text-[var(--color-muted)]">No preview</span>
+            )}
+          </div>
+        </div>
         {estimatedPages !== null && (
           <p className="mt-1 text-xs text-[var(--color-muted)]">Estimated {estimatedPages} page(s).</p>
         )}
       </div>
 
-      <div>
-        <FieldLabel htmlFor="printerProfileId">Printer</FieldLabel>
-        <Select id="printerProfileId" name="printerProfileId" value={profileId} onChange={(e) => setProfileId(e.target.value)}>
-          {printerProfiles.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.label}
-              {!p.printerOnline ? " (offline)" : ""}
-            </option>
-          ))}
-        </Select>
-      </div>
+      <Card>
+        <p className="mb-3 text-sm font-medium">How it prints</p>
+        <div className="flex flex-col gap-4">
+          <div>
+            <FieldLabel htmlFor="printerProfileId">Printer</FieldLabel>
+            <Select id="printerProfileId" name="printerProfileId" value={profileId} onChange={(e) => setProfileId(e.target.value)}>
+              {printerProfiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                  {!p.printerOnline ? " (offline)" : ""}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          <fieldset className="flex flex-col gap-2">
+            <legend className="mb-1 text-sm font-medium">Color</legend>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="radio" name="colorMode" value="bw" checked={colorMode === "bw"} onChange={() => setColorMode("bw")} />
+              Black &amp; white
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="colorMode"
+                value="color"
+                checked={colorMode === "color"}
+                onChange={() => setColorMode("color")}
+                disabled={!profile?.declaredCapabilities.color}
+              />
+              Color
+            </label>
+          </fieldset>
+
+          <div className="flex flex-col gap-2 text-sm">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" name="duplex" checked={duplex} onChange={(e) => setDuplex(e.target.checked)} disabled={!profile?.declaredCapabilities.duplex} />
+              Double-sided (duplex)
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" name="staple" checked={staple} onChange={(e) => setStaple(e.target.checked)} disabled={!profile?.declaredCapabilities.staple} />
+              Staple
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" name="booklet" checked={booklet} onChange={(e) => setBooklet(e.target.checked)} disabled={!profile?.declaredCapabilities.booklet} />
+              Booklet
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" name="punch" checked={punch} onChange={(e) => setPunch(e.target.checked)} disabled={!profile?.declaredCapabilities.punch} />
+              Hole punch
+            </label>
+          </div>
+
+          {anyFinishingDisabled && (
+            <p className="text-xs text-[var(--color-muted)]">
+              Options shown greyed out aren&apos;t supported by the selected printer - choose a different printer above if you need them.
+            </p>
+          )}
+        </div>
+      </Card>
 
       <div className="grid grid-cols-2 gap-4">
         <div>
@@ -117,44 +240,6 @@ export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfile
             ))}
           </Select>
         </div>
-      </div>
-
-      <fieldset className="flex flex-col gap-2">
-        <legend className="mb-1 text-sm font-medium">Color</legend>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="radio" name="colorMode" value="bw" checked={colorMode === "bw"} onChange={() => setColorMode("bw")} />
-          Black &amp; white
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="radio"
-            name="colorMode"
-            value="color"
-            checked={colorMode === "color"}
-            onChange={() => setColorMode("color")}
-            disabled={!profile?.declaredCapabilities.color}
-          />
-          Color {!profile?.declaredCapabilities.color && <span className="text-xs text-[var(--color-muted)]">(not available)</span>}
-        </label>
-      </fieldset>
-
-      <div className="flex flex-col gap-2 text-sm">
-        <label className="flex items-center gap-2">
-          <input type="checkbox" name="duplex" checked={duplex} onChange={(e) => setDuplex(e.target.checked)} disabled={!profile?.declaredCapabilities.duplex} />
-          Double-sided (duplex)
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="checkbox" name="staple" checked={staple} onChange={(e) => setStaple(e.target.checked)} disabled={!profile?.declaredCapabilities.staple} />
-          Staple
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="checkbox" name="booklet" checked={booklet} onChange={(e) => setBooklet(e.target.checked)} disabled={!profile?.declaredCapabilities.booklet} />
-          Booklet
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="checkbox" name="punch" checked={punch} onChange={(e) => setPunch(e.target.checked)} disabled={!profile?.declaredCapabilities.punch} />
-          Hole punch
-        </label>
       </div>
 
       {preview && (

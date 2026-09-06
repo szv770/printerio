@@ -18,14 +18,17 @@ import { signOutAction } from "@/lib/auth/actions";
 import { createClient } from "@/lib/supabase/server";
 import { routes } from "@/lib/routes";
 import { Badge } from "@/components/ui";
+import { HelpMenu } from "@/components/help/HelpMenu";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   let isOrgAdmin = false;
   let organizationId: string | null = null;
+  let userId = "";
   try {
     const session = await requireOrgRole(["org_admin", "approver"]);
     isOrgAdmin = session.membership.role === "org_admin";
     organizationId = session.membership.organization_id;
+    userId = session.userId;
   } catch {
     redirect(routes.home);
   }
@@ -102,6 +105,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <Link href={routes.dashboard} className="block rounded-lg px-3 py-2 hover:bg-[var(--color-surface)]">
             Switch to student view
           </Link>
+          <div className="px-3 py-2">
+            <HelpMenu userId={userId} variant="admin" />
+          </div>
           <form action={signOutAction}>
             <button
               type="submit"
