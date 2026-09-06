@@ -105,12 +105,20 @@ pnpm --filter @printos/agent register -- --code=<enrollmentCode>
 # or, from apps/agent: pnpm register -- --code=<enrollmentCode>
 ```
 
+(For a first-time interactive setup on Windows, `scripts/setup-agent.bat` double-clicks
+through this and the steps below via plain-English prompts instead — see
+`docs/agent-install.md` "The fast path: one script". The commands above are still what it
+runs under the hood, and are what you want for scripting/CI.)
+
 This exchanges the code for a device id + secret (`docs/agent-api.md POST
 /api/agents/register`) and persists them to local secure storage (see below). The plaintext
 secret is never logged and is only ever shown once, by the cloud, at registration time - this
 CLI does not print it either.
 
 ## Running
+
+(`scripts/setup-agent.bat` offers both of the below as a plain-English "1 or 2?" prompt
+instead of typed commands — see "Register" above.)
 
 **Console/foreground mode** (development, or a quick manual run):
 
