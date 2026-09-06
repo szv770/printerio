@@ -776,6 +776,7 @@ export type Database = {
           display_name: string | null;
           email: string;
           id: string;
+          last_authenticated_at: string | null;
           platform_role: string;
         };
         Insert: {
@@ -784,6 +785,7 @@ export type Database = {
           display_name?: string | null;
           email: string;
           id: string;
+          last_authenticated_at?: string | null;
           platform_role?: string;
         };
         Update: {
@@ -792,6 +794,7 @@ export type Database = {
           display_name?: string | null;
           email?: string;
           id?: string;
+          last_authenticated_at?: string | null;
           platform_role?: string;
         };
         Relationships: [];
@@ -929,6 +932,10 @@ export type Database = {
           p_max_count: number;
           p_window_seconds: number;
         };
+        Returns: boolean;
+      };
+      email_domain_allowed: {
+        Args: { [_ in never]: never };
         Returns: boolean;
       };
     };

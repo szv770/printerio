@@ -1,4 +1,7 @@
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { routes } from "@/lib/routes";
+import { isReauthRequired } from "@/lib/auth/reauth";
 import type { Tables } from "@/lib/database.types";
 import type { OrgRole } from "@printos/shared";
 
@@ -21,6 +24,19 @@ export async function getCurrentSession(): Promise<CurrentSession | null> {
 
   const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single();
   if (!profile) return null; // profile row not created yet (auth trigger race) - treat as not-ready
+
+  // Force a full interactive re-authentication at least every 30 days,
+  // independent of Supabase's own refresh-token lifetime (which otherwise
+  // refreshes silently forever) - see docs/architecture.md sec 19 and
+  // lib/auth/reauth.ts. This is the single point of enforcement: every
+  // Server Component/Server Action/Route Handler that needs the current user
+  // flows through getCurrentSession (directly, or via requireSession/
+  // requireOrgRole below), so putting the check here, rather than in each of
+  // those, is what makes it actually apply everywhere at once.
+  if (isReauthRequired(profile.last_authenticated_at, new Date())) {
+    await supabase.auth.signOut();
+    redirect(`${routes.login}?reason=reauth_required`);
+  }
 
   const { data: membership } = await supabase
     .from("organization_members")
