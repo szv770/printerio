@@ -99,13 +99,10 @@ before assuming this step applies to your deployment.
 | `PRINTOS_BOOTSTRAP_ADMIN_EMAIL` | Server (one-time bootstrap) | The email of the person who becomes the first `org_admin` of the first organization, per the super-admin bootstrap path in architecture.md sec 2.2. This email's own domain also seeds that organization's `allowed_domains` (architecture.md sec 19) — no separate env var is needed for domain-restricted sign-in; an org_admin can widen/narrow/clear the list afterward from `/admin/settings`. |
 | `PRINTOS_BOOTSTRAP_ORG_NAME` | Server (one-time bootstrap) | Name of the organization created by that same bootstrap path. |
 | `PRINTOS_CRON_SECRET` | Server only | Shared secret Vercel Cron (or any external caller) presents as `Authorization: Bearer <value>` to `/api/cron/sweep`. Generate a random string. |
+| `NEXT_PUBLIC_APP_URL` | Server (absolute-link construction) | Base URL of this deployment, used to build absolute links in emails/invitations. |
 
-`apps/web` has no application code checked into this repository yet (see the
-root [README.md](../README.md) "Current status & next phase"), so this list is
-derived from the auth/bootstrap model in architecture.md sec 2 rather than read
-from an existing `.env.example`. **Confirm the exact variable names against
-`apps/web/.env.example` once that file exists** — a later pass over this repo
-should reconcile this table against the real file rather than trust it blindly.
+This table matches `apps/web/.env.example`, the real file — treat that file as the source of
+truth if the two ever drift (a name change there should be reflected here in the same pass).
 
 ## 4. Deploying `apps/web` to Vercel
 
