@@ -1,18 +1,31 @@
 "use client";
 
 import { useActionState } from "react";
-import { Globe } from "lucide-react";
+import { Globe, Mail } from "lucide-react";
 import { Button, Textarea, FieldLabel, FormError, Card, Badge } from "@/components/ui";
-import { updateAllowedDomainsAction, initialSettingsActionState } from "./actions";
+import {
+  updateAllowedDomainsAction,
+  updateMagicLinkDomainToggleAction,
+  initialSettingsActionState,
+} from "./actions";
 
 export function SettingsPanel({
   allowedDomains,
+  magicLinkRequiresAllowedDomain,
   canManage,
 }: {
   allowedDomains: string[];
+  magicLinkRequiresAllowedDomain: boolean;
   canManage: boolean;
 }) {
-  const [state, formAction, pending] = useActionState(updateAllowedDomainsAction, initialSettingsActionState);
+  const [domainsState, domainsFormAction, domainsPending] = useActionState(
+    updateAllowedDomainsAction,
+    initialSettingsActionState,
+  );
+  const [magicLinkState, magicLinkFormAction, magicLinkPending] = useActionState(
+    updateMagicLinkDomainToggleAction,
+    initialSettingsActionState,
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -38,7 +51,7 @@ export function SettingsPanel({
         )}
 
         {canManage && (
-          <form action={formAction} className="flex flex-col gap-3">
+          <form action={domainsFormAction} className="flex flex-col gap-3">
             <div>
               <FieldLabel htmlFor="domains" hint="one per line, or comma-separated">
                 Domains
@@ -51,9 +64,50 @@ export function SettingsPanel({
                 placeholder={"lecfl.com\nstaff.lecfl.com"}
               />
             </div>
-            <FormError message={state.error} />
+            <FormError message={domainsState.error} />
             <div>
-              <Button type="submit" size="sm" pending={pending} pendingLabel="Saving...">
+              <Button type="submit" size="sm" pending={domainsPending} pendingLabel="Saving...">
+                Save
+              </Button>
+            </div>
+          </form>
+        )}
+      </Card>
+
+      <Card>
+        <div className="mb-3 flex items-center gap-2">
+          <Mail className="h-4 w-4 text-[var(--color-muted)]" />
+          <h2 className="text-sm font-semibold">Magic-link sign-in</h2>
+        </div>
+        <p className="mb-3 text-sm text-[var(--color-muted)]">
+          Email sign-in links (app/login) are a second way to sign in, alongside Google. By default a
+          brand-new user requesting one is checked against the allowed domains above, the same as Google
+          sign-in always is. Turning this off lets anyone with any email address request a magic link - though,
+          same as Google, they still need an invitation or enrollment code to actually join the organization.
+        </p>
+
+        {!canManage && (
+          <p className="text-sm text-[var(--color-muted)]">
+            {magicLinkRequiresAllowedDomain
+              ? "Magic-link sign-in is restricted to the allowed domains above."
+              : "Magic-link sign-in is open to any email domain."}
+          </p>
+        )}
+
+        {canManage && (
+          <form action={magicLinkFormAction} className="flex flex-col gap-3">
+            <label className="flex items-start gap-2 text-sm text-[var(--color-text)]">
+              <input
+                type="checkbox"
+                name="magicLinkRequiresAllowedDomain"
+                defaultChecked={magicLinkRequiresAllowedDomain}
+                className="mt-0.5"
+              />
+              Require magic-link sign-in to match the allowed domains above
+            </label>
+            <FormError message={magicLinkState.error} />
+            <div>
+              <Button type="submit" size="sm" pending={magicLinkPending} pendingLabel="Saving...">
                 Save
               </Button>
             </div>

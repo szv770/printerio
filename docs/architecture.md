@@ -666,6 +666,52 @@ timestamp check independent of Supabase's own token expiry:
   When expired, it calls `supabase.auth.signOut()` and `redirect("/login?reason=reauth_required")`
   — a labeled reason the login page reads and displays, not a bare unexplained logout.
 
+### 19.3 Magic-link sign-in and its own per-organization toggle
+
+Supabase magic-link (email OTP) sign-in is a second sign-in method, alongside Google OAuth,
+offered from `app/login` (`MagicLinkForm.tsx`, next to `SignInButton.tsx`'s existing Google
+button). It calls `supabase.auth.signInWithOtp({ email, options: { emailRedirectTo } })` with
+the same `redirectTo` construction Google OAuth already uses, and always shows a generic
+"check your email" confirmation — Supabase's OTP API deliberately never tells the client
+whether the email exists or is disallowed, so there is nothing to branch on client-side; the
+actual access decision happens later, when the emailed link is clicked and lands back at
+`app/auth/callback/route.ts`.
+
+- **A new, independent gate function — not a change to `email_domain_allowed()`.** Google
+  OAuth's gate stays exactly as documented in §19.1, unchanged, always enforced, no toggle.
+  Magic-link sign-ins instead call `email_domain_allowed_for_magic_link()`
+  (`supabase/migrations/0014_*.sql`), which copies `email_domain_allowed()`'s first two checks
+  verbatim (existing active member → always true; no organization exists yet → always true,
+  the bootstrap carve-out) and only diverges on the actual per-org domain check.
+- **`organizations.magic_link_requires_allowed_domain`** (boolean, default `true`) lets an
+  org_admin turn that per-org domain check off for magic-link specifically, from
+  `app/admin/settings`. Default `true` means every organization — including every one that
+  existed before this feature shipped — keeps exactly the restriction it already had; nothing
+  becomes more open until an org_admin explicitly opts out. The multi-org combination rule
+  mirrors `email_domain_allowed()`'s existing OR-across-organizations shape: allowed if ANY
+  organization either has the toggle off (unconditional allow for magic-link purposes) or has
+  it on and would allow the domain via its `allowed_domains` list (empty = unrestricted).
+- **The provider-detection problem.** The callback route has to know, precisely, which method
+  produced a given `exchangeCodeForSession` result before it can pick the right gate function.
+  `data.user.app_metadata.provider` looked like the obvious field, but per `@supabase/auth-js`'s
+  own type (`UserAppMetadata.provider` — "the first provider that the user used to sign up
+  with") it's a lifetime property of the account, not of this specific sign-in: an account that
+  first signed up via Google and later also linked a magic-link identity would keep reporting
+  `"google"` forever, even on a sign-in that just used magic link. `lib/auth/provider.ts`
+  instead reads `data.user.identities[]` (each carrying its own `provider` and
+  `last_sign_in_at`) and picks whichever identity has the most recent `last_sign_in_at` —
+  Supabase stamps that field fresh, on the specific identity actually used, on every
+  successful code exchange, which is what makes it an accurate answer to "which provider did
+  *this* sign-in use" rather than "which provider did this account ever use."
+- **Same invariant as §19.1's, unchanged for this method too:** passing either gate grants no
+  `organization_members` row, no role, nothing. It only decides whether a brand-new user
+  reaches `app/no-access`'s existing enrollment-code flow instead of being signed back out
+  immediately — actual admission remains, unconditionally, the `organization_invitations`
+  flow.
+- **Manual dashboard step required:** Supabase's Email auth provider must be enabled
+  (Authentication → Providers → Email) for `signInWithOtp` to work at all — see
+  [deployment.md](./deployment.md) §2.
+
 ## 20. What this system does not guarantee
 
 Kept short here; the full list with rationale is in

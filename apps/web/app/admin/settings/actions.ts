@@ -39,3 +39,28 @@ export async function updateAllowedDomainsAction(
   revalidatePath(routes.adminSettings);
   return {};
 }
+
+/** Updates organizations.magic_link_requires_allowed_domain - whether
+ *  magic-link (email OTP) sign-in is subject to the same allowed_domains
+ *  gate Google OAuth always enforces, or open to any email address
+ *  (docs/architecture.md sec 19.3, email_domain_allowed_for_magic_link() in
+ *  supabase/migrations/0014_*.sql). Never touches Google OAuth's gate, which
+ *  has no toggle at all. A checked checkbox submits "on"; an unchecked one
+ *  submits nothing, so its absence from formData means false. */
+export async function updateMagicLinkDomainToggleAction(
+  _prev: SettingsActionState,
+  formData: FormData,
+): Promise<SettingsActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const requireAllowedDomain = formData.get("magicLinkRequiresAllowedDomain") === "on";
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("organizations")
+    .update({ magic_link_requires_allowed_domain: requireAllowedDomain })
+    .eq("id", session.membership.organization_id);
+  if (error) return { error: error.message };
+
+  revalidatePath(routes.adminSettings);
+  return {};
+}

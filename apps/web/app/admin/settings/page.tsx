@@ -9,7 +9,7 @@ export default async function SettingsPage() {
 
   const { data: org } = await supabase
     .from("organizations")
-    .select("allowed_domains")
+    .select("allowed_domains, magic_link_requires_allowed_domain")
     .eq("id", session.membership.organization_id)
     .single();
 
@@ -21,6 +21,7 @@ export default async function SettingsPage() {
       />
       <SettingsPanel
         allowedDomains={org?.allowed_domains ?? []}
+        magicLinkRequiresAllowedDomain={org?.magic_link_requires_allowed_domain ?? true}
         canManage={session.membership.role === "org_admin"}
       />
     </div>
