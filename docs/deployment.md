@@ -157,36 +157,71 @@ Either way:
 - Use Node.js 20+ as the Vercel project's Node version (matches
   `package.json`'s `engines.node`).
 
-## 5. Vercel Cron for the retention/lease-expiry sweep
+## 5. Scheduling the retention/lease-expiry sweep
 
 Architecture.md sec 16 describes periodic sweeps (expiring stale approval
 windows/leases per architecture.md sec 13, enforcing file retention per the
-`organization_settings.retention_*` columns) running as Vercel Cron hitting a
-Route Handler — a straightforward idempotent "scan and expire" pass, not a
-queue/workflow system.
+`organization_settings.retention_*` columns) hitting a Route Handler on a
+schedule — a straightforward idempotent "scan and expire" pass, not a
+queue/workflow system. Already implemented: `apps/web/app/api/cron/sweep/route.ts`.
+The route sets `export const maxDuration = 60` and caps each of its selection
+queries at 500 rows per tick (batched updates/inserts/RPCs from there, not
+per-row) so it degrades to partial progress on a big backlog instead of
+timing out — see docs/architecture.md sec 16. It authenticates every caller
+via a shared secret header — `PRINTIO_CRON_SECRET` (set it in your
+environment variables; the route checks
+`Authorization: Bearer <PRINTIO_CRON_SECRET>`) rather than a user session —
+regardless of which of the two schedulers below is calling it.
 
-Already implemented: a Route Handler at `app/api/cron/sweep/route.ts`, invoked by
-a `vercel.json` entry:
+### 5.1 Two layers: Vercel Cron (daily) + GitHub Actions (every 15 minutes)
 
-```json
-{
-  "crons": [
-    { "path": "/api/cron/sweep", "schedule": "*/15 * * * *" }
-  ]
-}
-```
+`job_lease_minutes` defaults to 10, so a sweep that only runs once a day would
+leave a stale lease or approval window sitting for up to 24 hours — not
+acceptable for a system that's supposed to reclaim those promptly. The
+complication: **Vercel's Hobby (free) plan only allows a cron schedule to run
+once per day** — a `vercel.json` entry more frequent than that is rejected at
+deploy time ("Hobby accounts are limited to daily cron jobs"). Upgrading to
+Vercel Pro removes this limit, but this project uses a free alternative
+instead, in two layers:
 
-(every 15 minutes is a reasonable starting cadence given `job_lease_minutes`
-defaults to 10 — adjust once real lease/approval-expiry durations are tuned).
-Vercel Cron authenticates its own requests via a shared secret header -
-`PRINTIO_CRON_SECRET` (add it to your environment variables; the route checks
-`Authorization: Bearer <PRINTIO_CRON_SECRET>`) rather than a user session.
-This is the real, implemented route (`apps/web/app/api/cron/sweep/route.ts`)
-and `vercel.json` cron entry - not a placeholder. The route sets
-`export const maxDuration = 60` and caps each of its selection queries at 500
-rows per tick (batched updates/inserts/RPCs from there, not per-row) so it
-degrades to partial progress on a big backlog instead of timing out - see
-docs/architecture.md sec 16.
+1. **`vercel.json`** (committed, already in the repo) schedules the sweep
+   **once a day**:
+   ```json
+   {
+     "crons": [
+       { "path": "/api/cron/sweep", "schedule": "0 8 * * *" }
+     ]
+   }
+   ```
+   This alone satisfies Hobby's requirement and is enough for `vercel deploy`
+   to succeed. It also acts as a safety net — the sweep still runs at least
+   once a day even if the second layer below is ever paused or misconfigured.
+
+2. **`.github/workflows/cron-sweep.yml`** (committed, already in the repo) is
+   a GitHub Actions scheduled workflow that calls the same route every 15
+   minutes — free, no third-party signup, no cost, using infrastructure this
+   repo already lives in. **Manual step you need to do**: add two repository
+   secrets under **Settings → Secrets and variables → Actions** on the
+   `szv770/printerio` GitHub repo:
+   - `PRINTIO_APP_URL` — your deployment's base URL (e.g.
+     `https://printio.szvtech.org`), no trailing slash.
+   - `PRINTIO_CRON_SECRET` — the exact same value you set for this env var in
+     Vercel.
+
+   Once both secrets exist, the workflow runs automatically on its own
+   schedule; you can also trigger a one-off run immediately from the repo's
+   **Actions** tab (`Cron sweep (15-minute cadence)` → **Run workflow**) to
+   confirm it works right after deploying, rather than waiting for the next
+   scheduled tick. GitHub Actions cron is best-effort (occasional multi-minute
+   delay under high platform load is normal and fine for this use case) and is
+   disabled automatically after 60 days of zero repository activity — not a
+   concern for a repo being actively developed, but worth knowing if this ever
+   goes quiet for a long stretch.
+
+   If you'd rather not depend on GitHub Actions at all (e.g. you later
+   upgrade to Vercel Pro), you can instead change `vercel.json`'s own schedule
+   back to `*/15 * * * *` and remove the GitHub Actions workflow — the route
+   itself doesn't care which scheduler calls it.
 
 ## 6. Post-deploy smoke test
 

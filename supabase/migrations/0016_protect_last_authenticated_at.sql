@@ -6,7 +6,7 @@
 -- that policy (0006_rls_policies.sql) only restricts which ROW a user can
 -- touch (id = auth.uid()), not which columns. reauth.ts's header comment
 -- claimed last_authenticated_at is "set to now() in exactly one place -
--- app/auth/callback/route.ts" - true of Printio/Printio's own server code,
+-- app/auth/callback/route.ts" - true of Printio's own server code,
 -- but false at the database layer: any authenticated browser client could
 -- call supabase.from('profiles').update({ last_authenticated_at: ... }) on
 -- their own row and pass RLS exactly like the legitimate display_name
