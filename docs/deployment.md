@@ -165,8 +165,8 @@ windows/leases per architecture.md sec 13, enforcing file retention per the
 Route Handler — a straightforward idempotent "scan and expire" pass, not a
 queue/workflow system.
 
-Convention to follow once `apps/web` has code: a Route Handler at
-`app/api/cron/sweep/route.ts`, invoked by a `vercel.json` entry such as:
+Already implemented: a Route Handler at `app/api/cron/sweep/route.ts`, invoked by
+a `vercel.json` entry:
 
 ```json
 {
@@ -181,8 +181,6 @@ defaults to 10 — adjust once real lease/approval-expiry durations are tuned).
 Vercel Cron authenticates its own requests via a shared secret header -
 `PRINTOS_CRON_SECRET` (add it to your environment variables; the route checks
 `Authorization: Bearer <PRINTOS_CRON_SECRET>`) rather than a user session.
-This is the real, implemented route (`apps/web/app/api/cron/sweep/route.ts`)
-and `vercel.json` cron entry - not a placeholder.
 
 ## 6. Post-deploy smoke test
 
