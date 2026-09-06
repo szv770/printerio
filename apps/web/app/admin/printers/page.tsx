@@ -1,6 +1,9 @@
+import Link from "next/link";
+import { Wand2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
 import { PageHeader } from "@/components/ui";
+import { routes } from "@/lib/routes";
 import { PrintersPanel } from "./PrintersPanel";
 
 export default async function PrintersPage() {
@@ -17,7 +20,19 @@ export default async function PrintersPage() {
 
   return (
     <div>
-      <PageHeader title="Printers" />
+      <PageHeader
+        title="Printers"
+        action={
+          session.membership.role === "org_admin" && (
+            <Link
+              href={routes.adminPrintersSetup}
+              className="flex items-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-4 py-3 text-sm font-medium text-[var(--color-primary-fg)] hover:opacity-90"
+            >
+              <Wand2 className="h-4 w-4" /> Guided setup wizard
+            </Link>
+          )
+        }
+      />
       <PrintersPanel
         printers={printers ?? []}
         profiles={(profiles ?? []).map(({ printers: _p, ...rest }) => rest)}

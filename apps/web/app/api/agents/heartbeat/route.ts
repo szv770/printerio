@@ -34,6 +34,14 @@ function toPrinterStatus(agentQueueStatus: string | undefined): "unknown" | "onl
  * status/last_status_at. A printer with no matching queue in this report
  * (or no queues reported at all) is simply left untouched, not marked
  * offline - silence isn't the same as a confirmed offline status.
+ *
+ * The raw `queues[]` array is also persisted in full onto
+ * `agents.discovered_queues` (overwritten each heartbeat, not accumulated -
+ * see that column's comment) regardless of whether any queue matches an
+ * existing printer_profile. That's what lets the guided setup wizard
+ * (app/admin/printers/setup) offer a real dropdown of this Agent's actual
+ * Windows queue names when registering a *new* profile, instead of an admin
+ * hand-typing one from memory.
  */
 export async function POST(request: Request) {
   const agent = await authenticateAgentRequest(request);
@@ -47,9 +55,23 @@ export async function POST(request: Request) {
   }
 
   const supabase = createServiceRoleClient();
+  const nowIso = new Date().toISOString();
+
+  // discovered_queues is only ever overwritten wholesale here, mirroring the
+  // last_seen_at/version update-in-place style on this same row - it reflects
+  // "what this Agent reported most recently," never a growing history. A
+  // heartbeat with no queues[] (or an empty array) leaves it untouched -
+  // silence isn't the same as "this Agent now sees zero queues" (see
+  // supabase/migrations/0018_agents_discovered_queues.sql).
   const { error } = await supabase
     .from("agents")
-    .update({ last_seen_at: new Date().toISOString(), version: body.version ?? null })
+    .update({
+      last_seen_at: nowIso,
+      version: body.version ?? null,
+      ...(body.queues && body.queues.length > 0
+        ? { discovered_queues: body.queues.map((q) => ({ ...q, reportedAt: nowIso })) }
+        : {}),
+    })
     .eq("id", agent.id);
   if (error) return apiError(500, "internal_error", "Failed to record heartbeat.");
 
@@ -59,7 +81,6 @@ export async function POST(request: Request) {
       .select("printer_id, windows_queue_name")
       .eq("agent_id", agent.id);
 
-    const nowIso = new Date().toISOString();
     for (const queue of body.queues) {
       const profile = profiles?.find((p) => p.windows_queue_name === queue.windowsQueueName);
       if (!profile) continue; // queue not yet registered as a printer_profile - nothing to update

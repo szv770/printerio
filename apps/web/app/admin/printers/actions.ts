@@ -1,11 +1,13 @@
 "use server";
 
+import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
 import { issueRemoteCommand } from "@/lib/remote-commands";
 import { isPrinterProfileIconKey } from "@/lib/printer-profile-icons";
+import type { TablesInsert } from "@/lib/database.types";
 
 export interface PrinterActionState {
   error?: string;
@@ -146,4 +148,130 @@ export async function restartPrintQueueAction(_prev: PrinterActionState, formDat
 
   revalidatePath(routes.adminPrinters);
   return {};
+}
+
+/** One recipe card submitted from the guided setup wizard's Step 3
+ *  (app/admin/printers/setup) - the client-side shape of
+ *  lib/printer-setup-wizard.ts's `RecipeCard`, plus the real Windows queue
+ *  name the admin picked for it from that Agent's discovered_queues. */
+interface WizardRecipeCardInput {
+  key: string;
+  label: string;
+  description: string;
+  iconKey: string;
+  declaredCapabilities: { duplex: boolean; color: boolean; staple: boolean; booklet: boolean; punch: boolean };
+  bookletBindingSide: "left" | "right";
+  windowsQueueName: string;
+}
+
+/**
+ * Finishes the guided setup wizard (app/admin/printers/setup, Step 3):
+ * creates one printer_profiles row per recipe card in a single batch insert,
+ * all targeting the same printer + agent chosen in that step. Thin wrapper
+ * around the exact same validation/authorization/insert shape
+ * `createPrinterProfileAction` already uses above - duplicated rather than
+ * looped-called because a single multi-row insert is one atomic statement
+ * (all cards succeed or none do, e.g. on a duplicate `key` collision),
+ * where N separate single-row calls would not be.
+ *
+ * Never trusts the client-supplied organization_id - both printerId and
+ * agentId are re-checked against the caller's own org before anything is
+ * written (same defense-in-depth as createPrinterProfileAction).
+ */
+export async function createPrinterProfilesFromWizardAction(_prev: PrinterActionState, formData: FormData): Promise<PrinterActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const orgId = session.membership.organization_id;
+
+  const printerId = String(formData.get("printerId") ?? "");
+  const newPrinterName = String(formData.get("newPrinterName") ?? "").trim();
+  const agentId = String(formData.get("agentId") ?? "");
+  const cardsRaw = String(formData.get("cardsJson") ?? "");
+
+  if (!agentId) return { error: "Choose which Agent's machine these queues live on." };
+  if (!printerId && !newPrinterName) return { error: "Choose a printer, or name the new one." };
+
+  let cards: WizardRecipeCardInput[];
+  try {
+    cards = JSON.parse(cardsRaw);
+    if (!Array.isArray(cards) || cards.length === 0) throw new Error("empty");
+  } catch {
+    return { error: "No recipe cards to save - go back to Step 1 and pick at least one profile type." };
+  }
+
+  const supabase = await createClient();
+
+  const { data: agent } = await supabase.from("agents").select("organization_id, discovered_queues").eq("id", agentId).maybeSingle();
+  if (!agent || agent.organization_id !== orgId) return { error: "Agent not found in your organization." };
+
+  const discoveredQueueNames = new Set(
+    (Array.isArray(agent.discovered_queues) ? agent.discovered_queues : [])
+      .map((q) => (q && typeof q === "object" && "windowsQueueName" in q ? String((q as { windowsQueueName?: unknown }).windowsQueueName) : null))
+      .filter((n): n is string => !!n),
+  );
+
+  let resolvedPrinterId = printerId;
+  if (!resolvedPrinterId) {
+    if (!newPrinterName) return { error: "Name is required for a new printer." };
+    const { data: newPrinter, error: printerError } = await supabase
+      .from("printers")
+      .insert({ organization_id: orgId, name: newPrinterName })
+      .select("id")
+      .single();
+    if (printerError || !newPrinter) return { error: printerError?.message ?? "Failed to create printer." };
+    resolvedPrinterId = newPrinter.id;
+  } else {
+    const { data: printer } = await supabase.from("printers").select("organization_id").eq("id", resolvedPrinterId).maybeSingle();
+    if (printer?.organization_id !== orgId) return { error: "Printer not found in your organization." };
+  }
+
+  const rows: TablesInsert<"printer_profiles">[] = [];
+  for (const card of cards) {
+    const key = String(card.key ?? "").trim();
+    const label = String(card.label ?? "").trim();
+    const windowsQueueName = String(card.windowsQueueName ?? "").trim();
+    if (!key || !label || !windowsQueueName) {
+      return { error: `Every recipe card needs a key, label, and a chosen Windows queue (missing for "${label || key || "a card"}").` };
+    }
+    if (!/^[a-z0-9_]+$/.test(key)) return { error: `Key "${key}" must be lowercase letters, numbers, underscores only.` };
+    if (discoveredQueueNames.size > 0 && !discoveredQueueNames.has(windowsQueueName)) {
+      // Defense in depth - the Step 3 <select> only ever offers queues this
+      // Agent actually reported, so this only fires against a tampered
+      // request. If the Agent has reported nothing at all yet,
+      // discoveredQueueNames is empty and this check is skipped rather than
+      // blocking every submission - Step 3's own UI is what stops that case
+      // (docs/printer-setup.md link + "no queues discovered yet" messaging),
+      // not this server-side guard.
+      return { error: `"${windowsQueueName}" isn't a queue this Agent has reported - refresh Step 3 and pick again.` };
+    }
+    const iconKeyRaw = String(card.iconKey ?? "").trim();
+    if (iconKeyRaw && !isPrinterProfileIconKey(iconKeyRaw)) return { error: "Not a recognized icon." };
+    const bindingSide = card.bookletBindingSide === "right" ? "right" : "left";
+
+    rows.push({
+      printer_id: resolvedPrinterId,
+      agent_id: agentId,
+      key,
+      label,
+      description: String(card.description ?? "").trim() || null,
+      icon_key: iconKeyRaw || null,
+      windows_queue_name: windowsQueueName,
+      declared_paper_sizes: ["letter"],
+      declared_capabilities: {
+        duplex: !!card.declaredCapabilities?.duplex,
+        color: !!card.declaredCapabilities?.color,
+        staple: !!card.declaredCapabilities?.staple,
+        booklet: !!card.declaredCapabilities?.booklet,
+        punch: !!card.declaredCapabilities?.punch,
+      },
+      booklet_binding_side: bindingSide,
+      is_default: false,
+    });
+  }
+
+  const { error } = await supabase.from("printer_profiles").insert(rows);
+  if (error) return { error: error.message };
+
+  revalidatePath(routes.adminPrinters);
+  revalidatePath(routes.adminPrintersSetup);
+  redirect(routes.adminPrinters);
 }

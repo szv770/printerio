@@ -49,8 +49,15 @@ Body:
 }
 ```
 Updates `agents.last_seen_at`, `agents.version`. `queues` is informational (printer
-discovery reporting, sec 11/38) - admins cross-check it against configured
-`printer_profiles` in the dashboard; it does not auto-create profiles.
+discovery reporting, sec 11/38) - it does not auto-create profiles. Two things happen with
+it: (1) any queue that matches an existing `printer_profiles.windows_queue_name` for this
+agent updates that printer's `status`/`last_status_at`; (2) the full raw array (plus a
+server-set `reportedAt` per entry) is written to `agents.discovered_queues`, overwritten in
+full each heartbeat that includes queues (never accumulated - it reflects only the most
+recent report). The guided setup wizard (`app/admin/printers/setup`) reads
+`discovered_queues` to populate a real dropdown of this agent's Windows queue names instead
+of an admin hand-typing one. A heartbeat with no `queues` (or an empty array) leaves both
+untouched - silence isn't the same as "this agent now sees zero queues."
 Response: `{ "ok": true, "serverTime": "<ISO>" }`.
 
 ### `GET /api/agents/jobs/claimable`
