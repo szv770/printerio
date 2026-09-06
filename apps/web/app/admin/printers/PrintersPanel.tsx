@@ -217,30 +217,81 @@ function NewProfileForm({
   const [state, formAction, pending] = useActionState(createPrinterProfileAction, initialPrinterActionState);
 
   return (
-    <form action={formAction} className="mt-3 grid grid-cols-2 gap-2 rounded-lg border border-[var(--color-border)] p-3 text-sm">
+    <form action={formAction} className="mt-3 grid grid-cols-2 gap-3 rounded-lg border border-[var(--color-border)] p-3 text-sm">
       <input type="hidden" name="printerId" value={printerId} />
-      <Input name="key" placeholder="key (e.g. booklet_saddle)" required />
-      <Input name="label" placeholder="Label (e.g. Booklet + Staple)" required />
-      <Input name="windowsQueueName" placeholder="Windows queue name" required className="col-span-2" />
-      <Input name="paperSizes" placeholder="letter,a4,11x17" className="col-span-2" />
-      <Select name="agentId" required className="col-span-2">
-        <option value="">Choose the agent that owns this queue…</option>
-        {agents.map((a) => (
-          <option key={a.id} value={a.id}>
-            {a.name}
-          </option>
-        ))}
-      </Select>
-      <div className="col-span-2 flex flex-wrap gap-3">
-        {(["duplex", "color", "staple", "booklet", "punch"] as const).map((cap) => (
-          <label key={cap} className="flex items-center gap-1">
-            <input type="checkbox" name={cap} /> {cap}
-          </label>
-        ))}
-        <label className="flex items-center gap-1">
-          <input type="checkbox" name="isDefault" /> default
-        </label>
+
+      <p className="col-span-2 text-xs text-[var(--color-muted)]">
+        One profile per Windows print queue. Set up the queue itself first (driver, finishing
+        defaults) per <code>docs/printer-setup.md</code> - this form just registers a queue
+        that already exists, it doesn&apos;t create one.
+      </p>
+
+      <div>
+        <FieldLabel htmlFor="profileKey" hint="internal only, never shown to students">
+          Key
+        </FieldLabel>
+        <Input id="profileKey" name="key" placeholder="booklet_saddle" required />
       </div>
+      <div>
+        <FieldLabel htmlFor="profileLabel" hint="what students see in the printer list">
+          Label
+        </FieldLabel>
+        <Input id="profileLabel" name="label" placeholder="Booklet + Staple" required />
+      </div>
+
+      <div className="col-span-2">
+        <FieldLabel
+          htmlFor="profileQueueName"
+          hint="must exactly match the queue name in Windows on that machine - case-sensitive"
+        >
+          Windows queue name
+        </FieldLabel>
+        <Input id="profileQueueName" name="windowsQueueName" placeholder="Kyocera_Main_Booklet" required />
+        <p className="mt-1 text-xs text-[var(--color-muted)]">
+          On the Agent&apos;s Windows machine: Devices and Printers → right-click the queue →
+          Printer properties → the name at the top. Copy it exactly - a typo here means the
+          Agent can never find this queue.
+        </p>
+      </div>
+
+      <div className="col-span-2">
+        <FieldLabel htmlFor="profilePaperSizes" hint="comma-separated, matches what the driver's Printing Defaults offer">
+          Paper sizes
+        </FieldLabel>
+        <Input id="profilePaperSizes" name="paperSizes" placeholder="letter,a4,11x17" />
+      </div>
+
+      <div className="col-span-2">
+        <FieldLabel htmlFor="profileAgentId" hint="which registered Agent's machine this Windows queue lives on">
+          Agent
+        </FieldLabel>
+        <Select id="profileAgentId" name="agentId" required>
+          <option value="">Choose the agent that owns this queue…</option>
+          {agents.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </Select>
+      </div>
+
+      <div className="col-span-2">
+        <FieldLabel hint="check only what this queue's own Printing Defaults actually do (docs/printer-setup.md §3) - PrintOS never programs these itself, it only ever picks which queue to use">
+          Capabilities
+        </FieldLabel>
+        <div className="flex flex-wrap gap-3">
+          {(["duplex", "color", "staple", "booklet", "punch"] as const).map((cap) => (
+            <label key={cap} className="flex items-center gap-1">
+              <input type="checkbox" name={cap} /> {cap}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <label className="col-span-2 flex items-center gap-1">
+        <input type="checkbox" name="isDefault" /> Pre-select this profile in the print form
+      </label>
+
       <div className="col-span-2">
         <Button type="submit" size="sm" pending={pending} pendingLabel="Saving..." className="w-full">
           Save profile
