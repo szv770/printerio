@@ -4,6 +4,7 @@ import { requireOrgRole } from "@/lib/auth/session";
 import { PageHeader, Card, Badge, EmptyState } from "@/components/ui";
 import { jobStatusDisplay } from "@/lib/job-status-labels";
 import { currentPeriod } from "@/lib/quota";
+import { ExportCsvButton } from "./ExportCsvButton";
 import {
   aggregateByUser,
   aggregateByDepartment,
@@ -128,7 +129,20 @@ export default async function ReportsPage() {
       </div>
 
       <Card>
-        <h2 className="mb-3 font-medium">Recently denied / failed</h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="font-medium">Recently denied / failed</h2>
+          {rejectedFailed.length > 0 && (
+            <ExportCsvButton
+              filename="recently-denied-failed"
+              columns={["User", "Status", "Date"]}
+              rows={rejectedFailed.map((j) => [
+                labelByUser.get(j.createdBy) ?? j.createdBy,
+                jobStatusDisplay(j.status).label,
+                new Date(j.createdAt).toLocaleDateString(),
+              ])}
+            />
+          )}
+        </div>
         {rejectedFailed.length === 0 ? (
           <EmptyState message="No denied or failed jobs in this window." icon={Info} />
         ) : (
@@ -155,7 +169,16 @@ export default async function ReportsPage() {
       </Card>
 
       <Card>
-        <h2 className="mb-3 font-medium">By user ({JOB_WINDOW_DAYS}d)</h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="font-medium">By user ({JOB_WINDOW_DAYS}d)</h2>
+          {byUser.length > 0 && (
+            <ExportCsvButton
+              filename="by-user"
+              columns={["User", "Jobs", "Sheets"]}
+              rows={byUser.map((r) => [r.label, String(r.jobCount), String(r.sheets)])}
+            />
+          )}
+        </div>
         {byUser.length === 0 ? (
           <EmptyState message="No jobs in this window." icon={Info} />
         ) : (
@@ -168,7 +191,16 @@ export default async function ReportsPage() {
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <Card>
-          <h2 className="mb-3 font-medium">By department ({JOB_WINDOW_DAYS}d)</h2>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="font-medium">By department ({JOB_WINDOW_DAYS}d)</h2>
+            {byDepartment.length > 0 && (
+              <ExportCsvButton
+                filename="by-department"
+                columns={["Department", "Jobs", "Sheets"]}
+                rows={byDepartment.map((r) => [r.label, String(r.jobCount), String(r.sheets)])}
+              />
+            )}
+          </div>
           {byDepartment.length === 0 ? (
             <EmptyState message="No department-tagged jobs in this window." icon={Info} />
           ) : (
@@ -180,7 +212,16 @@ export default async function ReportsPage() {
         </Card>
 
         <Card>
-          <h2 className="mb-3 font-medium">By printer ({JOB_WINDOW_DAYS}d)</h2>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="font-medium">By printer ({JOB_WINDOW_DAYS}d)</h2>
+            {byPrinter.length > 0 && (
+              <ExportCsvButton
+                filename="by-printer"
+                columns={["Printer", "Jobs", "Sheets"]}
+                rows={byPrinter.map((r) => [r.label, String(r.jobCount), String(r.sheets)])}
+              />
+            )}
+          </div>
           {byPrinter.length === 0 ? (
             <EmptyState message="No jobs in this window." icon={Info} />
           ) : (
@@ -196,7 +237,22 @@ export default async function ReportsPage() {
         <summary className="cursor-pointer font-medium">Full history: pages by month &amp; color usage</summary>
         <div className="mt-4 flex flex-col gap-6">
           <div>
-            <h2 className="mb-3 font-medium">Pages by month</h2>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="font-medium">Pages by month</h2>
+              {pagesByMonth.length > 0 && (
+                <ExportCsvButton
+                  filename="pages-by-month"
+                  columns={["Month", "PDF pages", "Printed sides", "Physical sheets", "Color-weighted"]}
+                  rows={pagesByMonth.map((m) => [
+                    m.period,
+                    String(m.pdfPages),
+                    String(m.printedSides),
+                    String(m.physicalSheets),
+                    String(m.colorWeighted),
+                  ])}
+                />
+              )}
+            </div>
             {pagesByMonth.length === 0 ? (
               <EmptyState message="No usage recorded yet." icon={Info} />
             ) : (
@@ -213,7 +269,17 @@ export default async function ReportsPage() {
             )}
           </div>
           <div>
-            <h2 className="mb-3 font-medium">Color usage ({JOB_WINDOW_DAYS}d)</h2>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="font-medium">Color usage ({JOB_WINDOW_DAYS}d)</h2>
+              <ExportCsvButton
+                filename="color-usage"
+                columns={["Mode", "Jobs", "Sheets"]}
+                rows={[
+                  ["Color", String(colorUsage.color.jobCount), String(colorUsage.color.sheets)],
+                  ["Black & white", String(colorUsage.bw.jobCount), String(colorUsage.bw.sheets)],
+                ]}
+              />
+            </div>
             <ReportTable
               columns={["Mode", "Jobs", "Sheets"]}
               rows={[
