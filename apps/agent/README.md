@@ -139,6 +139,36 @@ To remove it:
 pnpm --filter @printos/agent uninstall-service
 ```
 
+## Poll loop and outage backoff
+
+Heartbeat, remote commands, and claimable jobs are all polled on the same cycle, every
+`PRINTOS_POLL_INTERVAL_SECONDS` (default 15s) - see `src/orchestrator.ts` `runOnce()`. Each of
+those three calls already gets its own exponential-backoff retry inside `src/cloud-client.ts`
+(`sendWithRetry`, `MAX_RETRIES=4`) before it's considered failed for that cycle; that per-request
+layer is unrelated to and unaffected by everything below.
+
+On top of that, the outer loop tracks **consecutive full-cycle failures** - a cycle where
+heartbeat, commands, *and* claimable-jobs *all* failed to reach the cloud (a single flaky
+endpoint while the other two succeed doesn't count; see `CycleOutcome` in `orchestrator.ts`).
+Each additional such cycle doubles the next sleep, capped at `PRINTOS_MAX_POLL_INTERVAL_SECONDS`
+(default 300s/5 minutes), and a single fully-successful cycle snaps the interval straight back to
+`PRINTOS_POLL_INTERVAL_SECONDS` - no gradual ramp-down. This exists so a sustained cloud outage
+doesn't have every Agent across every org hammering the backend at the same fixed 15s cadence for
+the whole outage (flagged by an earlier infra-scalability review). A healthy Agent's cadence is
+completely unaffected - the backoff only ever engages once a cycle has actually failed entirely.
+
+The agent also adds a **one-time startup jitter** - a random extra 0-`PRINTOS_POLL_INTERVAL_
+SECONDS` delay before its very first sleep only (never before the first heartbeat, which still
+fires immediately on start) - so a fleet of Agents that boot in lockstep (e.g. a nightly Group
+Policy reboot restarting many machines at once) doesn't stay phase-locked on every later cycle
+too. For the default 15s interval this is a minor one-time cost (up to 15s added to the gap
+between the first and second poll only); it's a deliberate tradeoff, not a bug, if you notice the
+second poll arriving later than expected.
+
+The doubling/capping math is a pure function (`computeNextPollDelayMs` in `orchestrator.ts`),
+unit tested in `test/orchestrator.test.ts` the same way `job-queue.ts`'s helpers and
+`commands.ts`'s allow-list are.
+
 ## Logs
 
 Written to `<PRINTOS_LOCAL_STORAGE_PATH>/logs/agent-<YYYY-MM-DD>.log` (JSON lines, one per

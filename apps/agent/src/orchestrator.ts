@@ -40,6 +40,78 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Outcome of one `runOnce()` cycle, in terms of the three cloud-touching
+ * sub-polls it runs (heartbeat, commands, claimable jobs) - each of which is
+ * already independently retried by cloud-client.ts's `sendWithRetry`, so by
+ * the time any of them reports failure here, that per-request retry budget
+ * is already exhausted.
+ *
+ * - "success": all three reached the cloud.
+ * - "failure": all three failed to reach the cloud - this is the "the whole
+ *   backend is unreachable" case (sustained outage, agent's own network
+ *   down, DNS gone, etc), and is the ONLY outcome that escalates the outer
+ *   poll interval (see computeNextPollDelayMs). A single endpoint being
+ *   flaky while the other two succeed is deliberately NOT treated the same
+ *   as a total outage - e.g. heartbeat and claimable-jobs succeeding while
+ *   only the commands poll 5xx's once in a while is a partial, likely
+ *   transient, condition that cloud-client.ts's own per-request retries
+ *   already absorb most of; escalating the whole fleet's cadence over that
+ *   would be overreacting to noise instead of a real outage.
+ * - "partial": some succeeded and some failed - holds the current backoff
+ *   state steady (neither escalates further nor resets to the base
+ *   interval) until a cycle resolves fully one way or the other.
+ */
+export type CycleOutcome = "success" | "partial" | "failure";
+
+/** Classifies a cycle from its three sub-poll results. Exported for unit testing in isolation from the real network/heartbeat/printer plumbing. */
+export function classifyCycleOutcome(results: readonly boolean[]): CycleOutcome {
+  if (results.every((ok) => ok)) return "success";
+  if (results.every((ok) => !ok)) return "failure";
+  return "partial";
+}
+
+/**
+ * Updates the consecutive-full-cycle-failure counter given this cycle's
+ * outcome. A "failure" cycle increments it (driving computeNextPollDelayMs's
+ * doubling further); a "success" cycle resets it to 0 immediately (no
+ * gradual ramp-down - the instant the cloud is reachable again, the agent
+ * snaps straight back to its normal configured cadence); a "partial" cycle
+ * leaves it untouched, holding whatever backoff level was already in effect.
+ */
+export function nextConsecutiveFailures(outcome: CycleOutcome, current: number): number {
+  if (outcome === "failure") return current + 1;
+  if (outcome === "success") return 0;
+  return current;
+}
+
+/**
+ * Pure computation of the outer poll loop's next sleep duration (ms) given
+ * how many consecutive full-cycle failures have just occurred.
+ *
+ * - 0 failures -> exactly `baseIntervalSeconds` (today's unchanged happy-path
+ *   cadence - this function must be a no-op for a healthy Agent).
+ * - Each additional consecutive failure doubles the delay from there
+ *   (1 -> x2, 2 -> x4, 3 -> x8, ...), capped at `maxIntervalSeconds` so a
+ *   long outage never pushes an Agent out to some absurd multi-hour sleep it
+ *   can't be nudged out of short of a restart.
+ *
+ * Exported standalone (no cloud-client/health-monitor/logger dependency) so
+ * it can be unit tested the way job-queue.ts's `moreAdvancedState` and
+ * commands.ts's allow-list are - see test/orchestrator.test.ts.
+ */
+export function computeNextPollDelayMs(
+  consecutiveFailures: number,
+  baseIntervalSeconds: number,
+  maxIntervalSeconds: number,
+): number {
+  const baseMs = baseIntervalSeconds * 1000;
+  if (consecutiveFailures <= 0) return baseMs;
+  const maxMs = maxIntervalSeconds * 1000;
+  const scaledMs = baseMs * 2 ** consecutiveFailures;
+  return Math.min(scaledMs, maxMs);
+}
+
 /** Strips any directory component from a cloud-supplied file name before it ever touches a local path - defense in depth against a malformed/hostile fileName. */
 function sanitizeFileName(fileName: string): string {
   const base = path.basename(fileName).replace(/[^A-Za-z0-9._-]/g, "_");
@@ -299,7 +371,15 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     }
   }
 
-  async function pollClaimableJobs(): Promise<void> {
+  /**
+   * Returns `true` iff the claimable-jobs fetch itself reached the cloud
+   * (regardless of what, if anything, happened to individual jobs
+   * afterwards - a claim conflict or a single job's failure is not a cloud
+   * connectivity problem, and per-job failures are already fully reported
+   * via processJob's own catch-all). Returns `false` only when
+   * `getClaimableJobs()` itself failed after cloud-client.ts's own retries.
+   */
+  async function pollClaimableJobs(): Promise<boolean> {
     let jobs: ClaimableJob[];
     try {
       jobs = await cloudClient.getClaimableJobs();
@@ -307,14 +387,22 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       logger.warn("could not fetch claimable jobs this cycle", {
         error: err instanceof Error ? err.message : String(err),
       });
-      return;
+      return false;
     }
     for (const job of jobs) {
       await processJob(job);
     }
+    return true;
   }
 
-  async function pollCommands(): Promise<void> {
+  /**
+   * Returns `true` iff the commands fetch itself reached the cloud (an
+   * individual command handler throwing is already caught and acked as
+   * `failed` below - that's not a connectivity problem either). Returns
+   * `false` only when `getCommands()` itself failed after cloud-client.ts's
+   * own retries.
+   */
+  async function pollCommands(): Promise<boolean> {
     let commands;
     try {
       commands = await cloudClient.getCommands();
@@ -322,7 +410,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       logger.warn("could not fetch remote commands this cycle", {
         error: err instanceof Error ? err.message : String(err),
       });
-      return;
+      return false;
     }
     for (const envelope of commands) {
       try {
@@ -332,7 +420,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           printerManager,
           jobQueue,
           logger,
-          refreshHeartbeatNow: () => healthMonitor.sendHeartbeat(),
+          refreshHeartbeatNow: () => healthMonitor.sendHeartbeat().then(() => undefined),
           scheduleServiceRestart: () => {
             restartRequested = true;
           },
@@ -358,26 +446,92 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       await sleep(1000);
       process.exit(1);
     }
+    return true;
   }
 
-  async function runOnce(): Promise<void> {
-    await healthMonitor.sendHeartbeat().catch((err) => logger.error("unexpected heartbeat error", { error: String(err) }));
-    await pollCommands().catch((err) => logger.error("unexpected command-poll error", { error: String(err) }));
-    await pollClaimableJobs().catch((err) => logger.error("unexpected job-poll error", { error: String(err) }));
+  /**
+   * Runs the three polled sub-calls (heartbeat, commands, claimable jobs)
+   * and classifies the cycle as a whole (see CycleOutcome doc comment).
+   * None of the three sub-calls ever throws by contract, but each is still
+   * wrapped in its own `.catch()` here as defense in depth (docs/
+   * architecture.md sec 17: this loop must never die from an unexpected
+   * exception) - a caught-here exception counts the same as that sub-call
+   * reporting `false`.
+   */
+  async function runOnce(): Promise<CycleOutcome> {
+    const heartbeatOk = await healthMonitor
+      .sendHeartbeat()
+      .catch((err) => {
+        logger.error("unexpected heartbeat error", { error: String(err) });
+        return false;
+      });
+    const commandsOk = await pollCommands().catch((err) => {
+      logger.error("unexpected command-poll error", { error: String(err) });
+      return false;
+    });
+    const claimableOk = await pollClaimableJobs().catch((err) => {
+      logger.error("unexpected job-poll error", { error: String(err) });
+      return false;
+    });
+    return classifyCycleOutcome([heartbeatOk, commandsOk, claimableOk]);
   }
 
   return {
     async start(): Promise<void> {
-      logger.info("agent starting", { pollIntervalSeconds: config.pollIntervalSeconds });
+      logger.info("agent starting", {
+        pollIntervalSeconds: config.pollIntervalSeconds,
+        maxPollIntervalSeconds: config.maxPollIntervalSeconds,
+      });
       await recoverInFlightJobs().catch((err) =>
         logger.error("startup reconciliation of in-flight jobs failed - continuing anyway", {
           error: err instanceof Error ? err.message : String(err),
         }),
       );
 
+      let consecutiveFailures = 0;
+      // One-time-only startup jitter (see computeNextPollDelayMs/start() doc
+      // comment above the loop): applied to exactly the first sleep, so a
+      // fleet of Agents that all boot at the same instant (a synchronized
+      // Group Policy reboot, say) don't stay phase-locked on every later
+      // cycle too - without ever delaying the very first heartbeat itself,
+      // which still fires immediately below like it always has.
+      let appliedStartupJitter = false;
+
       while (!stopped) {
-        await runOnce();
-        await sleep(config.pollIntervalSeconds * 1000);
+        const outcome = await runOnce();
+        const previousConsecutiveFailures = consecutiveFailures;
+        consecutiveFailures = nextConsecutiveFailures(outcome, consecutiveFailures);
+
+        if (outcome === "success" && previousConsecutiveFailures > 0) {
+          logger.info("cloud cycle fully succeeded - resetting outer poll interval to the configured base", {
+            previousConsecutiveFailures,
+            pollIntervalSeconds: config.pollIntervalSeconds,
+          });
+        }
+
+        let delayMs = computeNextPollDelayMs(
+          consecutiveFailures,
+          config.pollIntervalSeconds,
+          config.maxPollIntervalSeconds,
+        );
+
+        if (outcome === "failure") {
+          logger.warn("cloud cycle failed entirely (heartbeat, commands, and claimable-jobs all unreachable) - backing off the outer poll interval", {
+            consecutiveFailures,
+            nextPollDelayMs: delayMs,
+          });
+        }
+
+        if (!appliedStartupJitter) {
+          appliedStartupJitter = true;
+          const jitterMs = Math.floor(Math.random() * config.pollIntervalSeconds * 1000);
+          logger.info("adding one-time startup jitter before the first poll sleep - avoids a synchronized fleet reboot staying phase-locked on every later cycle", {
+            jitterMs,
+          });
+          delayMs += jitterMs;
+        }
+
+        await sleep(delayMs);
       }
     },
     stop(): void {
