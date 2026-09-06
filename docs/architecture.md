@@ -42,6 +42,21 @@ The **cloud never talks to the printer**. It talks to Postgres/Storage. The Agen
 only thing that talks to Windows, and Windows (via the installed KX driver) is the only
 thing that talks to the Kyocera device. This is non-negotiable — see §7.
 
+**Why this shape specifically fits a locked-down campus network.** This system exists
+because the alternative — a student's own device joining the same network segment as the
+printer — isn't available here: the campus wifi sits behind a captive portal with access
+codes that rotate periodically, and the printers live on a separate, wifi-isolated Ethernet
+network for security reasons IT controls, not PrintOS. Nothing in this architecture needs
+that to change. The Agent only ever makes *outbound* HTTPS calls to the cloud (poll for
+jobs, never a listener — see docs/agent-api.md, and §11's reconciliation model), so it
+needs no inbound firewall rule and no VPN into the isolated segment; it just needs to be a
+machine that already has a leg on both networks — reachable from the internet (or the
+regular campus network) to poll the cloud, *and* on the same Ethernet segment as the
+printers to submit to their Windows queues. A browser on the wifi side never needs to
+reach the printer network at all — it only ever talks to the cloud, exactly like any other
+web app. The captive portal's own login/code-rotation is therefore someone's daily hassle
+getting *onto* wifi, not a blocker to printing once they're on it.
+
 ## 2. Multi-tenancy & authentication
 
 ### 2.1 Organization membership model
