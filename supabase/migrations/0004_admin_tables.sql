@@ -1,4 +1,4 @@
--- PrintOS: security-sensitive admin audit log + the remote-command allowlist.
+-- Printio: security-sensitive admin audit log + the remote-command allowlist.
 -- See docs/architecture.md sec 12 (no arbitrary remote command execution).
 
 create table audit_logs (

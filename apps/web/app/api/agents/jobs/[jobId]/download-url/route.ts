@@ -2,7 +2,7 @@ import { apiError } from "@/lib/api-errors";
 import { authenticateAgentRequest } from "@/lib/agent-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { PRINT_JOBS_BUCKET } from "@/lib/storage";
-import type { ResolvedPrintRequest } from "@printos/shared";
+import type { ResolvedPrintRequest } from "@printio/shared";
 
 const SIGNED_URL_TTL_SECONDS = 300;
 
@@ -73,12 +73,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
     duplex: job.duplex,
     paperSize: job.paper_size,
     finishing,
-    // PrintOS has already imposed and independently scaled a booklet job's
+    // Printio has already imposed and independently scaled a booklet job's
     // pages to the exact target sheet size - request the driver print it at
     // 100%, never fit/shrink (which would re-scale an already-correct page
     // and undo the whole point of doing our own imposition). Every other
     // job type is left unset, so the Agent falls back to its own
-    // PRINTOS_PRINT_FIT_MODE default (apps/agent/src/config.ts) exactly as
+    // PRINTIO_PRINT_FIT_MODE default (apps/agent/src/config.ts) exactly as
     // before - see apps/agent/src/orchestrator.ts.
     ...(finishing.booklet ? { fitMode: "noscale" as const } : {}),
   };

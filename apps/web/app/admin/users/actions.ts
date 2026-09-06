@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
-import type { OrgRole } from "@printos/shared";
+import type { OrgRole } from "@printio/shared";
 
 export interface InviteState {
   error?: string;

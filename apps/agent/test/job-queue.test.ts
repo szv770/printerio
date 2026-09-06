@@ -33,7 +33,7 @@ describe("createJobQueue", () => {
   let dir: string;
 
   beforeEach(() => {
-    dir = mkdtempSync(path.join(os.tmpdir(), "printos-agent-test-"));
+    dir = mkdtempSync(path.join(os.tmpdir(), "printio-agent-test-"));
   });
 
   afterEach(() => {

@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: { default: "PrintOS", template: "%s · PrintOS" },
+  title: { default: "Printio", template: "%s · Printio" },
   description: "Print management for schools and organizations.",
 };
 

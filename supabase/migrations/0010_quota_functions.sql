@@ -1,4 +1,4 @@
--- PrintOS: atomic quota reserve/release/consume.
+-- Printio: atomic quota reserve/release/consume.
 -- See docs/architecture.md sec 14 - a single UPDATE ... WHERE <limit check>
 -- is atomic per-row in Postgres, so two concurrent submissions from the same
 -- user cannot both read a stale "under quota" snapshot and both succeed: the

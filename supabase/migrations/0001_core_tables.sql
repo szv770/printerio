@@ -1,4 +1,4 @@
--- PrintOS: organizations, membership, profiles, invitations, groups.
+-- Printio: organizations, membership, profiles, invitations, groups.
 -- See docs/architecture.md sec 2 for the auth/bootstrap model.
 
 create table organizations (

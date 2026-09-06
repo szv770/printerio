@@ -2,7 +2,7 @@ import { apiError } from "@/lib/api-errors";
 import { authenticateAgentRequest } from "@/lib/agent-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { adjustMonthlyUsage } from "@/lib/quota";
-import { canTransition, type JobState } from "@printos/shared";
+import { canTransition, type JobState } from "@printio/shared";
 import type { TablesUpdate } from "@/lib/database.types";
 
 const REPORTABLE_STATUSES: JobState[] = ["downloaded", "printing", "submitted_to_spooler", "completed", "failed"];

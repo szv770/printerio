@@ -1,4 +1,4 @@
-# Printer setup: Kyocera KX driver, Windows queues, and PrintOS profiles
+# Printer setup: Kyocera KX driver, Windows queues, and Printio profiles
 
 This is the doc that gets a real printer working end to end. The target device
 for this build is a **Kyocera TASKalfa MZ2501ci** — a genuine, current A3 color
@@ -17,33 +17,33 @@ entirely inside the driver's Windows GUI: either the KX driver's own "Profiles"/
 Favorites quick-set feature, or an administrator-set per-queue "Printing
 Defaults." See [architecture.md sec 9](./architecture.md#9-printer-profiles--the-driverfinishing-architecture)
 and [known-limitations.md](./known-limitations.md) for the full rationale — this
-isn't a workaround PrintOS invented, it's the pattern Kyocera's own tooling
+isn't a workaround Printio invented, it's the pattern Kyocera's own tooling
 (including Kyocera Net Viewer for bulk deployment) assumes.
 
-**Consequence:** PrintOS never tries to program finishing options at print
+**Consequence:** Printio never tries to program finishing options at print
 time. Instead, an administrator creates **one Windows printer queue per
 finishing profile** (e.g. a plain-duplex queue, a stapled queue, a booklet
 queue), bakes the desired finishing behavior into each queue's saved Printing
-Defaults once, and PrintOS's Agent only ever picks *which queue* to send a job
+Defaults once, and Printio's Agent only ever picks *which queue* to send a job
 to (architecture.md sec 9–10). What the Agent *can* control per job via
 SumatraPDF is the generic, cross-driver-safe subset: page range, color/
 monochrome, duplex mode, fit/scale, collate, paper source/size, and copy count
 — never staple/punch, and never the driver's own page-imposition feature.
 
 **One important exception, added since this doc was first written: booklet
-*page layout* specifically.** PrintOS now does its own N-up saddle-stitch
+*page layout* specifically.** Printio now does its own N-up saddle-stitch
 imposition in software before a booklet job ever reaches this queue
 (`apps/web/lib/pdf/imposition.ts`, architecture.md sec 8) — each page
 independently scaled to make the best use of its half-sheet, which is better
 than what the driver's own uniform-scale booklet mode does. This changes what
 you configure for a booklet queue in §3 below: **leave the driver's own
-booklet/page-layout toggle OFF** for a PrintOS booklet queue — PrintOS has
+booklet/page-layout toggle OFF** for a Printio booklet queue — Printio has
 already arranged the pages 2-up in the file itself, so if the driver's own
 booklet-layout feature is also on, it will try to impose an already-imposed
 file a second time and produce garbled output. What still belongs in this
 queue's Printing Defaults is the **physical** finishing: the saddle-stitch
 finisher/stapler unit turned on (whatever hardware option actually staples
-and folds), since PrintOS controls what's printed on each sheet, never the
+and folds), since Printio controls what's printed on each sheet, never the
 hardware that folds and staples the finished stack.
 
 ### A note on how confident to be in the steps below
@@ -80,7 +80,7 @@ trusted as a literal transcript.
    network — check the device's own network settings panel for its current
    IP if you don't already have it). Name this queue something clear and
    stable, e.g. `Kyocera_Main` — this exact string is what you'll later enter
-   as `windows_queue_name` in the PrintOS dashboard, so avoid renaming it once
+   as `windows_queue_name` in the Printio dashboard, so avoid renaming it once
    profiles depend on it.
 
 ## 2. Enable installed finisher hardware (Device Settings)
@@ -120,11 +120,11 @@ tabs, the driver needs to be told what hardware is physically attached to
    queue represents. Each queue should represent exactly one coherent
    profile — don't try to make one queue serve multiple finishing
    combinations, since there is no per-job override mechanism available to
-   PrintOS at print time (§0).
+   Printio at print time (§0).
    **If this is the booklet queue:** turn on the physical saddle-stitch
    finisher/stapler unit (the hardware that actually folds and staples), but
    leave the driver's own booklet *page-layout* toggle OFF — see the callout
-   in §0. PrintOS has already 2-up-imposed the pages itself; this queue only
+   in §0. Printio has already 2-up-imposed the pages itself; this queue only
    needs to fold and staple what it's sent, at 100% scale (the Agent
    specifically requests no further scaling for a booklet job — see
    architecture.md sec 8).
@@ -151,24 +151,24 @@ Printing Preferences tab, configure the desired combination, then use
 Kyocera's KX driver supports up to 26 saved profiles per driver instance,
 including the built-in "Factory Default." This is useful for a human
 selecting a profile by hand at print time from the driver dialog, but **it is
-not something PrintOS's Agent can select programmatically** — there is no
+not something Printio's Agent can select programmatically** — there is no
 documented CLI/API to apply a saved profile at print time (this was confirmed
 against Kyocera's own KX driver, Net Viewer, and Command Center RX
 documentation — none expose a profile-switch hook to an external caller). If
 you use Profiles, you still need one queue's Printing Defaults set to match
-each profile PrintOS should be able to target, since the Agent only ever
+each profile Printio should be able to target, since the Agent only ever
 selects a queue, never a saved profile inside a queue.
 
-In practice: **use Option A for anything PrintOS's Agent needs to select
+In practice: **use Option A for anything Printio's Agent needs to select
 automatically.** Option B is a convenience for humans printing by hand outside
-PrintOS, not a substitute for the per-queue defaults PrintOS relies on.
+Printio, not a substitute for the per-queue defaults Printio relies on.
 
 ## 5. Register each queue as a `printer_profiles` row
 
 Once a Windows queue's Printing Defaults are set the way you want, register it
-in the PrintOS admin dashboard so the cloud/Agent can target it:
+in the Printio admin dashboard so the cloud/Agent can target it:
 
-1. Ensure the physical printer has a `printers` row in PrintOS (Admin →
+1. Ensure the physical printer has a `printers` row in Printio (Admin →
    Printers → New Printer, if this is the first profile for this device).
 2. Create a `printer_profiles` row for this queue:
    - `windows_queue_name` **must exactly match** the Windows queue name as it
@@ -183,7 +183,7 @@ in the PrintOS admin dashboard so the cloud/Agent can target it:
      `declared_paper_sizes` — set these to **match what you actually
      configured** on the Windows queue in §2–3, not what the physical printer
      is theoretically capable of. This field is administrator-declared, not
-     cloud-verified (architecture.md sec 9) — PrintOS cannot introspect the
+     cloud-verified (architecture.md sec 9) — Printio cannot introspect the
      driver's private DEVMODE finishing state, so an inaccurate declaration
      here is invisible to the software and will surface as a job that "should"
      staple but doesn't, or vice versa.
@@ -213,7 +213,7 @@ misconfigured, printing continues unaffected; telemetry is reported as
    reports and multi-model MIB walks) show the private-MIB branch and table
    indices differ across Kyocera models and firmware versions (e.g. some
    devices answer under `.1347.41`, others `.1347.43`; per-model walks show
-   different table layouts). PrintOS's schema reflects this:
+   different table layouts). Printio's schema reflects this:
    `printers.snmp_config` (see `supabase/migrations/0002_printing_tables.sql`)
    is a per-printer JSON config, not a hardcoded OID map — configure the
    actual OIDs for **this specific device** (verify with an SNMP walk against

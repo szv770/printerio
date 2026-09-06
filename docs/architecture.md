@@ -1,6 +1,6 @@
-# PrintOS Architecture
+# Printio Architecture
 
-This document is the source of truth for how PrintOS is built and why. It exists because
+This document is the source of truth for how Printio is built and why. It exists because
 this system prints real documents on real machines for real students and staff, and every
 design choice here was checked against current official documentation before being
 implemented (see "Research basis" at the end of each section). Where something cannot be
@@ -11,7 +11,7 @@ state — see [Known Limitations](./known-limitations.md).
 
 ```
 ┌─────────────────────┐        ┌──────────────────────────┐        ┌────────────────────┐
-│  Browser (student/   │        │      PrintOS Cloud       │        │  Windows Print      │
+│  Browser (student/   │        │      Printio Cloud       │        │  Windows Print      │
 │  staff/admin)        │◄──────►│  Next.js (Vercel)        │◄──────►│  Agent (on-prem)    │
 │  Chromebook/desktop  │  HTTPS │  Supabase (Auth/DB/      │  HTTPS │  Node.js/TypeScript  │
 └──────────────────────┘        │  Storage/Realtime)       │  out-  └──────────┬───────────┘
@@ -46,7 +46,7 @@ thing that talks to the Kyocera device. This is non-negotiable — see §7.
 because the alternative — a student's own device joining the same network segment as the
 printer — isn't available here: the campus wifi sits behind a captive portal with access
 codes that rotate periodically, and the printers live on a separate, wifi-isolated Ethernet
-network for security reasons IT controls, not PrintOS. Nothing in this architecture needs
+network for security reasons IT controls, not Printio. Nothing in this architecture needs
 that to change. The Agent only ever makes *outbound* HTTPS calls to the cloud (poll for
 jobs, never a listener — see docs/agent-api.md, and §11's reconciliation model), so it
 needs no inbound firewall rule and no VPN into the isolated segment; it just needs to be a
@@ -341,7 +341,7 @@ stored separately, and `print_job_events` records the exact padding transformati
 (`{"type": "booklet_padding", "pages_added": 2}`), so an audit can always see both what the
 user uploaded and what was actually sent to the printer.
 
-Padding alone is not booklet printing. PrintOS performs its own real N-up saddle-stitch
+Padding alone is not booklet printing. Printio performs its own real N-up saddle-stitch
 **imposition** (`apps/web/lib/pdf/imposition.ts`) on the padded PDF before it is ever
 uploaded as `derived_file_path` — the file the Agent downloads and sends to the printer is
 already the final, laid-out sheet, not a plain page-sequential PDF left for the driver to
@@ -351,7 +351,7 @@ re-flow into a booklet.
 it:** a Windows print driver's booklet feature picks **one uniform scale factor for the
 entire document**, sized so the single worst-case page (e.g. one oversized image or wide
 table) fits without clipping — every other, normally-sized page is then forced down to that
-same worst-case scale and surrounded by needlessly large margins it never needed. PrintOS's
+same worst-case scale and surrounded by needlessly large margins it never needed. Printio's
 imposition instead computes each source page's scale **independently** (the same principle
 Adobe Acrobat's booklet printing uses): each page is scaled up to the largest size that fits
 its own half-sheet slot, preserving its own aspect ratio, capped at 1.0 (a page is centered,
@@ -371,12 +371,12 @@ consistent with how duplex printing already works elsewhere in this system (cons
 pages alternate front/back of one physical sheet via the driver's own duplex unit), not a
 new duplex model.
 
-Because PrintOS now does its own precise per-page scaling, a booklet job must NOT also ask
+Because Printio now does its own precise per-page scaling, a booklet job must NOT also ask
 the driver to `fit`/`shrink` — that would silently re-scale an already-correctly-sized page
 and undo the whole point of imposing it. `ResolvedPrintRequest.fitMode` is set to
 `"noscale"` for a booklet job only (`apps/web/app/api/agents/jobs/[jobId]/download-url/route.ts`);
 every other job leaves it unset and the Agent falls back to its own machine-level
-`PRINTOS_PRINT_FIT_MODE` default, exactly as before this field existed
+`PRINTIO_PRINT_FIT_MODE` default, exactly as before this field existed
 (`apps/agent/src/orchestrator.ts`). This is a value chosen upstream in the cloud and passed
 down through the existing `fitMode` field — it does not change what the Agent's
 `print-executor.ts` is allowed to do with it, and that module still never reads `finishing`
@@ -403,7 +403,7 @@ does have raw `FOLD`/`BKLT` commands, but using them means hand-generating a raw
 stream outside the normal driver pipeline — not a supported scripting layer on top of
 ordinary document printing. Not used here.)
 
-Consequently, PrintOS does not attempt to program finishing options at print time at all.
+Consequently, Printio does not attempt to program finishing options at print time at all.
 Instead:
 
 - An administrator configures each physical printer as one or more **`printer_profiles`**
@@ -412,12 +412,12 @@ Instead:
   finishing options (e.g. `Kyocera_Main` = plain duplex default, `Kyocera_Main_Booklet` =
   booklet+saddle-stitch default, `Kyocera_Main_Stapled` = corner-staple default). Setting
   those defaults is a one-time, on-site, driver-GUI task per queue (documented in
-  [printer-setup.md](./printer-setup.md)), not something PrintOS's software does remotely.
+  [printer-setup.md](./printer-setup.md)), not something Printio's software does remotely.
 - The cloud never sends a raw Windows queue name to an untrusted client. A print job
   carries a **logical** `printerProfileId`; the Agent resolves it to the actual Windows
   queue name from its own configuration (fetched over its authenticated channel), matching
   the spec's example JSON shape.
-- What PrintOS's Agent *does* control per job, via SumatraPDF's currently-documented
+- What Printio's Agent *does* control per job, via SumatraPDF's currently-documented
   `-print-settings` tokens, is the generic subset that is genuinely cross-driver-safe:
   page range, `color`/`monochrome`, `duplex`/`duplexshort`/`duplexlong`/`simplex`,
   `fit`/`shrink`/`noscale`, `collate`, `bin=`/`paper=` (matched against the driver's own
@@ -428,7 +428,7 @@ Instead:
   can staple" as fact from the database alone; the source of truth is what the admin
   configured on that Windows queue. The Agent's printer-discovery feature (§11) reports
   what Windows can see about a queue (driver name, port, status) so an admin can cross-check
-  their declared profile against reality, but PrintOS cannot introspect a driver's private
+  their declared profile against reality, but Printio cannot introspect a driver's private
   DEVMODE finishing state from software, so it does not pretend to.
 
 ## 10. SumatraPDF invocation
@@ -481,7 +481,7 @@ REFRESH_PRINTER_STATUS
 CANCEL_PRINT_JOB        (payload: { job_id })
 RESTART_PRINT_QUEUE     (payload: { printer_profile_id })
 RESTART_AGENT_SERVICE
-CLEAR_AGENT_TEMP_FILES  (only files under the Agent's own PrintOS temp directory)
+CLEAR_AGENT_TEMP_FILES  (only files under the Agent's own Printio temp directory)
 ```
 
 Every issuance is authenticated (admin session), authorized (admin must be an org_admin of
@@ -647,7 +647,7 @@ is deliberately narrow:
   of RLS/invitations, not itself the security boundary, so an unrelated outage here must not
   lock out every legitimate user.
 - **Bootstrap seeds it automatically.** `maybeBootstrapOrganization` (`lib/auth/bootstrap.ts`)
-  sets the first organization's `allowed_domains` from `PRINTOS_BOOTSTRAP_ADMIN_EMAIL`'s own
+  sets the first organization's `allowed_domains` from `PRINTIO_BOOTSTRAP_ADMIN_EMAIL`'s own
   domain (e.g. `svogel@lecfl.com` → `['lecfl.com']`), so the single-org case is restricted
   out of the box with no additional env var and no manual admin step. An org_admin can widen,
   narrow, or clear this list afterward from `app/admin/settings` (`allowed_domains` is still
@@ -741,7 +741,7 @@ actual access decision happens later, when the emailed link is clicked and lands
 
 Kept short here; the full list with rationale is in
 [known-limitations.md](./known-limitations.md). The headline one, because it shapes the
-entire job state machine: **PrintOS can confirm a job was accepted by the Windows print
+entire job state machine: **Printio can confirm a job was accepted by the Windows print
 spooler. It cannot, in general, confirm the printer physically produced the pages**,
 because most Windows port monitors (standard TCP/IP, most USB) mark a job "printed" as
 soon as the spooler finishes transmitting data, not when the device confirms physical

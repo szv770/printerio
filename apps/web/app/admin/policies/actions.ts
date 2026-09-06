@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
-import type { RuleCondition } from "@printos/shared";
+import type { RuleCondition } from "@printio/shared";
 import type { Json } from "@/lib/database.types";
 import { routes } from "@/lib/routes";
 

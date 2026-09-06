@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { evaluatePolicy, type JobFacts, type OrgRole, type PolicyAction, type PolicyRule, type RuleCondition } from "@printos/shared";
+import { evaluatePolicy, type JobFacts, type OrgRole, type PolicyAction, type PolicyRule, type RuleCondition } from "@printio/shared";
 import type { Database } from "@/lib/database.types";
 import { computeQuotaUsagePct } from "@/lib/quota";
 

@@ -1,4 +1,4 @@
--- PrintOS: Row Level Security. Enabled on every multi-tenant table - see
+-- Printio: Row Level Security. Enabled on every multi-tenant table - see
 -- docs/architecture.md sec 3. Nothing in apps/web queries these tables through a
 -- policy-free path except the small, explicit set of service-role operations
 -- documented inline (agent bearer-auth handlers, invitation redemption, org

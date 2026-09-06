@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { routes } from "@/lib/routes";
 import { isReauthRequired } from "@/lib/auth/reauth";
 import type { Tables } from "@/lib/database.types";
-import type { OrgRole } from "@printos/shared";
+import type { OrgRole } from "@printio/shared";
 
 export interface CurrentSession {
   userId: string;

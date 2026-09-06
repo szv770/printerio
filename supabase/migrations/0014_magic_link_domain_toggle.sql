@@ -1,4 +1,4 @@
--- PrintOS: add Supabase magic-link (email OTP) sign-in as a second sign-in
+-- Printio: add Supabase magic-link (email OTP) sign-in as a second sign-in
 -- method alongside Google OAuth, and give an org_admin a per-organization
 -- toggle over whether magic-link sign-ins are subject to the same
 -- allowed_domains gate that Google OAuth sign-ins already go through
@@ -109,7 +109,7 @@ begin
   -- No organization exists yet: same bootstrap-path carve-out as
   -- email_domain_allowed() - allowed_domains/magic_link_requires_allowed_domain
   -- don't exist to check against yet, so this must not block
-  -- PRINTOS_BOOTSTRAP_ADMIN_EMAIL's first sign-in (lib/auth/bootstrap.ts),
+  -- PRINTIO_BOOTSTRAP_ADMIN_EMAIL's first sign-in (lib/auth/bootstrap.ts),
   -- however that first sign-in happens to arrive.
   if not exists (select 1 from public.organizations) then
     return true;

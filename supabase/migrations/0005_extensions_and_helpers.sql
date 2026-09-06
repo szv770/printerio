@@ -1,4 +1,4 @@
--- PrintOS: extensions, private schema, RLS helper functions, and the small set
+-- Printio: extensions, private schema, RLS helper functions, and the small set
 -- of generic triggers (updated_at bookkeeping, auth.users -> profiles mirroring)
 -- that reference tables created in migrations 0001-0004.
 -- See docs/architecture.md sec 3 for why these helpers exist (join-free RLS policies).

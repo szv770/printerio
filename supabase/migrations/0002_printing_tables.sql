@@ -1,4 +1,4 @@
--- PrintOS: agents, printers, printer profiles (Windows queue mapping), policies.
+-- Printio: agents, printers, printer profiles (Windows queue mapping), policies.
 -- See docs/architecture.md sec 4 (agent auth) and sec 9 (driver/finishing architecture).
 
 create table agents (
@@ -40,7 +40,7 @@ create index printers_org_idx on printers (organization_id);
 
 -- Logical print profile -> Windows queue mapping. Finishing options are baked into
 -- the Windows queue's driver "Printing Defaults" out-of-band (see printer-setup.md);
--- PrintOS never programs finishing options itself. windows_queue_name is only ever
+-- Printio never programs finishing options itself. windows_queue_name is only ever
 -- resolved server-side/agent-side, never sent to an untrusted client - see
 -- docs/architecture.md sec 9.
 create table printer_profiles (

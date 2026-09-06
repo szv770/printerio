@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
-import type { QuotaBasis } from "@printos/shared";
+import type { QuotaBasis } from "@printio/shared";
 
 type Client = SupabaseClient<Database>;
 

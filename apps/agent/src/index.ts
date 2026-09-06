@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
  * CLI entrypoint. Commands:
- *   printos-agent register --code=<enrollmentCode>
- *   printos-agent start
- *   printos-agent install-service
- *   printos-agent uninstall-service
+ *   printio-agent register --code=<enrollmentCode>
+ *   printio-agent start
+ *   printio-agent install-service
+ *   printio-agent uninstall-service
  */
 
 import path from "node:path";
@@ -48,13 +48,13 @@ function parseArgs(argv: string[]): Record<string, string> {
 }
 
 function printUsage(): void {
-  console.log(`printos-agent v${AGENT_VERSION}
+  console.log(`printio-agent v${AGENT_VERSION}
 
 Usage:
-  printos-agent register --code=<enrollmentCode>   One-time: exchange an enrollment code for a device credential.
-  printos-agent start                              Run the agent (foreground/console mode).
-  printos-agent install-service                    Install as a Windows Service (best-effort - see README).
-  printos-agent uninstall-service                  Remove the Windows Service.
+  printio-agent register --code=<enrollmentCode>   One-time: exchange an enrollment code for a device credential.
+  printio-agent start                              Run the agent (foreground/console mode).
+  printio-agent install-service                    Install as a Windows Service (best-effort - see README).
+  printio-agent uninstall-service                  Remove the Windows Service.
 
 Configuration is read from environment variables - see .env.example.
 `);
@@ -82,7 +82,7 @@ async function runRegister(args: Record<string, string>): Promise<void> {
     console.log(
       `Registered successfully.\n  agentId: ${res.agentId}\n  organizationId: ${res.organizationId}\n` +
         "Device credentials were stored securely (see README 'Secure storage'). " +
-        "Run `printos-agent start`, or `printos-agent install-service`, to begin.",
+        "Run `printio-agent start`, or `printio-agent install-service`, to begin.",
     );
   } catch (err) {
     logger.error("registration failed", { error: err instanceof Error ? err.message : String(err) });
@@ -106,7 +106,7 @@ async function runStart(): Promise<void> {
   }
   if (!agentId || !deviceSecret) {
     console.error(
-      "No agent credentials found. Run `printos-agent register --code=<enrollmentCode>` first " +
+      "No agent credentials found. Run `printio-agent register --code=<enrollmentCode>` first " +
         "(see docs/agent-api.md POST /api/agents/register).",
     );
     process.exitCode = 1;

@@ -29,7 +29,7 @@ function toPrinterStatus(agentQueueStatus: string | undefined): "unknown" | "onl
 /**
  * See docs/agent-api.md. `queues[]` is informational printer-discovery
  * reporting (sec 11/38) - it does not auto-create printer_profiles - but it
- * IS the only signal PrintOS has for printers.status, so any queue that
+ * IS the only signal Printio has for printers.status, so any queue that
  * matches one of this agent's printer_profiles updates that printer's
  * status/last_status_at. A printer with no matching queue in this report
  * (or no queues reported at all) is simply left untouched, not marked

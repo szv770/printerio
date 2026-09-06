@@ -1,6 +1,6 @@
-# PrintOS
+# Printio
 
-PrintOS is a multi-tenant print management platform: a cloud web app (approval
+Printio is a multi-tenant print management platform: a cloud web app (approval
 workflows, quotas, audit trail) paired with an on-premises Windows Print Agent that
 does the actual printing. It exists so that a document upload can be policy-checked,
 queued, approved if needed, and routed to the correct physical printer queue — with
@@ -44,7 +44,7 @@ booklet/punch cannot be controlled from software — see architecture.md sec 9).
 
 - [docs/architecture.md](./docs/architecture.md) — full system design, with the
   research basis for every non-obvious decision.
-- [docs/known-limitations.md](./docs/known-limitations.md) — what PrintOS does not
+- [docs/known-limitations.md](./docs/known-limitations.md) — what Printio does not
   guarantee, and why.
 - [docs/agent-api.md](./docs/agent-api.md) — the canonical Agent ↔ Cloud API
   contract.
@@ -71,20 +71,20 @@ booklet/punch cannot be controlled from software — see architecture.md sec 9).
   from at least one configured printer.
 - At least one printer with a Windows printer queue already configured per
   [docs/printer-setup.md](./docs/printer-setup.md) (the driver/finishing setup is a
-  one-time, on-site task independent of PrintOS's software).
+  one-time, on-site task independent of Printio's software).
 
 ## Quickstart (dev loop)
 
 ```bash
 pnpm install
 cp apps/web/.env.example apps/web/.env.local   # fill in your Supabase project's values
-pnpm --filter @printos/web dev                 # cloud app
-pnpm --filter @printos/agent dev                # windows agent (console mode; see apps/agent/README.md)
+pnpm --filter @printio/web dev                 # cloud app
+pnpm --filter @printio/agent dev                # windows agent (console mode; see apps/agent/README.md)
 pnpm -r test                                    # every workspace package's unit tests
 ```
 
-`apps/web` and `apps/agent` are pnpm workspace packages (`@printos/web`,
-`@printos/agent`) alongside `@printos/shared`; see `pnpm-workspace.yaml` and the
+`apps/web` and `apps/agent` are pnpm workspace packages (`@printio/web`,
+`@printio/agent`) alongside `@printio/shared`; see `pnpm-workspace.yaml` and the
 root `package.json` scripts (`dev:web`, `dev:agent`, `build`, `test`, `lint`,
 `typecheck`) for the other entry points. All three packages have real, tested code
 today (see [docs/testing.md](./docs/testing.md)) — `pnpm -r build`, `pnpm -r test`,

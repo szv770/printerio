@@ -1,4 +1,4 @@
--- PrintOS: private storage bucket + path-scoped RLS.
+-- Printio: private storage bucket + path-scoped RLS.
 -- Path convention: org/{organizationId}/jobs/{jobId}/original.pdf|derived.pdf
 -- See docs/architecture.md sec 3.3. Never a public bucket; downloads always go
 -- through createSignedUrl(), never a public URL.

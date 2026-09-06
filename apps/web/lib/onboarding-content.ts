@@ -14,8 +14,8 @@ export interface TourSlide {
 /** Shown to student/staff roles - the people submitting print jobs. */
 export const STUDENT_TOUR: TourSlide[] = [
   {
-    title: "Welcome to PrintOS",
-    body: "This replaces walking up to a shared printer and hoping for the best. Upload a PDF, choose how it should print, and PrintOS routes it to the right printer for you - with a record of every job.",
+    title: "Welcome to Printio",
+    body: "This replaces walking up to a shared printer and hoping for the best. Upload a PDF, choose how it should print, and Printio routes it to the right printer for you - with a record of every job.",
   },
   {
     title: "Print a document",
@@ -42,7 +42,7 @@ export const STUDENT_TOUR: TourSlide[] = [
 /** Shown to org_admin/approver roles. */
 export const ADMIN_TOUR: TourSlide[] = [
   {
-    title: "Welcome to PrintOS Admin",
+    title: "Welcome to Printio Admin",
     body: "You're set up as an administrator or approver. This is a quick tour of where things live - it won't touch anything, and you can replay it any time from Help.",
   },
   {
@@ -72,10 +72,10 @@ export const GLOSSARY: GlossaryEntry[] = [
   { term: "Quota", definition: "A monthly limit on how much you (or your role, department, or group) can print, measured in pages, sides, sheets, or color-weighted sheets depending on how your organization configured it. Shown on Home and Usage." },
   { term: "Approval", definition: "Some jobs need a human OK before they print - based on rules your organization set (e.g. color jobs, large jobs, certain roles always require approval). You'll see \"Awaiting approval\" as the job's status until an approver decides." },
   { term: "Policy / rule", definition: "The configured rules that decide whether a job is automatically allowed, denied, or held for approval - things like page count, color, or role can each have their own rule." },
-  { term: "Booklet", definition: "Pages arranged and folded like a small book (2 pages per sheet side, saddle-stitched). PrintOS scales each page independently to best fill its own space, rather than shrinking every page to match whichever one needs the most room." },
+  { term: "Booklet", definition: "Pages arranged and folded like a small book (2 pages per sheet side, saddle-stitched). Printio scales each page independently to best fill its own space, rather than shrinking every page to match whichever one needs the most room." },
   { term: "Duplex", definition: "Double-sided printing - both sides of the physical sheet are used." },
   { term: "Printer profile", definition: "A specific set of finishing options (e.g. \"Booklet + Staple\") configured for a printer - a single physical printer can have several profiles for different jobs." },
-  { term: "Agent", definition: "The small program running on-site that receives approved jobs from PrintOS and actually sends them to the printer over the local network." },
+  { term: "Agent", definition: "The small program running on-site that receives approved jobs from Printio and actually sends them to the printer over the local network." },
   { term: "Job status", definition: "The stage a job is at: Draft → Awaiting approval → Approved → Sent to printer → Preparing → Printing → Completed (or Denied/Failed/Expired/Cancelled if something stops it early)." },
   { term: "Enrollment code", definition: "A one-time code an administrator generates to connect a new Agent (or a new user, via an invitation code) to your organization." },
 ];

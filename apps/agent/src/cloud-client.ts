@@ -23,7 +23,7 @@
  *   they catch is always one of ours.
  */
 
-import type { JobState } from "@printos/shared";
+import type { JobState } from "@printio/shared";
 import type { Logger } from "./logger.js";
 import { redactBearerHeader } from "./logger.js";
 import { CloudApiError, CloudNetworkError } from "./errors.js";
@@ -81,7 +81,7 @@ export interface DownloadUrlResponse {
     duplex: boolean;
     paperSize: string;
     finishing: { staple: boolean; booklet: boolean; punch: boolean };
-    /** Per-job override of this Agent's own PRINTOS_PRINT_FIT_MODE default - set by the cloud only for a booklet job (always "noscale"), absent otherwise. See config.ts's PrintFitMode and orchestrator.ts's fallback. */
+    /** Per-job override of this Agent's own PRINTIO_PRINT_FIT_MODE default - set by the cloud only for a booklet job (always "noscale"), absent otherwise. See config.ts's PrintFitMode and orchestrator.ts's fallback. */
     fitMode?: "fit" | "shrink" | "noscale";
   };
 }

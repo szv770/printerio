@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/lib/database.types";
-import { REMOTE_COMMANDS, type RemoteCommand } from "@printos/shared";
+import { REMOTE_COMMANDS, type RemoteCommand } from "@printio/shared";
 
 /**
  * Shared by app/api/admin/commands/route.ts (called by any external client

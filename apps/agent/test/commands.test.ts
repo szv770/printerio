@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { REMOTE_COMMANDS } from "@printos/shared";
+import { REMOTE_COMMANDS } from "@printio/shared";
 import { handleCommand, type CommandHandlerDeps } from "../src/commands.js";
 import { createJobQueue } from "../src/job-queue.js";
 import { createLogger } from "../src/logger.js";
@@ -34,7 +34,7 @@ function makeDeps(localStoragePath: string, overrides: Partial<CommandHandlerDep
 describe("handleCommand - fixed allow-list", () => {
   let dir: string;
   beforeEach(() => {
-    dir = mkdtempSync(path.join(os.tmpdir(), "printos-agent-cmd-test-"));
+    dir = mkdtempSync(path.join(os.tmpdir(), "printio-agent-cmd-test-"));
   });
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });

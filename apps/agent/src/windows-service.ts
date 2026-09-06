@@ -16,9 +16,9 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import type { Logger } from "./logger.js";
 
-const SERVICE_NAME = "PrintOS Print Agent";
+const SERVICE_NAME = "Printio Print Agent";
 const SERVICE_DESCRIPTION =
-  "PrintOS on-premises Windows print agent - claims approved print jobs from the PrintOS cloud and submits them to local print queues.";
+  "Printio on-premises Windows print agent - claims approved print jobs from the Printio cloud and submits them to local print queues.";
 
 // Minimal shape of the parts of node-windows' Service API this module uses.
 interface NodeWindowsServiceInstance {
@@ -48,7 +48,7 @@ async function loadNodeWindows(): Promise<{ Service: NodeWindowsServiceConstruct
   } catch (err) {
     throw new Error(
       "node-windows is not installed or failed to load. It is an optionalDependency - on Windows, run " +
-        "`pnpm --filter @printos/agent add node-windows` (or re-run `pnpm install` on a Windows machine) " +
+        "`pnpm --filter @printio/agent add node-windows` (or re-run `pnpm install` on a Windows machine) " +
         `before using install-service/uninstall-service. Original error: ${err instanceof Error ? err.message : String(err)}`,
     );
   }

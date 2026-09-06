@@ -1,7 +1,7 @@
-# @printos/agent - PrintOS Print Agent
+# @printio/agent - Printio Print Agent
 
-The on-premises Windows Print Agent for PrintOS. It runs on a Windows machine that has
-Windows print queues configured for your printer(s), polls the PrintOS cloud for jobs it's
+The on-premises Windows Print Agent for Printio. It runs on a Windows machine that has
+Windows print queues configured for your printer(s), polls the Printio cloud for jobs it's
 allowed to print, downloads and submits them to the correct local queue via SumatraPDF, and
 reports what happened back to the cloud. See `docs/architecture.md` (secs 4, 9-13, 17) and
 `docs/agent-api.md` for the full design this implements.
@@ -27,7 +27,7 @@ and manual end-to-end smoke runs against a local mock HTTP server standing in fo
   logic, and the command allow-list/CLEAR_AGENT_TEMP_FILES scoping - all unit tested with
   mocked I/O (`test/*.test.ts`).
 - That `pnpm start` / the Windows Service launcher can actually resolve and run
-  `@printos/shared` at runtime (see "A real bug this surfaced" below) - confirmed by running
+  `@printio/shared` at runtime (see "A real bug this surfaced" below) - confirmed by running
   the compiled/uncompiled entrypoints directly in this sandbox.
 
 **NOT validated - genuinely untested, best-effort only:**
@@ -53,7 +53,7 @@ has been run, in full, against a real Windows machine and a real printer.**
 (`"exports": {".": "./src/index.ts"}`) - fine under `tsx`/Vite/Vitest (which all transform
 `.ts` on the fly and are how `pnpm dev`/`pnpm test` already worked), but **plain `node
 dist/index.js` cannot import it at all**: Node's own ESM resolver has no idea what TypeScript
-is and throws `ERR_MODULE_NOT_FOUND` trying to resolve `@printos/shared`'s own internal
+is and throws `ERR_MODULE_NOT_FOUND` trying to resolve `@printio/shared`'s own internal
 `./job-state.js` relative import (which only has a `.ts` file on disk). This was caught by
 actually running the built output in this sandbox, not by typechecking (`tsc` doesn't catch
 it - it's a pure runtime module-resolution mismatch).
@@ -72,36 +72,36 @@ matter (type-safety, a real compiled artifact), they're just not what actually e
 
 - **Node.js 20+** on the Windows machine that will run the agent.
 - **SumatraPDF** installed, with `SumatraPDF.exe` either on `PATH` or at a path you set via
-  `PRINTOS_SUMATRA_PATH`.
+  `PRINTIO_SUMATRA_PATH`.
 - **Windows print queues already configured**, one per finishing profile, per
   `docs/printer-setup.md` - this agent only ever *selects* a pre-configured queue
   (`windowsQueueName`, resolved by the cloud); it never programs staple/booklet/punch itself
   (docs/architecture.md sec 9).
 - The **PowerShell PrintManagement module** (built into modern Windows) available to
   `powershell.exe`.
-- An **enrollment code** for this agent, created by an org_admin in the PrintOS dashboard
+- An **enrollment code** for this agent, created by an org_admin in the Printio dashboard
   (docs/architecture.md sec 4, docs/agent-api.md `POST /api/agents/register`).
 
 ## Configuration
 
 Environment variables - see `.env.example` for the full list with defaults. The required one
-is `PRINTOS_API_URL`; everything else has a sane default. `PRINTOS_AGENT_ID`/
-`PRINTOS_AGENT_SECRET` are normally *not* set by hand - see "Register" below.
+is `PRINTIO_API_URL`; everything else has a sane default. `PRINTIO_AGENT_ID`/
+`PRINTIO_AGENT_SECRET` are normally *not* set by hand - see "Register" below.
 
 ## Install & build
 
 ```
 pnpm install               # from the repo root (workspace install)
-pnpm --filter @printos/agent build       # tsc typecheck + compiled output in dist/ (see note above: not what actually runs)
-pnpm --filter @printos/agent typecheck
-pnpm --filter @printos/agent test
-pnpm --filter @printos/agent lint
+pnpm --filter @printio/agent build       # tsc typecheck + compiled output in dist/ (see note above: not what actually runs)
+pnpm --filter @printio/agent typecheck
+pnpm --filter @printio/agent test
+pnpm --filter @printio/agent lint
 ```
 
 ## Register (one-time)
 
 ```
-pnpm --filter @printos/agent register -- --code=<enrollmentCode>
+pnpm --filter @printio/agent register -- --code=<enrollmentCode>
 # or, from apps/agent: pnpm register -- --code=<enrollmentCode>
 ```
 
@@ -123,7 +123,7 @@ instead of typed commands — see "Register" above.)
 **Console/foreground mode** (development, or a quick manual run):
 
 ```
-pnpm --filter @printos/agent start
+pnpm --filter @printio/agent start
 ```
 
 Runs `tsx src/index.ts start` in the foreground. Ctrl+C sends SIGINT and the agent shuts down
@@ -132,10 +132,10 @@ after finishing its current poll cycle.
 **As a Windows Service** (production):
 
 ```
-pnpm --filter @printos/agent install-service
+pnpm --filter @printio/agent install-service
 ```
 
-Installs and starts a service named "PrintOS Print Agent", and best-effort configures the
+Installs and starts a service named "Printio Print Agent", and best-effort configures the
 Service Control Manager to restart it automatically on crash/exit (`sc.exe failure ...` -
 this is what makes the `RESTART_AGENT_SERVICE` remote command actually effective). Requires
 administrative privileges (node-windows shells out to Windows service APIs). **Untested on a
@@ -144,13 +144,13 @@ real Windows machine - see "Testing status" above.**
 To remove it:
 
 ```
-pnpm --filter @printos/agent uninstall-service
+pnpm --filter @printio/agent uninstall-service
 ```
 
 ## Poll loop and outage backoff
 
 Heartbeat, remote commands, and claimable jobs are all polled on the same cycle, every
-`PRINTOS_POLL_INTERVAL_SECONDS` (default 15s) - see `src/orchestrator.ts` `runOnce()`. Each of
+`PRINTIO_POLL_INTERVAL_SECONDS` (default 15s) - see `src/orchestrator.ts` `runOnce()`. Each of
 those three calls already gets its own exponential-backoff retry inside `src/cloud-client.ts`
 (`sendWithRetry`, `MAX_RETRIES=4`) before it's considered failed for that cycle; that per-request
 layer is unrelated to and unaffected by everything below.
@@ -158,14 +158,14 @@ layer is unrelated to and unaffected by everything below.
 On top of that, the outer loop tracks **consecutive full-cycle failures** - a cycle where
 heartbeat, commands, *and* claimable-jobs *all* failed to reach the cloud (a single flaky
 endpoint while the other two succeed doesn't count; see `CycleOutcome` in `orchestrator.ts`).
-Each additional such cycle doubles the next sleep, capped at `PRINTOS_MAX_POLL_INTERVAL_SECONDS`
+Each additional such cycle doubles the next sleep, capped at `PRINTIO_MAX_POLL_INTERVAL_SECONDS`
 (default 300s/5 minutes), and a single fully-successful cycle snaps the interval straight back to
-`PRINTOS_POLL_INTERVAL_SECONDS` - no gradual ramp-down. This exists so a sustained cloud outage
+`PRINTIO_POLL_INTERVAL_SECONDS` - no gradual ramp-down. This exists so a sustained cloud outage
 doesn't have every Agent across every org hammering the backend at the same fixed 15s cadence for
 the whole outage (flagged by an earlier infra-scalability review). A healthy Agent's cadence is
 completely unaffected - the backoff only ever engages once a cycle has actually failed entirely.
 
-The agent also adds a **one-time startup jitter** - a random extra 0-`PRINTOS_POLL_INTERVAL_
+The agent also adds a **one-time startup jitter** - a random extra 0-`PRINTIO_POLL_INTERVAL_
 SECONDS` delay before its very first sleep only (never before the first heartbeat, which still
 fires immediately on start) - so a fleet of Agents that boot in lockstep (e.g. a nightly Group
 Policy reboot restarting many machines at once) doesn't stay phase-locked on every later cycle
@@ -179,7 +179,7 @@ unit tested in `test/orchestrator.test.ts` the same way `job-queue.ts`'s helpers
 
 ## Logs
 
-Written to `<PRINTOS_LOCAL_STORAGE_PATH>/logs/agent-<YYYY-MM-DD>.log` (JSON lines, one per
+Written to `<PRINTIO_LOCAL_STORAGE_PATH>/logs/agent-<YYYY-MM-DD>.log` (JSON lines, one per
 day) as well as stdout/console. Secrets (device secret, bearer header, signed download URLs)
 are always redacted - see `src/logger.ts` `redact()`/`redactBearerHeader()`. Downloaded PDF
 *contents* are never logged; only local file paths and sizes are.
@@ -258,7 +258,7 @@ it per this task's instructions rather than unilaterally adding an endpoint to t
 machine with SumatraPDF installed and at least one configured print queue pointed at a real
 Kyocera device (or any printer, for the non-Kyocera-specific cases), work through this list
 before trusting this agent with real jobs. For each case, confirm both what the *printer*
-physically did and what the *PrintOS dashboard* shows for the job (they should agree, modulo
+physically did and what the *Printio dashboard* shows for the job (they should agree, modulo
 the documented `submitted_to_spooler` vs `completed` distinction).
 
 1. **1-page black & white job.** Confirm it prints, and the job reaches `completed` (or
@@ -284,7 +284,7 @@ the documented `submitted_to_spooler` vs `completed` distinction).
    controls; if it doesn't happen, the queue's defaults are misconfigured, not the agent.
 9. **A large job** (100+ pages, or a large file size) - confirm the streamed download
    (`orchestrator.ts` `downloadJobFile`) and SumatraPDF's default timeout are both adequate;
-   tune `PRINTOS_SPOOLER_TIMEOUT_SECONDS` if needed.
+   tune `PRINTIO_SPOOLER_TIMEOUT_SECONDS` if needed.
 10. **Printer offline** at claim/print time - confirm the job is reported `failed` with a
     clear message, the process does not crash, and a subsequent claimable-jobs poll still
     works normally.

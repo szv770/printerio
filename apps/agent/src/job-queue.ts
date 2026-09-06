@@ -13,7 +13,7 @@
 
 import { mkdirSync, writeFileSync, readFileSync, existsSync, renameSync } from "node:fs";
 import path from "node:path";
-import type { JobState } from "@printos/shared";
+import type { JobState } from "@printio/shared";
 import type { Logger } from "./logger.js";
 
 export interface LocalJobRecord {

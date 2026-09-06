@@ -5,7 +5,7 @@ import { HelpCircle, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { STUDENT_TOUR, ADMIN_TOUR, GLOSSARY, type TourSlide } from "@/lib/onboarding-content";
 
 function storageKey(userId: string): string {
-  return `printos:onboarding:${userId}:done`;
+  return `printio:onboarding:${userId}:done`;
 }
 
 /**

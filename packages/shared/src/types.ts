@@ -50,10 +50,10 @@ export interface ResolvedPrintRequest {
   finishing: FinishingOptions;
   /**
    * Optional per-job override of the Agent's own configured
-   * `PRINTOS_PRINT_FIT_MODE` default. Absent for the vast majority of jobs,
+   * `PRINTIO_PRINT_FIT_MODE` default. Absent for the vast majority of jobs,
    * whose fit mode is entirely an Agent-machine-level setting (see
    * apps/agent/src/config.ts) - the cloud has no opinion. Set ONLY for a
-   * booklet job, forced to `"noscale"`: PrintOS has already imposed and
+   * booklet job, forced to `"noscale"`: Printio has already imposed and
    * independently scaled every page to its exact target sheet size
    * (apps/web/lib/pdf/imposition.ts), so asking the driver to `fit`/`shrink`
    * further would silently re-scale an already-correctly-sized page and

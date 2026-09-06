@@ -21,7 +21,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
           <nav className="flex items-center gap-5 text-sm font-medium">
             <Link href={routes.home} className="font-semibold">
-              PrintOS
+              Printio
             </Link>
             <Link href={routes.dashboard} className="text-[var(--color-muted)] hover:text-[var(--color-text)]">
               Home

@@ -1,4 +1,4 @@
--- PrintOS: fixes for Supabase database-linter findings surfaced by get_advisors
+-- Printio: fixes for Supabase database-linter findings surfaced by get_advisors
 -- after the initial schema/RLS migrations landed (see docs/architecture.md sec 3).
 -- 1. Pin search_path on the 4 functions that were missing it (security lint).
 -- 2. Split 4 "org_admins manage X" FOR ALL policies into insert/update/delete
@@ -9,7 +9,7 @@
 -- Not addressed: `public.rls_auto_enable()` (SECURITY DEFINER, callable by
 -- anon/authenticated) is a pre-existing Supabase-platform-managed event trigger
 -- function (owner: postgres) that auto-enables RLS on newly created tables as a
--- safety net - it was not created by any PrintOS migration and is left alone.
+-- safety net - it was not created by any Printio migration and is left alone.
 
 -- ============================================================================
 -- 1. search_path fixes

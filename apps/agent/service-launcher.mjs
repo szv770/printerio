@@ -6,14 +6,14 @@
  * exact file directly with the same `node` binary and no extra CLI flags,
  * so it has to be runnable with zero prior setup.
  *
- * Why this exists: `@printos/shared` (packages/shared/package.json) ships
+ * Why this exists: `@printio/shared` (packages/shared/package.json) ships
  * its raw TypeScript source with no build step (`"exports": {".":
  * "./src/index.ts"}`) - `tsx` (and Vite/vitest, which is how `pnpm dev` and
  * `pnpm test` already work) transparently transforms that at import time,
  * but plain `node dist/index.js` cannot: Node's own ESM resolver has no
  * knowledge of TypeScript and fails trying to import a literal `.ts` file
  * (verified: `node dist/index.js` throws ERR_MODULE_NOT_FOUND resolving
- * `@printos/shared`'s own internal `./job-state.js` relative import, which
+ * `@printio/shared`'s own internal `./job-state.js` relative import, which
  * only has a `.ts` sibling on disk).
  *
  * node-windows' Service also offers a `nodeOptions` field (e.g. to pass

@@ -1,6 +1,6 @@
 # Testing
 
-PrintOS has two very different kinds of "tested": automated unit tests that run
+Printio has two very different kinds of "tested": automated unit tests that run
 in seconds against pure logic, and physical validation that a real job printed
 correctly on a real machine. Neither substitutes for the other, and this
 project's ethos — stated throughout [architecture.md](./architecture.md) and
@@ -18,8 +18,8 @@ pnpm -r test
 ```
 
 runs every workspace package's suite (Vitest) in one shot, per the root
-`package.json`'s `test` script. Individually: `pnpm --filter @printos/shared
-test`, `pnpm --filter @printos/web test`, `pnpm --filter @printos/agent test`.
+`package.json`'s `test` script. Individually: `pnpm --filter @printio/shared
+test`, `pnpm --filter @printio/web test`, `pnpm --filter @printio/agent test`.
 As of this writing all three pass clean (26 + 50 + 57 = 133 tests) — see the
 root [README.md](../README.md) "Current status & next phase" for the
 up-to-date count.

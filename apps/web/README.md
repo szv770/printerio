@@ -1,6 +1,6 @@
-# @printos/web
+# @printio/web
 
-The PrintOS cloud app: Next.js 16 (App Router), Supabase (Auth/Postgres/Storage/Realtime).
+The Printio cloud app: Next.js 16 (App Router), Supabase (Auth/Postgres/Storage/Realtime).
 
 See the root [README.md](../../README.md) and [docs/](../../docs) for the full picture -
 architecture, deployment, auth/bootstrap model, agent API contract. This file only covers
@@ -11,12 +11,12 @@ running this app locally.
 ```bash
 pnpm install
 cp .env.example .env.local   # fill in your Supabase project's values
-pnpm --filter @printos/web dev
+pnpm --filter @printio/web dev
 ```
 
 Required env vars are documented in `.env.example`. At minimum you need a Supabase project
 with the migrations in `supabase/migrations/` applied (see `docs/deployment.md`), Google
-OAuth enabled as an Auth provider in that project, and `PRINTOS_BOOTSTRAP_ADMIN_EMAIL` set to
+OAuth enabled as an Auth provider in that project, and `PRINTIO_BOOTSTRAP_ADMIN_EMAIL` set to
 your own email so your first sign-in becomes `org_admin` of a newly created organization
 (see `lib/auth/bootstrap.ts` and `docs/architecture.md` sec 2.2).
 
@@ -31,7 +31,7 @@ your own email so your first sign-in becomes `org_admin` of a newly created orga
 - `lib/pdf/` - server-side PDF preflight (`preflight.ts`) and booklet padding (`booklet.ts`),
   both via `pdf-lib`.
 - `lib/policy/build-facts.ts` - assembles `JobFacts` from live DB state and calls
-  `@printos/shared`'s pure policy engine.
+  `@printio/shared`'s pure policy engine.
 - `lib/quota.ts` - quota lookup + the atomic reserve/release/consume RPC wrapper.
 - `lib/agent-auth.ts` - Agent bearer-credential verification (device secret hashing/compare).
 
