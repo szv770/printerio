@@ -51,16 +51,36 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
   });
 
   const finishing = job.finishing as { staple: boolean; booklet: boolean; punch: boolean };
+
+  // For a booklet job, `derived_file_path` is the fully-IMPOSED PDF
+  // (apps/web/lib/pdf/imposition.ts) - N/2 landscape sheet-sides, not the N
+  // padded portrait pages that went into imposition. For a non-booklet job,
+  // `derived_file_path` (when present) is still just the padded page count.
+  const paddedPageCount = job.source_pdf_pages + job.booklet_padding_added;
+  const pageCount = job.derived_file_path
+    ? finishing.booklet
+      ? paddedPageCount / 2
+      : paddedPageCount
+    : job.source_pdf_pages;
+
   const printRequest: ResolvedPrintRequest = {
     jobId: job.id,
     printerProfileId: profile.id,
     windowsQueueName: profile.windows_queue_name,
-    pageCount: job.derived_file_path ? job.source_pdf_pages + job.booklet_padding_added : job.source_pdf_pages,
+    pageCount,
     copies: job.copies,
     colorMode: job.color_mode as "bw" | "color",
     duplex: job.duplex,
     paperSize: job.paper_size,
     finishing,
+    // PrintOS has already imposed and independently scaled a booklet job's
+    // pages to the exact target sheet size - request the driver print it at
+    // 100%, never fit/shrink (which would re-scale an already-correct page
+    // and undo the whole point of doing our own imposition). Every other
+    // job type is left unset, so the Agent falls back to its own
+    // PRINTOS_PRINT_FIT_MODE default (apps/agent/src/config.ts) exactly as
+    // before - see apps/agent/src/orchestrator.ts.
+    ...(finishing.booklet ? { fitMode: "noscale" as const } : {}),
   };
 
   return Response.json({

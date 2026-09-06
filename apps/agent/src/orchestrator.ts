@@ -166,7 +166,13 @@ export function createOrchestrator(deps: OrchestratorDeps) {
         duplex: dl.printRequest.duplex,
         paperSize: dl.printRequest.paperSize,
         copies: dl.printRequest.copies,
-        fitMode: config.printFitMode,
+        // The cloud overrides this only for a booklet job (forced
+        // "noscale" - PrintOS has already imposed and independently scaled
+        // every page, see apps/web/lib/pdf/imposition.ts and
+        // ResolvedPrintRequest.fitMode's doc comment); every other job
+        // falls back to this Agent's own configured default, unchanged from
+        // before this field existed.
+        fitMode: dl.printRequest.fitMode ?? config.printFitMode,
         collateMultiCopy: config.collateMultiCopy,
       });
 

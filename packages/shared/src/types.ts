@@ -14,6 +14,10 @@ export type QuotaBasis = "pdf_pages" | "printed_sides" | "physical_sheets" | "co
 
 export type ColorMode = "bw" | "color";
 
+/** Mirrors apps/agent/src/config.ts's `PrintFitMode` (kept in sync by hand -
+ * this package cannot import from apps/agent, see file header). */
+export type PrintFitMode = "fit" | "shrink" | "noscale";
+
 export interface FinishingOptions {
   staple: boolean;
   booklet: boolean;
@@ -44,6 +48,18 @@ export interface ResolvedPrintRequest {
   duplex: boolean;
   paperSize: string;
   finishing: FinishingOptions;
+  /**
+   * Optional per-job override of the Agent's own configured
+   * `PRINTOS_PRINT_FIT_MODE` default. Absent for the vast majority of jobs,
+   * whose fit mode is entirely an Agent-machine-level setting (see
+   * apps/agent/src/config.ts) - the cloud has no opinion. Set ONLY for a
+   * booklet job, forced to `"noscale"`: PrintOS has already imposed and
+   * independently scaled every page to its exact target sheet size
+   * (apps/web/lib/pdf/imposition.ts), so asking the driver to `fit`/`shrink`
+   * further would silently re-scale an already-correctly-sized page and
+   * undo that work. See docs/architecture.md sec 8-10.
+   */
+  fitMode?: PrintFitMode;
 }
 
 /** The fixed, allow-listed remote command set - see docs/architecture.md sec 12. */
