@@ -2,14 +2,30 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireOrgRole } from "@/lib/auth/session";
 import { signOutAction } from "@/lib/auth/actions";
+import { createClient } from "@/lib/supabase/server";
 import { routes } from "@/lib/routes";
+import { Badge } from "@/components/ui";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+  let isOrgAdmin = false;
+  let organizationId: string | null = null;
   try {
-    await requireOrgRole(["org_admin", "approver"]);
+    const session = await requireOrgRole(["org_admin", "approver"]);
+    isOrgAdmin = session.membership.role === "org_admin";
+    organizationId = session.membership.organization_id;
   } catch {
     redirect(routes.home);
   }
+
+  // Approvals is the one recurring daily action for both roles, so it's
+  // pinned at the top (not grouped) and gets a live count badge; everything
+  // else is grouped by what it's actually for, not shown as one flat list.
+  const supabase = await createClient();
+  const { count: pendingApprovals } = await supabase
+    .from("print_jobs")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId)
+    .eq("status", "pending_approval");
 
   return (
     <div className="mx-auto flex min-h-screen max-w-5xl gap-8 px-4 py-8">
@@ -19,16 +35,36 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </Link>
         <ul className="flex flex-col gap-1 text-sm">
           <NavLink href={routes.admin}>Overview</NavLink>
-          <NavLink href={routes.adminApprovals}>Approvals</NavLink>
+          <NavLink href={routes.adminApprovals}>
+            <span className="flex items-center justify-between">
+              Approvals
+              {!!pendingApprovals && <Badge tone="warning">{pendingApprovals}</Badge>}
+            </span>
+          </NavLink>
+        </ul>
+
+        <NavGroup title="People">
           <NavLink href={routes.adminUsers}>Users</NavLink>
           <NavLink href={routes.adminGroups}>Groups</NavLink>
-          <NavLink href={routes.adminQuotas}>Quotas</NavLink>
-          <NavLink href={routes.adminPolicies}>Policies</NavLink>
+        </NavGroup>
+
+        <NavGroup title="Print infrastructure">
           <NavLink href={routes.adminPrinters}>Printers</NavLink>
           <NavLink href={routes.adminAgents}>Agents</NavLink>
+        </NavGroup>
+
+        <NavGroup title="Governance">
+          <NavLink href={routes.adminPolicies}>Policies</NavLink>
+          <NavLink href={routes.adminQuotas}>Quotas</NavLink>
+        </NavGroup>
+
+        <NavGroup title="Insights">
           <NavLink href={routes.adminReports}>Reports</NavLink>
-          <NavLink href={routes.adminAudit}>Audit log</NavLink>
-        </ul>
+          {/* Audit log requires org_admin (app/admin/audit/page.tsx) - hidden
+           *  for approvers rather than showing a link that throws for them. */}
+          {isOrgAdmin && <NavLink href={routes.adminAudit}>Audit log</NavLink>}
+        </NavGroup>
+
         <div className="mt-6 flex flex-col gap-1 border-t border-[var(--color-border)] pt-4 text-sm">
           <Link href={routes.print} className="block rounded-lg px-3 py-2 hover:bg-[var(--color-surface)]">
             Switch to student view
@@ -44,6 +80,15 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </div>
       </nav>
       <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  );
+}
+
+function NavGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mt-4 border-t border-[var(--color-border)] pt-4">
+      <p className="mb-1 px-3 text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">{title}</p>
+      <ul className="flex flex-col gap-1 text-sm">{children}</ul>
     </div>
   );
 }

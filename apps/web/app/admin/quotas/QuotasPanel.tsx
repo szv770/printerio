@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import type { Tables } from "@/lib/database.types";
-import { Button, Input, Select, FieldLabel, FormError, Badge, EmptyState } from "@/components/ui";
+import { Button, Input, Select, FieldLabel, FormError, Badge, EmptyState, Card } from "@/components/ui";
 import { createQuotaAction, deleteQuotaAction, initialQuotaActionState } from "./actions";
 
 type Quota = Tables<"quotas">;
@@ -51,76 +51,78 @@ export function QuotasPanel({
   return (
     <div className="flex flex-col gap-6">
       {canManage && (
-        <form action={createAction} className="flex flex-wrap items-end gap-3 rounded-lg border border-[var(--color-border)] p-4">
-          <div>
-            <FieldLabel htmlFor="scopeType">Scope</FieldLabel>
-            <Select
-              id="scopeType"
-              name="scopeType"
-              value={scopeType}
-              onChange={(e) => setScopeType(e.target.value)}
-            >
-              <option value="organization">Entire organization</option>
-              <option value="role">Role</option>
-              <option value="department">Department</option>
-              <option value="group">Group</option>
-              <option value="user">Individual user</option>
-            </Select>
-          </div>
-
-          {scopeType === "role" && (
+        <Card>
+          <form action={createAction} className="flex flex-wrap items-end gap-3">
             <div>
-              <FieldLabel htmlFor="scopeValueRole">Role</FieldLabel>
-              <Select id="scopeValueRole" name="scopeValue">
-                <option value="student">Student</option>
-                <option value="staff">Staff</option>
-                <option value="approver">Approver</option>
-                <option value="org_admin">Org admin</option>
+              <FieldLabel htmlFor="scopeType">Scope</FieldLabel>
+              <Select
+                id="scopeType"
+                name="scopeType"
+                value={scopeType}
+                onChange={(e) => setScopeType(e.target.value)}
+              >
+                <option value="organization">Entire organization</option>
+                <option value="role">Role</option>
+                <option value="department">Department</option>
+                <option value="group">Group</option>
+                <option value="user">Individual user</option>
               </Select>
             </div>
-          )}
-          {scopeType === "department" && (
-            <div>
-              <FieldLabel htmlFor="scopeValueDept">Department</FieldLabel>
-              <Input id="scopeValueDept" name="scopeValue" placeholder="Science" required />
-            </div>
-          )}
-          {scopeType === "group" && (
-            <div>
-              <FieldLabel htmlFor="scopeValueGroup">Group</FieldLabel>
-              <Select id="scopeValueGroup" name="scopeValue" required>
-                {groups.length === 0 && <option value="">No groups yet</option>}
-                {groups.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          )}
-          {scopeType === "user" && (
-            <div>
-              <FieldLabel htmlFor="scopeValueUser">Member</FieldLabel>
-              <Select id="scopeValueUser" name="scopeValue" required>
-                {roster.map((r) => (
-                  <option key={r.userId} value={r.userId}>
-                    {r.label}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          )}
 
-          <div>
-            <FieldLabel htmlFor="limitValue">Monthly limit</FieldLabel>
-            <Input id="limitValue" name="limitValue" type="number" min={1} step={1} required className="w-28" />
-          </div>
+            {scopeType === "role" && (
+              <div>
+                <FieldLabel htmlFor="scopeValueRole">Role</FieldLabel>
+                <Select id="scopeValueRole" name="scopeValue">
+                  <option value="student">Student</option>
+                  <option value="staff">Staff</option>
+                  <option value="approver">Approver</option>
+                  <option value="org_admin">Org admin</option>
+                </Select>
+              </div>
+            )}
+            {scopeType === "department" && (
+              <div>
+                <FieldLabel htmlFor="scopeValueDept">Department</FieldLabel>
+                <Input id="scopeValueDept" name="scopeValue" placeholder="Science" required />
+              </div>
+            )}
+            {scopeType === "group" && (
+              <div>
+                <FieldLabel htmlFor="scopeValueGroup">Group</FieldLabel>
+                <Select id="scopeValueGroup" name="scopeValue" required>
+                  {groups.length === 0 && <option value="">No groups yet</option>}
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            )}
+            {scopeType === "user" && (
+              <div>
+                <FieldLabel htmlFor="scopeValueUser">Member</FieldLabel>
+                <Select id="scopeValueUser" name="scopeValue" required>
+                  {roster.map((r) => (
+                    <option key={r.userId} value={r.userId}>
+                      {r.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            )}
 
-          <Button type="submit" size="sm" pending={creating} pendingLabel="Saving...">
-            Add quota
-          </Button>
-          <FormError message={createState.error} />
-        </form>
+            <div>
+              <FieldLabel htmlFor="limitValue">Monthly limit</FieldLabel>
+              <Input id="limitValue" name="limitValue" type="number" min={1} step={1} required className="w-28" />
+            </div>
+
+            <Button type="submit" size="sm" pending={creating} pendingLabel="Saving...">
+              Add quota
+            </Button>
+            <FormError message={createState.error} />
+          </form>
+        </Card>
       )}
 
       <ul className="flex flex-col gap-2">

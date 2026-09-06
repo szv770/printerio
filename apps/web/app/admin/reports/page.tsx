@@ -87,6 +87,28 @@ export default async function ReportsPage() {
   const pagesByMonth = aggregatePagesByMonth(usage);
   const thisPeriod = currentPeriod();
 
+  // "At a glance" strip - same Card-grid pattern as admin/page.tsx's stats.
+  // The full monthly/color tables below are look-up-when-needed reference
+  // detail; this is the one-line summary of the same numbers.
+  const currentMonth = pagesByMonth.find((m) => m.period === thisPeriod);
+  const priorMonth = pagesByMonth.at(-2);
+  const monthDeltaPct =
+    currentMonth && priorMonth && priorMonth.physicalSheets > 0
+      ? Math.round(((currentMonth.physicalSheets - priorMonth.physicalSheets) / priorMonth.physicalSheets) * 100)
+      : null;
+  const totalSheets = colorUsage.color.sheets + colorUsage.bw.sheets;
+  const colorPct = totalSheets > 0 ? Math.round((colorUsage.color.sheets / totalSheets) * 100) : null;
+
+  const stats = [
+    {
+      label: "Sheets this month",
+      value: (currentMonth?.physicalSheets ?? 0).toLocaleString(),
+      hint: monthDeltaPct === null ? undefined : `${monthDeltaPct >= 0 ? "▲" : "▼"}${Math.abs(monthDeltaPct)}% vs last month`,
+    },
+    { label: "Color share", value: colorPct === null ? "—" : `${colorPct}%`, hint: `${JOB_WINDOW_DAYS}d window` },
+    { label: "Denied / failed", value: rejectedFailed.length.toLocaleString(), hint: `${JOB_WINDOW_DAYS}d window` },
+  ];
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -94,48 +116,53 @@ export default async function ReportsPage() {
         description={`Job activity over the last ${JOB_WINDOW_DAYS} days and usage over the last ${USAGE_MONTHS} months. "Sheets" only counts jobs that actually reached a printer (completed/printing/submitted_to_spooler) - denied and pending jobs never consumed paper. Tables only for V1 - see docs known-limitations.`}
       />
 
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {stats.map((s) => (
+          <Card key={s.label} className="p-5">
+            <p className="text-sm text-[var(--color-muted)]">{s.label}</p>
+            <p className="mt-1 text-2xl font-semibold">{s.value}</p>
+            {s.hint && <p className="mt-1 text-xs text-[var(--color-muted)]">{s.hint}</p>}
+          </Card>
+        ))}
+      </div>
+
       <Card>
-        <h2 className="mb-3 font-medium">Pages by month</h2>
-        {pagesByMonth.length === 0 ? (
-          <EmptyState message="No usage recorded yet." />
+        <h2 className="mb-3 font-medium">Recently denied / failed</h2>
+        {rejectedFailed.length === 0 ? (
+          <EmptyState message="No denied or failed jobs in this window." />
         ) : (
-          <ReportTable
-            columns={["Month", "PDF pages", "Printed sides", "Physical sheets", "Color-weighted"]}
-            rows={pagesByMonth.map((m) => [
-              m.period === thisPeriod ? `${m.period} (current)` : m.period,
-              m.pdfPages.toLocaleString(),
-              m.printedSides.toLocaleString(),
-              m.physicalSheets.toLocaleString(),
-              m.colorWeighted.toLocaleString(),
-            ])}
-          />
+          <ul className="flex flex-col gap-2 text-sm">
+            {rejectedFailed.map((j) => {
+              const display = jobStatusDisplay(j.status);
+              return (
+                <li key={j.id} className="flex items-center justify-between rounded bg-gray-50 px-3 py-2">
+                  <span>{labelByUser.get(j.createdBy) ?? j.createdBy}</span>
+                  <span className="flex items-center gap-2">
+                    <Badge tone={j.status === "denied" ? "danger" : "warning"}>
+                      {display.emoji} {display.label}
+                    </Badge>
+                    <span className="text-[var(--color-muted)]">{new Date(j.createdAt).toLocaleDateString()}</span>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </Card>
 
       <Card>
-        <h2 className="mb-3 font-medium">Color usage ({JOB_WINDOW_DAYS}d)</h2>
-        <ReportTable
-          columns={["Mode", "Jobs", "Sheets"]}
-          rows={[
-            ["Color", colorUsage.color.jobCount.toLocaleString(), colorUsage.color.sheets.toLocaleString()],
-            ["Black & white", colorUsage.bw.jobCount.toLocaleString(), colorUsage.bw.sheets.toLocaleString()],
-          ]}
-        />
+        <h2 className="mb-3 font-medium">By user ({JOB_WINDOW_DAYS}d)</h2>
+        {byUser.length === 0 ? (
+          <EmptyState message="No jobs in this window." />
+        ) : (
+          <ReportTable
+            columns={["User", "Jobs", "Sheets"]}
+            rows={byUser.map((r) => [r.label, r.jobCount.toLocaleString(), r.sheets.toLocaleString()])}
+          />
+        )}
       </Card>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <Card>
-          <h2 className="mb-3 font-medium">By user ({JOB_WINDOW_DAYS}d)</h2>
-          {byUser.length === 0 ? (
-            <EmptyState message="No jobs in this window." />
-          ) : (
-            <ReportTable
-              columns={["User", "Jobs", "Sheets"]}
-              rows={byUser.map((r) => [r.label, r.jobCount.toLocaleString(), r.sheets.toLocaleString()])}
-            />
-          )}
-        </Card>
-
         <Card>
           <h2 className="mb-3 font-medium">By department ({JOB_WINDOW_DAYS}d)</h2>
           {byDepartment.length === 0 ? (
@@ -159,31 +186,40 @@ export default async function ReportsPage() {
             />
           )}
         </Card>
-
-        <Card>
-          <h2 className="mb-3 font-medium">Recently denied / failed</h2>
-          {rejectedFailed.length === 0 ? (
-            <EmptyState message="No denied or failed jobs in this window." />
-          ) : (
-            <ul className="flex flex-col gap-2 text-sm">
-              {rejectedFailed.map((j) => {
-                const display = jobStatusDisplay(j.status);
-                return (
-                  <li key={j.id} className="flex items-center justify-between rounded bg-gray-50 px-3 py-2">
-                    <span>{labelByUser.get(j.createdBy) ?? j.createdBy}</span>
-                    <span className="flex items-center gap-2">
-                      <Badge tone={j.status === "denied" ? "danger" : "warning"}>
-                        {display.emoji} {display.label}
-                      </Badge>
-                      <span className="text-[var(--color-muted)]">{new Date(j.createdAt).toLocaleDateString()}</span>
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Card>
       </div>
+
+      <details className="rounded-xl border border-[var(--color-border)] p-4">
+        <summary className="cursor-pointer font-medium">Full history: pages by month &amp; color usage</summary>
+        <div className="mt-4 flex flex-col gap-6">
+          <div>
+            <h2 className="mb-3 font-medium">Pages by month</h2>
+            {pagesByMonth.length === 0 ? (
+              <EmptyState message="No usage recorded yet." />
+            ) : (
+              <ReportTable
+                columns={["Month", "PDF pages", "Printed sides", "Physical sheets", "Color-weighted"]}
+                rows={pagesByMonth.map((m) => [
+                  m.period === thisPeriod ? `${m.period} (current)` : m.period,
+                  m.pdfPages.toLocaleString(),
+                  m.printedSides.toLocaleString(),
+                  m.physicalSheets.toLocaleString(),
+                  m.colorWeighted.toLocaleString(),
+                ])}
+              />
+            )}
+          </div>
+          <div>
+            <h2 className="mb-3 font-medium">Color usage ({JOB_WINDOW_DAYS}d)</h2>
+            <ReportTable
+              columns={["Mode", "Jobs", "Sheets"]}
+              rows={[
+                ["Color", colorUsage.color.jobCount.toLocaleString(), colorUsage.color.sheets.toLocaleString()],
+                ["Black & white", colorUsage.bw.jobCount.toLocaleString(), colorUsage.bw.sheets.toLocaleString()],
+              ]}
+            />
+          </div>
+        </div>
+      </details>
     </div>
   );
 }

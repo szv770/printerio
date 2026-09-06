@@ -3,7 +3,7 @@
 import { useActionState, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Tables } from "@/lib/database.types";
-import { Button, Input, EmptyState, FormError } from "@/components/ui";
+import { Button, Input, EmptyState, FormError, Card } from "@/components/ui";
 import { approveJobAction, rejectJobAction, type ApprovalActionState } from "./actions";
 
 type PrintJob = Tables<"print_jobs">;
@@ -62,55 +62,57 @@ function ApprovalCard({ job }: { job: PrintJob }) {
   const [showReject, setShowReject] = useState(false);
 
   return (
-    <li className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="font-medium">{job.original_file_name}</span>
-        <span className="text-xs text-[var(--color-muted)]">{job.job_number}</span>
-      </div>
-      <p className="mb-2 text-sm text-[var(--color-muted)]">
-        {job.source_pdf_pages} pages • {job.color_mode === "color" ? "Color" : "B&W"} • {job.copies}{" "}
-        {job.copies === 1 ? "copy" : "copies"}
-        {job.duplex ? " • Duplex" : ""}
-      </p>
-      {job.policy_reasons.length > 0 && (
-        <div className="mb-3 text-sm">
-          <p className="font-medium">Reason:</p>
-          <ul className="list-inside list-disc text-[var(--color-muted)]">
-            {job.policy_reasons.map((r, i) => (
-              <li key={i}>{r}</li>
-            ))}
-          </ul>
+    <li>
+      <Card className="p-5">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="font-medium">{job.original_file_name}</span>
+          <span className="text-xs text-[var(--color-muted)]">{job.job_number}</span>
         </div>
-      )}
-
-      <FormError message={approveState.error ?? rejectState.error} />
-
-      {showReject ? (
-        <form action={rejectAction} className="mt-2 flex flex-col gap-2">
-          <input type="hidden" name="jobId" value={job.id} />
-          <Input name="reason" placeholder="Reason (optional)" />
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => setShowReject(false)}>
-              Back
-            </Button>
-            <Button type="submit" variant="danger" size="sm" pending={rejectPending} pendingLabel="Rejecting...">
-              Confirm reject
-            </Button>
+        <p className="mb-2 text-sm text-[var(--color-muted)]">
+          {job.source_pdf_pages} pages • {job.color_mode === "color" ? "Color" : "B&W"} • {job.copies}{" "}
+          {job.copies === 1 ? "copy" : "copies"}
+          {job.duplex ? " • Duplex" : ""}
+        </p>
+        {job.policy_reasons.length > 0 && (
+          <div className="mb-3 text-sm">
+            <p className="font-medium">Reason:</p>
+            <ul className="list-inside list-disc text-[var(--color-muted)]">
+              {job.policy_reasons.map((r, i) => (
+                <li key={i}>{r}</li>
+              ))}
+            </ul>
           </div>
-        </form>
-      ) : (
-        <div className="mt-2 flex gap-2">
-          <Button type="button" variant="outline-danger" size="sm" onClick={() => setShowReject(true)}>
-            Reject
-          </Button>
-          <form action={approveAction}>
+        )}
+
+        <FormError message={approveState.error ?? rejectState.error} />
+
+        {showReject ? (
+          <form action={rejectAction} className="mt-2 flex flex-col gap-2">
             <input type="hidden" name="jobId" value={job.id} />
-            <Button type="submit" variant="success" size="sm" pending={approvePending} pendingLabel="Approving...">
-              Approve
-            </Button>
+            <Input name="reason" placeholder="Reason (optional)" />
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setShowReject(false)}>
+                Back
+              </Button>
+              <Button type="submit" variant="danger" size="sm" pending={rejectPending} pendingLabel="Rejecting...">
+                Confirm reject
+              </Button>
+            </div>
           </form>
-        </div>
-      )}
+        ) : (
+          <div className="mt-2 flex gap-2">
+            <Button type="button" variant="outline-danger" size="sm" onClick={() => setShowReject(true)}>
+              Reject
+            </Button>
+            <form action={approveAction}>
+              <input type="hidden" name="jobId" value={job.id} />
+              <Button type="submit" variant="success" size="sm" pending={approvePending} pendingLabel="Approving...">
+                Approve
+              </Button>
+            </form>
+          </div>
+        )}
+      </Card>
     </li>
   );
 }

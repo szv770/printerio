@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import type { Tables } from "@/lib/database.types";
-import { Button, Input, Select, FieldLabel, FormError, Badge, EmptyState } from "@/components/ui";
+import { Button, Input, Select, FieldLabel, FormError, Badge, EmptyState, Card } from "@/components/ui";
 import {
   createGroupAction,
   deleteGroupAction,
@@ -43,24 +43,26 @@ export function GroupsPanel({
   return (
     <div className="flex flex-col gap-6">
       {canManage && (
-        <form action={createAction} className="flex items-end gap-3 rounded-lg border border-[var(--color-border)] p-4">
-          <div>
-            <FieldLabel htmlFor="groupName">New group name</FieldLabel>
-            <Input id="groupName" name="name" required placeholder="Science Department" />
-          </div>
-          <div>
-            <FieldLabel htmlFor="groupKind">Kind</FieldLabel>
-            <Select id="groupKind" name="kind" defaultValue="custom">
-              <option value="department">Department</option>
-              <option value="class">Class</option>
-              <option value="custom">Custom</option>
-            </Select>
-          </div>
-          <Button type="submit" size="sm" pending={creating} pendingLabel="Creating...">
-            Create group
-          </Button>
-          <FormError message={createState.error} />
-        </form>
+        <Card>
+          <form action={createAction} className="flex items-end gap-3">
+            <div>
+              <FieldLabel htmlFor="groupName">New group name</FieldLabel>
+              <Input id="groupName" name="name" required placeholder="Science Department" />
+            </div>
+            <div>
+              <FieldLabel htmlFor="groupKind">Kind</FieldLabel>
+              <Select id="groupKind" name="kind" defaultValue="custom">
+                <option value="department">Department</option>
+                <option value="class">Class</option>
+                <option value="custom">Custom</option>
+              </Select>
+            </div>
+            <Button type="submit" size="sm" pending={creating} pendingLabel="Creating...">
+              Create group
+            </Button>
+            <FormError message={createState.error} />
+          </form>
+        </Card>
       )}
 
       {groups.map((group) => (
@@ -99,7 +101,7 @@ function GroupCard({
   const available = roster.filter((r) => !memberSet.has(r.userId));
 
   return (
-    <div className="rounded-xl border border-[var(--color-border)] p-4">
+    <Card>
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <p className="font-medium">{group.name}</p>
@@ -154,6 +156,6 @@ function GroupCard({
       )}
       <FormError message={addState.error} />
       <FormError message={deleteState.error} />
-    </div>
+    </Card>
   );
 }

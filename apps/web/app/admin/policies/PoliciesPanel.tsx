@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import type { Tables } from "@/lib/database.types";
-import { Button, Input, Select, Textarea, FieldLabel, FormError, Badge, EmptyState } from "@/components/ui";
+import { Button, Input, Select, Textarea, FieldLabel, FormError, Badge, EmptyState, Card } from "@/components/ui";
 import {
   createPolicyAction,
   createPolicyRuleAction,
@@ -19,16 +19,18 @@ export function PoliciesPanel({ policies, rules, canManage }: { policies: Policy
   return (
     <div className="flex flex-col gap-6">
       {canManage && (
-        <form action={createAction} className="flex items-end gap-3 rounded-lg border border-[var(--color-border)] p-4">
-          <div>
-            <FieldLabel htmlFor="policyName">New policy name</FieldLabel>
-            <Input id="policyName" name="name" required placeholder="Staff Policy" />
-          </div>
-          <Button type="submit" size="sm" pending={creating} pendingLabel="Creating...">
-            Create policy
-          </Button>
-          <FormError message={createState.error} />
-        </form>
+        <Card>
+          <form action={createAction} className="flex items-end gap-3">
+            <div>
+              <FieldLabel htmlFor="policyName">New policy name</FieldLabel>
+              <Input id="policyName" name="name" required placeholder="Staff Policy" />
+            </div>
+            <Button type="submit" size="sm" pending={creating} pendingLabel="Creating...">
+              Create policy
+            </Button>
+            <FormError message={createState.error} />
+          </form>
+        </Card>
       )}
 
       {policies.map((policy) => (
@@ -51,7 +53,7 @@ function PolicyCard({ policy, rules, canManage }: { policy: Policy; rules: Rule[
   const [toggleState, toggleAction] = useActionState(toggleRuleEnabledAction, initialPolicyActionState);
 
   return (
-    <div className="rounded-xl border border-[var(--color-border)] p-4">
+    <Card>
       <div className="mb-2 flex items-center justify-between">
         <p className="font-medium">{policy.name}</p>
         {canManage && (
@@ -101,6 +103,6 @@ function PolicyCard({ policy, rules, canManage }: { policy: Policy; rules: Rule[
           <FormError message={ruleState.error} />
         </form>
       )}
-    </div>
+    </Card>
   );
 }

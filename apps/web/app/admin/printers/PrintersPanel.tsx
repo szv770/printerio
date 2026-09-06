@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import type { Tables } from "@/lib/database.types";
-import { Button, Input, Select, FieldLabel, FormError, EmptyState, Badge } from "@/components/ui";
+import { Button, Input, Select, FieldLabel, FormError, EmptyState, Badge, Card } from "@/components/ui";
 import {
   createPrinterAction,
   createPrinterProfileAction,
@@ -13,6 +13,11 @@ import {
 
 type Printer = Tables<"printers">;
 type PrinterProfile = Tables<"printer_profiles">;
+interface AgentInfo {
+  id: string;
+  name: string;
+  last_seen_at: string | null;
+}
 
 const STATUS_TONE: Record<string, "success" | "warning" | "danger" | "neutral"> = {
   online: "success",
@@ -20,6 +25,8 @@ const STATUS_TONE: Record<string, "success" | "warning" | "danger" | "neutral"> 
   error: "danger",
   unknown: "warning",
 };
+
+const AGENT_ONLINE_WINDOW_MS = 5 * 60_000; // same 5-min-without-a-heartbeat rule as admin/page.tsx and AgentsPanel
 
 export function PrintersPanel({
   printers,
@@ -29,7 +36,7 @@ export function PrintersPanel({
 }: {
   printers: Printer[];
   profiles: PrinterProfile[];
-  agents: Array<{ id: string; name: string }>;
+  agents: AgentInfo[];
   canManage: boolean;
 }) {
   const [createPrinterState, createPrinterAct, creatingPrinter] = useActionState(createPrinterAction, initialPrinterActionState);
@@ -38,79 +45,92 @@ export function PrintersPanel({
   return (
     <div className="flex flex-col gap-6">
       {canManage && (
-        <form action={createPrinterAct} className="flex flex-wrap items-end gap-3 rounded-lg border border-[var(--color-border)] p-4">
-          <div>
-            <FieldLabel htmlFor="name">Name</FieldLabel>
-            <Input id="name" name="name" required placeholder="Main Office Kyocera" />
-          </div>
-          <div>
-            <FieldLabel htmlFor="vendor">Vendor</FieldLabel>
-            <Input id="vendor" name="vendor" placeholder="Kyocera" />
-          </div>
-          <div>
-            <FieldLabel htmlFor="model">Model</FieldLabel>
-            <Input id="model" name="model" placeholder="TASKalfa MZ2501ci" />
-          </div>
-          <div>
-            <FieldLabel htmlFor="location">Location</FieldLabel>
-            <Input id="location" name="location" placeholder="Front office" />
-          </div>
-          <Button type="submit" size="sm" pending={creatingPrinter} pendingLabel="Adding...">
-            Add printer
-          </Button>
-          <FormError message={createPrinterState.error} />
-        </form>
+        <Card>
+          <form action={createPrinterAct} className="flex flex-wrap items-end gap-3">
+            <div>
+              <FieldLabel htmlFor="name">Name</FieldLabel>
+              <Input id="name" name="name" required placeholder="Main Office Kyocera" />
+            </div>
+            <div>
+              <FieldLabel htmlFor="vendor">Vendor</FieldLabel>
+              <Input id="vendor" name="vendor" placeholder="Kyocera" />
+            </div>
+            <div>
+              <FieldLabel htmlFor="model">Model</FieldLabel>
+              <Input id="model" name="model" placeholder="TASKalfa MZ2501ci" />
+            </div>
+            <div>
+              <FieldLabel htmlFor="location">Location</FieldLabel>
+              <Input id="location" name="location" placeholder="Front office" />
+            </div>
+            <Button type="submit" size="sm" pending={creatingPrinter} pendingLabel="Adding...">
+              Add printer
+            </Button>
+            <FormError message={createPrinterState.error} />
+          </form>
+        </Card>
       )}
 
       <ul className="flex flex-col gap-4">
         {printers.map((printer) => {
           const printerProfiles = profiles.filter((p) => p.printer_id === printer.id);
           return (
-            <li key={printer.id} className="rounded-xl border border-[var(--color-border)] p-4">
-              <div className="mb-2 flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium">{printer.name}</p>
-                    <Badge tone={STATUS_TONE[printer.status] ?? "neutral"}>{printer.status}</Badge>
-                  </div>
-                  <p className="text-xs text-[var(--color-muted)]">
-                    {printer.vendor} {printer.model} {printer.location ? `• ${printer.location}` : ""}
-                    {printer.last_status_at && ` • last reported ${new Date(printer.last_status_at).toLocaleString()}`}
-                  </p>
-                </div>
-                {canManage && (
-                  <button
-                    type="button"
-                    onClick={() => setShowNewProfileFor(showNewProfileFor === printer.id ? null : printer.id)}
-                    className="text-xs font-medium text-[var(--color-primary)]"
-                  >
-                    + Add finishing profile
-                  </button>
-                )}
-              </div>
-
-              <ul className="flex flex-col gap-1 text-sm">
-                {printerProfiles.map((p) => (
-                  <li key={p.id} className="rounded bg-gray-50 px-3 py-2">
-                    <div className="flex items-center justify-between">
-                      <span>
-                        <span className="font-medium">{p.label}</span> ({p.key}) — queue <code>{p.windows_queue_name}</code>
-                      </span>
-                      {canManage && <ProfileRemoteActions printer={printer} profile={p} />}
+            <li key={printer.id}>
+              <Card>
+                <div className="mb-2 flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium">{printer.name}</p>
+                      <Badge tone={STATUS_TONE[printer.status] ?? "neutral"}>{printer.status}</Badge>
                     </div>
                     <p className="text-xs text-[var(--color-muted)]">
-                      Declared: {p.declared_paper_sizes.join(", ")} •{" "}
-                      {Object.entries(p.declared_capabilities as Record<string, boolean>)
-                        .filter(([, v]) => v)
-                        .map(([k]) => k)
-                        .join(", ") || "no special capabilities"}
+                      {printer.vendor} {printer.model} {printer.location ? `• ${printer.location}` : ""}
+                      {printer.last_status_at && ` • last reported ${new Date(printer.last_status_at).toLocaleString()}`}
                     </p>
-                  </li>
-                ))}
-                {printerProfiles.length === 0 && <p className="text-xs text-[var(--color-muted)]">No finishing profiles yet.</p>}
-              </ul>
+                  </div>
+                  {canManage && (
+                    <button
+                      type="button"
+                      onClick={() => setShowNewProfileFor(showNewProfileFor === printer.id ? null : printer.id)}
+                      className="text-xs font-medium text-[var(--color-primary)]"
+                    >
+                      + Add finishing profile
+                    </button>
+                  )}
+                </div>
 
-              {showNewProfileFor === printer.id && <NewProfileForm printerId={printer.id} agents={agents} />}
+                <ul className="flex flex-col gap-1 text-sm">
+                  {printerProfiles.map((p) => {
+                    const owningAgent = agents.find((a) => a.id === p.agent_id);
+                    return (
+                      <li key={p.id} className="rounded bg-gray-50 px-3 py-2">
+                        <div className="flex items-center justify-between">
+                          <span>
+                            <span className="font-medium">{p.label}</span> ({p.key}) — queue <code>{p.windows_queue_name}</code>
+                          </span>
+                          {canManage && <ProfileRemoteActions printer={printer} profile={p} />}
+                        </div>
+                        <p className="mt-1 flex items-center gap-2 text-xs text-[var(--color-muted)]">
+                          <span>
+                            Declared: {p.declared_paper_sizes.join(", ")} •{" "}
+                            {Object.entries(p.declared_capabilities as Record<string, boolean>)
+                              .filter(([, v]) => v)
+                              .map(([k]) => k)
+                              .join(", ") || "no special capabilities"}
+                          </span>
+                          {/* Diagnosing a printer error usually starts with "is its agent even
+                           *  online" - shown inline so that doesn't require a separate trip to
+                           *  /admin/agents. */}
+                          {owningAgent && <AgentOnlineBadge agent={owningAgent} />}
+                        </p>
+                      </li>
+                    );
+                  })}
+                  {printerProfiles.length === 0 && <p className="text-xs text-[var(--color-muted)]">No finishing profiles yet.</p>}
+                </ul>
+
+                {showNewProfileFor === printer.id && <NewProfileForm printerId={printer.id} agents={agents} />}
+              </Card>
             </li>
           );
         })}
@@ -124,6 +144,19 @@ export function PrintersPanel({
         sec 11) - it is not polled live.
       </p>
     </div>
+  );
+}
+
+function AgentOnlineBadge({ agent }: { agent: AgentInfo }) {
+  // Deliberately impure (Date.now()) - a snapshot at render time, not a value
+  // that needs to stay referentially stable across re-renders. Same
+  // rationale as admin/page.tsx's onlineCutoff and AgentsPanel's `online`.
+  // eslint-disable-next-line react-hooks/purity
+  const online = !!agent.last_seen_at && Date.now() - new Date(agent.last_seen_at).getTime() < AGENT_ONLINE_WINDOW_MS;
+  return (
+    <Badge tone={online ? "success" : "neutral"}>
+      Agent: {agent.name} • {online ? "online" : "offline"}
+    </Badge>
   );
 }
 
@@ -161,7 +194,7 @@ function NewProfileForm({
   agents,
 }: {
   printerId: string;
-  agents: Array<{ id: string; name: string }>;
+  agents: AgentInfo[];
 }) {
   const [state, formAction, pending] = useActionState(createPrinterProfileAction, initialPrinterActionState);
 

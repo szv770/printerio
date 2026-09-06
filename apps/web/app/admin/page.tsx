@@ -1,6 +1,8 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
 import { PageHeader, Card } from "@/components/ui";
+import { routes } from "@/lib/routes";
 
 export default async function AdminOverviewPage() {
   const session = await requireOrgRole(["org_admin", "approver"]);
@@ -36,26 +38,43 @@ export default async function AdminOverviewPage() {
   // client re-renders.
   // eslint-disable-next-line react-hooks/purity
   const onlineCutoff = Date.now() - 5 * 60_000; // 5 min without a heartbeat = offline
-  const agentsOnline = (agents ?? []).filter((a) => a.last_seen_at && new Date(a.last_seen_at).getTime() > onlineCutoff).length;
+  const agentsOffline = (agents ?? []).filter(
+    (a) => !a.last_seen_at || new Date(a.last_seen_at).getTime() <= onlineCutoff,
+  ).length;
+  const printersInError = (printers ?? []).filter((p) => p.status === "error" || p.status === "offline").length;
 
-  const stats = [
+  // Problem-first: an admin scanning this page cares about what needs
+  // attention, not the healthy baseline - a "3/5 online" ratio makes them do
+  // the subtraction themselves. Only the two action items are linked
+  // (they lead somewhere useful); "Jobs today" is a volume stat, not an
+  // action, so it stays plain.
+  const stats: { label: string; value: string | number; href?: string }[] = [
+    { label: "Pending approvals", value: pendingApprovals ?? 0, href: routes.adminApprovals },
+    { label: "Failed jobs", value: failedJobs ?? 0, href: routes.adminReports },
+    { label: "Agents offline", value: agentsOffline, href: routes.adminAgents },
+    { label: "Printers in error", value: printersInError, href: routes.adminPrinters },
     { label: "Jobs today", value: jobsToday ?? 0 },
-    { label: "Pending approvals", value: pendingApprovals ?? 0 },
-    { label: "Failed jobs", value: failedJobs ?? 0 },
-    { label: "Agents online", value: `${agentsOnline} / ${agents?.length ?? 0}` },
-    { label: "Printers", value: printers?.length ?? 0 },
   ];
 
   return (
     <div>
       <PageHeader title="Overview" />
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-        {stats.map((s) => (
-          <Card key={s.label} className="p-5">
-            <p className="text-sm text-[var(--color-muted)]">{s.label}</p>
-            <p className="mt-1 text-2xl font-semibold">{s.value}</p>
-          </Card>
-        ))}
+        {stats.map((s) => {
+          const card = (
+            <Card className={`p-5 ${s.href ? "transition-colors hover:bg-[var(--color-surface)]" : ""}`}>
+              <p className="text-sm text-[var(--color-muted)]">{s.label}</p>
+              <p className="mt-1 text-2xl font-semibold">{s.value}</p>
+            </Card>
+          );
+          return s.href ? (
+            <Link key={s.label} href={s.href}>
+              {card}
+            </Link>
+          ) : (
+            <div key={s.label}>{card}</div>
+          );
+        })}
       </div>
     </div>
   );

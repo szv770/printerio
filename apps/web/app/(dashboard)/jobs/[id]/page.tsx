@@ -25,7 +25,25 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
 
       <JobStatusLive jobId={job.id} initialStatus={job.status} initialErrorMessage={job.error_message} />
 
-      <Card className="mt-6 grid grid-cols-2 gap-4 text-sm">
+      {/* The reason a job was denied/needs approval is the thing a user most
+       *  wants explained - shown right under status, before the generic
+       *  page/copy/color details below (which the user already knows, since
+       *  they're the one who picked them). Auto-approved jobs have no
+       *  reasons to show and just skip straight to the details grid. */}
+      {job.policy_reasons.length > 0 && (
+        <Card className="mt-6 text-sm">
+          <p className="mb-1 font-medium">
+            {job.policy_action === "deny" ? "Why this was denied" : job.policy_action === "require_approval" ? "Why this needs approval" : "Auto-approved"}
+          </p>
+          <ul className="list-inside list-disc text-[var(--color-muted)]">
+            {job.policy_reasons.map((r, i) => (
+              <li key={i}>{r}</li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      <Card className={`grid grid-cols-2 gap-4 text-sm ${job.policy_reasons.length > 0 ? "mt-4" : "mt-6"}`}>
         <div>
           <p className="text-[var(--color-muted)]">Pages</p>
           <p className="font-medium">{job.source_pdf_pages}</p>
@@ -51,19 +69,6 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
           <p className="font-medium">{job.estimated_physical_sheets}</p>
         </div>
       </Card>
-
-      {job.policy_reasons.length > 0 && (
-        <Card className="mt-4 text-sm">
-          <p className="mb-1 font-medium">
-            {job.policy_action === "deny" ? "Denied" : job.policy_action === "require_approval" ? "Approval required" : "Auto-approved"}
-          </p>
-          <ul className="list-inside list-disc text-[var(--color-muted)]">
-            {job.policy_reasons.map((r, i) => (
-              <li key={i}>{r}</li>
-            ))}
-          </ul>
-        </Card>
-      )}
 
       {events && events.length > 0 && (
         <div className="mt-6">
