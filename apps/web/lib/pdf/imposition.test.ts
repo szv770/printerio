@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { PDFDocument, PDFArray, PDFRawStream, decodePDFRawStream, type PDFPage } from "pdf-lib";
+import {
+  PDFDocument,
+  PDFArray,
+  PDFDict,
+  PDFName,
+  PDFNumber,
+  PDFRawStream,
+  PDFRef,
+  PDFStream,
+  decodePDFRawStream,
+  type PDFPage,
+} from "pdf-lib";
 import {
   bookletPageOrder,
   imposeBookletPdf,
@@ -70,6 +81,55 @@ function extractDrawnXScales(contentString: string): number[] {
     if (matched) scales.push(combinedXScale);
   }
   return scales;
+}
+
+/**
+ * Extracts the XObject resource NAME referenced by each `q ... /Name Do ...
+ * Q` block's `Do` operator, in appearance order (one name per `drawPage`
+ * call, same block-splitting convention as `extractDrawnXScales`). This is
+ * step 1 of proving which *source page* actually landed in which physical
+ * slot - step 2 (`resolveDrawnPageWidths` below) resolves each name back to
+ * the source page it refers to.
+ */
+function extractDrawnXObjectNames(contentString: string): string[] {
+  const names: string[] = [];
+  for (const block of contentString.split(/\bQ\b/)) {
+    const match = block.match(/\/(\S+)\s+Do\b/);
+    if (match) names.push(match[1]!);
+  }
+  return names;
+}
+
+/**
+ * For one output page, resolves each drawn `Do` block back to the actual
+ * source page it draws - identified via genuine object identity, not
+ * inferred from scale: each name in the page's own `/XObject` resource
+ * dictionary is a `PDFRef` pointing at a Form XObject (the embedded source
+ * page - see pdf-lib's `PDFPage.drawPage`/`PDFPageEmbedder`), and that Form
+ * XObject's own `/BBox` is a verbatim copy of the source page's MediaBox
+ * (`fullPageBoundingBox` in pdf-lib's `PDFPageEmbedder.embedIntoContext`) -
+ * so a source page's *width* (BBox right - left), if every source page is
+ * given a distinct width, is an exact, non-floating-point identifier of
+ * which page was drawn, independent of whatever scale it was drawn at.
+ *
+ * Returns the drawn page widths in appearance order (left slot's page first,
+ * then right slot's, matching `drawSlot`'s call order in imposition.ts).
+ */
+function resolveDrawnPageWidths(doc: PDFDocument, page: PDFPage): number[] {
+  const resources = page.node.Resources();
+  if (!resources) throw new Error("output page has no Resources");
+  const xObjectDict = resources.lookup(PDFName.of("XObject"), PDFDict);
+
+  const names = extractDrawnXObjectNames(decodePageContent(doc, page));
+  return names.map((name) => {
+    const ref = xObjectDict.get(PDFName.of(name));
+    if (!(ref instanceof PDFRef)) throw new Error(`XObject /${name} is not a reference`);
+    const formXObject = doc.context.lookup(ref, PDFStream);
+    const bbox = formXObject.dict.lookup(PDFName.of("BBox"), PDFArray);
+    const left = bbox.lookup(0, PDFNumber).asNumber();
+    const right = bbox.lookup(2, PDFNumber).asNumber();
+    return right - left;
+  });
 }
 
 describe("bookletPageOrder", () => {
@@ -226,5 +286,102 @@ describe("imposeBookletPdf", () => {
     const out = await imposeBookletPdf(padded.bytes, { width: 612, height: 792 });
     const outDoc = await PDFDocument.load(out);
     expect(outDoc.getPageCount()).toBe(4); // 8/2
+  });
+});
+
+describe("imposeBookletPdf bindingSide", () => {
+  /**
+   * Builds an 8-page source PDF where page N (1-indexed) has a distinct,
+   * exactly-reversible width (100 + N) and a fixed, deliberately-tiny height
+   * (150) - `resolveDrawnPageWidths` turns each drawn width straight back
+   * into the source page number that produced it (width - 100 = N), giving
+   * every assertion below genuine, non-floating-point proof of *which page*
+   * physically landed in which slot, not just "the scale looks different."
+   */
+  async function makeIdentifiable8PagePdf(): Promise<Uint8Array> {
+    const doc = await PDFDocument.create();
+    for (let n = 1; n <= 8; n++) doc.addPage([100 + n, 150]);
+    return doc.save();
+  }
+
+  it("bindingSide \"left\" (the default) matches bookletPageOrder's own slot assignment exactly", async () => {
+    const bytes = await makeIdentifiable8PagePdf();
+    // No third argument at all - proves the default is genuinely "left",
+    // not just documented as such.
+    const out = await imposeBookletPdf(bytes, { width: 612, height: 792 });
+    const outDoc = await PDFDocument.load(out);
+    expect(outDoc.getPageCount()).toBe(4);
+
+    const front0 = resolveDrawnPageWidths(outDoc, outDoc.getPage(0)).map((w) => w - 100);
+    const back0 = resolveDrawnPageWidths(outDoc, outDoc.getPage(1)).map((w) => w - 100);
+    const front1 = resolveDrawnPageWidths(outDoc, outDoc.getPage(2)).map((w) => w - 100);
+    const back1 = resolveDrawnPageWidths(outDoc, outDoc.getPage(3)).map((w) => w - 100);
+
+    const sheets = bookletPageOrder(8);
+    expect(front0).toEqual(sheets[0]!.front);
+    expect(back0).toEqual(sheets[0]!.back);
+    expect(front1).toEqual(sheets[1]!.front);
+    expect(back1).toEqual(sheets[1]!.back);
+  });
+
+  it('bindingSide "right" mirrors every sheet\'s left/right slot assignment (same sheets, swapped sides)', async () => {
+    const bytes = await makeIdentifiable8PagePdf();
+    const out = await imposeBookletPdf(bytes, { width: 612, height: 792 }, "right");
+    const outDoc = await PDFDocument.load(out);
+    expect(outDoc.getPageCount()).toBe(4);
+
+    const front0 = resolveDrawnPageWidths(outDoc, outDoc.getPage(0)).map((w) => w - 100);
+    const back0 = resolveDrawnPageWidths(outDoc, outDoc.getPage(1)).map((w) => w - 100);
+    const front1 = resolveDrawnPageWidths(outDoc, outDoc.getPage(2)).map((w) => w - 100);
+    const back1 = resolveDrawnPageWidths(outDoc, outDoc.getPage(3)).map((w) => w - 100);
+
+    // Exactly the "left" sheets (sheets 0/1 = front [8,1]/[6,3], back
+    // [2,7]/[4,5] - see bookletPageOrder's own worked-example comment) with
+    // each pair's two entries swapped - same sheets/nesting, mirrored sides.
+    const leftSheets = bookletPageOrder(8);
+    expect(front0).toEqual([leftSheets[0]!.front[1], leftSheets[0]!.front[0]]);
+    expect(back0).toEqual([leftSheets[0]!.back[1], leftSheets[0]!.back[0]]);
+    expect(front1).toEqual([leftSheets[1]!.front[1], leftSheets[1]!.front[0]]);
+    expect(back1).toEqual([leftSheets[1]!.back[1], leftSheets[1]!.back[0]]);
+
+    // Concretely: front0=[1,8], back0=[7,2], front1=[3,6], back1=[5,4].
+    expect(front0).toEqual([1, 8]);
+    expect(back0).toEqual([7, 2]);
+    expect(front1).toEqual([3, 6]);
+    expect(back1).toEqual([5, 4]);
+
+    // The actual proof: walk the physical path a right-to-left reader
+    // follows through this exact mirrored, folded, nested, stapled object,
+    // and confirm it produces pages 1..8 IN ORDER - not just "some values
+    // changed." This is the mirror image of the module doc's own "reading
+    // the folded, nested, stapled booklet in physical order" trace for the
+    // left-bound case (front-right, back-left, front-right, ...): reading a
+    // mirrored object in the mirrored direction swaps every left<->right
+    // term in that same physical traversal path.
+    //
+    //   front0-left  -> back0-right -> front1-left -> back1-right ->
+    //   back1-left   -> front1-right -> back0-left -> front0-right
+    //
+    // A right-to-left reader opens the booklet (front0-left = the exterior
+    // cover position for this mirrored object), then each successive
+    // fold/turn reveals the next term in this path.
+    const rtlReadingOrder = [
+      front0[0], // front0-left  (cover)
+      back0[1], // back0-right
+      front1[0], // front1-left
+      back1[1], // back1-right
+      back1[0], // back1-left   (center spread, other half)
+      front1[1], // front1-right
+      back0[0], // back0-left
+      front0[1], // front0-right (back cover)
+    ];
+    expect(rtlReadingOrder).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it('bindingSide "left" passed explicitly produces byte-identical output to the default (no third argument)', async () => {
+    const bytes = await makeIdentifiable8PagePdf();
+    const implicit = await imposeBookletPdf(bytes, { width: 612, height: 792 });
+    const explicit = await imposeBookletPdf(bytes, { width: 612, height: 792 }, "left");
+    expect(Buffer.from(explicit)).toEqual(Buffer.from(implicit));
   });
 });

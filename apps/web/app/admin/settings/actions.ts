@@ -40,6 +40,30 @@ export async function updateAllowedDomainsAction(
   return {};
 }
 
+/** Updates organization_settings.default_booklet_binding_side - the binding
+ *  side ("left edge binding" / "right edge binding", matching the Kyocera KX
+ *  driver's own booklet Layout-tab terminology - docs/architecture.md sec 8)
+ *  a NEW booklet-capable printer_profiles row is prefilled with
+ *  (app/admin/printers). Never touches any existing profile or in-flight
+ *  job - see supabase/migrations/0017_*.sql's column comment. */
+export async function updateDefaultBookletBindingSideAction(
+  _prev: SettingsActionState,
+  formData: FormData,
+): Promise<SettingsActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const bindingSide = formData.get("defaultBookletBindingSide") === "right" ? "right" : "left";
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("organization_settings")
+    .update({ default_booklet_binding_side: bindingSide })
+    .eq("organization_id", session.membership.organization_id);
+  if (error) return { error: error.message };
+
+  revalidatePath(routes.adminSettings);
+  return {};
+}
+
 /** Updates organizations.magic_link_requires_allowed_domain - whether
  *  magic-link (email OTP) sign-in is subject to the same allowed_domains
  *  gate Google OAuth always enforces, or open to any email address

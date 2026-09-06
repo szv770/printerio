@@ -7,7 +7,7 @@ project's ethos — stated throughout [architecture.md](./architecture.md) and
 [known-limitations.md](./known-limitations.md) — is to never claim more than
 what's actually been verified. A green test suite means the *logic* is correct;
 it does not mean a document has ever physically come out of the Kyocera
-TASKalfa MZ2501ci stapled in the right corner.
+TASKalfa MZ8500i stapled in the right corner.
 
 ## 1. Automated tests
 
@@ -127,7 +127,7 @@ recovering from a corrupt state file instead of throwing), `cloud-client.test.ts
 **This is not optional before trusting the Agent on real jobs.** A green
 `packages/shared` test suite proves the policy engine and print math are
 arithmetically correct; it proves nothing about whether SumatraPDF invoked the
-right driver settings, whether the Kyocera TASKalfa MZ2501ci's finisher
+right driver settings, whether the Kyocera TASKalfa MZ8500i's finisher
 actually stapled the output, or whether the Agent recovers gracefully from a
 printer going offline mid-job. Per known-limitations.md, `completed` in the
 job state machine means "the spooler job left the queue cleanly," **not**
@@ -136,7 +136,7 @@ correctly is to look at the paper.
 
 Run every one of the following against a real Windows machine (with the
 Agent installed per [agent-install.md](./agent-install.md)) and the real
-Kyocera TASKalfa MZ2501ci (with queues configured per
+Kyocera TASKalfa MZ8500i (with queues configured per
 [printer-setup.md](./printer-setup.md)). For each case, "pass" is defined as a
 physical/observable outcome, not a status string in the dashboard:
 
@@ -145,12 +145,12 @@ physical/observable outcome, not a status string in the dashboard:
 | 1 | 1-page, black & white | One physical page comes out, correct content, correct orientation. |
 | 2 | 10-page, black & white | All 10 pages come out, in order, none missing or duplicated. |
 | 3 | Duplex | Pages come out printed on both sides, correctly paired front/back (not offset by one page). |
-| 4 | Color | Color content actually prints in color (not degraded to grayscale by a wrong queue/driver setting). |
+| 4 | Color | Color content actually prints in color (not degraded to grayscale by a wrong queue/driver setting). N/A against the real MZ8500i in this build — it's the monochrome model (printer-setup.md); exercise this case against a color-capable printer profile once one exists. |
 | 5 | Multiple copies (e.g. 3 copies of a 5-page doc) | Exactly 3 complete, correctly-collated sets come out — not 15 uncollated pages. |
 | 6 | 11×17 (ledger/tabloid) | Output is physically on 11×17 stock, not scaled down onto letter paper. |
 | 7 | Mixed page sizes within one document | Each page prints at its own intended size (or, if the org's policy is "reject mixed sizes," confirm it's actually rejected at preflight rather than silently printed wrong). |
 | 8 | Stapling | Staple is physically present, in the correct corner/edge, on the correct queue. |
-| 9 | Booklet | Pages are correctly imposed (2-up, folded/saddle-stitched if a stitcher is installed), reading in the correct order when the booklet is opened — not just "some pages came out." |
+| 9 | Booklet | Pages are correctly imposed (2-up, folded/saddle-stitched if a stitcher is installed), reading in the correct order when the booklet is opened — not just "some pages came out." Test both binding sides (architecture.md sec 8): a "left edge binding" profile should read correctly LTR, and a "right edge binding" profile should read correctly RTL when opened from the right, e.g. with a Hebrew document. |
 | 10 | Large job — define "large" concretely for your environment, e.g. **200 pages** | Job completes without the Agent crashing, without the spooler silently dropping pages, and the full page count is physically present. Pick a page count that's actually large relative to your printer's duty cycle and typical job sizes, and record what number you tested so this table stays honest rather than vague. |
 | 11 | Printer offline (powered off / network-disconnected before submission) | Job transitions to `failed` with a recorded `error_message` (architecture.md sec 17) — not stuck silently, not falsely reported as `completed`. |
 | 12 | Paper tray empty mid-job | Same expectation: a real, visible failure/paused state is reflected honestly, not a false `completed`. |

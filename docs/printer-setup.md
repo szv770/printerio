@@ -1,10 +1,16 @@
 # Printer setup: Kyocera KX driver, Windows queues, and Printio profiles
 
 This is the doc that gets a real printer working end to end. The target device
-for this build is a **Kyocera TASKalfa MZ2501ci** — a genuine, current A3 color
-MFP in Kyocera's newer "EvolutionNext" MZ-series. Read the caveat in §0 before
-following the menu-by-menu steps below; the procedure itself is solid, the exact
-wording of some menus is not yet verified against this specific model.
+for this build is a **Kyocera TASKalfa MZ8500i** (network host name
+`KM2BAC6A`) — a genuine, current A3/SRA3 **monochrome** MFP in Kyocera's "Nova
+TASKalfa MZ series" (MZ7500i/MZ8500i/MZ9500i/MZ10500i are the mono models in
+this series; the "ci" suffix variants, e.g. MZ8500ci, are the separate color
+SKUs — this device is not one of those). It ships with a **hybrid finisher**:
+saddle-stitch booklet finishing built in, with optional Z-fold and inserter
+add-ons. Saddle-stitch capacity is 20 sheets at 52–90gsm, 13 sheets at
+91–105gsm, front-cover-only above that. Read the caveat in §0 before following
+the menu-by-menu steps below; the procedure itself is solid, the exact wording
+of some menus is not yet verified against this specific model.
 
 ## 0. The finishing-options problem, and why the fix is one queue per profile
 
@@ -46,31 +52,55 @@ finisher/stapler unit turned on (whatever hardware option actually staples
 and folds), since Printio controls what's printed on each sheet, never the
 hardware that folds and staples the finished stack.
 
+This includes the driver's own booklet "Left edge binding" / "Right edge
+binding" setting (Layout tab — confirmed real for this printer family, the
+latter explicitly documented as intended for RTL/Hebrew text): since the
+driver's whole booklet page-layout feature is off for a Printio booklet
+queue, this setting has no effect either way and can be left at whatever the
+driver defaults to. RTL-aware binding is instead a Printio-side setting —
+`printer_profiles.booklet_binding_side` / `organization_settings.
+default_booklet_binding_side`, with a per-job override in the print form —
+that drives `apps/web/lib/pdf/imposition.ts`'s own imposition using this
+exact "left edge binding"/"right edge binding" terminology (architecture.md
+sec 8), not the driver's copy of the same toggle.
+
 ### A note on how confident to be in the steps below
 
-Kyocera has **not yet published an MZ-series-specific KX driver user guide** in
-any source available while writing this. The detailed Printing Preferences menu
-wording below — the Device Settings tab layout, the exact finisher option
-names — is drawn from KX driver guides for neighboring/prior-generation
-TASKalfa models (2554ci/3554ci, 4054ci–7054ci, 306ci/356ci/406ci, 7353ci/
-8353ci). Kyocera documents the KX driver as a stable architecture reused across
-generations, and the MZ-series ships with the same KX driver family, so this
-content is presented as **representative of the KX driver as documented for the
-closest neighboring TASKalfa models, not a guide written specifically for the
-MZ2501ci**. The overall procedure — enable installed finisher hardware in
-Device Settings, then set duplex/staple/punch/booklet defaults in Printing
+**What's now confirmed, directly, for this exact device (the real Kyocera
+TASKalfa MZ8500i, host `KM2BAC6A`):** it is the monochrome model in Kyocera's
+Nova TASKalfa MZ series (not a "ci" color SKU); it ships with a hybrid
+finisher providing saddle-stitch booklet finishing built in (20-sheet capacity
+at 52–90gsm, 13-sheet at 91–105gsm, front-cover-only above that), with
+optional Z-fold and inserter add-ons; and the KX driver's Layout tab for this
+printer family genuinely does offer a booklet "Left edge binding" (for
+left-to-right languages) vs. "Right edge binding" (for right-to-left
+languages, explicitly documented as intended for RTL text) option — see
+architecture.md sec 8 for how Printio's own imposition uses that exact
+terminology. Those are real, confirmed facts about this device's hardware and
+driver capabilities, not neighboring-model inference.
+
+**What's still unverified:** Kyocera has **not yet published an MZ-series-
+specific KX driver user guide** in any source available while writing this, so
+the detailed Printing Preferences menu wording below — the Device Settings tab
+layout, the exact on-screen finisher option names and where each toggle lives
+in the driver's menus — is drawn from KX driver guides for neighboring/prior-
+generation TASKalfa models (2554ci/3554ci, 4054ci–7054ci, 306ci/356ci/406ci,
+7353ci/8353ci). Kyocera documents the KX driver as a stable architecture reused
+across generations, and the MZ-series ships with the same KX driver family, so
+the overall procedure — enable installed finisher hardware in Device Settings,
+then set duplex/staple/punch/booklet/binding-side defaults in Printing
 Preferences, then save as that queue's Printing Defaults or as a driver
-Profile — should transfer without surprises, since it reflects the KX driver's
-general architecture rather than a model-specific quirk. The exact on-screen
-labels (a menu item reading "1,000-Sheet Finisher" vs. some other exact
-string, for instance) should be treated as unverified until you have the actual
-MZ2501ci's KX driver installed in front of you. **Please note any differences
-you find** — the wording here should be corrected once verified rather than
-trusted as a literal transcript.
+Profile — should transfer without surprises. But the precise on-screen menu
+wording (a menu item reading "1,000-Sheet Finisher" vs. some other exact
+string, for instance) is still worth double-checking against the real device
+rather than trusted as a literal transcript, even though the hardware/
+capability facts above are now confirmed for this exact model. **Please note
+any differences you find** — the wording here should be corrected once
+verified.
 
 ## 1. Install the KX driver and create the base queue
 
-1. Install the Kyocera KX driver for the TASKalfa MZ2501ci (from Kyocera's
+1. Install the Kyocera KX driver for the TASKalfa MZ8500i (from Kyocera's
    driver download page for this model, or the driver disc/package that
    shipped with the device). Use the KX driver specifically, not a generic/PCL
    fallback driver — the finishing UI and Profiles feature described below are
@@ -93,13 +123,14 @@ tabs, the driver needs to be told what hardware is physically attached to
    `Kyocera_Main` → **Printer properties**.
 2. Go to the **Device Settings** tab.
 3. Set the installed options to match what is physically attached to your
-   MZ2501ci: finisher type (e.g. none / an inner finisher / a saddle-stitch
-   booklet finisher — whatever is actually installed), punch unit (if any,
-   and which hole configuration), any paper decks/trays beyond the standard
-   ones, and mailbox (if installed). This list of exact option names is what's
-   unverified per §0 above — expect something close to "Finisher: [None /
-   Inner Finisher / 1,000-Sheet Finisher / ...]" and "Punch Unit: [None /
-   2-hole / 4-hole]," but confirm the literal wording against what's on screen.
+   MZ8500i: the hybrid finisher (confirmed to ship on this model — saddle-
+   stitch booklet finishing built in, optional Z-fold/inserter add-ons; see
+   §0), punch unit (if any, and which hole configuration), any paper decks/
+   trays beyond the standard ones, and mailbox (if installed). The exact
+   on-screen option names for these are what's unverified per §0 above —
+   expect something close to "Finisher: [None / Inner Finisher / Hybrid
+   Finisher / ...]" and "Punch Unit: [None / 2-hole / 4-hole]," but confirm
+   the literal wording against what's on screen.
 4. Apply/OK. If a hardware option you expect to see isn't present, don't
    proceed to configure finishing defaults that depend on it — go back and
    confirm the driver is actually the KX driver and that it's been given a
@@ -217,7 +248,7 @@ misconfigured, printing continues unaffected; telemetry is reported as
    `printers.snmp_config` (see `supabase/migrations/0002_printing_tables.sql`)
    is a per-printer JSON config, not a hardcoded OID map — configure the
    actual OIDs for **this specific device** (verify with an SNMP walk against
-   the real MZ2501ci, or a maintained per-model OID table) rather than
+   the real MZ8500i, or a maintained per-model OID table) rather than
    copying an OID map you found for a different Kyocera model.
 
 ## 7. If something looks wrong — troubleshooting
@@ -242,6 +273,8 @@ misconfigured, printing continues unaffected; telemetry is reported as
   §3 and confirm what's actually configured on the physical queue, then
   correct the dashboard row to match reality, not the other way around.
 - **Menu wording in this doc doesn't match what you see on screen.** Expected,
-  per §0 — this doc was written from neighboring-model KX driver guides, not
-  an MZ2501ci-specific manual. Note the actual wording you find so this
+  per §0 — the exact on-screen menu wording is drawn from neighboring-model KX
+  driver guides, not an MZ8500i-specific manual (the finisher/hardware facts
+  and the Left/Right edge binding option are confirmed for this exact model;
+  the literal menu wording is not). Note the actual wording you find so this
   document can be corrected against the real driver.

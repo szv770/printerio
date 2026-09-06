@@ -35,6 +35,14 @@ for the research basis of each design decision this responds to.
   The physical fold-and-staple action that turns those imposed sheets into a bound booklet is
   still the queue's own Printing Defaults, exactly like staple/punch above — Printio controls
   what's *on* each sheet, never the hardware that folds/staples the stack.
+- **RTL-aware booklet binding side is supported** (`printer_profiles.booklet_binding_side` /
+  `organization_settings.default_booklet_binding_side`, `imposeBookletPdf`'s `bindingSide`
+  parameter — architecture.md sec 8), matching the Kyocera KX driver's own booklet "Left edge
+  binding"/"Right edge binding" terminology. This is no longer a gap: an org whose readers
+  read right-to-left (e.g. Hebrew) can set this per profile (with an org-level default and a
+  per-job override) so a booklet folds and reads correctly for that direction, proved by
+  `imposition.test.ts`'s object-graph-level decode of an actual imposed PDF, not just a
+  transform-matrix assertion.
 - **SumatraPDF controls a genuinely cross-driver-safe subset only**: page range,
   color/monochrome, duplex mode, fit/shrink/noscale, collate, paper source/size (by the
   driver's own reported name), and copy count. It cannot set stapling, punching, page

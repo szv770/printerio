@@ -387,6 +387,34 @@ counts `Math.ceil(paddedPageCount / 4)` sheets regardless of whether those 4 pad
 end up laid out across 2 imposed landscape sides; only what is drawn on each sheet changes,
 not how many sheets there are, so quota consumption (sec 14) is unaffected.
 
+**RTL-aware binding side.** `imposeBookletPdf` takes a `bindingSide: "left" | "right"`
+parameter (default `"left"`, today's behavior above, unchanged) — naming matches the Kyocera
+KX driver's own booklet Layout-tab terminology for this printer family ("Left edge binding"
+for LTR text, "Right edge binding" — explicitly documented as intended for RTL text, e.g.
+Hebrew — see printer-setup.md §0). `"right"` mirrors which physical half-sheet slot (left vs.
+right) each page number lands in, sheet by sheet — the saddle-stitch fold-and-staple hardware
+is left/right-symmetric, so mirroring every sheet's slot assignment produces the exact mirror
+image of the `"left"` imposition, and reading that mirrored, folded, nested, stapled object in
+the mirrored (right-to-left) direction recovers the original page sequence in order, not the
+reverse of it (`imposition.test.ts`'s `bindingSide: "right"` tests decode the actual output
+PDF's object graph — not just the transform matrices — to prove this concretely for an 8-page
+booklet: page identity is tied to each embedded page's own Form XObject `BBox`, not merely
+inferred from scale). `bookletPageOrder`'s own sheet order/nesting is untouched either way;
+only the left/right slot assignment within each sheet flips.
+
+This is stored per profile (`printer_profiles.booklet_binding_side`, only meaningful when
+`declared_capabilities.booklet` is true) with an org-level default to prefill new profiles
+from (`organization_settings.default_booklet_binding_side` — defaults to `'left'` for every
+existing organization, so this column's addition changes nothing until an org_admin opts in
+from `/admin/settings`) and a per-job override in the print form for the occasional exception
+(e.g. an RTL-default organization printing one LTR booklet). `createPrintJob`
+(`apps/web/app/(dashboard)/print/actions.ts`) resolves the job's own override if present, else
+the target profile's stored default, and passes that resolved value straight through to
+`imposeBookletPdf` — the driver's own copy of this same Left/Right edge binding toggle is
+irrelevant for a Printio booklet queue, since the driver's whole booklet page-layout feature
+is already off there (see the callout above), so binding side is entirely a Printio-side
+setting, never a driver one.
+
 ## 9. Printer profiles & the driver/finishing architecture
 
 This is the architectural decision the spec most insists on getting right, and the

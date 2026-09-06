@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
 import { issueRemoteCommand } from "@/lib/remote-commands";
+import { isPrinterProfileIconKey } from "@/lib/printer-profile-icons";
 
 export interface PrinterActionState {
   error?: string;
@@ -55,6 +56,16 @@ export async function createPrinterProfileAction(_prev: PrinterActionState, form
   }
   if (!/^[a-z0-9_]+$/.test(key)) return { error: "Key must be lowercase letters, numbers, underscores only." };
 
+  const description = String(formData.get("description") ?? "").trim();
+  const iconKeyRaw = String(formData.get("iconKey") ?? "").trim();
+  if (iconKeyRaw && !isPrinterProfileIconKey(iconKeyRaw)) {
+    // Defense in depth - the DB CHECK constraint is the actual enforcement,
+    // this just gives a friendlier error than a raw Postgres one. The picker
+    // UI only ever submits one of the allow-listed values.
+    return { error: "Not a recognized icon." };
+  }
+  const bindingSide = formData.get("bookletBindingSide") === "right" ? "right" : "left";
+
   const supabase = await createClient();
 
   // Verify the printer/agent belong to this org before inserting (defense in
@@ -72,6 +83,8 @@ export async function createPrinterProfileAction(_prev: PrinterActionState, form
     agent_id: agentId,
     key,
     label,
+    description: description || null,
+    icon_key: iconKeyRaw || null,
     windows_queue_name: windowsQueueName,
     declared_paper_sizes: paperSizes.length > 0 ? paperSizes : ["letter"],
     declared_capabilities: {
@@ -81,6 +94,7 @@ export async function createPrinterProfileAction(_prev: PrinterActionState, form
       booklet: formData.get("booklet") === "on",
       punch: formData.get("punch") === "on",
     },
+    booklet_binding_side: bindingSide,
     is_default: formData.get("isDefault") === "on",
   });
   if (error) return { error: error.message };
