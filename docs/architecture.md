@@ -312,15 +312,62 @@ measured in; **the documented default is `physical_sheets`**, because it is the 
 that corresponds most directly to a physical resource (paper) consumed, and is unambiguous
 regardless of duplex/copies configuration.
 
-## 8. Booklet padding
+## 8. Booklet padding & imposition
 
 Booklet imposition requires a page count that is a multiple of 4. If not, the user is
 shown the exact padding math (spec's UX: "This document contains 6 pages... Add 2 blank
-pages?") and, on confirmation, a **derived** PDF is generated with blank pages appended.
-The **original upload is never modified or overwritten** — `print_jobs.original_file_path`
-and `derived_file_path` are stored separately, and `print_job_events` records the exact
-transformation (`{"type": "booklet_padding", "pages_added": 2}`), so an audit can always
-see both what the user uploaded and what was actually sent to the printer.
+pages?") and, on confirmation, a padded copy is generated with blank pages appended
+(`apps/web/lib/pdf/booklet.ts`'s `createBookletPaddedPdf`). The **original upload is never
+modified or overwritten** — `print_jobs.original_file_path` and `derived_file_path` are
+stored separately, and `print_job_events` records the exact padding transformation
+(`{"type": "booklet_padding", "pages_added": 2}`), so an audit can always see both what the
+user uploaded and what was actually sent to the printer.
+
+Padding alone is not booklet printing. PrintOS performs its own real N-up saddle-stitch
+**imposition** (`apps/web/lib/pdf/imposition.ts`) on the padded PDF before it is ever
+uploaded as `derived_file_path` — the file the Agent downloads and sends to the printer is
+already the final, laid-out sheet, not a plain page-sequential PDF left for the driver to
+re-flow into a booklet.
+
+**Why not just use the driver's own booklet mode, and what "real imposition" buys over
+it:** a Windows print driver's booklet feature picks **one uniform scale factor for the
+entire document**, sized so the single worst-case page (e.g. one oversized image or wide
+table) fits without clipping — every other, normally-sized page is then forced down to that
+same worst-case scale and surrounded by needlessly large margins it never needed. PrintOS's
+imposition instead computes each source page's scale **independently** (the same principle
+Adobe Acrobat's booklet printing uses): each page is scaled up to the largest size that fits
+its own half-sheet slot, preserving its own aspect ratio, capped at 1.0 (a page is centered,
+never upscaled past its native size — enlarging embedded raster content past its native
+resolution buys nothing but softness). A normal page prints large; only the one problem page
+shrinks further. That per-page independence — not the padding — is the actual point of this
+feature.
+
+Mechanically, for a padded document of `N` pages (S = N/4 sheets), `bookletPageOrder`
+produces the standard saddle-stitch signature order: sheet `s` (0-indexed) has front
+left/right = `[N-2s, 2s+1]` and back left/right = `[2s+2, N-2s-1]`, sheet 0 outermost. Each
+output PDF page is the target sheet (read from the job/printer profile's own `paperSize`,
+never hardcoded — see `resolvePaperSizePoints`) in **landscape** orientation, holding two
+source half-pages side by side with a small fixed margin and center gutter. Output page `k`
+(0-indexed) is physical sheet `Math.floor(k/2)`, front if `k` is even, back if odd —
+consistent with how duplex printing already works elsewhere in this system (consecutive PDF
+pages alternate front/back of one physical sheet via the driver's own duplex unit), not a
+new duplex model.
+
+Because PrintOS now does its own precise per-page scaling, a booklet job must NOT also ask
+the driver to `fit`/`shrink` — that would silently re-scale an already-correctly-sized page
+and undo the whole point of imposing it. `ResolvedPrintRequest.fitMode` is set to
+`"noscale"` for a booklet job only (`apps/web/app/api/agents/jobs/[jobId]/download-url/route.ts`);
+every other job leaves it unset and the Agent falls back to its own machine-level
+`PRINTOS_PRINT_FIT_MODE` default, exactly as before this field existed
+(`apps/agent/src/orchestrator.ts`). This is a value chosen upstream in the cloud and passed
+down through the existing `fitMode` field — it does not change what the Agent's
+`print-executor.ts` is allowed to do with it, and that module still never reads `finishing`
+off the resolved print request (sec 9-10).
+
+The physical sheet count is unaffected by imposition — `computePrintMath` (sec 7) still
+counts `Math.ceil(paddedPageCount / 4)` sheets regardless of whether those 4 padded pages
+end up laid out across 2 imposed landscape sides; only what is drawn on each sheet changes,
+not how many sheets there are, so quota consumption (sec 14) is unaffected.
 
 ## 9. Printer profiles & the driver/finishing architecture
 

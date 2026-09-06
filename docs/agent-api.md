@@ -84,10 +84,17 @@ trusted party this resolves for):
     "colorMode": "bw",
     "duplex": true,
     "paperSize": "letter",
-    "finishing": { "staple": false, "booklet": true, "punch": false }
+    "finishing": { "staple": false, "booklet": true, "punch": false },
+    "fitMode": "noscale"
   }
 }
 ```
+`pageCount` reflects whatever file `derivedFilePath`/`downloadUrl` actually points to: for a
+booklet job this is the *imposed* page count (N/2 landscape sheet-sides), not the padded
+source page count (N) - see `docs/architecture.md` sec 8. `fitMode` is present ONLY for a
+booklet job (always `"noscale"`, since PrintOS has already imposed and independently scaled
+every page - asking the driver to `fit`/`shrink` further would undo that); it is absent for
+every other job, and the Agent falls back to its own `PRINTOS_PRINT_FIT_MODE` default.
 Also transitions `claimed -> downloading` and records `DOWNLOAD_STARTED`.
 
 ### `POST /api/agents/jobs/:jobId/status`
