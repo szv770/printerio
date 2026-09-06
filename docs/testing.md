@@ -20,7 +20,7 @@ pnpm -r test
 runs every workspace package's suite (Vitest) in one shot, per the root
 `package.json`'s `test` script. Individually: `pnpm --filter @printos/shared
 test`, `pnpm --filter @printos/web test`, `pnpm --filter @printos/agent test`.
-As of this writing all three pass clean (26 + 16 + 57 = 99 tests) — see the
+As of this writing all three pass clean (26 + 50 + 57 = 133 tests) — see the
 root [README.md](../README.md) "Current status & next phase" for the
 up-to-date count.
 
@@ -70,7 +70,21 @@ are never mutated. `lib/reports.test.ts` covers the admin Reports page's pure
 aggregation helpers (by-user/department/printer grouping, color-usage split,
 recently-denied/failed filtering, monthly usage summation) independent of any
 database, exercising the "sheets only count for jobs that actually reached a
-printer" rule directly.
+printer" rule directly. `lib/pdf/imposition.test.ts` covers real N-up
+saddle-stitch booklet imposition (architecture.md sec 8): `bookletPageOrder`'s
+signature formula against the textbook 4/8/12-page worked examples, that the
+output page count is exactly half the padded input, and — the test that
+actually proves the point of the feature — decoding the real PDF content-
+stream transform matrices back out of a produced file to confirm two
+differently-sized pages land at genuinely different, independently-computed
+scales in the same output slot (not just "it didn't crash"). `lib/auth/
+domains.test.ts` and `lib/auth/reauth.test.ts` cover the sign-in domain-
+restriction parsing/validation and the 30-day forced-reauth expiry check
+(architecture.md sec 19) as pure logic, independent of Supabase/Postgres — the
+actual enforcement lives in `email_domain_allowed()` (SQL) and
+`getCurrentSession()` respectively, which these tests don't reach (that's
+covered by the manual RLS/auth checklist in §3, same as everything else that
+needs a real database).
 
 `apps/agent/test/*.test.ts` (57 tests) covers the Agent logic that *can* be
 isolated from real Windows/hardware: `print-executor.test.ts` (the
