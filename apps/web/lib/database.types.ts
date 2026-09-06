@@ -1,7 +1,3 @@
-// Generated via `mcp__Supabase__generate_typescript_types` against the live
-// `printio` project (hnocxpdfhwmdctfpvoto). Regenerate after every migration:
-// this file is derived, not hand-maintained - see supabase/migrations/*.sql
-// for the source of truth.
 export type Json =
   | string
   | number
@@ -22,6 +18,7 @@ export type Database = {
         Row: {
           created_at: string
           device_secret_hash: string | null
+          discovered_queues: Json
           enrollment_code: string | null
           enrollment_code_expires_at: string | null
           id: string
@@ -34,6 +31,7 @@ export type Database = {
         Insert: {
           created_at?: string
           device_secret_hash?: string | null
+          discovered_queues?: Json
           enrollment_code?: string | null
           enrollment_code_expires_at?: string | null
           id?: string
@@ -46,6 +44,7 @@ export type Database = {
         Update: {
           created_at?: string
           device_secret_hash?: string | null
+          discovered_queues?: Json
           enrollment_code?: string | null
           enrollment_code_expires_at?: string | null
           id?: string
@@ -990,6 +989,12 @@ export type Database = {
       adjust_monthly_usage: {
         Args: {
           p_color_weighted: number
+          // p_limit is `int` in supabase/migrations/0010_quota_functions.sql,
+          // nullable at the SQL call site (null = no quota configured for
+          // this scope, see that function's own inline comment) - the
+          // generator doesn't always infer this nullability from a plain
+          // function signature, so it's restored by hand after each
+          // regeneration to match lib/quota.ts's actual `number | null` call.
           p_limit: number | null
           p_mode: string
           p_organization_id: string

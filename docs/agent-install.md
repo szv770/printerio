@@ -80,6 +80,18 @@ code, valid 24h (architecture.md sec 4, agent-api.md `POST
 registration step below — it is shown once and the server never displays it
 again after redemption.
 
+**For a first-time full setup (several finishing profiles at once), the
+recommended path is Admin → Printers → "Guided setup wizard"**
+(`app/admin/printers/setup`), not the manual steps below by hand. It walks
+through planning which finishing profiles you need (duplex, booklet, stapled,
+etc.), a live status check for exactly this step (confirming an Agent is
+registered and heartbeating), and then maps each planned profile to a real
+Windows queue the Agent has actually discovered (`printer_profiles` rows are
+created from that mapping directly — see docs/architecture.md sec 9). The
+numbered steps below remain accurate and are still the right path if you
+prefer the CLI directly, are scripting this, or are only adding a single
+printer/profile rather than doing a first-time full setup.
+
 ## 2. Get the code onto the machine and install dependencies
 
 On the Windows machine, with Node.js 20+ already installed:

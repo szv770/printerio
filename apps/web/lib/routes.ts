@@ -28,6 +28,7 @@ export const routes = {
   adminSettings: "/admin/settings",
   adminPolicies: "/admin/policies",
   adminPrinters: "/admin/printers",
+  adminPrintersSetup: "/admin/printers/setup",
   adminAgents: "/admin/agents",
   adminAudit: "/admin/audit",
   adminReports: "/admin/reports",

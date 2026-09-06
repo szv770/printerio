@@ -54,6 +54,10 @@ export const ADMIN_TOUR: TourSlide[] = [
     body: "The nav below is grouped: People (Users, Groups) for who can print; Print infrastructure (Printers, Agents) for the physical setup; Governance (Policies, Quotas) for the rules about who can print what and how much.",
   },
   {
+    title: "Setting up printers for the first time",
+    body: "From Printers, the \"Guided setup wizard\" walks through a first-time full setup: plan which finishing profiles you need (duplex, booklet, stapled, etc.), confirm the Windows Agent is online, then map each profile to a real discovered print queue - no more typing a queue name by hand. You can still add a single profile directly from the Printers page any time.",
+  },
+  {
     title: "Insights",
     body: "Reports shows usage by user/department/printer and recently denied/failed jobs. Audit log (admins only) is a full record of every administrative action.",
   },
