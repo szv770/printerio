@@ -122,10 +122,12 @@ exits cleanly.
 
 ## 4. Configuration
 
-Copy `apps/agent/.env.example` to `.env` for a console-mode/dev run (git-ignored). For a
-Windows Service, set these as real Windows environment variables instead (System Properties →
-Environment Variables, or `node-windows`'s service `env` option) — a service process doesn't
-load `.env` files. The only required variable is `PRINTOS_API_URL`; everything else
+Copy `apps/agent/.env.example` to `.env` (git-ignored) — the Agent loads it automatically on
+startup, console mode or installed Windows Service alike, and never overrides a variable
+that's already set in the real environment. For production you can instead (or additionally)
+set these as real Windows environment variables (System Properties → Environment Variables,
+or `node-windows`'s service `env` option) if you'd rather not keep a `.env` file on disk at
+all — both approaches work and compose. The only required variable is `PRINTOS_API_URL`; everything else
 (`PRINTOS_LOCAL_STORAGE_PATH`, `PRINTOS_LOG_LEVEL`, `PRINTOS_POLL_INTERVAL_SECONDS`,
 `PRINTOS_SUMATRA_PATH`, `PRINTOS_PRINT_FIT_MODE`, etc.) has a documented default — see the
 `.env.example` file itself for the full list with rationale. `PRINTOS_AGENT_ID`/

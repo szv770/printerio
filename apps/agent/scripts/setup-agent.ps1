@@ -122,14 +122,13 @@ function Import-DotEnvFile {
     # (never overriding a variable that's already set - e.g. a real Windows
     # environment variable someone configured takes priority over .env).
     #
-    # This exists because nothing in apps/agent/src actually loads a .env
-    # file automatically (confirmed by reading src/config.ts - it reads only
-    # from process.env). docs/agent-install.md's "Copy .env.example to .env"
-    # step relies on *something* putting those values into the process
-    # environment before `register`/`start`/`install-service` run; for a
-    # manual `pnpm --filter @printos/agent start` that's on the person
-    # running it (e.g. a tool like `dotenv-cli`, or setting real Windows env
-    # vars). This launcher does it itself so double-clicking "just works".
+    # apps/agent/src/index.ts loads .env itself now (same never-override
+    # behavior), so this is no longer required to make `pnpm --filter
+    # @printos/agent ...` itself see these values - but THIS SCRIPT still
+    # needs them loaded into its own PowerShell process to make its own
+    # decisions (the "before you start" SumatraPDF check, and whether to
+    # prompt for PRINTOS_API_URL both read $env:... directly, before any
+    # Node process ever starts).
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) { return }
     foreach ($rawLine in (Get-Content -LiteralPath $Path)) {

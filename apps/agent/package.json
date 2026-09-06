@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@printos/shared": "workspace:*",
+    "dotenv": "^17.4.2",
     "tsx": "^4.19.2"
   },
   "optionalDependencies": {

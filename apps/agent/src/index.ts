@@ -8,6 +8,8 @@
  */
 
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { config as loadDotEnv } from "dotenv";
 import { loadConfig } from "./config.js";
 import { createLogger } from "./logger.js";
 import { CloudClient } from "./cloud-client.js";
@@ -20,6 +22,21 @@ import { createOrchestrator } from "./orchestrator.js";
 import { installService, uninstallService } from "./windows-service.js";
 import { ConfigError } from "./errors.js";
 import { AGENT_VERSION } from "./version.js";
+
+// Load a `.env` file sitting next to this package (apps/agent/.env), if one
+// exists - resolved relative to this file's own location (not process.cwd(),
+// which differs depending on how this was invoked: `pnpm --filter` vs a
+// packaged `node dist/index.js`), so it works the same way regardless of
+// invocation. dotenv's default behavior never overrides a variable already
+// present in process.env, so a real Windows Service environment variable
+// still wins - a .env file is purely a console-mode/dev convenience, exactly
+// as already documented (docs/agent-install.md sec 4, apps/agent/.env.example),
+// and silently does nothing if the file doesn't exist (the normal case for a
+// Windows Service, which sets real environment variables instead). Must run
+// before loadConfig() is ever called, but after the other imports above -
+// none of them read process.env at import time, only loadConfig() does, and
+// only when a command handler actually calls it.
+loadDotEnv({ path: path.join(path.dirname(fileURLToPath(import.meta.url)), "..", ".env") });
 
 function parseArgs(argv: string[]): Record<string, string> {
   const out: Record<string, string> = {};
