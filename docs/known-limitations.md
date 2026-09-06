@@ -16,17 +16,31 @@ for the research basis of each design decision this responds to.
   output. Genuine physical confirmation, where available at all, requires a vendor-specific
   bidirectional port monitor or SNMP polling of the device itself — not assumed present for
   every printer.
-- **Finishing options (staple, punch, booklet/saddle-stitch) are not programmable from
-  software.** They live in the Kyocera KX driver's private DEVMODE extension data, which
+- **Physical finishing (staple, hole punch, saddle-stitch fold) is not programmable from
+  software.** These live in the Kyocera KX driver's private DEVMODE extension data, which
   Kyocera's own documentation exposes only through the driver's GUI ("Profiles"/Favorites)
   or an administrator-set per-queue "Printing Defaults." There is no documented CLI, REST
-  API, or SDK to select a finishing preset at print time. PrintOS's answer is architectural,
-  not a missing feature: administrators pre-configure one Windows printer queue per
-  finishing profile, and the Agent only ever picks which queue to print to.
+  API, or SDK to trigger the physical stapler/punch/folder unit at print time. PrintOS's
+  answer is architectural, not a missing feature: administrators pre-configure one Windows
+  printer queue per finishing profile, and the Agent only ever picks which queue to print
+  to — the actual mechanical action still has to be a queue whose Printing Defaults already
+  ask for it.
+- **Booklet *page layout* is the one exception to the above — PrintOS does that part itself,
+  in software, upstream of the driver entirely** (`apps/web/lib/pdf/imposition.ts`,
+  architecture.md sec 8). This does not contradict the driver-private limitation: PrintOS
+  never asks SumatraPDF or the driver to perform imposition (they still can't — see the next
+  bullet), it pre-imposes the actual PDF pages (N-up saddle-stitch order, each page
+  independently scaled to its half-sheet) *before* the file ever reaches SumatraPDF, then
+  tells the driver to print that already-laid-out file at 100% scale (`fitMode: "noscale"`).
+  The physical fold-and-staple action that turns those imposed sheets into a bound booklet is
+  still the queue's own Printing Defaults, exactly like staple/punch above — PrintOS controls
+  what's *on* each sheet, never the hardware that folds/staples the stack.
 - **SumatraPDF controls a genuinely cross-driver-safe subset only**: page range,
-  color/monochrome, duplex mode, fit/shrink/scale, collate, paper source/size (by the
-  driver's own reported name), and copy count. It cannot set stapling, punching, booklet
-  imposition, or output-bin selection — those are driver-private, per §above.
+  color/monochrome, duplex mode, fit/shrink/noscale, collate, paper source/size (by the
+  driver's own reported name), and copy count. It cannot set stapling, punching, page
+  imposition, or output-bin selection — those are driver-private, per the bullets above. Any
+  page imposition that happens is PrintOS's own work in the PDF itself, before SumatraPDF is
+  ever invoked, never something the driver was asked to do.
 - **Kyocera SNMP telemetry is a hybrid of standard and proprietary MIBs.** Standard Printer
   MIB (RFC 3805, `1.3.6.1.2.1.43.*`) OIDs for toner-level-as-ratio and a generic error
   bitmask are portable. Kyocera's private MIB (`1.3.6.1.4.1.1347.*`) covers richer detail

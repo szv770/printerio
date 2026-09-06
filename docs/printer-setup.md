@@ -28,7 +28,23 @@ Defaults once, and PrintOS's Agent only ever picks *which queue* to send a job
 to (architecture.md sec 9–10). What the Agent *can* control per job via
 SumatraPDF is the generic, cross-driver-safe subset: page range, color/
 monochrome, duplex mode, fit/scale, collate, paper source/size, and copy count
-— never staple/punch/booklet imposition itself.
+— never staple/punch, and never the driver's own page-imposition feature.
+
+**One important exception, added since this doc was first written: booklet
+*page layout* specifically.** PrintOS now does its own N-up saddle-stitch
+imposition in software before a booklet job ever reaches this queue
+(`apps/web/lib/pdf/imposition.ts`, architecture.md sec 8) — each page
+independently scaled to make the best use of its half-sheet, which is better
+than what the driver's own uniform-scale booklet mode does. This changes what
+you configure for a booklet queue in §3 below: **leave the driver's own
+booklet/page-layout toggle OFF** for a PrintOS booklet queue — PrintOS has
+already arranged the pages 2-up in the file itself, so if the driver's own
+booklet-layout feature is also on, it will try to impose an already-imposed
+file a second time and produce garbled output. What still belongs in this
+queue's Printing Defaults is the **physical** finishing: the saddle-stitch
+finisher/stapler unit turned on (whatever hardware option actually staples
+and folds), since PrintOS controls what's printed on each sheet, never the
+hardware that folds and staples the finished stack.
 
 ### A note on how confident to be in the steps below
 
@@ -99,13 +115,19 @@ tabs, the driver needs to be told what hardware is physically attached to
    use Printing Defaults, since that's what actually persists for every job
    sent to this queue without a user picking settings themselves).
 2. Set duplex mode (Off / Long-edge bind / Short-edge bind), color mode,
-   staple (if this is meant to be the stapled queue), punch (if this is meant
-   to be the punched queue), and booklet/saddle-stitch layout with binding
-   edge (if this is meant to be the booklet queue) to match the single
-   finishing profile this queue represents. Each queue should represent
-   exactly one coherent profile — don't try to make one queue serve multiple
-   finishing combinations, since there is no per-job override mechanism
-   available to PrintOS at print time (§0).
+   staple (if this is meant to be the stapled queue), and punch (if this is
+   meant to be the punched queue) to match the single finishing profile this
+   queue represents. Each queue should represent exactly one coherent
+   profile — don't try to make one queue serve multiple finishing
+   combinations, since there is no per-job override mechanism available to
+   PrintOS at print time (§0).
+   **If this is the booklet queue:** turn on the physical saddle-stitch
+   finisher/stapler unit (the hardware that actually folds and staples), but
+   leave the driver's own booklet *page-layout* toggle OFF — see the callout
+   in §0. PrintOS has already 2-up-imposed the pages itself; this queue only
+   needs to fold and staple what it's sent, at 100% scale (the Agent
+   specifically requests no further scaling for a booklet job — see
+   architecture.md sec 8).
 3. Apply/OK.
 
 ## 4. Add one additional queue per finishing profile you need
@@ -119,8 +141,9 @@ architecture's `windows_queue_name`-per-profile model directly):**
    port as `Kyocera_Main`.
 2. Give it a distinct, clear name (e.g. `Kyocera_Main_Booklet`).
 3. Repeat §2 (Device Settings — same physical hardware, so the same settings)
-   and §3 (Printing Defaults — this queue's specific profile: booklet mode
-   on, duplex forced by the booklet layout itself, etc.) for this new queue.
+   and §3 (Printing Defaults — this queue's specific profile: for a booklet
+   queue, the physical saddle-stitch finisher on and the driver's own page-
+   layout toggle OFF, per §3's callout) for this new queue.
 
 **Option B — the KX driver's own Profiles/Favorites feature:** from any
 Printing Preferences tab, configure the desired combination, then use
