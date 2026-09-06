@@ -12,7 +12,7 @@ export default async function LoginPage({
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 px-4">
       <Card className="w-full max-w-sm text-center shadow-sm">
-        <h1 className="mb-2 text-2xl font-semibold">PrintOS</h1>
+        <h1 className="mb-2 text-2xl font-semibold">Printio</h1>
         <p className="mb-4 text-sm text-[var(--color-muted)]">Sign in to upload and track print jobs.</p>
         {reason === "reauth_required" && (
           <p className="mb-4 rounded-lg border border-[var(--color-warning)] px-3 py-2 text-sm text-[var(--color-warning)]">

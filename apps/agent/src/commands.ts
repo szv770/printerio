@@ -1,6 +1,6 @@
 /**
  * Fixed switch/handler over the exact REMOTE_COMMANDS set from
- * @printos/shared (docs/architecture.md sec 12). There is no code path here
+ * @printio/shared (docs/architecture.md sec 12). There is no code path here
  * that accepts, `eval`s, or shells out an arbitrary string from the cloud -
  * every branch below has a hardcoded implementation, and the payload for
  * each is read only for the specific, typed fields that command expects.
@@ -8,7 +8,7 @@
 
 import { readdirSync, statSync, unlinkSync, rmdirSync } from "node:fs";
 import path from "node:path";
-import { REMOTE_COMMANDS, type RemoteCommand } from "@printos/shared";
+import { REMOTE_COMMANDS, type RemoteCommand } from "@printio/shared";
 import type { RemoteCommandEnvelope } from "./cloud-client.js";
 import type { SpoolerMonitor } from "./spooler-monitor.js";
 import type { PrinterManager } from "./printer-manager.js";

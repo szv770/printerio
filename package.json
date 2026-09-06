@@ -1,17 +1,17 @@
 {
-  "name": "printos",
+  "name": "printio",
   "private": true,
   "version": "0.1.0",
-  "description": "PrintOS - multi-tenant print management platform (cloud web app + on-prem Windows print agent)",
+  "description": "Printio - multi-tenant print management platform (cloud web app + on-prem Windows print agent)",
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "dev:web": "pnpm --filter @printos/web dev",
-    "build:web": "pnpm --filter @printos/web build",
-    "dev:agent": "pnpm --filter @printos/agent dev",
-    "build:agent": "pnpm --filter @printos/agent build",
+    "dev:web": "pnpm --filter @printio/web dev",
+    "build:web": "pnpm --filter @printio/web build",
+    "dev:agent": "pnpm --filter @printio/agent dev",
+    "build:agent": "pnpm --filter @printio/agent build",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",

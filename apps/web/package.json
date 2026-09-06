@@ -1,5 +1,5 @@
 {
-  "name": "@printos/web",
+  "name": "@printio/web",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -11,7 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@printos/shared": "workspace:*",
+    "@printio/shared": "workspace:*",
     "@supabase/ssr": "^0.12.5",
     "@supabase/supabase-js": "^2.48.1",
     "lucide-react": "^0.469.0",

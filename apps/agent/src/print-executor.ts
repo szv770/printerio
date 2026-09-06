@@ -19,7 +19,7 @@
  */
 
 import { spawn } from "node:child_process";
-import type { ColorMode } from "@printos/shared";
+import type { ColorMode } from "@printio/shared";
 import type { Logger } from "./logger.js";
 import type { PrintFitMode } from "./config.js";
 import { PrintExecutionError } from "./errors.js";

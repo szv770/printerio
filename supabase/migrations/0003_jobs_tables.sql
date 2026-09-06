@@ -1,4 +1,4 @@
--- PrintOS: print jobs, audit trail, approvals, monthly usage.
+-- Printio: print jobs, audit trail, approvals, monthly usage.
 -- Status/event-type values must stay in sync with
 -- packages/shared/src/job-state.ts (JOB_STATES / JOB_EVENT_TYPES).
 -- See docs/architecture.md sec 13 (state machine / leasing) and sec 14 (quotas).

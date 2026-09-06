@@ -1,16 +1,16 @@
 <#
 .SYNOPSIS
-  One-click setup/launcher for the PrintOS Print Agent, for a non-technical
+  One-click setup/launcher for the Printio Print Agent, for a non-technical
   first-time install on a Windows machine.
 
 .DESCRIPTION
   This is a thin wrapper around the Agent's real CLI (apps/agent/src/index.ts:
   `register`, `start`, `install-service`), invoked exactly as documented in
   apps/agent/README.md and docs/agent-install.md, via
-  `pnpm --filter @printos/agent ...`. It adds NO new Agent functionality - it
+  `pnpm --filter @printio/agent ...`. It adds NO new Agent functionality - it
   only automates the sequence of typed commands a manual install otherwise
   requires, and prompts for the two pieces of information only a human can
-  supply (the enrollment code, and this organization's PrintOS cloud URL).
+  supply (the enrollment code, and this organization's Printio cloud URL).
 
   UNTESTED ON A REAL WINDOWS MACHINE. This was written and reviewed in a
   sandboxed Linux container with no Windows, no real PowerShell host, and no
@@ -77,15 +77,15 @@ function Write-Info {
 
 function Get-LocalStoragePath {
     # Mirrors apps/agent/src/config.ts defaultLocalStoragePath()/
-    # PRINTOS_LOCAL_STORAGE_PATH handling exactly, so "is this Agent already
+    # PRINTIO_LOCAL_STORAGE_PATH handling exactly, so "is this Agent already
     # registered?" is checked against the real place the Agent itself will
     # look, not a guess.
-    if ($env:PRINTOS_LOCAL_STORAGE_PATH -and $env:PRINTOS_LOCAL_STORAGE_PATH.Trim() -ne "") {
-        return $env:PRINTOS_LOCAL_STORAGE_PATH.Trim()
+    if ($env:PRINTIO_LOCAL_STORAGE_PATH -and $env:PRINTIO_LOCAL_STORAGE_PATH.Trim() -ne "") {
+        return $env:PRINTIO_LOCAL_STORAGE_PATH.Trim()
     }
     $programData = $env:ProgramData
     if (-not $programData -or $programData.Trim() -eq "") { $programData = "C:\ProgramData" }
-    return Join-Path $programData "PrintOS\Agent"
+    return Join-Path $programData "Printio\Agent"
 }
 
 function Show-StopMessage {
@@ -124,10 +124,10 @@ function Import-DotEnvFile {
     #
     # apps/agent/src/index.ts loads .env itself now (same never-override
     # behavior), so this is no longer required to make `pnpm --filter
-    # @printos/agent ...` itself see these values - but THIS SCRIPT still
+    # @printio/agent ...` itself see these values - but THIS SCRIPT still
     # needs them loaded into its own PowerShell process to make its own
     # decisions (the "before you start" SumatraPDF check, and whether to
-    # prompt for PRINTOS_API_URL both read $env:... directly, before any
+    # prompt for PRINTIO_API_URL both read $env:... directly, before any
     # Node process ever starts).
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) { return }
@@ -153,7 +153,7 @@ function Import-DotEnvFile {
 
 function Set-DotEnvValue {
     # Writes (or updates) a single KEY=VALUE line in a .env file, preserving
-    # every other line as-is. Used so the PrintOS cloud URL, once typed in,
+    # every other line as-is. Used so the Printio cloud URL, once typed in,
     # is only ever asked for once.
     param([string]$Path, [string]$Key, [string]$Value)
     $lines = @()
@@ -189,19 +189,19 @@ function Get-RequiredNodeMajor {
 
 function Test-SumatraFound {
     # Same lookup order the Agent itself uses (src/config.ts): an explicit
-    # PRINTOS_SUMATRA_PATH env var first, then PATH. This is a check, not a
+    # PRINTIO_SUMATRA_PATH env var first, then PATH. This is a check, not a
     # fix - if it's missing, we only warn (see task scope: SumatraPDF must
     # already be installed per the prerequisites).
-    $custom = $env:PRINTOS_SUMATRA_PATH
+    $custom = $env:PRINTIO_SUMATRA_PATH
     if ($custom -and $custom.Trim() -ne "") {
         if (Test-Path -LiteralPath $custom) {
             return @{ Found = $true; Detail = $custom }
         }
-        return @{ Found = $false; Detail = "PRINTOS_SUMATRA_PATH is set to '$custom', but no file exists there" }
+        return @{ Found = $false; Detail = "PRINTIO_SUMATRA_PATH is set to '$custom', but no file exists there" }
     }
     $cmd = Get-Command "SumatraPDF.exe" -ErrorAction SilentlyContinue
     if ($cmd) { return @{ Found = $true; Detail = $cmd.Source } }
-    return @{ Found = $false; Detail = "SumatraPDF.exe was not found on PATH, and PRINTOS_SUMATRA_PATH is not set" }
+    return @{ Found = $false; Detail = "SumatraPDF.exe was not found on PATH, and PRINTIO_SUMATRA_PATH is not set" }
 }
 
 # ---------------------------------------------------------------------------
@@ -225,11 +225,11 @@ function Invoke-InstallServiceFlow-Elevated {
         Set-Location -LiteralPath $RepoRoot
         Write-Host ""
         Write-Host "Running with administrator rights now - installing the Windows Service..." -ForegroundColor Cyan
-        & pnpm @("--filter", "@printos/agent", "install-service")
+        & pnpm @("--filter", "@printio/agent", "install-service")
         if ($LASTEXITCODE -ne 0) {
             Show-RunFailure "Installing the Windows Service failed (exit code $LASTEXITCODE)."
         } else {
-            Write-Ok "The 'PrintOS Print Agent' Windows Service is installed and starting."
+            Write-Ok "The 'Printio Print Agent' Windows Service is installed and starting."
             Write-Info "It will now start automatically every time this machine boots."
         }
     } catch {
@@ -252,7 +252,7 @@ if ($InstallServiceElevated) {
 
 try {
     Write-Host "======================================================" -ForegroundColor Cyan
-    Write-Host " PrintOS Print Agent - setup" -ForegroundColor Cyan
+    Write-Host " Printio Print Agent - setup" -ForegroundColor Cyan
     Write-Host "======================================================" -ForegroundColor Cyan
     Write-Host "This script gets the Agent registered and running on this machine."
     Write-Host "It only runs the same commands documented in docs\agent-install.md -"
@@ -282,7 +282,7 @@ try {
 
     # --- 2. Load whatever .env already exists (no prompts yet) --------------
     # Done before the summary below so the SumatraPDF check reflects a
-    # PRINTOS_SUMATRA_PATH the person may have already put in .env.
+    # PRINTIO_SUMATRA_PATH the person may have already put in .env.
 
     Import-DotEnvFile -Path $EnvFilePath
 
@@ -295,15 +295,15 @@ try {
         Write-Ok "SumatraPDF found: $($sumatra.Detail)"
     } else {
         Write-Warn "SumatraPDF: $($sumatra.Detail)."
-        Write-Info "Install it from https://www.sumatrapdfreader.org/ , or set PRINTOS_SUMATRA_PATH in apps\agent\.env to its full path."
+        Write-Info "Install it from https://www.sumatrapdfreader.org/ , or set PRINTIO_SUMATRA_PATH in apps\agent\.env to its full path."
         Write-Info "(You can keep going without it, but printing itself will fail until it's there.)"
     }
     Write-Warn "Windows print queue: this script has no way to check for one."
     Write-Info "Make sure at least one printer queue is already configured for this Agent (docs\printer-setup.md) before relying on it for a real print job."
 
-    # --- 4. Make sure PRINTOS_API_URL is set (create/prompt once) -----------
+    # --- 4. Make sure PRINTIO_API_URL is set (create/prompt once) -----------
 
-    Write-Step "Checking PrintOS cloud configuration"
+    Write-Step "Checking Printio cloud configuration"
     if (-not (Test-Path -LiteralPath $EnvFilePath)) {
         if (Test-Path -LiteralPath $EnvExamplePath) {
             Copy-Item -LiteralPath $EnvExamplePath -Destination $EnvFilePath
@@ -312,21 +312,21 @@ try {
         }
         Import-DotEnvFile -Path $EnvFilePath
     }
-    $placeholderApiUrl = "https://printos.example.org"
-    if ((-not $env:PRINTOS_API_URL) -or ($env:PRINTOS_API_URL.Trim() -eq "") -or ($env:PRINTOS_API_URL.Trim() -eq $placeholderApiUrl)) {
-        Write-Info "This machine doesn't have a PrintOS cloud address configured yet."
-        Write-Info "This is the web address of your organization's PrintOS cloud (ask your PrintOS administrator if you don't have it)."
-        $apiUrl = Read-Host "Enter the PrintOS cloud URL, then press Enter"
+    $placeholderApiUrl = "https://printio.szvtech.org"
+    if ((-not $env:PRINTIO_API_URL) -or ($env:PRINTIO_API_URL.Trim() -eq "") -or ($env:PRINTIO_API_URL.Trim() -eq $placeholderApiUrl)) {
+        Write-Info "This machine doesn't have a Printio cloud address configured yet."
+        Write-Info "This is the web address of your organization's Printio cloud (ask your Printio administrator if you don't have it)."
+        $apiUrl = Read-Host "Enter the Printio cloud URL, then press Enter"
         $apiUrl = $apiUrl.Trim()
         if ($apiUrl -eq "") {
-            Show-StopMessage "A PrintOS cloud URL is required to continue. Double-click setup-agent.bat again when you have it."
+            Show-StopMessage "A Printio cloud URL is required to continue. Double-click setup-agent.bat again when you have it."
             return
         }
-        Set-DotEnvValue -Path $EnvFilePath -Key "PRINTOS_API_URL" -Value $apiUrl
-        $env:PRINTOS_API_URL = $apiUrl
+        Set-DotEnvValue -Path $EnvFilePath -Key "PRINTIO_API_URL" -Value $apiUrl
+        $env:PRINTIO_API_URL = $apiUrl
         Write-Ok "Saved - apps\agent\.env now has this, so you won't be asked again."
     } else {
-        Write-Ok "PRINTOS_API_URL is set ($($env:PRINTOS_API_URL))."
+        Write-Ok "PRINTIO_API_URL is set ($($env:PRINTIO_API_URL))."
     }
 
     # --- 5. pnpm check (with a corepack-based fallback) ----------------------
@@ -385,7 +385,7 @@ try {
         Write-Ok "Already registered (found stored credentials at $credentialsPath)."
     } else {
         Write-Info "Not registered yet."
-        Write-Info "Paste the enrollment code your PrintOS administrator gave you, then press Enter:"
+        Write-Info "Paste the enrollment code your Printio administrator gave you, then press Enter:"
         $enrollmentCode = Read-Host "Enrollment code"
         $enrollmentCode = $enrollmentCode.Trim()
         if ($enrollmentCode -eq "") {
@@ -393,7 +393,7 @@ try {
             return
         }
         Write-Info "Registering..."
-        & pnpm @("--filter", "@printos/agent", "register", "--", "--code=$enrollmentCode")
+        & pnpm @("--filter", "@printio/agent", "register", "--", "--code=$enrollmentCode")
         if ($LASTEXITCODE -ne 0) {
             Show-RunFailure "Registration failed (exit code $LASTEXITCODE)."
             return
@@ -420,7 +420,7 @@ try {
         Write-Host "Starting the Agent now. This window IS the running Agent - leave it open." -ForegroundColor Cyan
         Write-Host "Press Ctrl+C to stop it, or just close this window." -ForegroundColor Cyan
         Write-Host ""
-        & pnpm @("--filter", "@printos/agent", "start")
+        & pnpm @("--filter", "@printio/agent", "start")
         $startExit = $LASTEXITCODE
         if ($startExit -ne 0) {
             Show-RunFailure "The Agent exited unexpectedly (exit code $startExit)."
@@ -431,11 +431,11 @@ try {
     } else {
         if (Test-IsElevated) {
             Write-Info "This window already has administrator rights - installing the service directly."
-            & pnpm @("--filter", "@printos/agent", "install-service")
+            & pnpm @("--filter", "@printio/agent", "install-service")
             if ($LASTEXITCODE -ne 0) {
                 Show-RunFailure "Installing the Windows Service failed (exit code $LASTEXITCODE)."
             } else {
-                Write-Ok "The 'PrintOS Print Agent' Windows Service is installed and starting."
+                Write-Ok "The 'Printio Print Agent' Windows Service is installed and starting."
                 Write-Info "It will now start automatically every time this machine boots."
             }
         } else {

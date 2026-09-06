@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useMemo, useRef, useState } from "react";
-import { computePrintMath } from "@printos/shared";
+import { computePrintMath } from "@printio/shared";
 import { Button, Input, Select, FieldLabel, FormError, Card } from "@/components/ui";
 import { submitPrintJobAction, initialSubmitJobState } from "./actions";
 
@@ -50,7 +50,7 @@ async function renderFirstPageThumbnail(file: File, canvas: HTMLCanvasElement): 
 /**
  * V1 scope note: this form shows a LIVE, CLIENT-COMPUTED estimate (page count
  * via a best-effort in-browser PDF parse, sides/sheets via the same pure
- * @printos/shared math used server-side) so the user sees an immediate
+ * @printio/shared math used server-side) so the user sees an immediate
  * summary while choosing options - matching the spec's print-submission
  * wireframe. It is explicitly NOT the authoritative policy decision: the
  * frontend never claims "approved"/"requires approval" itself. The real,

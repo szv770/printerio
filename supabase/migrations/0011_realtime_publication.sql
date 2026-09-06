@@ -1,4 +1,4 @@
--- PrintOS: enable postgres_changes realtime for the tables the V1 UI
+-- Printio: enable postgres_changes realtime for the tables the V1 UI
 -- subscribes to directly (docs/architecture.md sec 3.4/15).
 --
 -- Implementation note: the architecture doc describes private broadcast

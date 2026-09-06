@@ -1,4 +1,4 @@
--- PrintOS: Realtime Authorization for private, per-organization channels.
+-- Printio: Realtime Authorization for private, per-organization channels.
 -- See docs/architecture.md sec 3.4.
 --
 -- Topic convention: 'org-{organizationId}:{stream}', e.g.

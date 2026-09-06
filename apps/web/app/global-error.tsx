@@ -9,7 +9,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
     <html lang="en">
       <body>
         <main className="flex min-h-screen flex-col items-center justify-center gap-4 px-4 text-center">
-          <h1 className="text-2xl font-semibold">PrintOS hit an unexpected error</h1>
+          <h1 className="text-2xl font-semibold">Printio hit an unexpected error</h1>
           <p className="max-w-sm text-sm text-[var(--color-muted)]">
             {error.digest && <span className="block font-mono text-xs">Reference: {error.digest}</span>}
           </p>

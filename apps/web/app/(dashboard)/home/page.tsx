@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Printer as PrinterIcon } from "lucide-react";
-import { JOB_STATES, isTerminalState, type QuotaBasis } from "@printos/shared";
+import { JOB_STATES, isTerminalState, type QuotaBasis } from "@printio/shared";
 import { requireSession } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { currentPeriod, getApplicableQuotaLimit, getUsageSnapshot, usageForBasis } from "@/lib/quota";

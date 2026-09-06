@@ -1,4 +1,4 @@
--- PrintOS: generic fixed-window rate limiter, backed by Postgres.
+-- Printio: generic fixed-window rate limiter, backed by Postgres.
 --
 -- Why DB-backed and not in-memory: apps/web runs on Vercel, where a single
 -- serverless function is not one long-lived process - concurrent requests to

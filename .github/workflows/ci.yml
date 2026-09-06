@@ -59,4 +59,4 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
           SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role-key
-          PRINTOS_CRON_SECRET: ci-placeholder-cron-secret
+          PRINTIO_CRON_SECRET: ci-placeholder-cron-secret

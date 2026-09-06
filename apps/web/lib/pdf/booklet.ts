@@ -1,6 +1,6 @@
 import "server-only";
 import { PDFDocument } from "pdf-lib";
-import { computeBookletPadding } from "@printos/shared";
+import { computeBookletPadding } from "@printio/shared";
 
 export interface BookletDerivedPdf {
   bytes: Uint8Array;

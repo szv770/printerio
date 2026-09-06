@@ -1,6 +1,6 @@
 # Deployment
 
-This covers standing up the Supabase project PrintOS depends on and deploying
+This covers standing up the Supabase project Printio depends on and deploying
 `apps/web` to Vercel. It assumes you have already read
 [architecture.md](./architecture.md) sections 2–4 and 16 (auth/bootstrap model,
 RLS, deployment shape) — this document is the "how," that one is the "why."
@@ -35,7 +35,7 @@ management API, if you're scripting a new environment).
 
 ### 2.1 Enable Google as an OAuth provider
 
-PrintOS's bootstrap model (architecture.md sec 2.2) relies on Google OAuth sign-in
+Printio's bootstrap model (architecture.md sec 2.2) relies on Google OAuth sign-in
 — there is deliberately no email/password path and no "first user from an allowed
 domain becomes admin" logic.
 
@@ -57,7 +57,7 @@ domain becomes admin" logic.
 
 ### 2.2 Disable "Allow public access" under Realtime
 
-Per architecture.md sec 3.4: all PrintOS Realtime channels are `private: true`
+Per architecture.md sec 3.4: all Printio Realtime channels are `private: true`
 and authorized by RLS policies on `realtime.messages` (see
 `supabase/migrations/0008_realtime.sql`). As defense in depth on top of those
 policies, also disable public/unauthenticated channel access at the project
@@ -111,9 +111,9 @@ except there's no external OAuth client to create; it's purely a dashboard toggl
 | `NEXT_PUBLIC_SUPABASE_URL` | Browser + server | Project URL, safe to expose client-side. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser + server | Anon/publishable key; RLS is the actual enforcement point, so this being public is expected and safe. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server only | **Never** prefix with `NEXT_PUBLIC_`. Used only in the small, explicit set of service-role operations described in architecture.md sec 3 (invitation redemption, agent registration, cross-tenant super-admin provisioning) — isolated to `apps/web/lib/supabase/service-role.ts` per that section, never imported into a client component. |
-| `PRINTOS_BOOTSTRAP_ADMIN_EMAIL` | Server (one-time bootstrap) | The email of the person who becomes the first `org_admin` of the first organization, per the super-admin bootstrap path in architecture.md sec 2.2. This email's own domain also seeds that organization's `allowed_domains` (architecture.md sec 19) — no separate env var is needed for domain-restricted sign-in; an org_admin can widen/narrow/clear the list afterward from `/admin/settings`. |
-| `PRINTOS_BOOTSTRAP_ORG_NAME` | Server (one-time bootstrap) | Name of the organization created by that same bootstrap path. |
-| `PRINTOS_CRON_SECRET` | Server only | Shared secret Vercel Cron (or any external caller) presents as `Authorization: Bearer <value>` to `/api/cron/sweep`. Generate a random string. |
+| `PRINTIO_BOOTSTRAP_ADMIN_EMAIL` | Server (one-time bootstrap) | The email of the person who becomes the first `org_admin` of the first organization, per the super-admin bootstrap path in architecture.md sec 2.2. This email's own domain also seeds that organization's `allowed_domains` (architecture.md sec 19) — no separate env var is needed for domain-restricted sign-in; an org_admin can widen/narrow/clear the list afterward from `/admin/settings`. |
+| `PRINTIO_BOOTSTRAP_ORG_NAME` | Server (one-time bootstrap) | Name of the organization created by that same bootstrap path. |
+| `PRINTIO_CRON_SECRET` | Server only | Shared secret Vercel Cron (or any external caller) presents as `Authorization: Bearer <value>` to `/api/cron/sweep`. Generate a random string. |
 | `NEXT_PUBLIC_APP_URL` | Server (absolute-link construction) | Base URL of this deployment, used to build absolute links in emails/invitations. |
 
 This table matches `apps/web/.env.example`, the real file — treat that file as the source of
@@ -130,21 +130,21 @@ described conceptually):
 Set the Vercel project's **Root Directory** to `apps/web`, and enable the
 option (usually under Project Settings → General, sometimes surfaced during
 import) that lets the build context reach outside that root directory so pnpm
-can resolve workspace dependencies (`@printos/shared`, and the workspace's
+can resolve workspace dependencies (`@printio/shared`, and the workspace's
 lockfile at the repo root). Vercel's monorepo support is generally good at
 auto-detecting a pnpm workspace once the root directory is set this way; verify
-the build actually resolves `@printos/shared` rather than assuming it does.
+the build actually resolves `@printio/shared` rather than assuming it does.
 
 **Approach B — Root Directory left at repo root, explicit build command.**
 Leave the Vercel project's Root Directory at the repository root and set an
 explicit Build Command that installs from the workspace root and builds only
 the web app, e.g.:
 ```
-cd . && pnpm install --frozen-lockfile && pnpm --filter @printos/web build
+cd . && pnpm install --frozen-lockfile && pnpm --filter @printio/web build
 ```
 (adjust the `cd` as needed depending on where Vercel's build actually starts —
 some Vercel monorepo setups start the build already inside the chosen root, in
-which case the equivalent is `cd ../.. && pnpm install && pnpm --filter @printos/web build`
+which case the equivalent is `cd ../.. && pnpm install && pnpm --filter @printio/web build`
 to get back to the workspace root first). Set the **Output Directory** to
 `apps/web/.next` (Next.js default) and confirm the **Install Command** isn't
 separately overridden to something that skips the workspace root.
@@ -179,8 +179,8 @@ a `vercel.json` entry:
 (every 15 minutes is a reasonable starting cadence given `job_lease_minutes`
 defaults to 10 — adjust once real lease/approval-expiry durations are tuned).
 Vercel Cron authenticates its own requests via a shared secret header -
-`PRINTOS_CRON_SECRET` (add it to your environment variables; the route checks
-`Authorization: Bearer <PRINTOS_CRON_SECRET>`) rather than a user session.
+`PRINTIO_CRON_SECRET` (add it to your environment variables; the route checks
+`Authorization: Bearer <PRINTIO_CRON_SECRET>`) rather than a user session.
 This is the real, implemented route (`apps/web/app/api/cron/sweep/route.ts`)
 and `vercel.json` cron entry - not a placeholder. The route sets
 `export const maxDuration = 60` and caps each of its selection queries at 500
@@ -193,7 +193,7 @@ docs/architecture.md sec 16.
 After deploying, before trusting the environment for real use:
 
 1. **Sign in** with the Google account configured as
-   `PRINTOS_BOOTSTRAP_ADMIN_EMAIL` and confirm the bootstrap flow actually
+   `PRINTIO_BOOTSTRAP_ADMIN_EMAIL` and confirm the bootstrap flow actually
    created the organization (`organizations` row) and the `organization_members`
    row linking that account as `org_admin` — check the dashboard shows an org
    context immediately after first sign-in, not an empty/broken state.

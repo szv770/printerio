@@ -239,7 +239,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
         paperSize: dl.printRequest.paperSize,
         copies: dl.printRequest.copies,
         // The cloud overrides this only for a booklet job (forced
-        // "noscale" - PrintOS has already imposed and independently scaled
+        // "noscale" - Printio has already imposed and independently scaled
         // every page, see apps/web/lib/pdf/imposition.ts and
         // ResolvedPrintRequest.fitMode's doc comment); every other job
         // falls back to this Agent's own configured default, unchanged from

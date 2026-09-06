@@ -9,7 +9,7 @@ import { routes } from "@/lib/routes";
 import { preflightPdf } from "@/lib/pdf/preflight";
 import { createBookletPaddedPdf } from "@/lib/pdf/booklet";
 import { imposeBookletPdf, resolvePaperSizePoints } from "@/lib/pdf/imposition";
-import { computePrintMath, computeCostCents, computeBookletPadding, type PricingConfig } from "@printos/shared";
+import { computePrintMath, computeCostCents, computeBookletPadding, type PricingConfig } from "@printio/shared";
 import { evaluateJobPolicy } from "@/lib/policy/build-facts";
 import { adjustMonthlyUsage, getApplicableQuotaLimit } from "@/lib/quota";
 import { jobFilePath, PRINT_JOBS_BUCKET } from "@/lib/storage";
@@ -132,7 +132,7 @@ async function createPrintJob(
     // real N-up saddle-stitch imposition with per-page independent scaling
     // (docs/architecture.md sec 8), not just padding. The derived file
     // uploaded below is the fully-imposed PDF; the Agent's driver queue does
-    // no booklet reflow of its own for a PrintOS-submitted booklet job.
+    // no booklet reflow of its own for a Printio-submitted booklet job.
     const padded = await createBookletPaddedPdf(originalBytes);
     effectivePageCount = padded.paddedPages;
     blankPagesAdded = padded.blankPagesAdded;

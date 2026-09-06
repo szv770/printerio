@@ -11,7 +11,7 @@ for the research basis of each design decision this responds to.
   `JOB_STATUS_COMPLETE` on a print job, but per Microsoft's own documentation, "port
   monitors that do not support TrueEndOfJob will set the job as JOB_STATUS_PRINTED right
   away after the job is submitted." Standard TCP/IP and most USB port monitors do not
-  implement true end-of-job confirmation. PrintOS therefore tracks `submitted_to_spooler`
+  implement true end-of-job confirmation. Printio therefore tracks `submitted_to_spooler`
   and `completed` as distinct job states and does not claim the latter is proof of physical
   output. Genuine physical confirmation, where available at all, requires a vendor-specific
   bidirectional port monitor or SNMP polling of the device itself — not assumed present for
@@ -20,33 +20,33 @@ for the research basis of each design decision this responds to.
   software.** These live in the Kyocera KX driver's private DEVMODE extension data, which
   Kyocera's own documentation exposes only through the driver's GUI ("Profiles"/Favorites)
   or an administrator-set per-queue "Printing Defaults." There is no documented CLI, REST
-  API, or SDK to trigger the physical stapler/punch/folder unit at print time. PrintOS's
+  API, or SDK to trigger the physical stapler/punch/folder unit at print time. Printio's
   answer is architectural, not a missing feature: administrators pre-configure one Windows
   printer queue per finishing profile, and the Agent only ever picks which queue to print
   to — the actual mechanical action still has to be a queue whose Printing Defaults already
   ask for it.
-- **Booklet *page layout* is the one exception to the above — PrintOS does that part itself,
+- **Booklet *page layout* is the one exception to the above — Printio does that part itself,
   in software, upstream of the driver entirely** (`apps/web/lib/pdf/imposition.ts`,
-  architecture.md sec 8). This does not contradict the driver-private limitation: PrintOS
+  architecture.md sec 8). This does not contradict the driver-private limitation: Printio
   never asks SumatraPDF or the driver to perform imposition (they still can't — see the next
   bullet), it pre-imposes the actual PDF pages (N-up saddle-stitch order, each page
   independently scaled to its half-sheet) *before* the file ever reaches SumatraPDF, then
   tells the driver to print that already-laid-out file at 100% scale (`fitMode: "noscale"`).
   The physical fold-and-staple action that turns those imposed sheets into a bound booklet is
-  still the queue's own Printing Defaults, exactly like staple/punch above — PrintOS controls
+  still the queue's own Printing Defaults, exactly like staple/punch above — Printio controls
   what's *on* each sheet, never the hardware that folds/staples the stack.
 - **SumatraPDF controls a genuinely cross-driver-safe subset only**: page range,
   color/monochrome, duplex mode, fit/shrink/noscale, collate, paper source/size (by the
   driver's own reported name), and copy count. It cannot set stapling, punching, page
   imposition, or output-bin selection — those are driver-private, per the bullets above. Any
-  page imposition that happens is PrintOS's own work in the PDF itself, before SumatraPDF is
+  page imposition that happens is Printio's own work in the PDF itself, before SumatraPDF is
   ever invoked, never something the driver was asked to do.
 - **Kyocera SNMP telemetry is a hybrid of standard and proprietary MIBs.** Standard Printer
   MIB (RFC 3805, `1.3.6.1.2.1.43.*`) OIDs for toner-level-as-ratio and a generic error
   bitmask are portable. Kyocera's private MIB (`1.3.6.1.4.1.1347.*`) covers richer detail
   (per-tray, waste toner, granular errors) but its exact sub-OIDs and table indices have
   been repeatedly observed to differ across models/firmware in independent field reports.
-  PrintOS treats the private-MIB OID map as **configurable per printer profile**, never a
+  Printio treats the private-MIB OID map as **configurable per printer profile**, never a
   hardcoded constant, and if SNMP is unreachable or misconfigured, printing continues
   unaffected — telemetry is reported as "unavailable," never faked.
 - **Declared printer capabilities are administrator-declared, not cloud-verified.** The

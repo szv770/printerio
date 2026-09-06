@@ -154,7 +154,7 @@ export function PrintersPanel({
 
       <p className="text-xs text-[var(--color-muted)]">
         Capabilities and paper sizes above are administrator-declared, not verified against the physical device by
-        PrintOS - see docs/printer-setup.md for how to actually configure a Windows queue&apos;s finishing defaults before
+        Printio - see docs/printer-setup.md for how to actually configure a Windows queue&apos;s finishing defaults before
         declaring them here. Status only ever reflects what the Agent last reported at heartbeat time (docs/architecture.md
         sec 11) - it is not polled live.
       </p>
@@ -276,7 +276,7 @@ function NewProfileForm({
       </div>
 
       <div className="col-span-2">
-        <FieldLabel hint="check only what this queue's own Printing Defaults actually do (docs/printer-setup.md §3) - PrintOS never programs these itself, it only ever picks which queue to use">
+        <FieldLabel hint="check only what this queue's own Printing Defaults actually do (docs/printer-setup.md §3) - Printio never programs these itself, it only ever picks which queue to use">
           Capabilities
         </FieldLabel>
         <div className="flex flex-wrap gap-3">

@@ -1,11 +1,11 @@
--- PrintOS consolidated schema reference.
+-- Printio consolidated schema reference.
 -- Generated from supabase/migrations/*.sql - migrations remain the source of truth.
 -- Regenerate after adding a migration: run this same concatenation again.
 
 -- ===================================================================
 -- Source: migrations/0001_core_tables.sql
 -- ===================================================================
--- PrintOS: organizations, membership, profiles, invitations, groups.
+-- Printio: organizations, membership, profiles, invitations, groups.
 -- See docs/architecture.md sec 2 for the auth/bootstrap model.
 
 create table organizations (
@@ -122,7 +122,7 @@ create index group_members_user_idx on group_members (user_id);
 -- ===================================================================
 -- Source: migrations/0002_printing_tables.sql
 -- ===================================================================
--- PrintOS: agents, printers, printer profiles (Windows queue mapping), policies.
+-- Printio: agents, printers, printer profiles (Windows queue mapping), policies.
 -- See docs/architecture.md sec 4 (agent auth) and sec 9 (driver/finishing architecture).
 
 create table agents (
@@ -164,7 +164,7 @@ create index printers_org_idx on printers (organization_id);
 
 -- Logical print profile -> Windows queue mapping. Finishing options are baked into
 -- the Windows queue's driver "Printing Defaults" out-of-band (see printer-setup.md);
--- PrintOS never programs finishing options itself. windows_queue_name is only ever
+-- Printio never programs finishing options itself. windows_queue_name is only ever
 -- resolved server-side/agent-side, never sent to an untrusted client - see
 -- docs/architecture.md sec 9.
 create table printer_profiles (
@@ -245,7 +245,7 @@ create index quotas_org_idx on quotas (organization_id);
 -- ===================================================================
 -- Source: migrations/0003_jobs_tables.sql
 -- ===================================================================
--- PrintOS: print jobs, audit trail, approvals, monthly usage.
+-- Printio: print jobs, audit trail, approvals, monthly usage.
 -- Status/event-type values must stay in sync with
 -- packages/shared/src/job-state.ts (JOB_STATES / JOB_EVENT_TYPES).
 -- See docs/architecture.md sec 13 (state machine / leasing) and sec 14 (quotas).
@@ -383,7 +383,7 @@ create index monthly_usage_org_idx on monthly_usage (organization_id, period);
 -- ===================================================================
 -- Source: migrations/0004_admin_tables.sql
 -- ===================================================================
--- PrintOS: security-sensitive admin audit log + the remote-command allowlist.
+-- Printio: security-sensitive admin audit log + the remote-command allowlist.
 -- See docs/architecture.md sec 12 (no arbitrary remote command execution).
 
 create table audit_logs (
@@ -425,7 +425,7 @@ create index remote_commands_agent_idx on remote_commands (agent_id, status);
 -- ===================================================================
 -- Source: migrations/0005_extensions_and_helpers.sql
 -- ===================================================================
--- PrintOS: extensions, private schema, RLS helper functions, and the small set
+-- Printio: extensions, private schema, RLS helper functions, and the small set
 -- of generic triggers (updated_at bookkeeping, auth.users -> profiles mirroring)
 -- that reference tables created in migrations 0001-0004.
 -- See docs/architecture.md sec 3 for why these helpers exist (join-free RLS policies).
@@ -583,7 +583,7 @@ create trigger on_auth_user_created
 -- ===================================================================
 -- Source: migrations/0006_rls_policies.sql
 -- ===================================================================
--- PrintOS: Row Level Security. Enabled on every multi-tenant table - see
+-- Printio: Row Level Security. Enabled on every multi-tenant table - see
 -- docs/architecture.md sec 3. Nothing in apps/web queries these tables through a
 -- policy-free path except the small, explicit set of service-role operations
 -- documented inline (agent bearer-auth handlers, invitation redemption, org
@@ -1044,7 +1044,7 @@ with check (private.is_org_admin(organization_id));
 -- ===================================================================
 -- Source: migrations/0007_storage.sql
 -- ===================================================================
--- PrintOS: private storage bucket + path-scoped RLS.
+-- Printio: private storage bucket + path-scoped RLS.
 -- Path convention: org/{organizationId}/jobs/{jobId}/original.pdf|derived.pdf
 -- See docs/architecture.md sec 3.3. Never a public bucket; downloads always go
 -- through createSignedUrl(), never a public URL.
@@ -1110,7 +1110,7 @@ using (
 -- ===================================================================
 -- Source: migrations/0008_realtime.sql
 -- ===================================================================
--- PrintOS: Realtime Authorization for private, per-organization channels.
+-- Printio: Realtime Authorization for private, per-organization channels.
 -- See docs/architecture.md sec 3.4.
 --
 -- Topic convention: 'org-{organizationId}:{stream}', e.g.
@@ -1160,7 +1160,7 @@ with check (
 -- ===================================================================
 -- Source: migrations/0009_lint_fixes.sql
 -- ===================================================================
--- PrintOS: fixes for Supabase database-linter findings surfaced by get_advisors
+-- Printio: fixes for Supabase database-linter findings surfaced by get_advisors
 -- after the initial schema/RLS migrations landed (see docs/architecture.md sec 3).
 -- 1. Pin search_path on the 4 functions that were missing it (security lint).
 -- 2. Split 4 "org_admins manage X" FOR ALL policies into insert/update/delete
@@ -1171,7 +1171,7 @@ with check (
 -- Not addressed: `public.rls_auto_enable()` (SECURITY DEFINER, callable by
 -- anon/authenticated) is a pre-existing Supabase-platform-managed event trigger
 -- function (owner: postgres) that auto-enables RLS on newly created tables as a
--- safety net - it was not created by any PrintOS migration and is left alone.
+-- safety net - it was not created by any Printio migration and is left alone.
 
 -- ============================================================================
 -- 1. search_path fixes
@@ -1301,7 +1301,7 @@ create index remote_commands_printer_idx on remote_commands (printer_id);
 -- ===================================================================
 -- Source: migrations/0010_quota_functions.sql
 -- ===================================================================
--- PrintOS: atomic quota reserve/release/consume.
+-- Printio: atomic quota reserve/release/consume.
 -- See docs/architecture.md sec 14 - a single UPDATE ... WHERE <limit check>
 -- is atomic per-row in Postgres, so two concurrent submissions from the same
 -- user cannot both read a stale "under quota" snapshot and both succeed: the
@@ -1402,7 +1402,7 @@ comment on function adjust_monthly_usage is
 -- ===================================================================
 -- Source: migrations/0011_realtime_publication.sql
 -- ===================================================================
--- PrintOS: enable postgres_changes realtime for the tables the V1 UI
+-- Printio: enable postgres_changes realtime for the tables the V1 UI
 -- subscribes to directly (docs/architecture.md sec 3.4/15).
 --
 -- Implementation note: the architecture doc describes private broadcast
@@ -1423,7 +1423,7 @@ alter publication supabase_realtime add table remote_commands;
 -- ===================================================================
 -- Source: migrations/0012_rate_limiting.sql
 -- ===================================================================
--- PrintOS: generic fixed-window rate limiter, backed by Postgres.
+-- Printio: generic fixed-window rate limiter, backed by Postgres.
 --
 -- Why DB-backed and not in-memory: apps/web runs on Vercel, where a single
 -- serverless function is not one long-lived process - concurrent requests to
@@ -1496,7 +1496,7 @@ grant execute on function check_rate_limit(text, int, int) to authenticated;
 -- ===================================================================
 -- Source: migrations/0013_domain_restriction_and_reauth.sql
 -- ===================================================================
--- PrintOS: enforce organizations.allowed_domains as an actual sign-in gate,
+-- Printio: enforce organizations.allowed_domains as an actual sign-in gate,
 -- and add profiles.last_authenticated_at to support forcing a full
 -- interactive re-authentication at least every 30 days, independent of
 -- Supabase's own refresh-token lifetime. See docs/architecture.md sec 19 for
@@ -1595,7 +1595,7 @@ begin
     return false;
   end if;
 
-  -- No organization exists yet: this is the PRINTOS_BOOTSTRAP_ADMIN_EMAIL
+  -- No organization exists yet: this is the PRINTIO_BOOTSTRAP_ADMIN_EMAIL
   -- first-sign-in path (apps/web/lib/auth/bootstrap.ts) - allowed_domains
   -- doesn't exist to check against yet, so this must not block it.
   if not exists (select 1 from public.organizations) then
@@ -1629,7 +1629,7 @@ grant execute on function email_domain_allowed() to authenticated;
 -- ===================================================================
 -- Source: migrations/0014_magic_link_domain_toggle.sql
 -- ===================================================================
--- PrintOS: add Supabase magic-link (email OTP) sign-in as a second sign-in
+-- Printio: add Supabase magic-link (email OTP) sign-in as a second sign-in
 -- method alongside Google OAuth, and give an org_admin a per-organization
 -- toggle over whether magic-link sign-ins are subject to the same
 -- allowed_domains gate that Google OAuth sign-ins already go through
@@ -1740,7 +1740,7 @@ begin
   -- No organization exists yet: same bootstrap-path carve-out as
   -- email_domain_allowed() - allowed_domains/magic_link_requires_allowed_domain
   -- don't exist to check against yet, so this must not block
-  -- PRINTOS_BOOTSTRAP_ADMIN_EMAIL's first sign-in (lib/auth/bootstrap.ts),
+  -- PRINTIO_BOOTSTRAP_ADMIN_EMAIL's first sign-in (lib/auth/bootstrap.ts),
   -- however that first sign-in happens to arrive.
   if not exists (select 1 from public.organizations) then
     return true;
@@ -1783,7 +1783,7 @@ grant execute on function email_domain_allowed_for_magic_link() to authenticated
 -- ===================================================================
 -- Source: migrations/0015_retention_files_purged_at.sql
 -- ===================================================================
--- PrintOS: `files_purged_at` marks a print_jobs row whose Storage files have
+-- Printio: `files_purged_at` marks a print_jobs row whose Storage files have
 -- already been removed by the retention sweep
 -- (apps/web/app/api/cron/sweep/route.ts), so a job past its retention
 -- window whose files are already gone stops being re-selected (and

@@ -2,7 +2,7 @@ import { requireSession } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { currentPeriod, getApplicableQuotaLimit, getUsageSnapshot, usageForBasis } from "@/lib/quota";
 import { PageHeader, Card } from "@/components/ui";
-import type { QuotaBasis } from "@printos/shared";
+import type { QuotaBasis } from "@printio/shared";
 
 const BASIS_LABEL: Record<QuotaBasis, string> = {
   pdf_pages: "PDF pages",

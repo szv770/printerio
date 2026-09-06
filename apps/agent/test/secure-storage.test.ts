@@ -14,7 +14,7 @@ const logger = createLogger({ level: "error" });
 describe("secure-storage (fallback encrypted-file path)", () => {
   let dir: string;
   beforeEach(() => {
-    dir = mkdtempSync(path.join(os.tmpdir(), "printos-agent-secure-test-"));
+    dir = mkdtempSync(path.join(os.tmpdir(), "printio-agent-secure-test-"));
   });
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });

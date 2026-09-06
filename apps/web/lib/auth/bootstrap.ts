@@ -10,7 +10,7 @@ import { emailDomain, isValidDomain } from "@/lib/auth/domains";
  *
  * This is NOT "first person from an allowed domain becomes admin" - that
  * pattern is explicitly forbidden. This is an explicit, operator-configured
- * env var (PRINTOS_BOOTSTRAP_ADMIN_EMAIL) naming exactly one account, and it
+ * env var (PRINTIO_BOOTSTRAP_ADMIN_EMAIL) naming exactly one account, and it
  * only ever fires once: the moment ANY organization exists in this deployment,
  * this path is permanently dead. Every user added after that goes through the
  * normal organization_invitations flow (an org_admin issues an invite/
@@ -21,8 +21,8 @@ import { emailDomain, isValidDomain } from "@/lib/auth/domains";
  * no-op once bootstrapped.
  */
 export async function maybeBootstrapOrganization(userId: string, email: string): Promise<void> {
-  const { PRINTOS_BOOTSTRAP_ADMIN_EMAIL } = getBootstrapEnv();
-  const bootstrapEmail = PRINTOS_BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase();
+  const { PRINTIO_BOOTSTRAP_ADMIN_EMAIL } = getBootstrapEnv();
+  const bootstrapEmail = PRINTIO_BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase();
   if (!bootstrapEmail) return;
   if (email.trim().toLowerCase() !== bootstrapEmail) return;
 
@@ -36,7 +36,7 @@ export async function maybeBootstrapOrganization(userId: string, email: string):
   if (countError) throw countError;
   if ((count ?? 0) > 0) return;
 
-  const orgName = getBootstrapEnv().PRINTOS_BOOTSTRAP_ORG_NAME?.trim() || "My Organization";
+  const orgName = getBootstrapEnv().PRINTIO_BOOTSTRAP_ORG_NAME?.trim() || "My Organization";
   const slug = slugify(orgName) || `org-${userId.slice(0, 8)}`;
 
   // Seed allowed_domains from the bootstrap admin's own email domain (e.g.
@@ -74,7 +74,7 @@ export async function maybeBootstrapOrganization(userId: string, email: string):
     action: "organization.bootstrapped",
     target_type: "organization",
     target_id: org.id,
-    metadata: { via: "PRINTOS_BOOTSTRAP_ADMIN_EMAIL" },
+    metadata: { via: "PRINTIO_BOOTSTRAP_ADMIN_EMAIL" },
   });
 }
 

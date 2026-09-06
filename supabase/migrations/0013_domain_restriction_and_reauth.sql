@@ -1,4 +1,4 @@
--- PrintOS: enforce organizations.allowed_domains as an actual sign-in gate,
+-- Printio: enforce organizations.allowed_domains as an actual sign-in gate,
 -- and add profiles.last_authenticated_at to support forcing a full
 -- interactive re-authentication at least every 30 days, independent of
 -- Supabase's own refresh-token lifetime. See docs/architecture.md sec 19 for
@@ -97,7 +97,7 @@ begin
     return false;
   end if;
 
-  -- No organization exists yet: this is the PRINTOS_BOOTSTRAP_ADMIN_EMAIL
+  -- No organization exists yet: this is the PRINTIO_BOOTSTRAP_ADMIN_EMAIL
   -- first-sign-in path (apps/web/lib/auth/bootstrap.ts) - allowed_domains
   -- doesn't exist to check against yet, so this must not block it.
   if not exists (select 1 from public.organizations) then

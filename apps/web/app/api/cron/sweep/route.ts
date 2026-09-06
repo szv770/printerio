@@ -57,7 +57,7 @@ export async function GET(request: Request) {
     expected = getCronSecret();
   } catch (err) {
     // Distinct from a bad caller-supplied secret (401 below): this is an
-    // operator misconfiguration (PRINTOS_CRON_SECRET was never set), and
+    // operator misconfiguration (PRINTIO_CRON_SECRET was never set), and
     // should surface as a clear 500 rather than silently 401ing every call
     // forever with no clue why.
     return apiError(500, "misconfigured", err instanceof Error ? err.message : "Cron secret not configured.");

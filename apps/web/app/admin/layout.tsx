@@ -48,7 +48,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <div className="mx-auto flex min-h-screen max-w-5xl gap-8 px-4 py-8">
       <nav className="w-48 shrink-0">
         <Link href={routes.home} className="mb-4 block text-lg font-semibold">
-          PrintOS Admin
+          Printio Admin
         </Link>
         <ul className="flex flex-col gap-1 text-sm">
           <NavLink href={routes.admin} icon={LayoutDashboard}>

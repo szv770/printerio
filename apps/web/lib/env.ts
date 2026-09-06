@@ -49,7 +49,7 @@ export function getServiceRoleEnv() {
 }
 
 const cronEnvSchema = z.object({
-  PRINTOS_CRON_SECRET: z.string().min(1),
+  PRINTIO_CRON_SECRET: z.string().min(1),
 });
 let cronEnvCache: z.infer<typeof cronEnvSchema> | null = null;
 
@@ -57,22 +57,22 @@ let cronEnvCache: z.infer<typeof cronEnvSchema> | null = null;
  *  so a misconfigured deployment gets a clear error instead of a route that
  *  quietly 401s every request forever with no clue why. */
 export function getCronSecret(): string {
-  return (cronEnvCache ??= parseOrThrow(cronEnvSchema, "the cron sweep route")).PRINTOS_CRON_SECRET;
+  return (cronEnvCache ??= parseOrThrow(cronEnvSchema, "the cron sweep route")).PRINTIO_CRON_SECRET;
 }
 
 /**
  * Bootstrap vars are intentionally all-optional with no throw: an unset
- * PRINTOS_BOOTSTRAP_ADMIN_EMAIL is the normal, permanent steady state once an
+ * PRINTIO_BOOTSTRAP_ADMIN_EMAIL is the normal, permanent steady state once an
  * organization already exists (see lib/auth/bootstrap.ts) - that is not a
  * misconfiguration.
  */
 const bootstrapEnvSchema = z.object({
-  PRINTOS_BOOTSTRAP_ADMIN_EMAIL: z.string().email().optional(),
-  PRINTOS_BOOTSTRAP_ORG_NAME: z.string().min(1).optional(),
+  PRINTIO_BOOTSTRAP_ADMIN_EMAIL: z.string().email().optional(),
+  PRINTIO_BOOTSTRAP_ORG_NAME: z.string().min(1).optional(),
 });
 
 export function getBootstrapEnv() {
-  // Every field is optional, so this only throws if PRINTOS_BOOTSTRAP_ADMIN_EMAIL
+  // Every field is optional, so this only throws if PRINTIO_BOOTSTRAP_ADMIN_EMAIL
   // is *set* to something that isn't a valid email (a likely typo worth
   // surfacing loudly) - unset entirely is always fine and safe to call
   // unconditionally.

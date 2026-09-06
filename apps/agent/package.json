@@ -1,12 +1,12 @@
 {
-  "name": "@printos/agent",
+  "name": "@printio/agent",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "PrintOS on-premises Windows Print Agent - claims approved print jobs, downloads them, and submits them to a local Windows print queue.",
+  "description": "Printio on-premises Windows Print Agent - claims approved print jobs, downloads them, and submits them to a local Windows print queue.",
   "main": "./dist/index.js",
   "bin": {
-    "printos-agent": "./dist/index.js"
+    "printio-agent": "./dist/index.js"
   },
   "engines": {
     "node": ">=20"
@@ -24,7 +24,7 @@
     "lint": "eslint src test"
   },
   "dependencies": {
-    "@printos/shared": "workspace:*",
+    "@printio/shared": "workspace:*",
     "dotenv": "^17.4.2",
     "tsx": "^4.19.2"
   },

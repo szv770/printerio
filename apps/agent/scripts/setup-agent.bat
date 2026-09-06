@@ -1,5 +1,5 @@
 @echo off
-rem PrintOS Agent - one-click setup launcher.
+rem Printio Agent - one-click setup launcher.
 rem
 rem Double-click this file. It runs the PowerShell script sitting next to it
 rem (setup-agent.ps1), which does the actual work: checks Node.js/SumatraPDF,

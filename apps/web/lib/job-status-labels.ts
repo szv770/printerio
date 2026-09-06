@@ -1,6 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import { FileEdit, Clock, CheckCircle2, Ban, Slash, Loader2, Printer, CheckCircle, AlertTriangle } from "lucide-react";
-import type { JobState } from "@printos/shared";
+import type { JobState } from "@printio/shared";
 
 export interface JobStatusDisplay {
   Icon: LucideIcon;
