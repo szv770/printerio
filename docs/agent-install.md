@@ -40,6 +40,36 @@ they're how the first real gaps in this get found.
   architecture.md sec 1 for why this specific shape is what makes an Agent
   workable on a network where the printer segment itself is otherwise isolated).
 
+## The fast path: one script
+
+If this is a first-time setup and you'd rather not type a sequence of `pnpm` commands by
+hand, once the repo is on the Windows machine (cloned or copied over — see §2 for how) and
+Node.js 20+ and SumatraPDF are installed per the prerequisites above:
+
+1. Open the `printos` folder in File Explorer.
+2. Go to `apps\agent\scripts` and double-click **`setup-agent.bat`**.
+3. Answer the couple of plain-English prompts it asks (your organization's PrintOS cloud
+   URL the first time, then your enrollment code), then choose **1** to run the Agent in
+   this window as a quick test, or **2** to install it as a permanent Windows service.
+
+It checks Node.js/SumatraPDF and prints what it finds, installs dependencies with `pnpm
+install` if they aren't already there (enabling `pnpm` itself via Corepack first if
+needed), registers the Agent if it isn't registered yet, and then does exactly `pnpm
+--filter @printos/agent start` or `install-service` — the same commands documented in §3
+and §5 below, just without you having to type them. On any failure it explains what went
+wrong in plain language and where to look for more detail, and it always waits for you to
+press Enter before the window closes, so an error is never just a window that flashes and
+disappears. It's safe to double-click again later — a second run detects what's already
+done and skips straight to "run now or install as a service?".
+
+**This is a convenience wrapper around the exact same CLI documented in the numbered steps
+below, nothing more** — read those steps (and `apps/agent/README.md`) if you want to
+understand what it's actually doing, if it fails and you need to troubleshoot by hand, or
+if you're scripting/CI-ing this instead of running it interactively. Like the rest of this
+Agent, `apps/agent/scripts/setup-agent.ps1` was written and reviewed in a sandboxed Linux
+container with no Windows machine to run it against — treat it as reviewed, not verified,
+until it's actually been double-clicked on a real Windows machine.
+
 ## 1. Obtain an enrollment code
 
 An `org_admin` creates the Agent's row in the PrintOS dashboard (Admin → Agents
