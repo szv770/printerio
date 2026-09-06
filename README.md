@@ -102,30 +102,67 @@ not Phase 4–6):
 | **2** | Approval engine: policies, rules, approval queue, realtime, audit events | Implemented |
 | **3** | Windows Agent: registration, heartbeat, printer discovery, download, printing, spooler monitoring, reconciliation | Implemented, **physically untested** — no Windows machine exists in this build environment; see [docs/testing.md](./docs/testing.md) for the mandatory validation procedure before trusting it on a real job |
 | **4** | Printer management: multiple printers, profiles, advanced options, Windows queue mappings | Basic version implemented (`printer_profiles`, `windows_queue_name` mapping); room to grow (bulk queue management, richer capability UI) |
-| **5** | Quotas/reporting: usage, quotas, reports, cost estimation | Quotas implemented (race-safe reservation, see architecture.md sec 14) with a full admin UI (organization/role/department/group/user scopes, `/admin/quotas`), including groups management (`/admin/groups`); Reports V1 shipped (`/admin/reports` — pages-by-month, color usage, by-user/department/printer breakdowns, recently denied/failed — tables only, no charts/exports yet) |
-| **6** | Advanced features: booklet padding, previews, SNMP telemetry, Google Drive, additional integrations | Booklet padding implemented (architecture.md sec 8); a client-side PDF thumbnail preview (page 1, rendered in-browser via pdfjs-dist, no upload needed) ships in the print form; SNMP telemetry, Drive/365 submission, and a packaged Windows installer are architecturally reserved (schema columns, doc sections) but not built — see [docs/known-limitations.md](./docs/known-limitations.md) "V1 scope" |
+| **5** | Quotas/reporting: usage, quotas, reports, cost estimation | Quotas implemented (race-safe reservation, see architecture.md sec 14) with a full admin UI (organization/role/department/group/user scopes, `/admin/quotas`), including groups management (`/admin/groups`); Reports V1 shipped (`/admin/reports` — pages-by-month, color usage, by-user/department/printer breakdowns, recently denied/failed — tables, plus client-side CSV export) |
+| **6** | Advanced features: booklet imposition, previews, SNMP telemetry, Google Drive, additional integrations | Real booklet **imposition** implemented, not just padding: each page is independently scaled (never upscaled) into its saddle-stitch slot, closer to how Adobe lays out booklets than driver defaults (`apps/web/lib/pdf/imposition.ts`, architecture.md sec 8); a client-side PDF thumbnail preview (page 1, rendered in-browser via pdfjs-dist, no upload needed) ships in the print form; SNMP telemetry, Drive/365 submission, and a packaged Windows installer are architecturally reserved (schema columns, doc sections) but not built — see [docs/known-limitations.md](./docs/known-limitations.md) "V1 scope" |
 
-Beyond the original 6-phase plan: a first-login onboarding tour (role-aware - students/
-staff vs admins get different content), a persistent Help menu with a plain-language
-glossary, route-level loading states across the main pages, and a generated app icon all
-shipped this round, aimed squarely at making the day-to-day experience feel considered
-rather than just functional.
+Beyond the original 6-phase plan:
+
+- **First-login onboarding tour** (role-aware — students/staff vs admins get different
+  content) and a **persistent Help menu** with a plain-language glossary.
+- **Domain-restricted sign-in + 30-day forced re-authentication**: an org_admin sets
+  `allowed_domains`; a brand-new user's first sign-in is gated against it (existing
+  members are never gated by domain), and every user is required to re-authenticate
+  (not just refresh a token) every 30 days (architecture.md sec 19).
+- **Magic-link (email OTP) sign-in as a second, independent method** alongside Google
+  OAuth, with its own per-organization toggle (`/admin/settings`) over whether the
+  domain restriction applies to magic-link sign-ins specifically — Google OAuth's gate
+  is never affected by this toggle (architecture.md sec 19.3).
+  **Manual step still needed from you**: enabling the Email provider in the Supabase
+  dashboard — see [docs/deployment.md](./docs/deployment.md) §2.4.
+- **Cron sweep route batched/paginated** (`/api/cron/sweep`) so a large backlog of
+  expiring approvals/leases/stuck jobs/retention purges spreads across multiple ticks
+  instead of one long-running (or timing-out) invocation.
+- **Agent resilience**: the outer poll loop now backs off (with a startup jitter) during
+  a sustained cloud outage instead of hammering the API every 15 seconds forever, and a
+  double-click Windows setup script (`apps/agent/scripts/setup-agent.bat`) handles
+  install/registration/service-setup for someone who'd rather not type CLI commands.
+- Route-level loading states across the main pages and a generated app icon.
+
+All of the above shipped aimed squarely at making the day-to-day experience feel
+considered rather than just functional, and at closing real gaps (auth resilience, cron
+scalability, agent resilience, non-technical install) rather than only adding surface
+features.
 
 As of this writing, `apps/web` (Next.js cloud app: auth/bootstrap, upload+preflight,
 policy+quota-checked submission, realtime approval queue, admin dashboard, the full
-Agent-facing API in `docs/agent-api.md`, and the Vercel Cron retention/lease-expiry
+Agent-facing API in `docs/agent-api.md`, and the batched Vercel Cron retention/lease-expiry
 sweep) and `apps/agent` (the full Windows Print Agent — registration, heartbeat,
 job download, `SumatraPDF` execution, PowerShell spooler monitoring, the fixed
-remote-command handler, local job queue with restart recovery) are both real,
-building, typechecking, and passing their own unit test suites (`pnpm -r build`,
-`pnpm -r typecheck`, `pnpm -r test` all green). The live Supabase project this was
-built against (schema + RLS policies) is likewise migrated and verified via the
-Supabase advisor (no outstanding security lint findings of this project's own
-making). Treat "implemented" as exactly that — real, tested code — but **not** as
-"verified end-to-end against a real Windows Agent and printer": no Windows machine
-or physical printer exists in this build environment, so
+remote-command handler, local job queue with restart recovery, outage backoff) are both
+real, building, typechecking, and passing their own unit test suites (`pnpm -r build`,
+`pnpm -r typecheck`, `pnpm -r test` all green — 69 tests in `apps/web` alone as of this
+writing). The live Supabase project this was built against (schema + RLS policies +
+migrations through `0015_retention_files_purged_at.sql`) is likewise migrated and
+verified via the Supabase advisor (no outstanding security lint findings of this
+project's own making). Treat "implemented" as exactly that — real, tested code — but
+**not** as "verified end-to-end against a real Windows Agent and printer": no Windows
+machine or physical printer exists in this build environment, so
 [docs/testing.md](./docs/testing.md)'s physical validation procedure has not yet
 been run. Do not trust a real print job to this system until it has.
+
+### What's left before this can go live for real users
+
+Almost everything that's left at this point is **manual setup, not missing code** — see
+[docs/deployment.md](./docs/deployment.md) end to end for the full sequence, but in short:
+create/confirm the Supabase project, enable Google as an OAuth provider (§2.1) and Email
+for magic-link (§2.4), set the environment variables in Vercel (§3), deploy `apps/web`
+(§4), confirm Vercel Cron is hitting `/api/cron/sweep` (§5), and — separately, on the
+actual Windows machine next to the printer — walk `docs/agent-install.md`'s "fast path"
+to register and run the Agent, then manually add one `printer_profiles` row per
+finishing-configured Windows queue from `/admin/printers` (guidance on exactly what each
+field means and where to find it is inline in that form). None of that can be done from
+inside this repository — it needs real API keys/dashboard access, which is the point at
+which you come back in.
 
 ## License
 
