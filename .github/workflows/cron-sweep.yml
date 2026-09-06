@@ -1,0 +1,36 @@
+name: Cron sweep (15-minute cadence)
+
+# Vercel's Hobby plan only allows a cron schedule to run once per day
+# (vercel.json's own "crons" entry is capped at "0 8 * * *" for exactly this
+# reason - see docs/deployment.md sec 5). The retention/lease-expiry sweep
+# route (apps/web/app/api/cron/sweep/route.ts) needs a much tighter cadence
+# than that to actually be useful - job_lease_minutes defaults to 10, so a
+# once-a-day sweep would leave a stale lease/approval window sitting for up
+# to 24 hours. This workflow is the free alternative: GitHub Actions'
+# scheduled workflows are free (no separate signup, no cost) and call the
+# exact same route Vercel's own daily cron calls, just far more often.
+# Vercel's own daily cron entry stays in place as a safety net in case this
+# workflow is ever paused/disabled - see the note on that below.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  # Lets you trigger a one-off run from the Actions tab, e.g. right after
+  # deploying, without waiting for the next scheduled tick.
+  workflow_dispatch:
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/cron/sweep
+        run: |
+          if [ -z "${{ secrets.PRINTIO_APP_URL }}" ] || [ -z "${{ secrets.PRINTIO_CRON_SECRET }}" ]; then
+            echo "::error::PRINTIO_APP_URL and/or PRINTIO_CRON_SECRET repository secrets are not set - see docs/deployment.md sec 5.1." >&2
+            exit 1
+          fi
+          # -f: fail (nonzero exit) on a 4xx/5xx response, so a real failure
+          # shows up as a red X in the Actions tab instead of silently
+          # "succeeding" on an error page. -sS: silent but still show errors.
+          curl -fsS -X POST \
+            "${{ secrets.PRINTIO_APP_URL }}/api/cron/sweep" \
+            -H "Authorization: Bearer ${{ secrets.PRINTIO_CRON_SECRET }}"
