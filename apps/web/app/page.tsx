@@ -10,5 +10,5 @@ export default async function HomePage() {
   if (session.membership.role === "org_admin" || session.membership.role === "approver") {
     redirect(routes.admin);
   }
-  redirect(routes.print);
+  redirect(routes.dashboard);
 }

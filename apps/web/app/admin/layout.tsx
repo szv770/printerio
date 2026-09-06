@@ -99,7 +99,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </NavGroup>
 
         <div className="mt-6 flex flex-col gap-1 border-t border-[var(--color-border)] pt-4 text-sm">
-          <Link href={routes.print} className="block rounded-lg px-3 py-2 hover:bg-[var(--color-surface)]">
+          <Link href={routes.dashboard} className="block rounded-lg px-3 py-2 hover:bg-[var(--color-surface)]">
             Switch to student view
           </Link>
           <form action={signOutAction}>

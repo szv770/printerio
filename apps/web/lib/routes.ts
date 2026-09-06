@@ -13,6 +13,7 @@ export const routes = {
   authCallback: "/auth/callback",
   noAccess: "/no-access",
 
+  dashboard: "/home",
   print: "/print",
   jobs: "/jobs",
   job: (jobId: string) => `/jobs/${jobId}`,
