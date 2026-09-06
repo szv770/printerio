@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { AlertTriangle } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
@@ -34,7 +35,10 @@ export default async function PrintPage() {
     <main className="mx-auto max-w-2xl px-4 py-10">
       <PageHeader title="Print a document" description="Upload a PDF, choose your printer and options." />
       {printerProfiles.length === 0 ? (
-        <EmptyState message="No printers are configured for your organization yet. Ask your administrator to add one under Admin → Printers." />
+        <EmptyState
+          message="No printers are configured for your organization yet. Ask your administrator to add one under Admin → Printers."
+          icon={AlertTriangle}
+        />
       ) : (
         <PrintForm printerProfiles={printerProfiles} />
       )}

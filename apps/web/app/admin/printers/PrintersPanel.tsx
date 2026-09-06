@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { Printer as PrinterIcon, Wifi, WifiOff } from "lucide-react";
 import type { Tables } from "@/lib/database.types";
 import { Button, Input, Select, FieldLabel, FormError, EmptyState, Badge, Card } from "@/components/ui";
 import {
@@ -78,15 +79,29 @@ export function PrintersPanel({
             <li key={printer.id}>
               <Card>
                 <div className="mb-2 flex items-center justify-between">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium">{printer.name}</p>
-                      <Badge tone={STATUS_TONE[printer.status] ?? "neutral"}>{printer.status}</Badge>
+                  <div className="flex items-start gap-3">
+                    {/* Leading printer icon, tinted by status - a list of many
+                     *  printers scans faster with a per-row visual identity
+                     *  than a plain name + text badge alone. */}
+                    <PrinterIcon
+                      className={`mt-0.5 h-6 w-6 shrink-0 ${
+                        printer.status === "online"
+                          ? "text-[var(--color-success)]"
+                          : printer.status === "error"
+                            ? "text-[var(--color-danger)]"
+                            : "text-[var(--color-muted)]"
+                      }`}
+                    />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium">{printer.name}</p>
+                        <Badge tone={STATUS_TONE[printer.status] ?? "neutral"}>{printer.status}</Badge>
+                      </div>
+                      <p className="text-xs text-[var(--color-muted)]">
+                        {printer.vendor} {printer.model} {printer.location ? `• ${printer.location}` : ""}
+                        {printer.last_status_at && ` • last reported ${new Date(printer.last_status_at).toLocaleString()}`}
+                      </p>
                     </div>
-                    <p className="text-xs text-[var(--color-muted)]">
-                      {printer.vendor} {printer.model} {printer.location ? `• ${printer.location}` : ""}
-                      {printer.last_status_at && ` • last reported ${new Date(printer.last_status_at).toLocaleString()}`}
-                    </p>
                   </div>
                   {canManage && (
                     <button
@@ -134,7 +149,7 @@ export function PrintersPanel({
             </li>
           );
         })}
-        {printers.length === 0 && <EmptyState message="No printers yet." />}
+        {printers.length === 0 && <EmptyState message="No printers yet." icon={PrinterIcon} />}
       </ul>
 
       <p className="text-xs text-[var(--color-muted)]">
@@ -155,7 +170,10 @@ function AgentOnlineBadge({ agent }: { agent: AgentInfo }) {
   const online = !!agent.last_seen_at && Date.now() - new Date(agent.last_seen_at).getTime() < AGENT_ONLINE_WINDOW_MS;
   return (
     <Badge tone={online ? "success" : "neutral"}>
-      Agent: {agent.name} • {online ? "online" : "offline"}
+      <span className="flex items-center gap-1">
+        {online ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
+        Agent: {agent.name} • {online ? "online" : "offline"}
+      </span>
     </Badge>
   );
 }

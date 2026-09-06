@@ -1,5 +1,18 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import {
+  LayoutDashboard,
+  CheckSquare,
+  Users,
+  FolderKanban,
+  Printer,
+  Cpu,
+  ShieldCheck,
+  Gauge,
+  BarChart3,
+  ScrollText,
+  type LucideIcon,
+} from "lucide-react";
 import { requireOrgRole } from "@/lib/auth/session";
 import { signOutAction } from "@/lib/auth/actions";
 import { createClient } from "@/lib/supabase/server";
@@ -34,8 +47,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           PrintOS Admin
         </Link>
         <ul className="flex flex-col gap-1 text-sm">
-          <NavLink href={routes.admin}>Overview</NavLink>
-          <NavLink href={routes.adminApprovals}>
+          <NavLink href={routes.admin} icon={LayoutDashboard}>
+            Overview
+          </NavLink>
+          <NavLink href={routes.adminApprovals} icon={CheckSquare}>
             <span className="flex items-center justify-between">
               Approvals
               {!!pendingApprovals && <Badge tone="warning">{pendingApprovals}</Badge>}
@@ -44,25 +59,43 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </ul>
 
         <NavGroup title="People">
-          <NavLink href={routes.adminUsers}>Users</NavLink>
-          <NavLink href={routes.adminGroups}>Groups</NavLink>
+          <NavLink href={routes.adminUsers} icon={Users}>
+            Users
+          </NavLink>
+          <NavLink href={routes.adminGroups} icon={FolderKanban}>
+            Groups
+          </NavLink>
         </NavGroup>
 
         <NavGroup title="Print infrastructure">
-          <NavLink href={routes.adminPrinters}>Printers</NavLink>
-          <NavLink href={routes.adminAgents}>Agents</NavLink>
+          <NavLink href={routes.adminPrinters} icon={Printer}>
+            Printers
+          </NavLink>
+          <NavLink href={routes.adminAgents} icon={Cpu}>
+            Agents
+          </NavLink>
         </NavGroup>
 
         <NavGroup title="Governance">
-          <NavLink href={routes.adminPolicies}>Policies</NavLink>
-          <NavLink href={routes.adminQuotas}>Quotas</NavLink>
+          <NavLink href={routes.adminPolicies} icon={ShieldCheck}>
+            Policies
+          </NavLink>
+          <NavLink href={routes.adminQuotas} icon={Gauge}>
+            Quotas
+          </NavLink>
         </NavGroup>
 
         <NavGroup title="Insights">
-          <NavLink href={routes.adminReports}>Reports</NavLink>
+          <NavLink href={routes.adminReports} icon={BarChart3}>
+            Reports
+          </NavLink>
           {/* Audit log requires org_admin (app/admin/audit/page.tsx) - hidden
            *  for approvers rather than showing a link that throws for them. */}
-          {isOrgAdmin && <NavLink href={routes.adminAudit}>Audit log</NavLink>}
+          {isOrgAdmin && (
+            <NavLink href={routes.adminAudit} icon={ScrollText}>
+              Audit log
+            </NavLink>
+          )}
         </NavGroup>
 
         <div className="mt-6 flex flex-col gap-1 border-t border-[var(--color-border)] pt-4 text-sm">
@@ -93,11 +126,12 @@ function NavGroup({ title, children }: { title: string; children: React.ReactNod
   );
 }
 
-function NavLink({ href, children }: { href: string; children: React.ReactNode }) {
+function NavLink({ href, icon: Icon, children }: { href: string; icon: LucideIcon; children: React.ReactNode }) {
   return (
     <li>
-      <Link href={href} className="block rounded-lg px-3 py-2 hover:bg-[var(--color-surface)]">
-        {children}
+      <Link href={href} className="flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-[var(--color-surface)]">
+        <Icon className="h-4 w-4 shrink-0 text-[var(--color-muted)]" />
+        <span className="min-w-0 flex-1">{children}</span>
       </Link>
     </li>
   );

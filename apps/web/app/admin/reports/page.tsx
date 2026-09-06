@@ -1,3 +1,4 @@
+import { Info } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
 import { PageHeader, Card, Badge, EmptyState } from "@/components/ui";
@@ -129,7 +130,7 @@ export default async function ReportsPage() {
       <Card>
         <h2 className="mb-3 font-medium">Recently denied / failed</h2>
         {rejectedFailed.length === 0 ? (
-          <EmptyState message="No denied or failed jobs in this window." />
+          <EmptyState message="No denied or failed jobs in this window." icon={Info} />
         ) : (
           <ul className="flex flex-col gap-2 text-sm">
             {rejectedFailed.map((j) => {
@@ -139,7 +140,10 @@ export default async function ReportsPage() {
                   <span>{labelByUser.get(j.createdBy) ?? j.createdBy}</span>
                   <span className="flex items-center gap-2">
                     <Badge tone={j.status === "denied" ? "danger" : "warning"}>
-                      {display.emoji} {display.label}
+                      <span className="flex items-center gap-1">
+                        <display.Icon className="h-3.5 w-3.5" />
+                        {display.label}
+                      </span>
                     </Badge>
                     <span className="text-[var(--color-muted)]">{new Date(j.createdAt).toLocaleDateString()}</span>
                   </span>
@@ -153,7 +157,7 @@ export default async function ReportsPage() {
       <Card>
         <h2 className="mb-3 font-medium">By user ({JOB_WINDOW_DAYS}d)</h2>
         {byUser.length === 0 ? (
-          <EmptyState message="No jobs in this window." />
+          <EmptyState message="No jobs in this window." icon={Info} />
         ) : (
           <ReportTable
             columns={["User", "Jobs", "Sheets"]}
@@ -166,7 +170,7 @@ export default async function ReportsPage() {
         <Card>
           <h2 className="mb-3 font-medium">By department ({JOB_WINDOW_DAYS}d)</h2>
           {byDepartment.length === 0 ? (
-            <EmptyState message="No department-tagged jobs in this window." />
+            <EmptyState message="No department-tagged jobs in this window." icon={Info} />
           ) : (
             <ReportTable
               columns={["Department", "Jobs", "Sheets"]}
@@ -178,7 +182,7 @@ export default async function ReportsPage() {
         <Card>
           <h2 className="mb-3 font-medium">By printer ({JOB_WINDOW_DAYS}d)</h2>
           {byPrinter.length === 0 ? (
-            <EmptyState message="No jobs in this window." />
+            <EmptyState message="No jobs in this window." icon={Info} />
           ) : (
             <ReportTable
               columns={["Printer", "Jobs", "Sheets"]}
@@ -194,7 +198,7 @@ export default async function ReportsPage() {
           <div>
             <h2 className="mb-3 font-medium">Pages by month</h2>
             {pagesByMonth.length === 0 ? (
-              <EmptyState message="No usage recorded yet." />
+              <EmptyState message="No usage recorded yet." icon={Info} />
             ) : (
               <ReportTable
                 columns={["Month", "PDF pages", "Printed sides", "Physical sheets", "Color-weighted"]}

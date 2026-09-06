@@ -38,11 +38,19 @@ export function JobStatusLive({
   }, [jobId]);
 
   const display = jobStatusDisplay(status);
+  const { Icon } = display;
+  const TONE_COLOR: Record<typeof display.tone, string> = {
+    neutral: "text-[var(--color-muted)]",
+    success: "text-[var(--color-success)]",
+    warning: "text-[var(--color-warning)]",
+    danger: "text-[var(--color-danger)]",
+  };
 
   return (
     <Card>
-      <p className="text-lg font-medium">
-        {display.emoji} {display.label}
+      <p className="flex items-center gap-2 text-lg font-medium">
+        <Icon className={`h-5 w-5 ${TONE_COLOR[display.tone]} ${display.spinning ? "animate-spin" : ""}`} />
+        {display.label}
       </p>
       {errorMessage && <p className="mt-1 text-sm text-[var(--color-danger)]">{errorMessage}</p>}
       {status === "submitted_to_spooler" && (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { FolderKanban } from "lucide-react";
 import type { Tables } from "@/lib/database.types";
 import { Button, Input, Select, FieldLabel, FormError, Badge, EmptyState, Card } from "@/components/ui";
 import {
@@ -75,7 +76,10 @@ export function GroupsPanel({
         />
       ))}
       {groups.length === 0 && (
-        <EmptyState message="No groups yet - groups let policies and quotas scope to a department, class, or custom cohort." />
+        <EmptyState
+          message="No groups yet - groups let policies and quotas scope to a department, class, or custom cohort."
+          icon={FolderKanban}
+        />
       )}
     </div>
   );

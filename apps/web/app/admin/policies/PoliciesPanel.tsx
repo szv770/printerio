@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { ShieldCheck } from "lucide-react";
 import type { Tables } from "@/lib/database.types";
 import { Button, Input, Select, Textarea, FieldLabel, FormError, Badge, EmptyState, Card } from "@/components/ui";
 import {
@@ -36,7 +37,9 @@ export function PoliciesPanel({ policies, rules, canManage }: { policies: Policy
       {policies.map((policy) => (
         <PolicyCard key={policy.id} policy={policy} rules={rules.filter((r) => r.policy_id === policy.id)} canManage={canManage} />
       ))}
-      {policies.length === 0 && <EmptyState message="No policies yet - the organization default action applies to every job." />}
+      {policies.length === 0 && (
+        <EmptyState message="No policies yet - the organization default action applies to every job." icon={ShieldCheck} />
+      )}
     </div>
   );
 }

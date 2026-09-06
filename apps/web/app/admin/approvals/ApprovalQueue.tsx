@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useState } from "react";
+import { CheckCircle2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import type { Tables } from "@/lib/database.types";
 import { Button, Input, EmptyState, FormError, Card } from "@/components/ui";
@@ -42,7 +43,9 @@ export function ApprovalQueue({ initialJobs, organizationId }: { initialJobs: Pr
   }, [organizationId]);
 
   if (jobs.length === 0) {
-    return <EmptyState message="No jobs awaiting approval." />;
+    // A calm/positive empty state, deliberately - an empty queue means the
+    // approver is caught up, not that something is missing.
+    return <EmptyState message="No jobs awaiting approval - you're caught up." icon={CheckCircle2} />;
   }
 
   return (

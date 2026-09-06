@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { FileText } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { jobStatusDisplay } from "@/lib/job-status-labels";
 import { routes } from "@/lib/routes";
@@ -49,7 +50,20 @@ export function JobsList({ initialJobs, userId }: { initialJobs: JobRow[]; userI
   }, [userId]);
 
   if (jobs.length === 0) {
-    return <EmptyState message="No print jobs yet." />;
+    return (
+      <EmptyState
+        message="No print jobs yet."
+        icon={FileText}
+        action={
+          <Link
+            href={routes.print}
+            className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-[var(--color-primary-fg)] hover:opacity-90"
+          >
+            + Print your first document
+          </Link>
+        }
+      />
+    );
   }
 
   return (
@@ -64,8 +78,9 @@ export function JobsList({ initialJobs, userId }: { initialJobs: JobRow[]; userI
             >
               <div className="flex items-center justify-between">
                 <span className="font-medium">{job.original_file_name}</span>
-                <span>
-                  {status.emoji} {status.label}
+                <span className="flex items-center gap-1.5 text-sm">
+                  <status.Icon className="h-4 w-4" />
+                  {status.label}
                 </span>
               </div>
               <p className="mt-1 text-xs text-[var(--color-muted)]">

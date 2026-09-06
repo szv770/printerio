@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { Cpu, Wifi, WifiOff } from "lucide-react";
 import type { Tables } from "@/lib/database.types";
 import { Button, Input, FieldLabel, FormError, EmptyState, Card } from "@/components/ui";
 import {
@@ -45,7 +46,7 @@ export function AgentsPanel({ agents, canManage }: { agents: Tables<"agents">[];
         {agents.map((agent) => (
           <AgentRow key={agent.id} agent={agent} canManage={canManage} />
         ))}
-        {agents.length === 0 && <EmptyState message="No agents registered yet." />}
+        {agents.length === 0 && <EmptyState message="No agents registered yet." icon={Cpu} />}
       </ul>
     </div>
   );
@@ -66,11 +67,27 @@ function AgentRow({ agent, canManage }: { agent: Tables<"agents">; canManage: bo
     <li>
       <Card>
         <div className="flex items-center justify-between">
-          <div>
-            <p className="font-medium">{agent.name}</p>
-            <p className="text-xs text-[var(--color-muted)]">
-              {agent.status} • {online ? "🟢 online" : "⚫ offline"} • v{agent.version ?? "?"}
-            </p>
+          <div className="flex items-start gap-3">
+            {/* Leading device icon, tinted by online status - gives each row a
+             *  visual identity beyond its name string, and reads faster than
+             *  scanning meta-line text in a long agent list. */}
+            <Cpu className={`mt-0.5 h-6 w-6 shrink-0 ${online ? "text-[var(--color-success)]" : "text-[var(--color-muted)]"}`} />
+            <div>
+              <p className="font-medium">{agent.name}</p>
+              <p className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
+                {agent.status} •{" "}
+                {online ? (
+                  <>
+                    <Wifi className="h-3.5 w-3.5 text-[var(--color-success)]" /> online
+                  </>
+                ) : (
+                  <>
+                    <WifiOff className="h-3.5 w-3.5" /> offline
+                  </>
+                )}{" "}
+                • v{agent.version ?? "?"}
+              </p>
+            </div>
           </div>
           {canManage && agent.status !== "disabled" && (
             <div className="flex gap-2">

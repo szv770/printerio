@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { Info } from "lucide-react";
 import type { Tables } from "@/lib/database.types";
 import { Button, Input, Select, FieldLabel, FormError, Badge, EmptyState, Card } from "@/components/ui";
 import { createQuotaAction, deleteQuotaAction, initialQuotaActionState } from "./actions";
@@ -147,7 +148,9 @@ export function QuotasPanel({
         ))}
       </ul>
       <FormError message={deleteState.error} />
-      {quotas.length === 0 && <EmptyState message="No quotas configured yet - everyone can print without limit." />}
+      {quotas.length === 0 && (
+        <EmptyState message="No quotas configured yet - everyone can print without limit." icon={Info} />
+      )}
     </div>
   );
 }

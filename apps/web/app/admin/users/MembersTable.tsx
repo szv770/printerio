@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { Users } from "lucide-react";
 import { Select, Input, EmptyState, FormError, Badge } from "@/components/ui";
 import {
   changeMemberRoleAction,
@@ -22,7 +23,7 @@ const initialRoleState: RoleChangeState = {};
 const initialDeptState: DepartmentChangeState = {};
 
 export function MembersTable({ members, canEdit }: { members: Member[]; canEdit: boolean }) {
-  if (members.length === 0) return <EmptyState message="No members yet." />;
+  if (members.length === 0) return <EmptyState message="No members yet." icon={Users} />;
 
   return (
     <div className="overflow-x-auto">
