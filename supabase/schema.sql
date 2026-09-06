@@ -1801,3 +1801,37 @@ comment on column print_jobs.files_purged_at is
   'retention window. Filtered out (`is null`) by the sweep''s selection '
   'query so an already-purged job is never re-selected/re-processed on '
   'every future tick - see docs/architecture.md sec 16.';
+
+
+-- ===================================================================
+-- Source: migrations/0016_protect_last_authenticated_at.sql
+-- ===================================================================
+-- Fix: profiles.last_authenticated_at was updatable by any authenticated
+-- client via the existing "users can update own profile" RLS policy (that
+-- policy only restricts which ROW a user can touch, not which columns).
+-- Mirrors the existing platform_role protection pattern above.
+create or replace function private.prevent_last_authenticated_at_tampering()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.last_authenticated_at is distinct from old.last_authenticated_at
+     and coalesce(auth.role(), 'anon') <> 'service_role' then
+    raise exception 'last_authenticated_at can only be changed by a service-role operation';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger profiles_prevent_last_authenticated_at_tampering
+  before update on profiles
+  for each row execute function private.prevent_last_authenticated_at_tampering();
+
+comment on function private.prevent_last_authenticated_at_tampering is
+  'Blocks any client-originated change to profiles.last_authenticated_at - '
+  'the 30-day forced-reauthentication clock (docs/architecture.md sec 19.2) '
+  'is only ever advanced by app/auth/callback/route.ts via the service-role '
+  'client, right after a real exchangeCodeForSession. Without this trigger, '
+  'the ordinary "users can update own profile" RLS policy would let any '
+  'authenticated user re-stamp their own row on a timer from client-side '
+  'JS and never be forced back through re-authentication.';

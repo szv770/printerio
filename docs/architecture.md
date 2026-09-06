@@ -680,6 +680,16 @@ timestamp check independent of Supabase's own token expiry:
   point of enforcement instead of a per-route check that's easy to forget on a new route.
   When expired, it calls `supabase.auth.signOut()` and `redirect("/login?reason=reauth_required")`
   — a labeled reason the login page reads and displays, not a bare unexplained logout.
+- **Enforced at the database layer too, not just app code:** a security audit found that the
+  app-level "only one writer" claim above was not actually true at the RLS layer — the
+  ordinary `"users can update own profile"` policy (sec 3, `id = auth.uid()`) restricts which
+  *row* a user can touch, not which *columns*, so any authenticated client could otherwise
+  re-stamp their own `last_authenticated_at` from browser JS and never be forced back through
+  re-authentication. `supabase/migrations/0016_protect_last_authenticated_at.sql` closes this
+  with a `before update` trigger (mirroring the existing `platform_role` protection in sec 3)
+  that rejects any change to the column unless the calling role is `service_role` — the one
+  legitimate writer (`app/auth/callback/route.ts`, via `createServiceRoleClient()`) is
+  unaffected; every other path is rejected outright rather than relying on convention.
 
 ### 19.3 Magic-link sign-in and its own per-organization toggle
 

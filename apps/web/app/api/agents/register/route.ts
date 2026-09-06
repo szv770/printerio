@@ -23,10 +23,18 @@ export async function POST(request: Request) {
 
   const supabase = createServiceRoleClient();
 
-  // x-forwarded-for's first entry is the original client per Vercel's edge
-  // network; falls back to a shared bucket (still rate-limited, just
-  // coarser) if it's ever absent rather than skipping the check entirely.
-  const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  // x-vercel-forwarded-for specifically, not the generic x-forwarded-for:
+  // Vercel's own docs distinguish the two - x-forwarded-for can be
+  // overwritten/spoofed by a reverse proxy sitting in front of Vercel,
+  // while x-vercel-forwarded-for is Vercel's own header with additional
+  // validation, and Vercel overwrites (does not forward) external values
+  // for the plain header specifically to prevent this kind of spoofing.
+  // Falls back to a shared bucket (still rate-limited, just coarser) if
+  // it's ever absent rather than skipping the check entirely.
+  const clientIp =
+    request.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() ||
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    "unknown";
   const { data: withinLimit, error: rateLimitError } = await supabase.rpc("check_rate_limit", {
     p_key: `agent_register:${clientIp}`,
     p_max_count: 10,
