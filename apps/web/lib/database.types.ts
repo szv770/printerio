@@ -495,6 +495,7 @@ export type Database = {
           estimated_printed_sides: number;
           expires_at: string | null;
           file_size_bytes: number;
+          files_purged_at: string | null;
           finishing: Json;
           id: string;
           job_number: string;
@@ -531,6 +532,7 @@ export type Database = {
           estimated_printed_sides: number;
           expires_at?: string | null;
           file_size_bytes: number;
+          files_purged_at?: string | null;
           finishing?: Json;
           id?: string;
           job_number?: string;
@@ -567,6 +569,7 @@ export type Database = {
           estimated_printed_sides?: number;
           expires_at?: string | null;
           file_size_bytes?: number;
+          files_purged_at?: string | null;
           finishing?: Json;
           id?: string;
           job_number?: string;

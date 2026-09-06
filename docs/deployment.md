@@ -167,7 +167,11 @@ Vercel Cron authenticates its own requests via a shared secret header -
 `PRINTOS_CRON_SECRET` (add it to your environment variables; the route checks
 `Authorization: Bearer <PRINTOS_CRON_SECRET>`) rather than a user session.
 This is the real, implemented route (`apps/web/app/api/cron/sweep/route.ts`)
-and `vercel.json` cron entry - not a placeholder.
+and `vercel.json` cron entry - not a placeholder. The route sets
+`export const maxDuration = 60` and caps each of its selection queries at 500
+rows per tick (batched updates/inserts/RPCs from there, not per-row) so it
+degrades to partial progress on a big backlog instead of timing out - see
+docs/architecture.md sec 16.
 
 ## 6. Post-deploy smoke test
 

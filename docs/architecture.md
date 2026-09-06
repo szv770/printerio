@@ -557,8 +557,23 @@ Inbound Agent calls (heartbeat, status reports) are plain authenticated POST Rou
 Handlers — fast, stateless, idempotent — never a kept-open connection. Periodic sweeps
 (expiring stale approval windows/leases, enforcing file retention) run as Vercel Cron
 hitting a Route Handler; a straightforward idempotent "scan and expire" pass fits well
-within standard function duration limits, so no additional queue/workflow infrastructure is
-needed for V1.
+within standard function duration limits (`export const maxDuration = 60` on the route),
+so no additional queue/workflow infrastructure is needed for V1.
+
+**Round-trip shape at scale.** Each sweep step is one capped SELECT (`LIMIT 500`, ordered
+oldest-first) followed by one batched `UPDATE ... WHERE id IN (...) RETURNING id`, then one
+bulk `print_job_events` insert built only from the ids the UPDATE actually returned (never
+the ids the SELECT started with — a job that transitioned away in between is excluded, not
+stale-recorded) — see `apps/web/lib/cron-sweep.ts`. Quota releases are batched per distinct
+(organization_id, user_id) via `groupQuotaReleases`, one `adjust_monthly_usage` RPC call per
+group instead of per job — safe specifically because `release`'s clamped subtraction
+(`greatest(0, reserved - amount)`) commutes with summing amounts first. The retention
+sweep's per-job `storage.remove()` calls are similarly collapsed into one call per
+org/retention-window batch. `print_jobs.files_purged_at` (set once a job's Storage objects
+are removed, filtered via `is null` in the retention SELECT) is what makes repeat ticks
+cheap rather than wasted work — a job whose files are already gone is never reselected
+again. Every LIMIT is a re-query by state/timestamp, never an offset/cursor, so a tick that
+hits its cap simply makes partial progress and the next scheduled tick picks up the rest.
 
 **Research basis:** Next.js 16 blog/docs (App Router is the actively developed target,
 Pages Router is maintenance-only); Vercel Functions/Cron docs (duration limits, `waitUntil`
