@@ -1,8 +1,10 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { requireSession } from "@/lib/auth/session";
+import { requireSession, type SessionWithMembership } from "@/lib/auth/session";
+import type { Database } from "@/lib/database.types";
 import { routes } from "@/lib/routes";
 import { preflightPdf } from "@/lib/pdf/preflight";
 import { createBookletPaddedPdf } from "@/lib/pdf/booklet";
@@ -25,29 +27,39 @@ export interface SubmitJobState {
 const initialState: SubmitJobState = {};
 export { initialState as initialSubmitJobState };
 
-export async function submitPrintJobAction(_prev: SubmitJobState, formData: FormData): Promise<SubmitJobState> {
-  const session = await requireSession();
-  if (!session.membership) return { error: "You are not a member of any organization yet." };
+interface JobOptions {
+  printerProfileId: string;
+  copies: number;
+  colorMode: "bw" | "color";
+  duplex: boolean;
+  paperSize: string;
+  staple: boolean;
+  booklet: boolean;
+  punch: boolean;
+  confirmBookletPadding: boolean;
+}
+
+/**
+ * The actual job-creation pipeline - preflight, booklet imposition, print
+ * math, policy evaluation, quota reservation, storage upload, the
+ * print_jobs insert, and its event trail. Shared by submitPrintJobAction
+ * (a fresh upload) and reprintJobAction (re-running the same pipeline
+ * against a previously-uploaded file's bytes) so this logic - the actual
+ * money path - exists exactly once. Redirects to the new job's status page
+ * on success (via next/navigation's redirect(), which throws and is safe to
+ * let propagate up through a caller); returns a SubmitJobState otherwise.
+ */
+async function createPrintJob(
+  supabase: SupabaseClient<Database>,
+  session: SessionWithMembership,
+  originalBytes: Uint8Array,
+  originalFileName: string,
+  opts: JobOptions,
+): Promise<SubmitJobState> {
   const organizationId = session.membership.organization_id;
-
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) {
-    return { error: "Choose a PDF to upload." };
-  }
-
-  const printerProfileId = String(formData.get("printerProfileId") ?? "");
-  const copies = Math.max(1, parseInt(String(formData.get("copies") ?? "1"), 10) || 1);
-  const colorMode = formData.get("colorMode") === "color" ? "color" : "bw";
-  const duplex = formData.get("duplex") === "on";
-  const paperSize = String(formData.get("paperSize") ?? "letter");
-  const staple = formData.get("staple") === "on";
-  const booklet = formData.get("booklet") === "on";
-  const punch = formData.get("punch") === "on";
-  const confirmBookletPadding = formData.get("confirmBookletPadding") === "true";
+  const { printerProfileId, copies, colorMode, duplex, paperSize, staple, booklet, punch, confirmBookletPadding } = opts;
 
   if (!printerProfileId) return { error: "Choose a printer." };
-
-  const supabase = await createClient();
 
   // Fixed-window rate limit, checked before any expensive work (PDF parsing,
   // storage upload) - see supabase/migrations/0012_rate_limiting.sql for why
@@ -87,18 +99,14 @@ export async function submitPrintJobAction(_prev: SubmitJobState, formData: Form
     | "color_weighted";
   const approvalExpiryHours = settings?.job_approval_expiry_hours ?? 72;
 
-  // Check the browser-reported size before reading the whole file into
-  // memory - avoids an unnecessary allocation when the org's configured
-  // limit is smaller than the framework's own request-body ceiling
-  // (next.config.ts serverActions.bodySizeLimit). This is a fast-path
-  // optimization, not the authoritative check: preflightPdf() below still
-  // re-validates against the actual byte length either way.
-  if (file.size > maxUploadBytes) {
+  // Re-checked here (not just at the original upload) since the org's limit
+  // could have shrunk since - matters for reprintJobAction, a no-op re-check
+  // for a fresh upload that already passed this in submitPrintJobAction.
+  if (originalBytes.byteLength > maxUploadBytes) {
     const maxMb = (maxUploadBytes / (1024 * 1024)).toFixed(0);
     return { error: `File exceeds this organization's ${maxMb} MB upload limit.` };
   }
 
-  const originalBytes = new Uint8Array(await file.arrayBuffer());
   const preflight = await preflightPdf(originalBytes, { maxSizeBytes: maxUploadBytes });
   if (!preflight.ok) return { error: preflight.reason };
 
@@ -223,7 +231,7 @@ export async function submitPrintJobAction(_prev: SubmitJobState, formData: Form
     status: jobStatus,
     original_file_path: originalPath,
     derived_file_path: derivedPath,
-    original_file_name: file.name,
+    original_file_name: originalFileName,
     source_pdf_pages: sourcePages,
     file_size_bytes: preflight.fileSizeBytes,
     copies,
@@ -253,7 +261,7 @@ export async function submitPrintJobAction(_prev: SubmitJobState, formData: Form
 
   const events = [
     { event_type: "JOB_CREATED" as const, metadata: {} },
-    { event_type: "PDF_UPLOADED" as const, metadata: { fileName: file.name, fileSizeBytes: preflight.fileSizeBytes } },
+    { event_type: "PDF_UPLOADED" as const, metadata: { fileName: originalFileName, fileSizeBytes: preflight.fileSizeBytes } },
     { event_type: "PREFLIGHT_COMPLETED" as const, metadata: { sourcePages, blankPagesAdded } },
     { event_type: "POLICY_EVALUATED" as const, metadata: { action: policy.action, reasons: policy.reasons } },
     {
@@ -273,4 +281,79 @@ export async function submitPrintJobAction(_prev: SubmitJobState, formData: Form
   );
 
   redirect(routes.job(jobId));
+}
+
+export async function submitPrintJobAction(_prev: SubmitJobState, formData: FormData): Promise<SubmitJobState> {
+  const session = await requireSession();
+  if (!session.membership) return { error: "You are not a member of any organization yet." };
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { error: "Choose a PDF to upload." };
+  }
+
+  const supabase = await createClient();
+  const originalBytes = new Uint8Array(await file.arrayBuffer());
+
+  return createPrintJob(supabase, session as SessionWithMembership, originalBytes, file.name, {
+    printerProfileId: String(formData.get("printerProfileId") ?? ""),
+    copies: Math.max(1, parseInt(String(formData.get("copies") ?? "1"), 10) || 1),
+    colorMode: formData.get("colorMode") === "color" ? "color" : "bw",
+    duplex: formData.get("duplex") === "on",
+    paperSize: String(formData.get("paperSize") ?? "letter"),
+    staple: formData.get("staple") === "on",
+    booklet: formData.get("booklet") === "on",
+    punch: formData.get("punch") === "on",
+    confirmBookletPadding: formData.get("confirmBookletPadding") === "true",
+  });
+}
+
+/**
+ * "Print again" - re-runs the exact same pipeline against a PREVIOUSLY
+ * uploaded job's original file, reusing its saved settings, without
+ * requiring the user to re-select the file. The old job's settings/file
+ * path are read server-side from a row scoped to this user - never taken
+ * from the client - so this cannot be used to reprint someone else's job by
+ * guessing a jobId. Booklet padding is silently reconfirmed (rather than
+ * showing the interstitial again) since this exact document + booklet
+ * combination already went through that confirmation once, when the job
+ * being reprinted was first submitted.
+ */
+export async function reprintJobAction(_prev: SubmitJobState, formData: FormData): Promise<SubmitJobState> {
+  const session = await requireSession();
+  if (!session.membership) return { error: "You are not a member of any organization yet." };
+  const organizationId = session.membership.organization_id;
+
+  const jobId = String(formData.get("jobId") ?? "");
+  if (!jobId) return { error: "Missing job." };
+
+  const supabase = await createClient();
+  const { data: job, error: jobError } = await supabase
+    .from("print_jobs")
+    .select("*")
+    .eq("id", jobId)
+    .eq("created_by", session.userId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (jobError || !job) return { error: "Job not found." };
+
+  const { data: fileData, error: downloadError } = await supabase.storage
+    .from(PRINT_JOBS_BUCKET)
+    .download(job.original_file_path);
+  if (downloadError || !fileData) return { error: "The original file for this job is no longer available." };
+  const originalBytes = new Uint8Array(await fileData.arrayBuffer());
+
+  const finishing = job.finishing as { staple: boolean; booklet: boolean; punch: boolean };
+
+  return createPrintJob(supabase, session as SessionWithMembership, originalBytes, job.original_file_name, {
+    printerProfileId: job.printer_profile_id ?? "",
+    copies: job.copies,
+    colorMode: job.color_mode as "bw" | "color",
+    duplex: job.duplex,
+    paperSize: job.paper_size,
+    staple: finishing.staple,
+    booklet: finishing.booklet,
+    punch: finishing.punch,
+    confirmBookletPadding: true,
+  });
 }

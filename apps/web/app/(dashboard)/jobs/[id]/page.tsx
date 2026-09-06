@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/auth/session";
 import { Card } from "@/components/ui";
 import { JobStatusLive } from "./JobStatusLive";
+import { ReprintButton } from "./ReprintButton";
 
 export default async function JobDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -20,8 +21,13 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-10">
-      <h1 className="mb-1 text-2xl font-semibold">{job.original_file_name}</h1>
-      <p className="mb-6 text-sm text-[var(--color-muted)]">{job.job_number}</p>
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="mb-1 text-2xl font-semibold">{job.original_file_name}</h1>
+          <p className="text-sm text-[var(--color-muted)]">{job.job_number}</p>
+        </div>
+        <ReprintButton jobId={job.id} />
+      </div>
 
       <JobStatusLive jobId={job.id} initialStatus={job.status} initialErrorMessage={job.error_message} />
 
