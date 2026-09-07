@@ -49,7 +49,7 @@ export function ApprovalQueue({ initialJobs, organizationId }: { initialJobs: Pr
   }
 
   return (
-    <ul className="flex flex-col gap-4">
+    <ul className="flex flex-col gap-4" data-tour="admin-approvals-queue">
       {jobs.map((job) => (
         <ApprovalCard key={job.id} job={job} />
       ))}

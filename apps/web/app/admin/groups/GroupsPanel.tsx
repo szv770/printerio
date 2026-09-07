@@ -42,7 +42,7 @@ export function GroupsPanel({
   const [createState, createAction, creating] = useActionState(createGroupAction, initialGroupActionState);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6" data-tour="admin-groups-panel">
       {canManage && (
         <Card>
           <form action={createAction} className="flex items-end gap-3">

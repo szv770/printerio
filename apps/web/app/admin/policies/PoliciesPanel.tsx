@@ -18,7 +18,7 @@ export function PoliciesPanel({ policies, rules, canManage }: { policies: Policy
   const [createState, createAction, creating] = useActionState(createPolicyAction, initialPolicyActionState);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6" data-tour="admin-policies-panel">
       {canManage && (
         <Card>
           <form action={createAction} className="flex items-end gap-3">

@@ -55,7 +55,7 @@ export function PrintersPanel({
   const [showNewProfileFor, setShowNewProfileFor] = useState<string | null>(null);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6" data-tour="admin-printers-panel">
       {canManage && (
         <Card>
           <form action={createPrinterAct} className="flex flex-wrap items-end gap-3">

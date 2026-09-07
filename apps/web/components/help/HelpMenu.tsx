@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { HelpCircle, X, ChevronLeft, ChevronRight } from "lucide-react";
-import { STUDENT_TOUR, ADMIN_TOUR, GLOSSARY, type TourSlide } from "@/lib/onboarding-content";
+import { HelpCircle, X, PlayCircle } from "lucide-react";
+import { STUDENT_TOUR, ADMIN_TOUR, GLOSSARY } from "@/lib/onboarding-content";
+import { SpotlightTour, readTourSession, clearTourSession } from "./SpotlightTour";
 
 function storageKey(userId: string): string {
   return `printio:onboarding:${userId}:done`;
@@ -16,28 +17,43 @@ function storageKey(userId: string): string {
  * a follow-up rather than racing this against unrelated in-flight schema
  * work), and is always reachable afterward via the Help button to replay
  * the tour or look up a term in the glossary.
+ *
+ * The tour itself is a full-viewport spotlight walkthrough (SpotlightTour)
+ * that highlights the real element each step is about, rather than a plain
+ * slideshow - this component just owns *when* it's showing (first login,
+ * "Replay tour", resuming one already in progress after a cross-page
+ * navigation) and records that the user has seen it.
  */
 export function HelpMenu({ userId, variant }: { userId: string; variant: "student" | "admin" }) {
   const slides = variant === "admin" ? ADMIN_TOUR : STUDENT_TOUR;
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"tour" | "glossary">("tour");
-  const [step, setStep] = useState(0);
+  const [tourActive, setTourActive] = useState(false);
+  const [tourStep, setTourStep] = useState(0);
 
   useEffect(() => {
-    // Reads a browser-only API not available during SSR/hydration, so this
+    // Reads browser-only APIs not available during SSR/hydration, so this
     // can only run as an effect (not a lazy useState initializer) without
-    // risking a hydration mismatch - tab/step are already at their "tour"/0
-    // defaults, so only `open` needs setting here.
+    // risking a hydration mismatch - every piece of state above is already
+    // at a safe default, so only these two need setting here.
+    const resumeStep = readTourSession(variant);
+    if (resumeStep !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setTourStep(resumeStep);
+      setTourActive(true);
+      return;
+    }
     try {
       if (!localStorage.getItem(storageKey(userId))) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setOpen(true);
+        // First login: jump straight into the spotlight tour, not the plain
+        // Help dialog.
+        setTourActive(true);
       }
     } catch {
       // localStorage unavailable (private browsing, blocked cookies/storage)
-      // - just skip auto-open; Help is still reachable manually below.
+      // - just skip auto-start; Help is still reachable manually below.
     }
-  }, [userId]);
+  }, [userId, variant]);
 
   function markSeen() {
     try {
@@ -47,14 +63,24 @@ export function HelpMenu({ userId, variant }: { userId: string; variant: "studen
     }
   }
 
-  function close() {
+  function endTour() {
     markSeen();
+    clearTourSession();
+    setTourActive(false);
+  }
+
+  function startTour() {
+    setOpen(false);
+    setTourStep(0);
+    setTourActive(true);
+  }
+
+  function close() {
     setOpen(false);
   }
 
   function openHelp(startTab: "tour" | "glossary") {
     setTab(startTab);
-    if (startTab === "tour") setStep(0);
     setOpen(true);
   }
 
@@ -62,6 +88,7 @@ export function HelpMenu({ userId, variant }: { userId: string; variant: "studen
     <>
       <button
         type="button"
+        data-tour="help-button"
         onClick={() => openHelp(tab)}
         className="flex items-center gap-1.5 text-sm text-[var(--color-muted)] hover:text-[var(--color-text)]"
       >
@@ -102,77 +129,39 @@ export function HelpMenu({ userId, variant }: { userId: string; variant: "studen
               </button>
             </div>
 
-            {tab === "tour" ? (
-              <TourPanel slides={slides} step={step} setStep={setStep} onDone={close} />
-            ) : (
-              <GlossaryPanel />
-            )}
+            {tab === "tour" ? <TourLauncher onStart={startTour} /> : <GlossaryPanel />}
           </div>
         </div>
+      )}
+
+      {tourActive && (
+        <SpotlightTour
+          slides={slides}
+          variant={variant}
+          step={tourStep}
+          setStep={setTourStep}
+          onExit={endTour}
+        />
       )}
     </>
   );
 }
 
-function TourPanel({
-  slides,
-  step,
-  setStep,
-  onDone,
-}: {
-  slides: TourSlide[];
-  step: number;
-  setStep: (n: number) => void;
-  onDone: () => void;
-}) {
-  const slide = slides[step];
-  const isLast = step === slides.length - 1;
-
+function TourLauncher({ onStart }: { onStart: () => void }) {
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto">
-      <div className="flex-1">
-        <p className="text-base font-semibold">{slide?.title}</p>
-        <p className="mt-2 text-sm text-[var(--color-muted)]">{slide?.body}</p>
-      </div>
-
-      <div className="mt-6 flex items-center justify-between">
-        <div className="flex gap-1">
-          {slides.map((_, i) => (
-            <span
-              key={i}
-              className={`h-1.5 w-1.5 rounded-full ${i === step ? "bg-[var(--color-primary)]" : "bg-[var(--color-border)]"}`}
-            />
-          ))}
-        </div>
-        <div className="flex items-center gap-2">
-          {step > 0 && (
-            <button
-              type="button"
-              onClick={() => setStep(step - 1)}
-              className="flex items-center gap-1 text-sm text-[var(--color-muted)] hover:text-[var(--color-text)]"
-            >
-              <ChevronLeft className="h-4 w-4" /> Back
-            </button>
-          )}
-          {isLast ? (
-            <button
-              type="button"
-              onClick={onDone}
-              className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-[var(--color-primary-fg)] hover:opacity-90"
-            >
-              Done
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setStep(step + 1)}
-              className="flex items-center gap-1 rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-[var(--color-primary-fg)] hover:opacity-90"
-            >
-              Next <ChevronRight className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-      </div>
+    <div className="flex flex-1 flex-col items-start justify-center gap-4 py-6 text-sm">
+      <p className="text-[var(--color-muted)]">
+        A guided walkthrough of the real screens and buttons you&apos;ll use - it highlights each one as it goes,
+        and you can click along as it explains.
+      </p>
+      <button
+        type="button"
+        onClick={onStart}
+        className="flex items-center gap-2 rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-[var(--color-primary-fg)] hover:opacity-90"
+      >
+        <PlayCircle className="h-4 w-4" />
+        Replay tour
+      </button>
     </div>
   );
 }

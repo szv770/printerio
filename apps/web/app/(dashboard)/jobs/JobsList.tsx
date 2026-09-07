@@ -68,7 +68,7 @@ export function JobsList({ initialJobs, userId }: { initialJobs: JobRow[]; userI
   }
 
   return (
-    <ul className="flex flex-col gap-3">
+    <ul className="flex flex-col gap-3" data-tour="jobs-list-container">
       {jobs.map((job) => {
         const status = jobStatusDisplay(job.status);
         return (
