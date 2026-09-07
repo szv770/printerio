@@ -96,16 +96,32 @@ export function usageForBasis(usage: UsageAmounts, basis: QuotaBasis): number {
   }
 }
 
-/** Read-only usage percentage for policy-engine facts / UI preview. Null if unlimited. */
-export async function computeQuotaUsagePct(
-  supabase: Client,
-  ctx: QuotaContext,
-  basis: QuotaBasis,
-): Promise<number | null> {
-  const limit = await getApplicableQuotaLimit(supabase, ctx);
-  if (limit === null) return null;
-  const usage = await getUsageSnapshot(supabase, ctx.organizationId, ctx.userId, currentPeriod());
-  return Math.min(999, Math.round((usageForBasis(usage, basis) / limit) * 100));
+export interface QuotaUsage {
+  /** Most-restrictive applicable monthly limit, or null if unlimited. */
+  limit: number | null;
+  /** Usage percentage against `limit` (capped at 999), or null if unlimited. */
+  usagePct: number | null;
+}
+
+/**
+ * Read-only quota position for policy-engine facts / UI preview. Returns the
+ * resolved limit alongside the percentage so a caller that needs BOTH (the
+ * submit path: policy facts want the percentage, the reservation wants the
+ * limit) doesn't have to re-query `quotas` a second time - see
+ * lib/policy/build-facts.ts, which hands the limit back out to
+ * print/actions.ts for exactly that reason.
+ *
+ * The two reads are independent, so they're issued together rather than
+ * serialized - this sits on the submit path, where every avoidable round trip
+ * is latency the user waits through with the file already picked.
+ */
+export async function computeQuotaUsage(supabase: Client, ctx: QuotaContext, basis: QuotaBasis): Promise<QuotaUsage> {
+  const [limit, usage] = await Promise.all([
+    getApplicableQuotaLimit(supabase, ctx),
+    getUsageSnapshot(supabase, ctx.organizationId, ctx.userId, currentPeriod()),
+  ]);
+  if (limit === null) return { limit: null, usagePct: null };
+  return { limit, usagePct: Math.min(999, Math.round((usageForBasis(usage, basis) / limit) * 100)) };
 }
 
 export type QuotaAdjustMode = "reserve" | "release" | "consume";
