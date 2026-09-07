@@ -59,6 +59,41 @@ export async function getApplicableQuotaLimit(supabase: Client, ctx: QuotaContex
   return Math.min(...applicable.map((q) => q.limit_value));
 }
 
+/** The identifying part of a `quotas` row, as far as "which scope is this
+ *  for" is concerned. */
+export interface QuotaScopeRow {
+  scope_type: string;
+  scope_value: string | null;
+}
+
+/**
+ * The already-configured monthly quota covering exactly this scope, if there
+ * is one.
+ *
+ * `quotas` has no unique constraint on (organization_id, scope_type,
+ * scope_value, period), so nothing at the database level stops two rows for
+ * the same scope existing. That matters because getApplicableQuotaLimit above
+ * is most-restrictive-wins: with a 100 and a 500 row both scoped to the same
+ * user, the 500 is dead weight and the user stays capped at 100. An admin
+ * raising someone's limit by adding a second entry therefore appeared to do
+ * nothing at all. app/admin/quotas/actions.ts uses this to edit the existing
+ * row in place instead of stacking a second one behind it.
+ *
+ * "organization" scope always carries a null scope_value (enforced by the
+ * quotas_scope_value_required CHECK), so an empty string and null are treated
+ * as the same absent value here rather than as two distinct scopes.
+ */
+export function findQuotaForScope<T extends QuotaScopeRow>(
+  rows: readonly T[],
+  scopeType: string,
+  scopeValue: string | null,
+): T | null {
+  const wanted = scopeValue === "" ? null : scopeValue;
+  return (
+    rows.find((r) => r.scope_type === scopeType && (r.scope_value === "" ? null : r.scope_value) === wanted) ?? null
+  );
+}
+
 export async function getUsageSnapshot(
   supabase: Client,
   organizationId: string,
@@ -80,6 +115,35 @@ export async function getUsageSnapshot(
     printedSides: data.printed_sides_used + data.reserved_printed_sides,
     physicalSheets: data.physical_sheets_used + data.reserved_physical_sheets,
     colorWeighted: data.color_weighted_used + data.reserved_color_weighted,
+  };
+}
+
+/** Per-job fields needed to compute the quota amounts a job reserved at
+ *  submission time (docs/architecture.md sec 14). */
+export interface QuotaReleaseJobInput {
+  organizationId: string;
+  userId: string;
+  sourcePdfPages: number;
+  copies: number;
+  estimatedPrintedSides: number;
+  estimatedPhysicalSheets: number;
+  colorMode: string;
+}
+
+/**
+ * The amounts a given job reserved - the single definition of that math, so
+ * the four places that reserve, consume or release a job's quota
+ * (print/actions.ts, admin/approvals/actions.ts, the Agent status route, and
+ * the cron sweep) can never drift into charging one number and refunding a
+ * different one. Color-weighted = physical sheets x2 for color, x1 for b&w.
+ */
+export function usageAmountsForJob(job: QuotaReleaseJobInput): UsageAmounts {
+  const colorWeight = job.colorMode === "color" ? 2 : 1;
+  return {
+    pdfPages: job.sourcePdfPages * job.copies,
+    printedSides: job.estimatedPrintedSides,
+    physicalSheets: job.estimatedPhysicalSheets,
+    colorWeighted: job.estimatedPhysicalSheets * colorWeight,
   };
 }
 

@@ -9,32 +9,7 @@
  * instead of one per job.
  */
 
-import type { UsageAmounts } from "@/lib/quota";
-
-/** Per-job fields needed to compute the quota amounts released for an
- *  expired-approval or exhausted-retry job (docs/architecture.md sec 14). */
-export interface QuotaReleaseJobInput {
-  organizationId: string;
-  userId: string;
-  sourcePdfPages: number;
-  copies: number;
-  estimatedPrintedSides: number;
-  estimatedPhysicalSheets: number;
-  colorMode: string;
-}
-
-/** Mirrors the per-job amount calculation the route already did inline
- *  before this batching pass (color-weighted = physical sheets * 2 for
- *  color, * 1 for bw). */
-export function usageAmountsForJob(job: QuotaReleaseJobInput): UsageAmounts {
-  const colorWeight = job.colorMode === "color" ? 2 : 1;
-  return {
-    pdfPages: job.sourcePdfPages * job.copies,
-    printedSides: job.estimatedPrintedSides,
-    physicalSheets: job.estimatedPhysicalSheets,
-    colorWeighted: job.estimatedPhysicalSheets * colorWeight,
-  };
-}
+import { usageAmountsForJob, type QuotaReleaseJobInput, type UsageAmounts } from "@/lib/quota";
 
 export interface QuotaReleaseGroup {
   organizationId: string;

@@ -1,7 +1,7 @@
 import { apiError } from "@/lib/api-errors";
 import { authenticateAgentRequest } from "@/lib/agent-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { adjustMonthlyUsage } from "@/lib/quota";
+import { adjustMonthlyUsage, usageAmountsForJob } from "@/lib/quota";
 import { canTransition, type JobState } from "@printio/shared";
 import type { TablesUpdate } from "@/lib/database.types";
 
@@ -66,13 +66,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ job
   // Convert the submission-time reservation into recorded usage (completed),
   // or release it once retries are exhausted (failed for good) - see
   // docs/architecture.md sec 14.
-  const colorWeight = job.color_mode === "color" ? 2 : 1;
-  const amounts = {
-    pdfPages: job.source_pdf_pages * job.copies,
-    printedSides: job.estimated_printed_sides,
-    physicalSheets: job.estimated_physical_sheets,
-    colorWeighted: job.estimated_physical_sheets * colorWeight,
-  };
+  const amounts = usageAmountsForJob({
+    organizationId: job.organization_id,
+    userId: job.created_by,
+    sourcePdfPages: job.source_pdf_pages,
+    copies: job.copies,
+    estimatedPrintedSides: job.estimated_printed_sides,
+    estimatedPhysicalSheets: job.estimated_physical_sheets,
+    colorMode: job.color_mode,
+  });
   if (newStatus === "completed") {
     await adjustMonthlyUsage(supabase, { organizationId: job.organization_id, userId: job.created_by }, amounts, "physical_sheets", null, "consume");
   } else if (newStatus === "failed" && job.attempt_count + 1 >= job.max_attempts) {

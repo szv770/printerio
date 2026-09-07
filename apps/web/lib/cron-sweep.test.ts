@@ -1,11 +1,6 @@
 import { describe, it, expect } from "vitest";
-import {
-  usageAmountsForJob,
-  groupQuotaReleases,
-  filterAffectedRows,
-  groupJobsByAttemptCount,
-  type QuotaReleaseJobInput,
-} from "./cron-sweep";
+import { groupQuotaReleases, filterAffectedRows, groupJobsByAttemptCount } from "./cron-sweep";
+import { usageAmountsForJob, type QuotaReleaseJobInput } from "./quota";
 
 function releaseJob(overrides: Partial<QuotaReleaseJobInput>): QuotaReleaseJobInput {
   return {

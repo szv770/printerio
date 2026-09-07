@@ -14,6 +14,12 @@ import { getPublicEnv, getServiceRoleEnv } from "@/lib/env";
  *   - invitation redemption
  *   - agent bearer-auth request handling (the Agent has no Supabase JWT at all)
  *   - the Vercel Cron retention/lease-expiry sweep
+ *   - releasing a rejected job's quota reservation (app/admin/approvals):
+ *     the approval queue is open to `approver`, but monthly_usage's UPDATE
+ *     policy only admits the row's own user or an org_admin, so an approver's
+ *     own session cannot refund the submitter. Strictly a decrease, on a job
+ *     row already verified server-side to be in the caller's organization -
+ *     see the comment at that call site.
  *   - the /platform super-admin console (app/platform/**): every cross-org
  *     read (the Overview page's per-organization stats), organization
  *     creation, super_admin promotion/demotion (RLS-blocked entirely for

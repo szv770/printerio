@@ -11,7 +11,7 @@ import { createBookletPaddedPdf } from "@/lib/pdf/booklet";
 import { imposeBookletPdf, resolvePaperSizePoints } from "@/lib/pdf/imposition";
 import { computePrintMath, computeCostCents, computeBookletPadding, type PricingConfig } from "@printio/shared";
 import { evaluateJobPolicy } from "@/lib/policy/build-facts";
-import { adjustMonthlyUsage, type UsageAmounts } from "@/lib/quota";
+import { adjustMonthlyUsage, usageAmountsForJob, type UsageAmounts } from "@/lib/quota";
 import { jobFilePath, PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 
@@ -185,13 +185,19 @@ async function createPrintJob(
   // Reused from the policy evaluation above, which already had to resolve the
   // caller's groups and applicable limit to build its quota fact - no second
   // group_members/quotas round trip.
-  const colorWeight = colorMode === "color" ? 2 : 1;
-  const reservedAmounts: UsageAmounts = {
-    pdfPages: sourcePages * copies,
-    printedSides: printMath.printedSides,
-    physicalSheets: printMath.physicalSheets,
-    colorWeighted: printMath.physicalSheets * colorWeight,
-  };
+  //
+  // usageAmountsForJob (not an inline calculation) so what is reserved here
+  // is by construction the same number the release/consume paths later refund
+  // or charge - see lib/quota.ts.
+  const reservedAmounts: UsageAmounts = usageAmountsForJob({
+    organizationId,
+    userId: session.userId,
+    sourcePdfPages: sourcePages,
+    copies,
+    estimatedPrintedSides: printMath.printedSides,
+    estimatedPhysicalSheets: printMath.physicalSheets,
+    colorMode,
+  });
 
   if (jobStatus !== "denied") {
     const reserved = await adjustMonthlyUsage(
