@@ -64,8 +64,24 @@ export async function createOrganizationAction(
 
   const { error: settingsError } = await supabase.from("organization_settings").insert({ organization_id: org.id });
   if (settingsError) {
+    // An organization with no settings row is half-created: quota basis,
+    // upload limit and approval expiry all silently fall back to code
+    // defaults, and admin/settings' own writes are UPDATEs that would match
+    // zero rows. Worse, leaving it in place made the obvious fix - submit the
+    // form again - fail on the now-taken slug, with no way forward from the
+    // UI. Nothing references a organizations row this young, so undo it and
+    // let the super_admin simply retry.
+    const { error: cleanupError } = await supabase.from("organizations").delete().eq("id", org.id);
+    if (cleanupError) {
+      return {
+        error: describeDatabaseError(
+          settingsError,
+          `Couldn't initialize settings for "${parsed.name}", and couldn't clean up the half-created organization either - it still exists with the slug "${parsed.slug}". Remove it in Supabase before retrying.`,
+        ),
+      };
+    }
     return {
-      error: describeDatabaseError(settingsError, "Created the organization, but couldn't initialize its settings."),
+      error: describeDatabaseError(settingsError, "Couldn't initialize the new organization's settings, so nothing was created. Try again."),
     };
   }
 

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
+import { describeDatabaseError } from "@/lib/action-errors";
 import { routes } from "@/lib/routes";
 import { issueRemoteCommand } from "@/lib/remote-commands";
 import { isPrinterProfileIconKey } from "@/lib/printer-profile-icons";
@@ -29,7 +30,7 @@ export async function createPrinterAction(_prev: PrinterActionState, formData: F
     model: String(formData.get("model") ?? "") || null,
     location: String(formData.get("location") ?? "") || null,
   });
-  if (error) return { error: error.message };
+  if (error) return { error: describeDatabaseError(error, "Couldn't add that printer.") };
 
   revalidatePath(routes.adminPrinters);
   return {};
@@ -99,7 +100,7 @@ export async function createPrinterProfileAction(_prev: PrinterActionState, form
     booklet_binding_side: bindingSide,
     is_default: formData.get("isDefault") === "on",
   });
-  if (error) return { error: error.message };
+  if (error) return { error: describeDatabaseError(error, "Couldn't save that printer profile.") };
 
   revalidatePath(routes.adminPrinters);
   return {};
@@ -209,22 +210,12 @@ export async function createPrinterProfilesFromWizardAction(_prev: PrinterAction
       .filter((n): n is string => !!n),
   );
 
-  let resolvedPrinterId = printerId;
-  if (!resolvedPrinterId) {
-    if (!newPrinterName) return { error: "Name is required for a new printer." };
-    const { data: newPrinter, error: printerError } = await supabase
-      .from("printers")
-      .insert({ organization_id: orgId, name: newPrinterName })
-      .select("id")
-      .single();
-    if (printerError || !newPrinter) return { error: printerError?.message ?? "Failed to create printer." };
-    resolvedPrinterId = newPrinter.id;
-  } else {
-    const { data: printer } = await supabase.from("printers").select("organization_id").eq("id", resolvedPrinterId).maybeSingle();
-    if (printer?.organization_id !== orgId) return { error: "Printer not found in your organization." };
-  }
-
-  const rows: TablesInsert<"printer_profiles">[] = [];
+  // Every card is validated BEFORE any row is written. This used to run after
+  // the "create a new printer" branch below, so a single bad card (or a
+  // duplicate `key` colliding on insert) left a freshly-created, empty
+  // `printers` row behind - and each retry of the wizard added another one for
+  // the admin to clean up by hand.
+  const validated: Omit<TablesInsert<"printer_profiles">, "printer_id">[] = [];
   for (const card of cards) {
     const key = String(card.key ?? "").trim();
     const label = String(card.label ?? "").trim();
@@ -247,8 +238,7 @@ export async function createPrinterProfilesFromWizardAction(_prev: PrinterAction
     if (iconKeyRaw && !isPrinterProfileIconKey(iconKeyRaw)) return { error: "Not a recognized icon." };
     const bindingSide = card.bookletBindingSide === "right" ? "right" : "left";
 
-    rows.push({
-      printer_id: resolvedPrinterId,
+    validated.push({
       agent_id: agentId,
       key,
       label,
@@ -268,8 +258,44 @@ export async function createPrinterProfilesFromWizardAction(_prev: PrinterAction
     });
   }
 
-  const { error } = await supabase.from("printer_profiles").insert(rows);
-  if (error) return { error: error.message };
+  // Two cards claiming the same key would violate printer_profiles' own
+  // unique (printer_id, key) - caught here so the message names the key
+  // instead of surfacing a constraint name, and before a printer is created.
+  const duplicateKey = validated.map((r) => r.key).find((k, i, all) => all.indexOf(k) !== i);
+  if (duplicateKey) {
+    return { error: `Two recipe cards both use the key "${duplicateKey}" - each profile on a printer needs its own key.` };
+  }
+
+  let resolvedPrinterId = printerId;
+  let createdPrinterId: string | null = null;
+  if (!resolvedPrinterId) {
+    if (!newPrinterName) return { error: "Name is required for a new printer." };
+    const { data: newPrinter, error: printerError } = await supabase
+      .from("printers")
+      .insert({ organization_id: orgId, name: newPrinterName })
+      .select("id")
+      .single();
+    if (printerError || !newPrinter) {
+      return { error: describeDatabaseError(printerError, "Couldn't create that printer.") };
+    }
+    resolvedPrinterId = newPrinter.id;
+    createdPrinterId = newPrinter.id;
+  } else {
+    const { data: printer } = await supabase.from("printers").select("organization_id").eq("id", resolvedPrinterId).maybeSingle();
+    if (printer?.organization_id !== orgId) return { error: "Printer not found in your organization." };
+  }
+
+  const { error } = await supabase
+    .from("printer_profiles")
+    .insert(validated.map((row) => ({ ...row, printer_id: resolvedPrinterId })));
+  if (error) {
+    // Undo the printer this call just created, so a failed wizard run doesn't
+    // leave an empty printer behind for the admin to notice and delete.
+    if (createdPrinterId) {
+      await supabase.from("printers").delete().eq("id", createdPrinterId).eq("organization_id", orgId);
+    }
+    return { error: describeDatabaseError(error, "Couldn't save these printer profiles.") };
+  }
 
   revalidatePath(routes.adminPrinters);
   revalidatePath(routes.adminPrintersSetup);
