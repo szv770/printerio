@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentSession } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
+import { signOutAction } from "@/lib/auth/actions";
 import { RedeemForm } from "./RedeemForm";
 
 export default async function NoAccessPage({
@@ -51,6 +52,17 @@ export default async function NoAccessPage({
         </p>
       </div>
       <RedeemForm />
+      <div className="border-t border-[var(--color-border)] pt-4">
+        <p className="text-xs text-[var(--color-muted)]">
+          Wrong account, or expecting to be set up as the first admin instead? You can sign out and try
+          again with a different email or sign-in method.
+        </p>
+        <form action={signOutAction} className="mt-2">
+          <button type="submit" className="text-sm text-[var(--color-primary)] hover:underline">
+            Sign out
+          </button>
+        </form>
+      </div>
     </main>
   );
 }
