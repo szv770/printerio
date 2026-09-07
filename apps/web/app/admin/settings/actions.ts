@@ -4,10 +4,16 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
 import { parseAllowedDomainsInput } from "@/lib/auth/domains";
+import { describeDatabaseError } from "@/lib/action-errors";
 import { routes } from "@/lib/routes";
 
 export interface SettingsActionState {
   error?: string;
+  /** Every form on this page saves a value the page can't visibly reflect
+   *  back (a checkbox that was already checked, a textarea that already had
+   *  the text in it), so without an explicit confirmation an admin clicking
+   *  Save gets no signal at all and can't tell success from a dead button. */
+  success?: string;
 }
 const initial: SettingsActionState = {};
 export { initial as initialSettingsActionState };
@@ -34,10 +40,15 @@ export async function updateAllowedDomainsAction(
     .from("organizations")
     .update({ allowed_domains: domains })
     .eq("id", session.membership.organization_id);
-  if (error) return { error: error.message };
+  if (error) return { error: describeDatabaseError(error, "Couldn't save the allowed sign-in domains.") };
 
   revalidatePath(routes.adminSettings);
-  return {};
+  return {
+    success:
+      domains.length === 0
+        ? "Saved. Sign-in is no longer restricted by email domain."
+        : `Saved. New users may now sign in from: ${domains.join(", ")}.`,
+  };
 }
 
 /** Updates organization_settings.default_booklet_binding_side - the binding
@@ -58,10 +69,14 @@ export async function updateDefaultBookletBindingSideAction(
     .from("organization_settings")
     .update({ default_booklet_binding_side: bindingSide })
     .eq("organization_id", session.membership.organization_id);
-  if (error) return { error: error.message };
+  if (error) return { error: describeDatabaseError(error, "Couldn't save the default booklet binding side.") };
 
   revalidatePath(routes.adminSettings);
-  return {};
+  return {
+    success: `Saved. New booklet-capable printer profiles will default to ${
+      bindingSide === "right" ? "right edge binding (RTL)" : "left edge binding (LTR)"
+    }.`,
+  };
 }
 
 /** Updates organizations.magic_link_requires_allowed_domain - whether
@@ -83,8 +98,12 @@ export async function updateMagicLinkDomainToggleAction(
     .from("organizations")
     .update({ magic_link_requires_allowed_domain: requireAllowedDomain })
     .eq("id", session.membership.organization_id);
-  if (error) return { error: error.message };
+  if (error) return { error: describeDatabaseError(error, "Couldn't save the magic-link sign-in setting.") };
 
   revalidatePath(routes.adminSettings);
-  return {};
+  return {
+    success: requireAllowedDomain
+      ? "Saved. Magic-link sign-in is now restricted to the allowed domains above."
+      : "Saved. Magic-link sign-in is now open to any email domain.",
+  };
 }

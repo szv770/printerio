@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
 import type { RuleCondition } from "@printio/shared";
 import type { Json } from "@/lib/database.types";
+import { describeDatabaseError } from "@/lib/action-errors";
 import { routes } from "@/lib/routes";
 
 export interface PolicyActionState {
@@ -20,7 +21,7 @@ export async function createPolicyAction(_prev: PolicyActionState, formData: For
 
   const supabase = await createClient();
   const { error } = await supabase.from("print_policies").insert({ organization_id: session.membership.organization_id, name });
-  if (error) return { error: error.message };
+  if (error) return { error: describeDatabaseError(error, "Couldn't create that policy.") };
 
   revalidatePath(routes.adminPolicies);
   return {};
@@ -71,7 +72,7 @@ export async function createPolicyRuleAction(_prev: PolicyActionState, formData:
     reason_label: reasonLabel,
     priority,
   });
-  if (error) return { error: error.message };
+  if (error) return { error: describeDatabaseError(error, "Couldn't add that rule.") };
 
   revalidatePath(routes.adminPolicies);
   return {};
@@ -94,7 +95,7 @@ export async function toggleRuleEnabledAction(_prev: PolicyActionState, formData
   }
 
   const { error } = await supabase.from("policy_rules").update({ enabled: !enabled }).eq("id", ruleId);
-  if (error) return { error: error.message };
+  if (error) return { error: describeDatabaseError(error, `Couldn't ${enabled ? "disable" : "enable"} that rule.`) };
 
   revalidatePath(routes.adminPolicies);
   return {};

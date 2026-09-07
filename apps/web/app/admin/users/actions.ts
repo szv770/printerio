@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
+import { describeDatabaseError } from "@/lib/action-errors";
 import { routes } from "@/lib/routes";
 import { assertCanDisableSelf, assertCanRemoveMember } from "@/lib/member-safety";
 import type { OrgRole } from "@printio/shared";
@@ -38,7 +39,7 @@ export async function createInvitationAction(_prev: InviteState, formData: FormD
     expires_at: expiresInDays ? new Date(Date.now() + expiresInDays * 86_400_000).toISOString() : null,
     created_by: session.userId,
   });
-  if (error) return { error: error.message };
+  if (error) return { error: describeDatabaseError(error, "Couldn't create that invitation code.") };
 
   revalidatePath(routes.adminUsers);
   return { code };
@@ -60,7 +61,7 @@ export async function changeMemberRoleAction(_prev: RoleChangeState, formData: F
     .update({ role })
     .eq("organization_id", session.membership.organization_id)
     .eq("user_id", userId);
-  if (error) return { error: error.message };
+  if (error) return { error: describeDatabaseError(error, "Couldn't change that member's role.") };
 
   await supabase.from("audit_logs").insert({
     organization_id: session.membership.organization_id,
@@ -97,7 +98,7 @@ export async function changeMemberDepartmentAction(
     .update({ department: department || null })
     .eq("organization_id", session.membership.organization_id)
     .eq("user_id", userId);
-  if (error) return { error: error.message };
+  if (error) return { error: describeDatabaseError(error, "Couldn't change that member's department.") };
 
   revalidatePath(routes.adminUsers);
   revalidatePath(routes.adminUserDetail(userId));
@@ -132,7 +133,7 @@ export async function toggleMemberStatusAction(_prev: StatusChangeState, formDat
     .update({ status })
     .eq("organization_id", session.membership.organization_id)
     .eq("user_id", userId);
-  if (error) return { error: error.message };
+  if (error) return { error: describeDatabaseError(error, "Couldn't change that member's status.") };
 
   await supabase.from("audit_logs").insert({
     organization_id: session.membership.organization_id,
@@ -189,7 +190,7 @@ export async function removeMemberAction(_prev: RemoveMemberState, formData: For
     .delete()
     .eq("organization_id", session.membership.organization_id)
     .eq("user_id", userId);
-  if (error) return { error: error.message };
+  if (error) return { error: describeDatabaseError(error, "Couldn't remove that member.") };
 
   await supabase.from("audit_logs").insert({
     organization_id: session.membership.organization_id,
@@ -224,7 +225,7 @@ export async function revokeInvitationAction(_prev: RevokeInvitationState, formD
     .delete()
     .eq("organization_id", session.membership.organization_id)
     .eq("id", invitationId);
-  if (error) return { error: error.message };
+  if (error) return { error: describeDatabaseError(error, "Couldn't revoke that invitation.") };
 
   await supabase.from("audit_logs").insert({
     organization_id: session.membership.organization_id,

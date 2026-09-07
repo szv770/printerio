@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
+import { describeDatabaseError } from "@/lib/action-errors";
 import { routes } from "@/lib/routes";
 
 export interface GroupActionState {
@@ -26,7 +27,11 @@ export async function createGroupAction(_prev: GroupActionState, formData: FormD
     name,
     kind,
   });
-  if (error) return { error: error.code === "23505" ? "A group with that name already exists." : error.message };
+  if (error) {
+    return {
+      error: error.code === "23505" ? "A group with that name already exists." : describeDatabaseError(error, "Couldn't create that group."),
+    };
+  }
 
   revalidatePath(routes.adminGroups);
   return {};
@@ -42,7 +47,7 @@ export async function deleteGroupAction(_prev: GroupActionState, formData: FormD
     .delete()
     .eq("id", groupId)
     .eq("organization_id", session.membership.organization_id);
-  if (error) return { error: error.message };
+  if (error) return { error: describeDatabaseError(error, "Couldn't delete that group.") };
 
   revalidatePath(routes.adminGroups);
   return {};
@@ -69,7 +74,11 @@ export async function addGroupMemberAction(_prev: GroupActionState, formData: Fo
   }
 
   const { error } = await supabase.from("group_members").insert({ group_id: groupId, user_id: userId });
-  if (error) return { error: error.code === "23505" ? "Already a member of this group." : error.message };
+  if (error) {
+    return {
+      error: error.code === "23505" ? "Already a member of this group." : describeDatabaseError(error, "Couldn't add that member to the group."),
+    };
+  }
 
   revalidatePath(routes.adminGroups);
   return {};
@@ -86,7 +95,7 @@ export async function removeGroupMemberAction(_prev: GroupActionState, formData:
   }
 
   const { error } = await supabase.from("group_members").delete().eq("group_id", groupId).eq("user_id", userId);
-  if (error) return { error: error.message };
+  if (error) return { error: describeDatabaseError(error, "Couldn't remove that member from the group.") };
 
   revalidatePath(routes.adminGroups);
   return {};

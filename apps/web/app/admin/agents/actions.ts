@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
+import { describeDatabaseError } from "@/lib/action-errors";
 import { routes } from "@/lib/routes";
 import { generateEnrollmentCode } from "@/lib/auth/invitations";
 import { issueRemoteCommand } from "@/lib/remote-commands";
@@ -28,7 +29,7 @@ export async function createAgentAction(_prev: AgentActionState, formData: FormD
     enrollment_code_expires_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
     status: "pending",
   });
-  if (error) return { error: error.message };
+  if (error) return { error: describeDatabaseError(error, "Couldn't register that agent.") };
 
   revalidatePath(routes.adminAgents);
   return { enrollmentCode: code };
@@ -54,7 +55,9 @@ export async function rotateAgentAction(_prev: AgentActionState, formData: FormD
     .eq("organization_id", session.membership.organization_id)
     .select("id")
     .single();
-  if (error || !agent) return { error: error?.message ?? "Agent not found." };
+  if (error || !agent) {
+    return { error: error ? describeDatabaseError(error, "Couldn't rotate that agent's credential.") : "Agent not found." };
+  }
 
   await supabase.from("audit_logs").insert({
     organization_id: session.membership.organization_id,
@@ -79,7 +82,7 @@ export async function disableAgentAction(_prev: AgentActionState, formData: Form
     .update({ status: "disabled" })
     .eq("id", agentId)
     .eq("organization_id", session.membership.organization_id);
-  if (error) return { error: error.message };
+  if (error) return { error: describeDatabaseError(error, "Couldn't disable that agent.") };
 
   await supabase.from("audit_logs").insert({
     organization_id: session.membership.organization_id,
@@ -146,7 +149,7 @@ export async function renameAgentAction(_prev: AgentActionState, formData: FormD
     .update({ name })
     .eq("id", agentId)
     .eq("organization_id", session.membership.organization_id);
-  if (error) return { error: error.message };
+  if (error) return { error: describeDatabaseError(error, "Couldn't rename that agent.") };
 
   revalidatePath(routes.adminAgents);
   return {};
@@ -198,7 +201,7 @@ export async function deleteAgentAction(_prev: AgentActionState, formData: FormD
     .delete()
     .eq("id", agentId)
     .eq("organization_id", session.membership.organization_id);
-  if (error) return { error: error.message };
+  if (error) return { error: describeDatabaseError(error, "Couldn't delete that agent.") };
 
   await supabase.from("audit_logs").insert({
     organization_id: session.membership.organization_id,

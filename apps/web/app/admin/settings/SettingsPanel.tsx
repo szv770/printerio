@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { Globe, Mail, BookOpen } from "lucide-react";
-import { Button, Textarea, FieldLabel, FormError, Card, Badge, Select } from "@/components/ui";
+import { Button, Textarea, FieldLabel, FormError, FormSuccess, Card, Badge, Select } from "@/components/ui";
 import {
   updateAllowedDomainsAction,
   updateMagicLinkDomainToggleAction,
@@ -72,6 +72,7 @@ export function SettingsPanel({
               />
             </div>
             <FormError message={domainsState.error} />
+            <FormSuccess message={domainsState.success} />
             <div>
               <Button type="submit" size="sm" pending={domainsPending} pendingLabel="Saving...">
                 Save
@@ -113,6 +114,7 @@ export function SettingsPanel({
               Require magic-link sign-in to match the allowed domains above
             </label>
             <FormError message={magicLinkState.error} />
+            <FormSuccess message={magicLinkState.success} />
             <div>
               <Button type="submit" size="sm" pending={magicLinkPending} pendingLabel="Saving...">
                 Save
@@ -152,6 +154,7 @@ export function SettingsPanel({
               </Select>
             </div>
             <FormError message={bindingSideState.error} />
+            <FormSuccess message={bindingSideState.success} />
             <div>
               <Button type="submit" size="sm" pending={bindingSidePending} pendingLabel="Saving...">
                 Save
