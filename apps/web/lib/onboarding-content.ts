@@ -1,41 +1,108 @@
 /**
  * Plain-data content for the first-login onboarding tour and the always-
- * available Help menu (components/help/HelpMenu.tsx). Kept separate from the
- * component so the actual words are easy to find and edit without touching
- * any UI logic - this is the kind of content a non-engineer administrator
- * might reasonably want to tweak later.
+ * available Help menu (components/help/HelpMenu.tsx, rendered by
+ * components/help/SpotlightTour.tsx). Kept separate from the component so
+ * the actual words are easy to find and edit without touching any UI logic
+ * - this is the kind of content a non-engineer administrator might
+ * reasonably want to tweak later.
  */
 
 export interface TourSlide {
   title: string;
   body: string;
+  /**
+   * Stable key matching a `data-tour="<anchor>"` attribute on the real
+   * element this step is talking about, somewhere in the app. Omitted for a
+   * purely informational step (the welcome/closing slides) - SpotlightTour
+   * renders those as a centered callout with no highlight. Also used as the
+   * fallback rendering whenever an anchored element can't be found on the
+   * page (not present for this role, an empty state, or still loading) -
+   * SpotlightTour never points at nothing, it just centers instead.
+   */
+  anchor?: string;
+  /**
+   * The app route this step's anchor lives on (e.g. "/admin/printers").
+   * When the tour advances into a step whose route differs from the
+   * current page, SpotlightTour navigates there itself via next/navigation's
+   * useRouter before it goes looking for the anchor. Omitted means "wherever
+   * the tour already is" - true for the anchor-less welcome/closing slides,
+   * which read fine on any page.
+   */
+  route?: string;
+  /**
+   * When true, this step doesn't advance on its own Next button - it waits
+   * for the user to actually click the anchored element (a real click,
+   * never intercepted or prevented - it still does whatever it normally
+   * does) and advances right after. If the anchor can't be found for this
+   * user (see `anchor` above), SpotlightTour falls back to a normal Next
+   * button instead of waiting on a click that might never be possible.
+   */
+  clickToAdvance?: boolean;
 }
 
 /** Shown to student/staff roles - the people submitting print jobs. */
 export const STUDENT_TOUR: TourSlide[] = [
   {
     title: "Welcome to Printio",
-    body: "This replaces walking up to a shared printer and hoping for the best. Upload a PDF, choose how it should print, and Printio routes it to the right printer for you - with a record of every job.",
+    body: "This replaces walking up to a shared printer and hoping for the best. Upload a PDF, choose how it should print, and Printio routes it to the right printer for you - with a record of every job. This tour will walk you through the actual screen elements as you go - click along where it asks you to.",
+    route: "/home",
+  },
+  {
+    title: "Your quota",
+    body: "If your organization sets a monthly print quota, you'll always see how much you have left right here on Home.",
+    anchor: "home-quota",
+    route: "/home",
   },
   {
     title: "Print a document",
-    body: "From Home, choose \"Print a document.\" Pick your PDF and you'll see a quick preview and page count immediately, right in your browser - nothing uploads until you submit.",
+    body: "Click here to start a new print job.",
+    anchor: "home-print-cta",
+    route: "/home",
+    clickToAdvance: true,
+  },
+  {
+    title: "Choose your file",
+    body: "Pick your PDF here. Nothing uploads yet - this just reads the file in your own browser so the rest of the form can show you what you're about to print.",
+    anchor: "print-file-picker",
+    route: "/print",
+  },
+  {
+    title: "Instant preview",
+    body: "As soon as you choose a file, you'll see a quick preview and page count right here - no upload required just to check you picked the right document.",
+    anchor: "print-preview",
+    route: "/print",
   },
   {
     title: "Choose how it prints",
-    body: "Pick a printer, then color/double-sided/staple/booklet options - anything greyed out isn't supported by that printer. Booklet printing here is smarter than a normal print driver: each page is scaled to fill its own space, so one oddly-sized page doesn't force huge margins onto the rest of the booklet.",
+    body: "Click a printer above to select it. Then choose color/double-sided/staple/booklet options below it - anything greyed out isn't supported by that printer. Booklet printing here is smarter than a normal print driver: each page is scaled to fill its own space, so one oddly-sized page doesn't force huge margins onto the rest of the booklet.",
+    anchor: "print-printer-fieldset",
+    route: "/print",
+    clickToAdvance: true,
   },
   {
-    title: "Approval & quota",
-    body: "Some jobs need an approver's OK first (large jobs, color, etc. - your organization sets the rules). If you have a monthly print quota, you'll see it on Home and on the Usage page.",
+    title: "Submit your job",
+    body: "Some jobs need an approver's OK first (large jobs, color, etc. - your organization sets the rules), which you'll see reflected on the job's status right after you submit. When you're ready, click Submit Job here.",
+    anchor: "print-submit-button",
+    route: "/print",
   },
   {
     title: "Track your job",
-    body: "After you submit, you're taken straight to that job's status page, which updates live as it moves from approved, to sent to the printer, to printing. \"My Jobs\" lists everything you've ever submitted.",
+    body: "Click My Jobs to see everything you've ever submitted.",
+    anchor: "nav-my-jobs",
+    route: "/print",
+    clickToAdvance: true,
+  },
+  {
+    title: "Every job, live",
+    body: "This list updates live as each job moves from approved, to sent to the printer, to printing, right up to completed.",
+    anchor: "jobs-list-container",
+    route: "/jobs",
   },
   {
     title: "Need a reminder?",
-    body: "Click Help any time (top right) to replay this tour or look up what a term means.",
+    body: "Click Help any time to replay this tour or look up what a term means.",
+    anchor: "help-button",
+    route: "/jobs",
   },
 ];
 
@@ -43,27 +110,70 @@ export const STUDENT_TOUR: TourSlide[] = [
 export const ADMIN_TOUR: TourSlide[] = [
   {
     title: "Welcome to Printio Admin",
-    body: "You're set up as an administrator or approver. This is a quick tour of where things live - it won't touch anything, and you can replay it any time from Help.",
+    body: "You're set up as an administrator or approver. This is a quick tour of where things live and how they connect - it won't change anything, and you can replay it any time from Help. Click along where it asks you to.",
+    route: "/admin",
   },
   {
-    title: "Overview & Approvals",
-    body: "Overview is your at-a-glance dashboard - it only calls out things that need attention (pending approvals, offline agents, printers in error), not a wall of healthy stats. Approvals is where jobs held for review show up, with a live count badge in the nav.",
+    title: "Overview",
+    body: "This dashboard only calls out things that need attention (pending approvals, offline agents, printers in error), not a wall of healthy stats - a quiet Overview page is a good sign.",
+    anchor: "admin-overview-stats",
+    route: "/admin",
   },
   {
-    title: "People, infrastructure, governance",
-    body: "The nav below is grouped: People (Users, Groups) for who can print; Print infrastructure (Printers, Agents) for the physical setup; Governance (Policies, Quotas) for the rules about who can print what and how much.",
+    title: "Approvals",
+    body: "Click here to open the approvals queue - jobs held for review show up here, with a live count badge in the sidebar.",
+    anchor: "admin-stat-pending-approvals",
+    route: "/admin",
+    clickToAdvance: true,
+  },
+  {
+    title: "Reviewing a job",
+    body: "Approve or deny each job here - denying asks for a short reason, so the person who submitted it knows why.",
+    anchor: "admin-approvals-queue",
+    route: "/admin/approvals",
+  },
+  {
+    title: "People",
+    body: "Users (in the sidebar) and Groups (here) are where you manage who can print - groups are the departments/classes/cohorts that policies and quotas can target as a whole instead of one user at a time.",
+    anchor: "admin-groups-panel",
+    route: "/admin/groups",
+  },
+  {
+    title: "Print infrastructure",
+    body: "Printers lists every configured printer and its finishing profiles (duplex, booklet, staple, etc.); Agents (in the sidebar) shows the on-site program that actually sends approved jobs to each one.",
+    anchor: "admin-printers-panel",
+    route: "/admin/printers",
   },
   {
     title: "Setting up printers for the first time",
-    body: "From Printers, the \"Guided setup wizard\" walks through a first-time full setup: plan which finishing profiles you need (duplex, booklet, stapled, etc.), confirm the Windows Agent is online, then map each profile to a real discovered print queue - no more typing a queue name by hand. You can still add a single profile directly from the Printers page any time.",
+    body: "Click here for the guided setup wizard - it walks through a first-time full setup: plan which finishing profiles you need, confirm the Agent is online, then map each profile to a real discovered print queue. (You can still add a single profile directly from this page any time.)",
+    anchor: "admin-printers-wizard-link",
+    route: "/admin/printers",
+    clickToAdvance: true,
+  },
+  {
+    title: "Governance: Quotas",
+    body: "Monthly print limits, scoped to the whole organization, a role, a department, a group, or a single user - when someone matches more than one, the lowest limit wins.",
+    anchor: "admin-quotas-panel",
+    route: "/admin/quotas",
+  },
+  {
+    title: "Governance: Policies",
+    body: "The rules that decide whether a job is automatically allowed, denied, or held for approval - a DENY rule always wins first, then REQUIRE_APPROVAL, then ALLOW, then your organization's default.",
+    anchor: "admin-policies-panel",
+    route: "/admin/policies",
   },
   {
     title: "Insights",
-    body: "Reports shows usage by user/department/printer and recently denied/failed jobs. Audit log (admins only) is a full record of every administrative action.",
+    body: "Reports shows usage by user/department/printer and recently denied/failed jobs. Audit log (org admins only, in the sidebar) is a full record of every administrative action.",
+    anchor: "admin-reports-stats",
+    route: "/admin/reports",
   },
   {
     title: "Need a reminder?",
-    body: "Click Help any time (in the sidebar) to replay this tour or look up what a term means.",
+    body: "Click Help any time to replay this tour or look up what a term means.",
+    anchor: "help-button",
+    route: "/admin/reports",
   },
 ];
 

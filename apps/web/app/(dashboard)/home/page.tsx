@@ -80,6 +80,7 @@ export default async function DashboardHomePage() {
        *  first and is the single most visually prominent element. */}
       <Link
         href={routes.print}
+        data-tour="home-print-cta"
         className="mb-6 flex items-center gap-4 rounded-xl bg-[var(--color-primary)] p-6 text-[var(--color-primary-fg)] transition-opacity hover:opacity-90"
       >
         <PrinterIcon className="h-8 w-8 shrink-0" />
@@ -92,7 +93,7 @@ export default async function DashboardHomePage() {
       {/* Status strip - "can I still print" / "is anything waiting on me" at
        *  a glance, no click required. */}
       <div className="mb-6 grid grid-cols-2 gap-4">
-        <Card className="p-4">
+        <Card className="p-4" data-tour="home-quota">
           <p className="text-sm text-[var(--color-muted)]">Quota remaining ({BASIS_LABEL[basis]})</p>
           <p className="mt-1 text-2xl font-semibold">{remaining === null ? "Unlimited" : remaining.toLocaleString()}</p>
         </Card>

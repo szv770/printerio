@@ -50,7 +50,7 @@ export function QuotasPanel({
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6" data-tour="admin-quotas-panel">
       {canManage && (
         <Card>
           <form action={createAction} className="flex flex-wrap items-end gap-3">

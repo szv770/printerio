@@ -118,7 +118,7 @@ export default async function ReportsPage() {
         description={`Job activity over the last ${JOB_WINDOW_DAYS} days and usage over the last ${USAGE_MONTHS} months. "Sheets" only counts jobs that actually reached a printer (completed/printing/submitted_to_spooler) - denied and pending jobs never consumed paper. Tables only for V1 - see docs known-limitations.`}
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3" data-tour="admin-reports-stats">
         {stats.map((s) => (
           <Card key={s.label} className="p-5">
             <p className="text-sm text-[var(--color-muted)]">{s.label}</p>

@@ -30,7 +30,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
             <Link href={routes.print} className="text-[var(--color-muted)] hover:text-[var(--color-text)]">
               Print
             </Link>
-            <Link href={routes.jobs} className="text-[var(--color-muted)] hover:text-[var(--color-text)]">
+            <Link
+              href={routes.jobs}
+              data-tour="nav-my-jobs"
+              className="text-[var(--color-muted)] hover:text-[var(--color-text)]"
+            >
               My Jobs
             </Link>
             <Link href={routes.usage} className="text-[var(--color-muted)] hover:text-[var(--color-text)]">

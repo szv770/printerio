@@ -150,7 +150,7 @@ export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfile
     <form action={formAction} className="flex flex-col gap-6">
       <div>
         <FieldLabel htmlFor="file">Document</FieldLabel>
-        <div className="flex items-start gap-4">
+        <div className="flex items-start gap-4" data-tour="print-file-picker">
           <input
             id="file"
             type="file"
@@ -165,6 +165,7 @@ export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfile
            *  with the async thumbnail draw. */}
           <div
             className="flex h-24 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--color-border)] bg-gray-50"
+            data-tour="print-preview"
             hidden={!fileName}
           >
             {thumbnailLoading && <span className="text-xs text-[var(--color-muted)]">…</span>}
@@ -182,7 +183,7 @@ export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfile
       <Card>
         <p className="mb-3 text-sm font-medium">How it prints</p>
         <div className="flex flex-col gap-4">
-          <fieldset className="flex flex-col gap-2">
+          <fieldset className="flex flex-col gap-2" data-tour="print-printer-fieldset">
             <legend className="mb-1 text-sm font-medium">Printer</legend>
             {/* Icon + description shown per option (not a plain <select>) so a
              *  user picks a profile by what it actually does - duplex,
@@ -345,7 +346,7 @@ export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfile
       <FormError message={state.error} />
 
       {!needsBookletConfirm && (
-        <Button type="submit" pending={pending} pendingLabel="Submitting...">
+        <Button type="submit" data-tour="print-submit-button" pending={pending} pendingLabel="Submitting...">
           Submit Job
         </Button>
       )}

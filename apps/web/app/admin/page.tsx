@@ -59,7 +59,7 @@ export default async function AdminOverviewPage() {
   return (
     <div>
       <PageHeader title="Overview" />
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3" data-tour="admin-overview-stats">
         {stats.map((s) => {
           const card = (
             <Card className={`p-5 ${s.href ? "transition-colors hover:bg-[var(--color-surface)]" : ""}`}>
@@ -68,7 +68,11 @@ export default async function AdminOverviewPage() {
             </Card>
           );
           return s.href ? (
-            <Link key={s.label} href={s.href}>
+            <Link
+              key={s.label}
+              href={s.href}
+              data-tour={s.label === "Pending approvals" ? "admin-stat-pending-approvals" : undefined}
+            >
               {card}
             </Link>
           ) : (
