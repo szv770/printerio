@@ -27,6 +27,15 @@ function makeDeps(localStoragePath: string, overrides: Partial<CommandHandlerDep
     logger,
     refreshHeartbeatNow: vi.fn(async () => {}),
     scheduleServiceRestart: vi.fn(),
+    // Default to the "can't self-update" answer, which is both the safe
+    // default and the honest one for a test environment that is not a
+    // controlled git checkout - individual tests override it.
+    runSelfUpdate: vi.fn(async () => ({
+      updated: false,
+      reason: "not_a_git_checkout" as const,
+      message: "not a git checkout",
+      repoRoot: localStoragePath,
+    })),
     ...overrides,
   };
 }
@@ -123,5 +132,91 @@ describe("handleCommand - fixed allow-list", () => {
     expect(existsSync(path.join(downloadsDir, "job-1.pdf"))).toBe(false);
     expect(existsSync(path.join(tmpDir, "scratch.ps1"))).toBe(false);
     expect(existsSync(untouchable)).toBe(true);
+  });
+
+  it("RESTART_PRINT_QUEUE reports failed (and does not claim success) when the spooler restart itself fails", async () => {
+    const deps = makeDeps(dir, {
+      printerManager: {
+        discoverQueues: vi.fn(async () => []),
+        restartSpooler: vi.fn(async () => {
+          throw new Error("Restart-Service Spooler failed: access denied");
+        }),
+      },
+    });
+
+    const result = await handleCommand({ id: "c1", command: "RESTART_PRINT_QUEUE", payload: {} }, deps);
+
+    expect(result.status).toBe("failed");
+    expect(String(result.result?.reason)).toContain("access denied");
+    // The whole point of the RESTART_PRINT_QUEUE handler re-checking status
+    // afterward is that it never assumes the restart worked - if the restart
+    // threw, there is nothing to re-check and nothing is reported as fine.
+    expect(deps.refreshHeartbeatNow).not.toHaveBeenCalled();
+  });
+
+  it("CHECK_FOR_UPDATE on a non-git-checkout acks a clear, actionable answer instead of silently doing nothing", async () => {
+    const deps = makeDeps(dir);
+    const result = await handleCommand({ id: "c1", command: "CHECK_FOR_UPDATE", payload: {} }, deps);
+
+    expect(result.status).toBe("completed");
+    expect(result.result?.updated).toBe(false);
+    expect(result.result?.reason).toBe("not_a_git_checkout");
+    expect(typeof result.result?.message).toBe("string");
+    // Critically: it must NOT restart the Agent when nothing was updated.
+    expect(deps.scheduleServiceRestart).not.toHaveBeenCalled();
+  });
+
+  it("CHECK_FOR_UPDATE schedules a restart only after an update actually landed", async () => {
+    const deps = makeDeps(dir, {
+      runSelfUpdate: vi.fn(async () => ({
+        updated: true,
+        reason: "updated" as const,
+        message: "Updated to the latest code.",
+        repoRoot: dir,
+      })),
+    });
+
+    const result = await handleCommand({ id: "c1", command: "CHECK_FOR_UPDATE", payload: {} }, deps);
+
+    expect(result.status).toBe("completed");
+    expect(result.result?.updated).toBe(true);
+    expect(deps.scheduleServiceRestart).toHaveBeenCalled();
+  });
+
+  it("CHECK_FOR_UPDATE never restarts when the update failed partway (pulled, but dependencies failed to install)", async () => {
+    const deps = makeDeps(dir, {
+      runSelfUpdate: vi.fn(async () => ({
+        updated: false,
+        reason: "install_failed" as const,
+        message: "pnpm install failed",
+        repoRoot: dir,
+      })),
+    });
+
+    const result = await handleCommand({ id: "c1", command: "CHECK_FOR_UPDATE", payload: {} }, deps);
+
+    expect(result.status).toBe("completed");
+    expect(result.result?.reason).toBe("install_failed");
+    expect(deps.scheduleServiceRestart).not.toHaveBeenCalled();
+  });
+
+  it("passes no part of a command payload into the self-update sequence (it takes no arguments at all)", async () => {
+    const runSelfUpdate = vi.fn(async () => ({
+      updated: false,
+      reason: "already_up_to_date" as const,
+      message: "Already up to date.",
+      repoRoot: dir,
+    }));
+    const deps = makeDeps(dir, { runSelfUpdate });
+
+    await handleCommand(
+      // A hostile payload: if any of this could reach a process invocation,
+      // this is where it would get in.
+      { id: "c1", command: "CHECK_FOR_UPDATE", payload: { repo: "evil", args: ["--exec", "rm -rf /"] } },
+      deps,
+    );
+
+    expect(runSelfUpdate).toHaveBeenCalledTimes(1);
+    expect(runSelfUpdate).toHaveBeenCalledWith();
   });
 });

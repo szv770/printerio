@@ -58,12 +58,41 @@ recent report). The guided setup wizard (`app/admin/printers/setup`) reads
 `discovered_queues` to populate a real dropdown of this agent's Windows queue names instead
 of an admin hand-typing one. A heartbeat with no `queues` (or an empty array) leaves both
 untouched - silence isn't the same as "this agent now sees zero queues."
-Response: `{ "ok": true, "serverTime": "<ISO>" }`.
+
+An optional `machine` block reports what the Agent knows about the PC it runs on
+(`apps/agent/src/machine-info.ts`):
+
+```json
+{
+  "machine": {
+    "hostname": "FRONT-OFFICE-PC",
+    "osVersion": "Windows_NT 10.0.19045 (x64)",
+    "ipAddresses": ["10.0.0.42"],
+    "isGitCheckout": true
+  }
+}
+```
+
+It writes `agents.hostname` / `os_version` / `ip_addresses` / `is_git_checkout`, which the
+per-Agent admin page (`app/admin/agents/[agentId]`) displays so an admin can tell which
+physical machine a row is. Every field is optional, trimmed, and length-capped server-side;
+a field the Agent omits leaves its column untouched rather than nulling it, so an older
+Agent build simply reports nothing and nothing is lost. **These values are display-only** -
+they are never used to authenticate, authorize, or route anything (`docs/architecture.md`
+sec 3.2), which is what makes accepting a self-report safe here at all.
+
+Response: `{ "ok": true, "serverTime": "<ISO>", "paused": boolean }`. `paused` mirrors
+`agents.paused`; the Agent honors it by not polling for claimable jobs while set. That is
+**defense in depth only** - the pause is enforced by the two job-handing routes below, so
+an Agent that ignores this field still gets no work.
 
 ### `GET /api/agents/jobs/claimable`
 Returns jobs in `approved` status whose `printer_profiles.agent_id` is this agent, that are
 unclaimed or whose lease has expired.
 Response: `{ "jobs": [{ "jobId": "...", "printerProfileId": "...", "jobNumber": "JOB-2026-000184" }] }`.
+While `agents.paused` is set, this returns `{ "jobs": [] }` unconditionally - being paused
+is a normal administrative state, not a fault, so it is an empty list rather than an error
+the Agent would back off from.
 
 ### `POST /api/agents/jobs/:jobId/claim`
 Atomic claim (see `docs/architecture.md` sec 13): only succeeds if the job is still
@@ -72,6 +101,11 @@ On success: transitions `approved -> claimed`, sets `lease_owner_agent_id`,
 `lease_expires_at = now() + organization_settings.job_lease_minutes`, records
 `AGENT_CLAIMED`. Response `200 { "ok": true, "leaseExpiresAt": "<ISO>" }`, or
 `409 { "ok": false, "reason": "already_claimed" }`.
+A paused agent (`agents.paused`) is refused here too, before any lookup, with
+`409 { "ok": false, "reason": "agent_paused" }` - deliberately the same conflict shape an
+existing Agent build already handles as "someone else got it, move on". This is the
+enforcement point that matters: an Agent holding a job id it learned before the pause, or
+one ignoring the heartbeat's `paused` flag entirely, still cannot take the job.
 
 ### `GET /api/agents/jobs/:jobId/download-url`
 Requires an active lease held by this agent. Resolves the logical print request (never a

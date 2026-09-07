@@ -5,6 +5,60 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 interface HeartbeatBody {
   version?: string;
   queues?: Array<{ windowsQueueName: string; driverName?: string; portName?: string; status?: string }>;
+  /** Optional (older Agent builds don't send it) - see apps/agent/src/machine-info.ts. */
+  machine?: {
+    hostname?: unknown;
+    osVersion?: unknown;
+    ipAddresses?: unknown;
+    isGitCheckout?: unknown;
+  };
+}
+
+const MAX_MACHINE_FIELD_LENGTH = 200;
+const MAX_IP_ADDRESSES = 20;
+
+/** Trims and length-caps a self-reported string. Returns undefined (leave the column alone) for anything that isn't a usable string. */
+function sanitizeReportedString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.slice(0, MAX_MACHINE_FIELD_LENGTH);
+}
+
+/**
+ * The Agent's self-reported machine details, narrowed to what the columns
+ * accept. These values are DISPLAY-ONLY (docs/architecture.md sec 3.2:
+ * nothing that affects authorization is ever taken from a request body) -
+ * they are never used to authenticate, authorize, or route anything, which
+ * is what makes accepting a self-report safe at all. They are still bounded
+ * here so a malfunctioning or hostile Agent can't write unbounded text into
+ * its own row. A field that isn't present/usable is omitted from the UPDATE
+ * entirely rather than written as null - a heartbeat that says nothing about
+ * hostname must not erase a hostname reported a minute ago.
+ */
+function buildMachineUpdate(machine: HeartbeatBody["machine"]): Record<string, unknown> {
+  if (!machine || typeof machine !== "object") return {};
+  const update: Record<string, unknown> = {};
+
+  const hostname = sanitizeReportedString(machine.hostname);
+  if (hostname) update.hostname = hostname;
+
+  const osVersion = sanitizeReportedString(machine.osVersion);
+  if (osVersion) update.os_version = osVersion;
+
+  if (Array.isArray(machine.ipAddresses)) {
+    const addresses = machine.ipAddresses
+      .map((address) => sanitizeReportedString(address))
+      .filter((address): address is string => Boolean(address))
+      .slice(0, MAX_IP_ADDRESSES);
+    // An empty array IS meaningful here (an Agent that genuinely sees no
+    // external interface right now), unlike a missing field.
+    update.ip_addresses = addresses;
+  }
+
+  if (typeof machine.isGitCheckout === "boolean") update.is_git_checkout = machine.isGitCheckout;
+
+  return update;
 }
 
 /** Maps the Agent's queue-level status vocabulary (apps/agent/src/printer-manager.ts)
@@ -71,6 +125,7 @@ export async function POST(request: Request) {
       ...(body.queues && body.queues.length > 0
         ? { discovered_queues: body.queues.map((q) => ({ ...q, reportedAt: nowIso })) }
         : {}),
+      ...buildMachineUpdate(body.machine),
     })
     .eq("id", agent.id);
   if (error) return apiError(500, "internal_error", "Failed to record heartbeat.");
@@ -91,5 +146,10 @@ export async function POST(request: Request) {
     }
   }
 
-  return Response.json({ ok: true, serverTime: new Date().toISOString() });
+  // Tell the Agent whether an admin currently has it paused, so it can stop
+  // asking for work client-side too (apps/agent/src/health-monitor.ts). This
+  // is a courtesy, NOT the enforcement: /api/agents/jobs/claimable and
+  // .../[jobId]/claim independently refuse a paused Agent, so ignoring this
+  // field buys a modified Agent nothing.
+  return Response.json({ ok: true, serverTime: new Date().toISOString(), paused: agent.paused });
 }

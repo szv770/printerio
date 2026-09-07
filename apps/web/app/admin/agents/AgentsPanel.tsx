@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useActionState } from "react";
-import { Cpu, Wifi, WifiOff, Pencil } from "lucide-react";
+import { ChevronRight, Cpu, Pause, Pencil, Wifi, WifiOff } from "lucide-react";
 import type { Tables } from "@/lib/database.types";
-import { Button, Input, FieldLabel, FormError, EmptyState, Card } from "@/components/ui";
+import { Button, Input, FieldLabel, FormError, EmptyState, Card, Badge } from "@/components/ui";
+import { routes } from "@/lib/routes";
 import {
   createAgentAction,
   rotateAgentAction,
@@ -113,7 +115,7 @@ function AgentRow({ agent, canManage }: { agent: Tables<"agents">; canManage: bo
                   )}
                 </p>
               )}
-              <p className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
+              <p className="flex flex-wrap items-center gap-1 text-xs text-[var(--color-muted)]">
                 {agent.status} •{" "}
                 {online ? (
                   <>
@@ -125,7 +127,27 @@ function AgentRow({ agent, canManage }: { agent: Tables<"agents">; canManage: bo
                   </>
                 )}{" "}
                 • v{agent.version ?? "?"}
+                {agent.hostname && <> • {agent.hostname}</>}
+                {/* Paused is deliberately its own badge rather than folded into
+                 *  the online/offline word: a paused Agent is connected and
+                 *  healthy, it is just deliberately not taking work, and
+                 *  reading that as "offline" is exactly the confusion this
+                 *  whole feature exists to remove. */}
+                {agent.paused && (
+                  <Badge tone="warning">
+                    <span className="flex items-center gap-1">
+                      <Pause className="h-3 w-3" /> paused
+                    </span>
+                  </Badge>
+                )}
               </p>
+              <Link
+                href={routes.adminAgentDetail(agent.id)}
+                className="mt-1 inline-flex items-center gap-0.5 text-xs text-[var(--color-primary)] hover:underline"
+              >
+                View details
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Link>
             </div>
           </div>
           <div className="flex gap-2">
