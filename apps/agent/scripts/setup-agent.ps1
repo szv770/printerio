@@ -261,6 +261,42 @@ try {
 
     Set-Location -LiteralPath $RepoRoot
 
+    # --- 0. Pull the latest version of this repo, if it's a real git clone --
+    #
+    # Means a bug fix to this very script (or to the Agent's own code) only
+    # has to be pushed once - the next double-click of setup-agent.bat picks
+    # it up automatically, instead of everyone needing to re-clone or
+    # manually `git pull` themselves first. Safe by construction: a plain
+    # `git pull` only ever fast-forwards or fails outright (it never
+    # discards local changes), and any failure here (no network, a detached
+    # HEAD, local commits that don't fast-forward) is a warning, not a
+    # blocker - this machine's existing checkout is still perfectly usable
+    # even if the update check itself doesn't succeed.
+    Write-Step "Checking for updates"
+    if (Test-Path -LiteralPath (Join-Path $RepoRoot ".git")) {
+        $gitCmd = Get-Command "git" -ErrorAction SilentlyContinue
+        if ($gitCmd) {
+            try {
+                $pullOutput = & git pull 2>&1
+                if ($LASTEXITCODE -eq 0) {
+                    if ($pullOutput -match "Already up to date") {
+                        Write-Ok "Already up to date."
+                    } else {
+                        Write-Ok "Updated to the latest version."
+                    }
+                } else {
+                    Write-Warn "Couldn't check for updates (git pull exited with code $LASTEXITCODE) - continuing with what's already on this machine."
+                }
+            } catch {
+                Write-Warn "Couldn't check for updates ($($_.Exception.Message)) - continuing with what's already on this machine."
+            }
+        } else {
+            Write-Warn "git isn't on PATH, so this can't check for updates on its own - continuing with what's already on this machine. (git pull, run by hand from $RepoRoot, does the same thing.)"
+        }
+    } else {
+        Write-Warn "This doesn't look like a git clone, so it can't check for updates on its own - continuing with what's already on this machine."
+    }
+
     # --- 1. Node.js check (hard stop if missing/too old) --------------------
 
     Write-Step "Checking Node.js"

@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useMemo, useRef, useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import { computePrintMath } from "@printio/shared";
 import { Button, Input, Select, FieldLabel, FormError, Card } from "@/components/ui";
 import { PRINTER_PROFILE_ICON_COMPONENTS, type PrinterProfileIconKey } from "@/lib/printer-profile-icons";
@@ -138,6 +139,14 @@ export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfile
     }
   }, [estimatedPages, copies, duplex, booklet]);
 
+  // No printer_profiles configured for this org yet (e.g. the Agent isn't
+  // connected, or an admin hasn't added a profile). Rather than hiding the
+  // whole form (the previous behavior - see print/page.tsx), still let a
+  // user pick a file and set up everything except the printer itself, so
+  // they aren't blocked from preparing a job just because nobody's finished
+  // the printer setup - they just can't submit until one exists.
+  const hasPrinters = printerProfiles.length > 0;
+
   const needsBookletConfirm = state.needsBookletConfirm;
   const anyFinishingDisabled =
     !profile?.declaredCapabilities.duplex ||
@@ -185,6 +194,16 @@ export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfile
         <div className="flex flex-col gap-4">
           <fieldset className="flex flex-col gap-2" data-tour="print-printer-fieldset">
             <legend className="mb-1 text-sm font-medium">Printer</legend>
+            {!hasPrinters && (
+              <div className="flex items-start gap-2 rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-3 text-sm">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-warning)]" />
+                <span>
+                  No printer is connected to your organization yet. You can still pick a file and set everything up
+                  below - submitting just isn&apos;t possible until an administrator adds one under Admin &rarr;
+                  Printers.
+                </span>
+              </div>
+            )}
             {/* Icon + description shown per option (not a plain <select>) so a
              *  user picks a profile by what it actually does - duplex,
              *  color, booklet, etc. - rather than a cryptic internal label. */}
@@ -346,9 +365,23 @@ export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfile
       <FormError message={state.error} />
 
       {!needsBookletConfirm && (
-        <Button type="submit" data-tour="print-submit-button" pending={pending} pendingLabel="Submitting...">
-          Submit Job
-        </Button>
+        <div>
+          <Button
+            type="submit"
+            data-tour="print-submit-button"
+            pending={pending}
+            pendingLabel="Submitting..."
+            disabled={!hasPrinters}
+            title={hasPrinters ? undefined : "No printer is connected yet - see the notice above."}
+          >
+            Submit Job
+          </Button>
+          {!hasPrinters && (
+            <p className="mt-1 text-xs text-[var(--color-muted)]">
+              Submitting is disabled until your organization has at least one printer connected.
+            </p>
+          )}
+        </div>
       )}
     </form>
   );

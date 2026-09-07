@@ -1,9 +1,8 @@
 import { redirect } from "next/navigation";
-import { AlertTriangle } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
-import { PageHeader, EmptyState } from "@/components/ui";
+import { PageHeader } from "@/components/ui";
 import { PrintForm } from "./PrintForm";
 
 export default async function PrintPage() {
@@ -39,14 +38,11 @@ export default async function PrintPage() {
   return (
     <main className="mx-auto max-w-2xl px-4 py-10">
       <PageHeader title="Print a document" description="Upload a PDF, choose your printer and options." />
-      {printerProfiles.length === 0 ? (
-        <EmptyState
-          message="No printers are configured for your organization yet. Ask your administrator to add one under Admin → Printers."
-          icon={AlertTriangle}
-        />
-      ) : (
-        <PrintForm printerProfiles={printerProfiles} />
-      )}
+      {/* Always render the form, even with zero printer_profiles - it shows
+       *  its own inline notice and disables Submit in that case, rather than
+       *  blocking the user from picking a file and preparing everything
+       *  else just because a printer isn't connected yet. */}
+      <PrintForm printerProfiles={printerProfiles} />
     </main>
   );
 }
