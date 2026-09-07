@@ -1958,3 +1958,92 @@ comment on column agents.discovered_queues is
   'already row-level-secured by organization_id (see '
   'supabase/migrations/0006_rls_policies.sql "org_admins can manage '
   'agents"), which covers every column on the row including this one.';
+
+
+-- ===================================================================
+-- Source: migrations/0019_close_anon_execute_gap_and_harden_0016_trigger.sql
+-- ===================================================================
+-- Two findings from a correctness/security audit of this session's own
+-- work: (1) check_rate_limit/email_domain_allowed/email_domain_allowed_for_
+-- magic_link were each callable by unauthenticated (anon) clients despite
+-- their own comments claiming otherwise - both PUBLIC's default grant and
+-- Supabase's own separate 'alter default privileges' grant to anon had to
+-- be revoked explicitly (confirmed live via has_function_privilege).
+-- check_rate_limit specifically was a live, unauthenticated DoS primitive:
+-- anyone could pre-inflate another user's rate-limit bucket by key alone.
+-- (2) 0016's trigger function was missing the `set search_path = ''`
+-- hardening its sibling trigger already has.
+revoke execute on function check_rate_limit(text, int, int) from public;
+revoke execute on function email_domain_allowed() from public;
+revoke execute on function email_domain_allowed_for_magic_link() from public;
+
+revoke execute on function check_rate_limit(text, int, int) from anon;
+revoke execute on function email_domain_allowed() from anon;
+revoke execute on function email_domain_allowed_for_magic_link() from anon;
+
+comment on function check_rate_limit is
+  'Fixed-window rate limiter, DB-backed so it stays correct across Vercel''s '
+  'multi-instance serverless model (an in-memory counter is not). Returns '
+  'true if this call is allowed (count is now <= p_max_count within the '
+  'current p_window_seconds-wide window), false if the caller should be '
+  'rejected with a 429. p_key should already be fully scoped by the caller '
+  '(e.g. "print_submit:<user_id>", "agent_register:<ip>") - this function '
+  'does no authorization of its own, it only counts. Granted to authenticated '
+  'only (explicitly revoked from public/anon - see 0019) since it has no '
+  'way to verify a caller-supplied p_key actually belongs to that caller.';
+
+create or replace function private.prevent_last_authenticated_at_tampering()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.last_authenticated_at is distinct from old.last_authenticated_at
+     and coalesce(auth.role(), 'anon') <> 'service_role' then
+    raise exception 'last_authenticated_at can only be changed by a service-role operation';
+  end if;
+  return new;
+end;
+$$;
+
+
+-- ===================================================================
+-- Source: migrations/0020_atomic_invitation_claim.sql
+-- ===================================================================
+-- claim_invitation_use(): atomically increments
+-- organization_invitations.uses_count, only if max_uses hasn't been
+-- reached yet - fixes a real race in the old read-then-write app-code
+-- pattern (read uses_count, check < max_uses, write uses_count + 1 as a
+-- client-computed literal) that let two concurrent redemptions of the same
+-- code both pass the check and both succeed, over-admitting past max_uses.
+-- Mirrors adjust_monthly_usage's identical atomic-conditional-UPDATE shape.
+create or replace function claim_invitation_use(p_invitation_id uuid)
+returns boolean
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_rows int;
+begin
+  update public.organization_invitations
+  set uses_count = uses_count + 1
+  where id = p_invitation_id
+    and (max_uses is null or uses_count < max_uses);
+  get diagnostics v_rows = row_count;
+  return v_rows > 0;
+end;
+$$;
+
+comment on function claim_invitation_use is
+  'Atomically increments organization_invitations.uses_count, only if '
+  'max_uses has not been reached yet - the increment happens inside this '
+  'single SQL statement (uses_count = uses_count + 1), not as a '
+  'client-computed literal, so concurrent redemptions of the same code '
+  'cannot both read the same stale count and both succeed. Returns true if '
+  'this call claimed a use, false if already exhausted. Called only from '
+  'apps/web/lib/auth/invitations.ts''s redeemInvitation(), which always '
+  'runs as service-role.';
+
+revoke execute on function claim_invitation_use(uuid) from public;
+revoke execute on function claim_invitation_use(uuid) from anon;
+revoke execute on function claim_invitation_use(uuid) from authenticated;

@@ -1011,6 +1011,10 @@ export type Database = {
         Args: { p_key: string; p_max_count: number; p_window_seconds: number }
         Returns: boolean
       }
+      claim_invitation_use: {
+        Args: { p_invitation_id: string }
+        Returns: boolean
+      }
       email_domain_allowed: { Args: never; Returns: boolean }
       email_domain_allowed_for_magic_link: { Args: never; Returns: boolean }
     }
@@ -1139,9 +1143,3 @@ export type CompositeTypes<
   : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
     ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
     : never
-
-export const Constants = {
-  public: {
-    Enums: {},
-  },
-} as const

@@ -228,9 +228,18 @@ async function createPrintJob(
   let derivedPath: string | null = null;
   if (derivedBytes) {
     derivedPath = jobFilePath(organizationId, jobId, "derived");
-    await supabase.storage
+    // Unlike the originalPath upload above, this one's result used to be
+    // discarded entirely - a transient Storage failure here would still
+    // write derivedPath into print_jobs.derived_file_path below, so the job
+    // would proceed through policy/approval as if the (booklet-imposed)
+    // file existed. The failure only surfaced much later and far away, as a
+    // generic 500 from the Agent's download-url route with nothing in the
+    // logs from submission time to explain why. Fail the submission here
+    // instead, same as the original-file upload already does.
+    const { error: derivedUploadError } = await supabase.storage
       .from(PRINT_JOBS_BUCKET)
       .upload(derivedPath, derivedBytes, { contentType: "application/pdf" });
+    if (derivedUploadError) return { error: "Failed to store the processed file. Please try again." };
   }
 
   const now = new Date();

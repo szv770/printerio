@@ -35,9 +35,6 @@ export async function redeemInvitation(
   if (invitation.expires_at && new Date(invitation.expires_at).getTime() < Date.now()) {
     return { ok: false, reason: "expired" };
   }
-  if (invitation.max_uses !== null && invitation.uses_count >= invitation.max_uses) {
-    return { ok: false, reason: "exhausted" };
-  }
 
   const { data: existing } = await supabase
     .from("organization_members")
@@ -47,6 +44,29 @@ export async function redeemInvitation(
     .maybeSingle();
   if (existing) return { ok: false, reason: "already_member" };
 
+  // Atomically claim one use of this code before inserting membership - via
+  // the claim_invitation_use() RPC (supabase/migrations/0020_*.sql), not the
+  // read-then-write this used to be (read invitation.uses_count above,
+  // check < max_uses, write uses_count + 1 as a separate, client-computed
+  // literal). That shape let two concurrent redemptions of the same code
+  // both read the same uses_count, both pass the check, and both succeed -
+  // a code capped at max_uses: N could admit N+k people under concurrent
+  // redemption (e.g. a class of students all redeeming the same open
+  // enrollment code around the same moment - this app's actual use case).
+  // A client-side "read uses_count, send uses_count+1" pair can't be made
+  // atomic no matter how the WHERE clause is phrased, because the value
+  // being written is still computed from a possibly-stale read - the
+  // increment itself has to happen inside the SQL statement
+  // (`uses_count = uses_count + 1`), which PostgREST's .update() cannot
+  // express (it only ever sends literal values, never a SQL expression) -
+  // hence the RPC, mirroring adjust_monthly_usage's identical shape
+  // (supabase/migrations/0010_quota_functions.sql) for the identical reason.
+  const { data: claimed, error: claimError } = await supabase.rpc("claim_invitation_use", {
+    p_invitation_id: invitation.id,
+  });
+  if (claimError) throw claimError;
+  if (!claimed) return { ok: false, reason: "exhausted" };
+
   const { error: insertError } = await supabase.from("organization_members").insert({
     user_id: userId,
     organization_id: invitation.organization_id,
@@ -54,11 +74,6 @@ export async function redeemInvitation(
     status: "active",
   });
   if (insertError) throw insertError;
-
-  await supabase
-    .from("organization_invitations")
-    .update({ uses_count: invitation.uses_count + 1 })
-    .eq("id", invitation.id);
 
   await supabase.from("audit_logs").insert({
     organization_id: invitation.organization_id,
