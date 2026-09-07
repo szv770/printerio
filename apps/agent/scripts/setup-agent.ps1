@@ -273,19 +273,36 @@ try {
     # blocker - this machine's existing checkout is still perfectly usable
     # even if the update check itself doesn't succeed.
     Write-Step "Checking for updates"
+    $repoWasUpdated = $false
     if (Test-Path -LiteralPath (Join-Path $RepoRoot ".git")) {
         $gitCmd = Get-Command "git" -ErrorAction SilentlyContinue
         if ($gitCmd) {
             try {
-                $pullOutput = & git pull 2>&1
+                # $ErrorActionPreference is "Stop" for this whole script, and
+                # under "Stop" a native command's stderr captured via 2>&1
+                # becomes a TERMINATING NativeCommandError - git routes its
+                # ordinary progress chatter ("From github.com:...") to stderr,
+                # so this reported "couldn't check for updates" on essentially
+                # every run, even the successful ones. Relax the preference
+                # for just this one call and read $LASTEXITCODE instead, which
+                # is the actual success signal.
+                $previousEap = $ErrorActionPreference
+                $ErrorActionPreference = "Continue"
+                try {
+                    $pullOutput = (& git pull 2>&1 | ForEach-Object { $_.ToString() }) -join "`n"
+                } finally {
+                    $ErrorActionPreference = $previousEap
+                }
                 if ($LASTEXITCODE -eq 0) {
                     if ($pullOutput -match "Already up to date") {
                         Write-Ok "Already up to date."
                     } else {
+                        $repoWasUpdated = $true
                         Write-Ok "Updated to the latest version."
                     }
                 } else {
                     Write-Warn "Couldn't check for updates (git pull exited with code $LASTEXITCODE) - continuing with what's already on this machine."
+                    Write-Info $pullOutput
                 }
             } catch {
                 Write-Warn "Couldn't check for updates ($($_.Exception.Message)) - continuing with what's already on this machine."
@@ -410,9 +427,18 @@ try {
     Write-Step "Checking dependencies"
     $rootNodeModules = Join-Path $RepoRoot "node_modules"
     $agentNodeModules = Join-Path $AgentDir "node_modules"
-    if ((Test-Path -LiteralPath $rootNodeModules) -and (Test-Path -LiteralPath $agentNodeModules)) {
+    # A "node_modules exists" check alone is not enough right after step 0
+    # actually pulled new commits: those commits may have added or bumped a
+    # dependency, and skipping the install then leaves the Agent running
+    # against the old dependency tree - failing at import time with an error
+    # that says nothing about the real cause. Re-install whenever the checkout
+    # just changed; it's a fast no-op when nothing in the lockfile did.
+    if ((Test-Path -LiteralPath $rootNodeModules) -and (Test-Path -LiteralPath $agentNodeModules) -and (-not $repoWasUpdated)) {
         Write-Ok "Dependencies already installed."
     } else {
+        if ($repoWasUpdated) {
+            Write-Info "This checkout was just updated, so dependencies are being re-checked with 'pnpm install'..."
+        }
         Write-Info "Installing dependencies with 'pnpm install' - this can take a few minutes the first time..."
         & pnpm install
         if ($LASTEXITCODE -ne 0) {
