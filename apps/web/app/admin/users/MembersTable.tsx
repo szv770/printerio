@@ -1,13 +1,19 @@
 "use client";
 
 import { useActionState } from "react";
+import Link from "next/link";
 import { Users } from "lucide-react";
-import { Select, Input, EmptyState, FormError, Badge } from "@/components/ui";
+import { Select, Input, Button, EmptyState, FormError, Badge } from "@/components/ui";
+import { routes } from "@/lib/routes";
 import {
   changeMemberRoleAction,
   changeMemberDepartmentAction,
+  toggleMemberStatusAction,
+  removeMemberAction,
   type RoleChangeState,
   type DepartmentChangeState,
+  type StatusChangeState,
+  type RemoveMemberState,
 } from "./actions";
 
 interface Member {
@@ -21,6 +27,8 @@ interface Member {
 
 const initialRoleState: RoleChangeState = {};
 const initialDeptState: DepartmentChangeState = {};
+const initialStatusState: StatusChangeState = {};
+const initialRemoveState: RemoveMemberState = {};
 
 export function MembersTable({ members, canEdit }: { members: Member[]; canEdit: boolean }) {
   if (members.length === 0) return <EmptyState message="No members yet." icon={Users} />;
@@ -35,6 +43,7 @@ export function MembersTable({ members, canEdit }: { members: Member[]; canEdit:
             <th className="py-2 pr-4">Role</th>
             <th className="py-2 pr-4">Department</th>
             <th className="py-2 pr-4">Status</th>
+            {canEdit && <th className="py-2 pr-4">Actions</th>}
           </tr>
         </thead>
         <tbody>
@@ -50,11 +59,23 @@ export function MembersTable({ members, canEdit }: { members: Member[]; canEdit:
 function MemberRow({ member, canEdit }: { member: Member; canEdit: boolean }) {
   const [roleState, roleAction] = useActionState(changeMemberRoleAction, initialRoleState);
   const [deptState, deptAction] = useActionState(changeMemberDepartmentAction, initialDeptState);
+  const [statusState, statusAction] = useActionState(toggleMemberStatusAction, initialStatusState);
+  const [removeState, removeAction] = useActionState(removeMemberAction, initialRemoveState);
+
+  const detailHref = routes.adminUserDetail(member.userId);
 
   return (
     <tr className="border-b border-[var(--color-border)]">
-      <td className="py-2 pr-4">{member.displayName ?? "—"}</td>
-      <td className="py-2 pr-4">{member.email}</td>
+      <td className="py-2 pr-4">
+        <Link href={detailHref} className="font-medium hover:underline">
+          {member.displayName ?? "—"}
+        </Link>
+      </td>
+      <td className="py-2 pr-4">
+        <Link href={detailHref} className="hover:underline">
+          {member.email}
+        </Link>
+      </td>
       <td className="py-2 pr-4">
         {canEdit ? (
           <form action={roleAction} className="inline-flex items-center gap-2">
@@ -88,7 +109,39 @@ function MemberRow({ member, canEdit }: { member: Member; canEdit: boolean }) {
         )}
         <FormError message={deptState.error} />
       </td>
-      <td className="py-2 pr-4">{member.status}</td>
+      <td className="py-2 pr-4">
+        {canEdit ? (
+          <form action={statusAction} className="inline-flex items-center gap-2">
+            <input type="hidden" name="userId" value={member.userId} />
+            <input type="hidden" name="status" value={member.status === "active" ? "disabled" : "active"} />
+            <Badge tone={member.status === "active" ? "success" : "neutral"}>{member.status}</Badge>
+            <button type="submit" className="text-xs text-[var(--color-primary)]">
+              {member.status === "active" ? "Disable" : "Re-enable"}
+            </button>
+          </form>
+        ) : (
+          <Badge tone={member.status === "active" ? "success" : "neutral"}>{member.status}</Badge>
+        )}
+        <FormError message={statusState.error} />
+      </td>
+      {canEdit && (
+        <td className="py-2 pr-4">
+          <form
+            action={removeAction}
+            onSubmit={(e) => {
+              if (!confirm(`Remove ${member.displayName ?? member.email} from this organization? This does not delete their account.`)) {
+                e.preventDefault();
+              }
+            }}
+          >
+            <input type="hidden" name="userId" value={member.userId} />
+            <Button type="submit" variant="outline-danger" size="sm">
+              Remove
+            </Button>
+          </form>
+          <FormError message={removeState.error} />
+        </td>
+      )}
     </tr>
   );
 }

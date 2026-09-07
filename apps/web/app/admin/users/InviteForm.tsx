@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { Button, Input, Select, FieldLabel, FormError, Card } from "@/components/ui";
 import { createInvitationAction, type InviteState } from "./actions";
+import { CopyCodeButton } from "./CopyCodeButton";
 
 const initialState: InviteState = {};
 
@@ -34,9 +35,10 @@ export function InviteForm() {
         </Button>
         <FormError message={state.error} />
         {state.code && (
-          <p className="w-full text-sm">
-            Enrollment code: <code className="rounded bg-gray-100 px-2 py-1 font-mono">{state.code}</code> — share this with the
-            person joining.
+          <p className="flex w-full flex-wrap items-center gap-2 text-sm">
+            Enrollment code: <code className="rounded bg-gray-100 px-2 py-1 font-mono">{state.code}</code>
+            <CopyCodeButton code={state.code} />
+            <span>— share this with the person joining.</span>
           </p>
         )}
       </form>
