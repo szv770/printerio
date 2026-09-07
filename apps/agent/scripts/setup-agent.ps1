@@ -225,7 +225,8 @@ function Invoke-InstallServiceFlow-Elevated {
         Set-Location -LiteralPath $RepoRoot
         Write-Host ""
         Write-Host "Running with administrator rights now - installing the Windows Service..." -ForegroundColor Cyan
-        & pnpm @("--filter", "@printio/agent", "install-service")
+        $pnpmArgs = @("--filter", "@printio/agent", "install-service")
+        & pnpm @pnpmArgs
         if ($LASTEXITCODE -ne 0) {
             Show-RunFailure "Installing the Windows Service failed (exit code $LASTEXITCODE)."
         } else {
@@ -345,8 +346,19 @@ try {
                 return
             }
             if (-not (Get-Command "pnpm" -ErrorAction SilentlyContinue)) {
-                Show-StopMessage "Corepack ran, but pnpm still isn't available in this window. Close this window, double-click setup-agent.bat again (a fresh window picks up the change), or install pnpm yourself with: npm install -g pnpm"
-                return
+                # corepack enable (or a manual `npm install -g pnpm` run in a
+                # separate window per the message above) can write to PATH at
+                # the Machine/User registry level without this already-running
+                # process ever seeing the update - Get-Command only looks at
+                # $env:Path as this process loaded it at startup. Re-read both
+                # scopes and retry once before giving up and asking for a
+                # restart, since that often avoids needing one at all.
+                $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + `
+                    [System.Environment]::GetEnvironmentVariable("Path", "User")
+                if (-not (Get-Command "pnpm" -ErrorAction SilentlyContinue)) {
+                    Show-StopMessage "Corepack ran, but pnpm still isn't available in this window. Close this window, double-click setup-agent.bat again (a fresh window picks up the change), or install pnpm yourself with: npm install -g pnpm"
+                    return
+                }
             }
             Write-Ok "pnpm is now available (via Corepack)."
         } else {
@@ -393,7 +405,8 @@ try {
             return
         }
         Write-Info "Registering..."
-        & pnpm @("--filter", "@printio/agent", "register", "--", "--code=$enrollmentCode")
+        $pnpmArgs = @("--filter", "@printio/agent", "register", "--", "--code=$enrollmentCode")
+        & pnpm @pnpmArgs
         if ($LASTEXITCODE -ne 0) {
             Show-RunFailure "Registration failed (exit code $LASTEXITCODE)."
             return
@@ -420,7 +433,8 @@ try {
         Write-Host "Starting the Agent now. This window IS the running Agent - leave it open." -ForegroundColor Cyan
         Write-Host "Press Ctrl+C to stop it, or just close this window." -ForegroundColor Cyan
         Write-Host ""
-        & pnpm @("--filter", "@printio/agent", "start")
+        $pnpmArgs = @("--filter", "@printio/agent", "start")
+        & pnpm @pnpmArgs
         $startExit = $LASTEXITCODE
         if ($startExit -ne 0) {
             Show-RunFailure "The Agent exited unexpectedly (exit code $startExit)."
@@ -431,7 +445,8 @@ try {
     } else {
         if (Test-IsElevated) {
             Write-Info "This window already has administrator rights - installing the service directly."
-            & pnpm @("--filter", "@printio/agent", "install-service")
+            $pnpmArgs = @("--filter", "@printio/agent", "install-service")
+            & pnpm @pnpmArgs
             if ($LASTEXITCODE -ne 0) {
                 Show-RunFailure "Installing the Windows Service failed (exit code $LASTEXITCODE)."
             } else {
