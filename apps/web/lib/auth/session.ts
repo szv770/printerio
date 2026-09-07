@@ -73,3 +73,34 @@ export async function requireOrgRole(roles: OrgRole[]): Promise<SessionWithMembe
   }
   return session as SessionWithMembership;
 }
+
+export type PlatformRole = "user" | "super_admin";
+
+/**
+ * Guards every /platform (platform-level super-admin console) Server
+ * Component/Server Action - mirrors requireOrgRole's shape exactly, but
+ * checks `profiles.platform_role` instead of an org membership role.
+ *
+ * `session.profile` above already comes from a live `profiles` row read done
+ * by getCurrentSession() for *this* request (see its own comment) - never a
+ * client-supplied value and never a JWT claim, which is deliberate: unlike
+ * organization_id/role (stamped into custom JWT claims for RLS/Realtime
+ * performance, see docs/architecture.md sec 2.3), platform_role has no JWT
+ * claim at all, and this function must never be changed to read one - a
+ * super_admin promotion/demotion (service-role only, see
+ * private.prevent_platform_role_escalation) must take effect on this user's
+ * very next request, not whenever their token happens to refresh.
+ *
+ * Callers (app/platform/layout.tsx and, defense-in-depth, each page under it)
+ * catch AuthError and redirect away - same pattern as requireOrgRole's callers
+ * in app/admin/layout.tsx - rather than this function redirecting itself, so
+ * it stays usable from Server Actions (which can't unconditionally redirect
+ * on failure the way a Server Component can).
+ */
+export async function requirePlatformRole(): Promise<CurrentSession> {
+  const session = await requireSession();
+  if (session.profile.platform_role !== "super_admin") {
+    throw new AuthError("FORBIDDEN", "Requires platform super_admin role");
+  }
+  return session;
+}

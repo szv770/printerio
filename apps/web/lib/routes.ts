@@ -32,6 +32,12 @@ export const routes = {
   adminAgents: "/admin/agents",
   adminAudit: "/admin/audit",
   adminReports: "/admin/reports",
+
+  // Platform-level super-admin console (docs/architecture.md sec 2.1/2.2) -
+  // separate from /admin, which is scoped to a single organization.
+  platform: "/platform",
+  platformNewOrganization: "/platform/organizations/new",
+  platformSuperAdmins: "/platform/super-admins",
 } as const;
 
 /** API routes the Agent and the admin dashboard call - kept alongside the

@@ -14,6 +14,15 @@ import { getPublicEnv, getServiceRoleEnv } from "@/lib/env";
  *   - invitation redemption
  *   - agent bearer-auth request handling (the Agent has no Supabase JWT at all)
  *   - the Vercel Cron retention/lease-expiry sweep
+ *   - the /platform super-admin console (app/platform/**): every cross-org
+ *     read (the Overview page's per-organization stats), organization
+ *     creation, super_admin promotion/demotion (RLS-blocked entirely for
+ *     authenticated clients - see private.prevent_platform_role_escalation),
+ *     and a super_admin self-granting org_admin access to a specific
+ *     organization ("Join organization as admin"). Every one of these calls
+ *     MUST sit behind requirePlatformRole() (lib/auth/session.ts) and only
+ *     ever run in a Server Component or Server Action - never anything
+ *     client-bundled.
  *
  * Every other read/write in this app must go through lib/supabase/server.ts
  * (or client.ts in the browser) so RLS is always the enforcement point.

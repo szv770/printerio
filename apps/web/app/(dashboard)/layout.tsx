@@ -14,6 +14,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   if (!session.membership) redirect(routes.noAccess);
 
   const isAdmin = session.membership.role === "org_admin" || session.membership.role === "approver";
+  const isSuperAdmin = session.profile.platform_role === "super_admin";
 
   return (
     <div className="min-h-screen">
@@ -41,6 +42,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
             {isAdmin && (
               <Link href={routes.admin} className="text-[var(--color-primary)]">
                 Admin
+              </Link>
+            )}
+            {isSuperAdmin && (
+              <Link href={routes.platform} className="text-[var(--color-primary)]">
+                Platform
               </Link>
             )}
           </nav>
