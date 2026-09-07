@@ -408,6 +408,7 @@ export type Database = {
       }
       organization_settings: {
         Row: {
+          admins_bypass_restrictions: boolean
           default_booklet_binding_side: string
           default_policy_action: string
           job_approval_expiry_hours: number
@@ -422,6 +423,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          admins_bypass_restrictions?: boolean
           default_booklet_binding_side?: string
           default_policy_action?: string
           job_approval_expiry_hours?: number
@@ -436,6 +438,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          admins_bypass_restrictions?: boolean
           default_booklet_binding_side?: string
           default_policy_action?: string
           job_approval_expiry_hours?: number
@@ -596,6 +599,7 @@ export type Database = {
           original_file_path: string
           paper_size: string
           policy_action: string | null
+          policy_bypassed_for_admin: boolean
           policy_reasons: string[]
           printer_id: string | null
           printer_profile_id: string | null
@@ -633,6 +637,7 @@ export type Database = {
           original_file_path: string
           paper_size?: string
           policy_action?: string | null
+          policy_bypassed_for_admin?: boolean
           policy_reasons?: string[]
           printer_id?: string | null
           printer_profile_id?: string | null
@@ -670,6 +675,7 @@ export type Database = {
           original_file_path?: string
           paper_size?: string
           policy_action?: string | null
+          policy_bypassed_for_admin?: boolean
           policy_reasons?: string[]
           printer_id?: string | null
           printer_profile_id?: string | null
@@ -1171,3 +1177,9 @@ export type CompositeTypes<
   : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
     ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
     : never
+
+export const Constants = {
+  public: {
+    Enums: {},
+  },
+} as const

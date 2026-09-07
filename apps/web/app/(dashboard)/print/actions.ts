@@ -9,8 +9,9 @@ import { routes } from "@/lib/routes";
 import { preflightPdf } from "@/lib/pdf/preflight";
 import { createBookletPaddedPdf } from "@/lib/pdf/booklet";
 import { imposeBookletPdf, resolvePaperSizePoints } from "@/lib/pdf/imposition";
-import { computePrintMath, computeCostCents, computeBookletPadding, type PricingConfig } from "@printio/shared";
+import { computePrintMath, computeCostCents, computeBookletPadding, type PricingConfig, type OrgRole } from "@printio/shared";
 import { evaluateJobPolicy } from "@/lib/policy/build-facts";
+import { didBypassChangeOutcome, isAdminExemptFromRestrictions } from "@/lib/policy/admin-bypass";
 import { adjustMonthlyUsage, usageAmountsForJob, type UsageAmounts } from "@/lib/quota";
 import { jobFilePath, PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { logger } from "@/lib/logger";
@@ -157,7 +158,7 @@ async function createPrintJob(
     pricing,
   });
 
-  const { result: policy, quotaLimit } = await evaluateJobPolicy(supabase, {
+  const { result: policy, quotaLimit, adminsBypassRestrictions } = await evaluateJobPolicy(supabase, {
     organizationId,
     userId: session.userId,
     role: session.membership.role as Parameters<typeof evaluateJobPolicy>[1]["role"],
@@ -175,9 +176,19 @@ async function createPrintJob(
     estimatedCostCents: costCents,
   });
 
+  // An org_admin's own submission bypasses a deny/require_approval outcome
+  // (and, below, the quota block) by default - see lib/policy/admin-bypass.ts.
+  // policy.action/policy.reasons are still stored on the job exactly as
+  // evaluated; policyBypassed is only the audit flag for "this outcome was
+  // overridden", shown to the admin as a warning rather than hidden.
+  const adminExempt = isAdminExemptFromRestrictions(session.membership.role as OrgRole, adminsBypassRestrictions);
+  const policyBypassed = didBypassChangeOutcome(adminExempt, policy.action);
+
   let jobStatus: "denied" | "pending_approval" | "approved" = "approved";
-  if (policy.action === "deny") jobStatus = "denied";
-  else if (policy.action === "require_approval") jobStatus = "pending_approval";
+  if (!adminExempt) {
+    if (policy.action === "deny") jobStatus = "denied";
+    else if (policy.action === "require_approval") jobStatus = "pending_approval";
+  }
 
   // Reused from the policy evaluation above, which already had to resolve the
   // caller's groups and applicable limit to build its quota fact - no second
@@ -197,12 +208,17 @@ async function createPrintJob(
   });
 
   if (jobStatus !== "denied") {
+    // An admin-exempt submission is never allowed to fail this reserve - a
+    // null limit tells adjust_monthly_usage's reserve mode to always
+    // succeed (supabase/migrations/0010_quota_functions.sql) while still
+    // recording the usage for reporting, rather than skipping the call
+    // entirely and leaving monthly_usage silently unaware of the job.
     const reserved = await adjustMonthlyUsage(
       supabase,
       { organizationId, userId: session.userId },
       reservedAmounts,
       quotaBasis,
-      quotaLimit,
+      adminExempt ? null : quotaLimit,
       "reserve",
     );
 
@@ -297,6 +313,7 @@ async function createPrintJob(
     estimated_cost_cents: costCents,
     policy_action: policy.action,
     policy_reasons: policy.reasons,
+    policy_bypassed_for_admin: policyBypassed,
     approved_at: jobStatus === "approved" ? now.toISOString() : null,
     expires_at:
       jobStatus === "pending_approval"
@@ -316,7 +333,10 @@ async function createPrintJob(
     { event_type: "JOB_CREATED" as const, metadata: {} },
     { event_type: "PDF_UPLOADED" as const, metadata: { fileName: originalFileName, fileSizeBytes: preflight.fileSizeBytes } },
     { event_type: "PREFLIGHT_COMPLETED" as const, metadata: { sourcePages, blankPagesAdded } },
-    { event_type: "POLICY_EVALUATED" as const, metadata: { action: policy.action, reasons: policy.reasons } },
+    {
+      event_type: "POLICY_EVALUATED" as const,
+      metadata: { action: policy.action, reasons: policy.reasons, bypassedForAdmin: policyBypassed },
+    },
     {
       event_type:
         jobStatus === "denied" ? ("DENIED" as const) : jobStatus === "pending_approval" ? ("APPROVAL_REQUIRED" as const) : ("APPROVED" as const),

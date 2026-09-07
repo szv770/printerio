@@ -309,6 +309,23 @@ Quota usage (`monthly_quota_usage_pct`) is just another fact available to a rule
 (e.g. "REQUIRE_APPROVAL when monthly_quota_usage_pct >= 90"), rather than a separate code
 path — one engine, one precedence model, one place reasons are generated.
 
+### 6.5 Admin bypass (opt-out, not a code path in the engine itself)
+
+An `org_admin`'s own submission is exempt from a `deny`/`require_approval` outcome and from
+quota blocking by default (`organization_settings.admins_bypass_restrictions`, default
+`true` — `0021_admin_bypass_restrictions.sql`). The rationale: an org frequently has no
+approver besides its own admin, so the fail-safe `require_approval` default (6.3) would
+otherwise be able to lock an admin out of their own printer with nobody able to unblock
+them. This is deliberately **not** implemented inside `evaluatePolicy()` — the engine still
+evaluates and returns exactly what the rules say; `lib/policy/admin-bypass.ts` decides,
+in the caller (`print/actions.ts`), whether that outcome is allowed to actually block the
+job. `policy_action`/`policy_reasons` are stored unchanged either way; a bypassed job also
+sets `print_jobs.policy_bypassed_for_admin`, so the job detail page can show a clear warning
+rather than silently overriding what the org's own policy said. Quota is bypassed the same
+way — the reserve call passes a `null` limit (always succeeds, still tracked) instead of
+skipping the reserve entirely. An organization can turn this off to hold its own admins to
+the same rules as everyone else (Admin → Settings).
+
 ## 7. Print math: pages, sides, sheets, cost
 
 These are deliberately kept distinct (§6 of the spec):
@@ -606,6 +623,27 @@ simply affects zero rows instead of double-claiming. A lease has a TTL
 (`lease_expires_at`); if an Agent disappears mid-job, the lease expires and the job returns
 to `approved` for another Agent (or the same one, after it reconnects) to claim — the cloud
 never simply "waits forever" for a vanished Agent.
+
+**The same state machine is what the submitter sees.** `apps/web/lib/job-progress.ts`
+projects the 14 states above onto seven user-facing stages — submitted → checked against
+print rules → approval → waiting for a printer → sent to the printer → printing → done —
+and the job detail page renders them as a stepper (which stages are done, which one the job
+is on right now, which are still ahead), with the plain-English event log
+(`lib/job-event-labels.ts`) kept underneath as the detail. The projection is derived from
+`packages/shared/src/job-state.ts`, not re-invented alongside it:
+`lib/job-progress.test.ts` walks `JOB_STATES`/`ALLOWED_TRANSITIONS` and fails if a state
+loses its stage, if an event type stops being classified, or if any allowed transition would
+move the stepper *backwards* (except the two rewind edges the machine documents by name —
+lease expiry and retry). A job that stopped is placed at the stage its own
+`print_job_events` rows prove it reached, since `failed`/`expired`/`cancelled` are reachable
+from several points, and it says *why* using what was actually recorded for it
+(`policy_reasons`, the approver's reason, `error_message`, `attempt_count`/`max_attempts`) —
+never a bare "failed". There is deliberately **no percentage anywhere**: nothing in this
+system observes page-by-page printer progress (§20), so discrete stages are the only honest
+unit of progress. Both the detail page and the jobs list update live through the same
+`postgres_changes`-on-`print_jobs` subscription the approval queue uses (§3.4/§15), paired
+with a `router.refresh()` so server-derived detail (the event trail, the approver's reason)
+follows the status change rather than lagging behind it.
 
 ## 14. Quota enforcement (race-safe)
 

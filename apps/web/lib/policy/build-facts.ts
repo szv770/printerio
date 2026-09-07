@@ -41,7 +41,7 @@ export async function evaluateJobPolicy(supabase: Client, input: PolicyEvalInput
     supabase.from("group_members").select("group_id").eq("user_id", input.userId),
     supabase
       .from("organization_settings")
-      .select("default_policy_action, quota_basis")
+      .select("default_policy_action, quota_basis, admins_bypass_restrictions")
       .eq("organization_id", input.organizationId)
       .single(),
     supabase
@@ -91,7 +91,16 @@ export async function evaluateJobPolicy(supabase: Client, input: PolicyEvalInput
     monthlyQuotaUsagePct: quotaUsagePct,
   };
 
-  return { result: evaluatePolicy(facts, rules, defaultAction), quotaBasis, groupIds, quotaLimit: quota.limit };
+  return {
+    result: evaluatePolicy(facts, rules, defaultAction),
+    quotaBasis,
+    groupIds,
+    quotaLimit: quota.limit,
+    // Default true (organization_settings row always exists per-org, but a
+    // defensive fallback to the safer "no bypass" reading if it were ever
+    // somehow missing) - see lib/policy/admin-bypass.ts.
+    adminsBypassRestrictions: settings?.admins_bypass_restrictions ?? false,
+  };
 }
 
 async function fetchPolicyRules(supabase: Client, policyIds: string[]): Promise<PolicyRule[]> {
