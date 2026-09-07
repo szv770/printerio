@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
+import { assertCanDisableSelf, assertCanRemoveMember } from "@/lib/member-safety";
 import type { OrgRole } from "@printio/shared";
 
 export interface InviteState {
@@ -71,6 +72,7 @@ export async function changeMemberRoleAction(_prev: RoleChangeState, formData: F
   });
 
   revalidatePath(routes.adminUsers);
+  revalidatePath(routes.adminUserDetail(userId));
   return {};
 }
 
@@ -96,6 +98,142 @@ export async function changeMemberDepartmentAction(
     .eq("organization_id", session.membership.organization_id)
     .eq("user_id", userId);
   if (error) return { error: error.message };
+
+  revalidatePath(routes.adminUsers);
+  revalidatePath(routes.adminUserDetail(userId));
+  return {};
+}
+
+export interface StatusChangeState {
+  error?: string;
+}
+
+/** Toggles organization_members.status between "active" and "disabled" -
+ *  previously a plain read-only column with no admin UI path to it at all
+ *  (same gap changeMemberDepartmentAction closed for department). Disabling
+ *  does not touch the profiles/auth.users row - the person's account still
+ *  exists, they just lose org access (getCurrentSession only picks up
+ *  status: "active" memberships). See lib/member-safety.ts for why an
+ *  org_admin can't disable their own membership through this action. */
+export async function toggleMemberStatusAction(_prev: StatusChangeState, formData: FormData): Promise<StatusChangeState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const userId = String(formData.get("userId") ?? "");
+  const status = String(formData.get("status") ?? "");
+  if (status !== "active" && status !== "disabled") return { error: "Invalid status." };
+
+  if (status === "disabled") {
+    const selfError = assertCanDisableSelf(session.userId, userId);
+    if (selfError) return { error: selfError };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("organization_members")
+    .update({ status })
+    .eq("organization_id", session.membership.organization_id)
+    .eq("user_id", userId);
+  if (error) return { error: error.message };
+
+  await supabase.from("audit_logs").insert({
+    organization_id: session.membership.organization_id,
+    actor_id: session.userId,
+    action: "member.status_changed",
+    target_type: "organization_members",
+    target_id: userId,
+    metadata: { status },
+  });
+
+  revalidatePath(routes.adminUsers);
+  revalidatePath(routes.adminUserDetail(userId));
+  return {};
+}
+
+export interface RemoveMemberState {
+  error?: string;
+  success?: boolean;
+}
+
+/** Removes someone from the organization (deletes their organization_members
+ *  row only) - not their profiles/auth.users row, which is their identity,
+ *  not their membership here. Removing them from this org should not delete
+ *  their account, which may still be a member of other organizations or
+ *  simply need to be re-invited later. See lib/member-safety.ts for why the
+ *  last remaining active org_admin can't be removed this way. */
+export async function removeMemberAction(_prev: RemoveMemberState, formData: FormData): Promise<RemoveMemberState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const userId = String(formData.get("userId") ?? "");
+  if (!userId) return { error: "Missing member." };
+
+  const supabase = await createClient();
+  const { data: target } = await supabase
+    .from("organization_members")
+    .select("user_id, role, status")
+    .eq("organization_id", session.membership.organization_id)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!target) return { error: "That member is no longer in this organization." };
+
+  if (target.role === "org_admin" && target.status === "active") {
+    const { count } = await supabase
+      .from("organization_members")
+      .select("user_id", { count: "exact", head: true })
+      .eq("organization_id", session.membership.organization_id)
+      .eq("role", "org_admin")
+      .eq("status", "active");
+    const safetyError = assertCanRemoveMember({ userId: target.user_id, role: target.role, status: target.status }, count ?? 0);
+    if (safetyError) return { error: safetyError };
+  }
+
+  const { error } = await supabase
+    .from("organization_members")
+    .delete()
+    .eq("organization_id", session.membership.organization_id)
+    .eq("user_id", userId);
+  if (error) return { error: error.message };
+
+  await supabase.from("audit_logs").insert({
+    organization_id: session.membership.organization_id,
+    actor_id: session.userId,
+    action: "member.removed",
+    target_type: "organization_members",
+    target_id: userId,
+    metadata: { role: target.role },
+  });
+
+  revalidatePath(routes.adminUsers);
+  revalidatePath(routes.adminUserDetail(userId));
+  return { success: true };
+}
+
+export interface RevokeInvitationState {
+  error?: string;
+}
+
+/** Deletes an unused organization_invitations row outright - e.g. one
+ *  created with the wrong role, or that leaked. Redemption (lib/auth/
+ *  invitations.ts) only ever reads a code that still exists, so this is a
+ *  hard revoke: once deleted, the code stops working immediately. */
+export async function revokeInvitationAction(_prev: RevokeInvitationState, formData: FormData): Promise<RevokeInvitationState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const invitationId = String(formData.get("invitationId") ?? "");
+  if (!invitationId) return { error: "Missing invitation." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("organization_invitations")
+    .delete()
+    .eq("organization_id", session.membership.organization_id)
+    .eq("id", invitationId);
+  if (error) return { error: error.message };
+
+  await supabase.from("audit_logs").insert({
+    organization_id: session.membership.organization_id,
+    actor_id: session.userId,
+    action: "invitation.revoked",
+    target_type: "organization_invitations",
+    target_id: invitationId,
+    metadata: {},
+  });
 
   revalidatePath(routes.adminUsers);
   return {};

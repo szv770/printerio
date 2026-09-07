@@ -3,6 +3,7 @@ import { requireOrgRole } from "@/lib/auth/session";
 import { PageHeader } from "@/components/ui";
 import { InviteForm } from "./InviteForm";
 import { MembersTable } from "./MembersTable";
+import { InvitationsList } from "./InvitationsList";
 
 export default async function UsersPage() {
   const session = await requireOrgRole(["org_admin", "approver"]);
@@ -49,15 +50,16 @@ export default async function UsersPage() {
       {isOrgAdmin && invitations && invitations.length > 0 && (
         <div className="mt-8">
           <h2 className="mb-2 text-sm font-medium">Open invitations</h2>
-          <ul className="flex flex-col gap-2 text-sm">
-            {invitations.map((inv) => (
-              <li key={inv.id} className="rounded-lg border border-[var(--color-border)] p-3">
-                <code>{inv.code}</code> — role: {inv.role} — used {inv.uses_count}
-                {inv.max_uses ? `/${inv.max_uses}` : ""} times
-                {inv.expires_at ? ` — expires ${new Date(inv.expires_at).toLocaleDateString()}` : ""}
-              </li>
-            ))}
-          </ul>
+          <InvitationsList
+            invitations={invitations.map((inv) => ({
+              id: inv.id,
+              code: inv.code,
+              role: inv.role,
+              usesCount: inv.uses_count,
+              maxUses: inv.max_uses,
+              expiresAt: inv.expires_at,
+            }))}
+          />
         </div>
       )}
     </div>

@@ -23,6 +23,7 @@ export const routes = {
   admin: "/admin",
   adminApprovals: "/admin/approvals",
   adminUsers: "/admin/users",
+  adminUserDetail: (userId: string) => `/admin/users/${userId}`,
   adminGroups: "/admin/groups",
   adminQuotas: "/admin/quotas",
   adminSettings: "/admin/settings",
