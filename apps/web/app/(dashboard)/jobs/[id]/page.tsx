@@ -5,6 +5,21 @@ import { Card } from "@/components/ui";
 import { jobEventDisplay } from "@/lib/job-event-labels";
 import { JobStatusLive } from "./JobStatusLive";
 import { ReprintButton } from "./ReprintButton";
+import { LocalTime } from "../LocalTime";
+
+/** The approver's own words, recorded on the REJECTED event alongside the
+ *  approval_actions row (app/admin/approvals/actions.ts). Read from the
+ *  events we already fetched rather than a second query - both are visible to
+ *  the job's owner under the same RLS policy. */
+function rejectionReasonFrom(events: { event_type: string; metadata: unknown }[]): string | null {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    if (!event || event.event_type !== "REJECTED") continue;
+    const reason = (event.metadata as { reason?: unknown } | null)?.reason;
+    return typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : null;
+  }
+  return null;
+}
 
 export default async function JobDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -19,6 +34,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
     .select("*")
     .eq("job_id", id)
     .order("created_at", { ascending: true });
+  const eventRows = events ?? [];
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-10">
@@ -30,27 +46,15 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         <ReprintButton jobId={job.id} />
       </div>
 
-      <JobStatusLive jobId={job.id} initialStatus={job.status} initialErrorMessage={job.error_message} />
+      {/* The stage-by-stage answer to "where is this up to right now", live
+       *  over Supabase Realtime. It also owns the "why" for a job that
+       *  stopped (denial reasons, the approver's reason, the agent's error
+       *  message) and the reasons a job needed approval in the first place -
+       *  those read as part of the stage they belong to, rather than as a
+       *  separate card floating above the details. */}
+      <JobStatusLive job={job} eventTypes={eventRows.map((e) => e.event_type)} rejectionReason={rejectionReasonFrom(eventRows)} />
 
-      {/* The reason a job was denied/needs approval is the thing a user most
-       *  wants explained - shown right under status, before the generic
-       *  page/copy/color details below (which the user already knows, since
-       *  they're the one who picked them). Auto-approved jobs have no
-       *  reasons to show and just skip straight to the details grid. */}
-      {job.policy_reasons.length > 0 && (
-        <Card className="mt-6 text-sm">
-          <p className="mb-1 font-medium">
-            {job.policy_action === "deny" ? "Why this was denied" : job.policy_action === "require_approval" ? "Why this needs approval" : "Auto-approved"}
-          </p>
-          <ul className="list-inside list-disc text-[var(--color-muted)]">
-            {job.policy_reasons.map((r, i) => (
-              <li key={i}>{r}</li>
-            ))}
-          </ul>
-        </Card>
-      )}
-
-      <Card className={`grid grid-cols-2 gap-4 text-sm ${job.policy_reasons.length > 0 ? "mt-4" : "mt-6"}`}>
+      <Card className="mt-4 grid grid-cols-2 gap-4 text-sm">
         <div>
           <p className="text-[var(--color-muted)]">Pages</p>
           <p className="font-medium">{job.source_pdf_pages}</p>
@@ -77,21 +81,21 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         </div>
       </Card>
 
-      {events && events.length > 0 && (
+      {eventRows.length > 0 && (
         <div className="mt-6">
           <p className="mb-2 text-sm font-medium">History</p>
-          {/* Plain-English labels, not the raw print_job_events.event_type
-           *  pipeline constants - this list is the one place a user comes to
-           *  answer "where did my job get to", so it has to read as a
-           *  sentence. See lib/job-event-labels.ts. */}
+          {/* Detail under the stepper, not instead of it: the stepper says
+           *  where the job is, this says exactly what happened and when.
+           *  Plain-English labels, not the raw print_job_events.event_type
+           *  pipeline constants - see lib/job-event-labels.ts. */}
           <ul className="flex flex-col gap-1.5 text-xs text-[var(--color-muted)]">
-            {events.map((e) => {
+            {eventRows.map((e) => {
               const { Icon, label } = jobEventDisplay(e.event_type);
               return (
                 <li key={e.id} className="flex items-center gap-2">
                   <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
                   <span className="text-[var(--color-text)]">{label}</span>
-                  <span>{new Date(e.created_at).toLocaleString()}</span>
+                  <LocalTime iso={e.created_at} />
                 </li>
               );
             })}

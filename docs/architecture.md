@@ -546,6 +546,27 @@ simply affects zero rows instead of double-claiming. A lease has a TTL
 to `approved` for another Agent (or the same one, after it reconnects) to claim — the cloud
 never simply "waits forever" for a vanished Agent.
 
+**The same state machine is what the submitter sees.** `apps/web/lib/job-progress.ts`
+projects the 14 states above onto seven user-facing stages — submitted → checked against
+print rules → approval → waiting for a printer → sent to the printer → printing → done —
+and the job detail page renders them as a stepper (which stages are done, which one the job
+is on right now, which are still ahead), with the plain-English event log
+(`lib/job-event-labels.ts`) kept underneath as the detail. The projection is derived from
+`packages/shared/src/job-state.ts`, not re-invented alongside it:
+`lib/job-progress.test.ts` walks `JOB_STATES`/`ALLOWED_TRANSITIONS` and fails if a state
+loses its stage, if an event type stops being classified, or if any allowed transition would
+move the stepper *backwards* (except the two rewind edges the machine documents by name —
+lease expiry and retry). A job that stopped is placed at the stage its own
+`print_job_events` rows prove it reached, since `failed`/`expired`/`cancelled` are reachable
+from several points, and it says *why* using what was actually recorded for it
+(`policy_reasons`, the approver's reason, `error_message`, `attempt_count`/`max_attempts`) —
+never a bare "failed". There is deliberately **no percentage anywhere**: nothing in this
+system observes page-by-page printer progress (§20), so discrete stages are the only honest
+unit of progress. Both the detail page and the jobs list update live through the same
+`postgres_changes`-on-`print_jobs` subscription the approval queue uses (§3.4/§15), paired
+with a `router.refresh()` so server-derived detail (the event trail, the approver's reason)
+follows the status change rather than lagging behind it.
+
 ## 14. Quota enforcement (race-safe)
 
 Quota consumption is **reserved at submission time**, inside the same database transaction
