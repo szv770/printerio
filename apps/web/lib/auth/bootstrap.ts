@@ -2,6 +2,8 @@ import "server-only";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getBootstrapEnv } from "@/lib/env";
 import { emailDomain, isValidDomain } from "@/lib/auth/domains";
+import { firstRunStatus, type FirstRunStatus } from "@/lib/auth/first-run";
+import { logger } from "@/lib/logger";
 
 /**
  * Single-org bootstrap (this session's scope: prototype on the operator's own
@@ -76,6 +78,46 @@ export async function maybeBootstrapOrganization(userId: string, email: string):
     target_id: org.id,
     metadata: { via: "PRINTIO_BOOTSTRAP_ADMIN_EMAIL" },
   });
+}
+
+/**
+ * Read-only companion to the function above: what the /no-access screen needs
+ * in order to say something useful instead of "ask your organization
+ * administrator" on a deployment that has no administrator yet.
+ *
+ * Deliberately never compares the caller's email to the configured bootstrap
+ * email - see the header comment in lib/auth/first-run.ts for why. It only
+ * ever answers "does any organization exist on this deployment" and "can this
+ * running build see a usable PRINTIO_BOOTSTRAP_ADMIN_EMAIL", both of which
+ * describe the deployment rather than any person.
+ *
+ * Fails closed to "organization_exists" (i.e. the ordinary, least-informative
+ * screen) if the count query itself errors, rather than claiming a deployment
+ * is unconfigured on the strength of a failed query.
+ */
+export async function getFirstRunStatus(): Promise<FirstRunStatus> {
+  let bootstrapAdminConfigured = false;
+  let bootstrapEnvInvalid = false;
+  try {
+    // Throws only when PRINTIO_BOOTSTRAP_ADMIN_EMAIL is set to something that
+    // isn't a valid email (see lib/env.ts) - unset is always fine.
+    bootstrapAdminConfigured = !!getBootstrapEnv().PRINTIO_BOOTSTRAP_ADMIN_EMAIL?.trim();
+  } catch {
+    bootstrapEnvInvalid = true;
+  }
+
+  try {
+    const { count, error } = await createServiceRoleClient()
+      .from("organizations")
+      .select("id", { count: "exact", head: true });
+    if (error) throw error;
+    return firstRunStatus({ organizationCount: count ?? 0, bootstrapAdminConfigured, bootstrapEnvInvalid });
+  } catch (error) {
+    logger.error("first-run status check failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { kind: "organization_exists" };
+  }
 }
 
 function slugify(input: string): string {
