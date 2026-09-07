@@ -3,7 +3,7 @@
 import { useActionState, useState } from "react";
 import { Info } from "lucide-react";
 import type { Tables } from "@/lib/database.types";
-import { Button, Input, Select, FieldLabel, FormError, Badge, EmptyState, Card } from "@/components/ui";
+import { Button, Input, Select, FieldLabel, FormError, FormSuccess, Badge, EmptyState, Card } from "@/components/ui";
 import { createQuotaAction, deleteQuotaAction, initialQuotaActionState } from "./actions";
 
 type Quota = Tables<"quotas">;
@@ -119,10 +119,18 @@ export function QuotasPanel({
             </div>
 
             <Button type="submit" size="sm" pending={creating} pendingLabel="Saving...">
-              Add quota
+              Set quota
             </Button>
-            <FormError message={createState.error} />
+            <div className="basis-full">
+              <FormError message={createState.error} />
+              <FormSuccess message={createState.success} />
+            </div>
           </form>
+          <p className="mt-2 text-xs text-[var(--color-muted)]">
+            One limit per scope: setting a limit for a scope that already has one replaces it. When someone matches
+            more than one scope (their role and their department, say), the lowest of those limits is the one that
+            applies.
+          </p>
         </Card>
       )}
 
