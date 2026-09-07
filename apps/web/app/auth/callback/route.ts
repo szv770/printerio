@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { maybeBootstrapOrganization } from "@/lib/auth/bootstrap";
 import { emailDomain } from "@/lib/auth/domains";
 import { isGoogleSignIn } from "@/lib/auth/provider";
@@ -79,7 +80,18 @@ export async function GET(request: Request) {
 
       // Only stamp the reauth clock for a sign-in that was actually accepted
       // (see lib/auth/reauth.ts) - never for one just rejected above.
-      const { error: touchError } = await supabase
+      //
+      // Must go through the service-role client, not the ordinary
+      // session-scoped `supabase` used above for exchangeCodeForSession:
+      // supabase/migrations/0016_protect_last_authenticated_at.sql adds a
+      // trigger that rejects any change to this column from a caller whose
+      // role isn't service_role (closing a real hole where any authenticated
+      // client could otherwise re-stamp its own row and defeat the 30-day
+      // reauth control entirely - see that migration's own comment). Using
+      // the ordinary client here would have every legitimate sign-in's
+      // update silently rejected by that same trigger, which is exactly the
+      // bug this comment is warning against re-introducing.
+      const { error: touchError } = await createServiceRoleClient()
         .from("profiles")
         .update({ last_authenticated_at: new Date().toISOString() })
         .eq("id", userId);
