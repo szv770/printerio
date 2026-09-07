@@ -3,7 +3,11 @@
 import { useActionState } from "react";
 import { RotateCw } from "lucide-react";
 import { Button, FormError } from "@/components/ui";
-import { reprintJobAction, initialSubmitJobState } from "../../print/actions";
+import { reprintJobAction, type SubmitJobState } from "../../print/actions";
+
+// A "use server" file may only export async functions, so this trivial seed
+// value for useActionState lives here instead of alongside the action.
+const initialSubmitJobState: SubmitJobState = {};
 
 /**
  * Re-submits this exact job (same file, same settings) as a brand-new job,

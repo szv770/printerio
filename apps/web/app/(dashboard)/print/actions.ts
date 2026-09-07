@@ -24,9 +24,6 @@ export interface SubmitJobState {
   };
 }
 
-const initialState: SubmitJobState = {};
-export { initialState as initialSubmitJobState };
-
 interface JobOptions {
   printerProfileId: string;
   copies: number;

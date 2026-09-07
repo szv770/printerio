@@ -6,7 +6,11 @@ import { computePrintMath } from "@printio/shared";
 import { Button, Input, Select, FieldLabel, FormError, Card } from "@/components/ui";
 import { PRINTER_PROFILE_ICON_COMPONENTS, type PrinterProfileIconKey } from "@/lib/printer-profile-icons";
 import { formatFileSize, precheckPdfHeader, precheckSelectedFile } from "@/lib/pdf/client-precheck";
-import { submitPrintJobAction, initialSubmitJobState } from "./actions";
+import { submitPrintJobAction, type SubmitJobState } from "./actions";
+
+// A "use server" file may only export async functions, so this trivial seed
+// value for useActionState lives here instead of alongside the action.
+const initialSubmitJobState: SubmitJobState = {};
 
 interface PrinterProfileOption {
   id: string;
