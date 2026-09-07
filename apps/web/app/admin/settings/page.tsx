@@ -15,7 +15,7 @@ export default async function SettingsPage() {
       .single(),
     supabase
       .from("organization_settings")
-      .select("default_booklet_binding_side")
+      .select("default_booklet_binding_side, admins_bypass_restrictions")
       .eq("organization_id", session.membership.organization_id)
       .single(),
   ]);
@@ -30,6 +30,7 @@ export default async function SettingsPage() {
         allowedDomains={org?.allowed_domains ?? []}
         magicLinkRequiresAllowedDomain={org?.magic_link_requires_allowed_domain ?? true}
         defaultBookletBindingSide={settings?.default_booklet_binding_side === "right" ? "right" : "left"}
+        adminsBypassRestrictions={settings?.admins_bypass_restrictions ?? true}
         canManage={session.membership.role === "org_admin"}
       />
     </div>

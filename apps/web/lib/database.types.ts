@@ -21,10 +21,17 @@ export type Database = {
           discovered_queues: Json
           enrollment_code: string | null
           enrollment_code_expires_at: string | null
+          hostname: string | null
           id: string
+          ip_addresses: string[] | null
+          is_git_checkout: boolean | null
           last_seen_at: string | null
           name: string
           organization_id: string
+          os_version: string | null
+          paused: boolean
+          paused_at: string | null
+          paused_by: string | null
           status: string
           version: string | null
         }
@@ -34,10 +41,17 @@ export type Database = {
           discovered_queues?: Json
           enrollment_code?: string | null
           enrollment_code_expires_at?: string | null
+          hostname?: string | null
           id?: string
+          ip_addresses?: string[] | null
+          is_git_checkout?: boolean | null
           last_seen_at?: string | null
           name: string
           organization_id: string
+          os_version?: string | null
+          paused?: boolean
+          paused_at?: string | null
+          paused_by?: string | null
           status?: string
           version?: string | null
         }
@@ -47,10 +61,17 @@ export type Database = {
           discovered_queues?: Json
           enrollment_code?: string | null
           enrollment_code_expires_at?: string | null
+          hostname?: string | null
           id?: string
+          ip_addresses?: string[] | null
+          is_git_checkout?: boolean | null
           last_seen_at?: string | null
           name?: string
           organization_id?: string
+          os_version?: string | null
+          paused?: boolean
+          paused_at?: string | null
+          paused_by?: string | null
           status?: string
           version?: string | null
         }
@@ -60,6 +81,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agents_paused_by_fkey"
+            columns: ["paused_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -380,6 +408,7 @@ export type Database = {
       }
       organization_settings: {
         Row: {
+          admins_bypass_restrictions: boolean
           default_booklet_binding_side: string
           default_policy_action: string
           job_approval_expiry_hours: number
@@ -394,6 +423,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          admins_bypass_restrictions?: boolean
           default_booklet_binding_side?: string
           default_policy_action?: string
           job_approval_expiry_hours?: number
@@ -408,6 +438,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          admins_bypass_restrictions?: boolean
           default_booklet_binding_side?: string
           default_policy_action?: string
           job_approval_expiry_hours?: number
@@ -568,6 +599,7 @@ export type Database = {
           original_file_path: string
           paper_size: string
           policy_action: string | null
+          policy_bypassed_for_admin: boolean
           policy_reasons: string[]
           printer_id: string | null
           printer_profile_id: string | null
@@ -605,6 +637,7 @@ export type Database = {
           original_file_path: string
           paper_size?: string
           policy_action?: string | null
+          policy_bypassed_for_admin?: boolean
           policy_reasons?: string[]
           printer_id?: string | null
           printer_profile_id?: string | null
@@ -642,6 +675,7 @@ export type Database = {
           original_file_path?: string
           paper_size?: string
           policy_action?: string | null
+          policy_bypassed_for_admin?: boolean
           policy_reasons?: string[]
           printer_id?: string | null
           printer_profile_id?: string | null
@@ -1143,3 +1177,9 @@ export type CompositeTypes<
   : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
     ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
     : never
+
+export const Constants = {
+  public: {
+    Enums: {},
+  },
+} as const

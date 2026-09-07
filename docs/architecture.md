@@ -303,6 +303,23 @@ Quota usage (`monthly_quota_usage_pct`) is just another fact available to a rule
 (e.g. "REQUIRE_APPROVAL when monthly_quota_usage_pct >= 90"), rather than a separate code
 path — one engine, one precedence model, one place reasons are generated.
 
+### 6.5 Admin bypass (opt-out, not a code path in the engine itself)
+
+An `org_admin`'s own submission is exempt from a `deny`/`require_approval` outcome and from
+quota blocking by default (`organization_settings.admins_bypass_restrictions`, default
+`true` — `0021_admin_bypass_restrictions.sql`). The rationale: an org frequently has no
+approver besides its own admin, so the fail-safe `require_approval` default (6.3) would
+otherwise be able to lock an admin out of their own printer with nobody able to unblock
+them. This is deliberately **not** implemented inside `evaluatePolicy()` — the engine still
+evaluates and returns exactly what the rules say; `lib/policy/admin-bypass.ts` decides,
+in the caller (`print/actions.ts`), whether that outcome is allowed to actually block the
+job. `policy_action`/`policy_reasons` are stored unchanged either way; a bypassed job also
+sets `print_jobs.policy_bypassed_for_admin`, so the job detail page can show a clear warning
+rather than silently overriding what the org's own policy said. Quota is bypassed the same
+way — the reserve call passes a `null` limit (always succeeds, still tracked) instead of
+skipping the reserve entirely. An organization can turn this off to hold its own admins to
+the same rules as everyone else (Admin → Settings).
+
 ## 7. Print math: pages, sides, sheets, cost
 
 These are deliberately kept distinct (§6 of the spec):

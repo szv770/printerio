@@ -105,3 +105,33 @@ export async function updateMagicLinkDomainToggleAction(
       : "Saved. Magic-link sign-in is now open to any email domain.",
   };
 }
+
+/** Updates organization_settings.admins_bypass_restrictions - whether an
+ *  org_admin's own print jobs skip a require_approval/deny policy outcome
+ *  and quota blocking (still recorded and shown as a warning, never hidden -
+ *  see lib/policy/admin-bypass.ts and 0021_admin_bypass_restrictions.sql).
+ *  Defaults on; this is how an org turns that off deliberately if it wants
+ *  its own admins held to the same rules as everyone else. A checked
+ *  checkbox submits "on"; an unchecked one submits nothing, so its absence
+ *  from formData means false. */
+export async function updateAdminsBypassRestrictionsAction(
+  _prev: SettingsActionState,
+  formData: FormData,
+): Promise<SettingsActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const bypass = formData.get("adminsBypassRestrictions") === "on";
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("organization_settings")
+    .update({ admins_bypass_restrictions: bypass })
+    .eq("organization_id", session.membership.organization_id);
+  if (error) return { error: describeDatabaseError(error, "Couldn't save this setting.") };
+
+  revalidatePath(routes.adminSettings);
+  return {
+    success: bypass
+      ? "Saved. Admins' own print jobs will no longer be held up by approval/quota rules (still shown as a warning when one would otherwise have applied)."
+      : "Saved. Admins are now subject to the same approval and quota rules as everyone else.",
+  };
+}

@@ -34,6 +34,10 @@ create table organization_settings (
   retention_rejected_days int not null default 3 check (retention_rejected_days > 0),
   retention_failed_days int not null default 7 check (retention_failed_days > 0),
   max_upload_size_bytes bigint not null default 52428800 check (max_upload_size_bytes > 0), -- 50 MiB
+  -- An org_admin's own print jobs bypass require_approval/deny policy
+  -- outcomes and quota blocking by default (still tracked/shown as a
+  -- warning, never silently) - see 0021_admin_bypass_restrictions.sql.
+  admins_bypass_restrictions boolean not null default true,
   updated_at timestamptz not null default now()
 );
 
@@ -295,6 +299,12 @@ create table print_jobs (
   -- Policy engine result, stored for audit (docs/architecture.md sec 6.3).
   policy_action text check (policy_action in ('allow', 'require_approval', 'deny')),
   policy_reasons text[] not null default '{}',
+  -- True only when organization_settings.admins_bypass_restrictions overrode
+  -- what policy_action/policy_reasons above would otherwise have done (e.g.
+  -- policy_action = 'deny' but this job was still approved) - see
+  -- 0021_admin_bypass_restrictions.sql. Never true alongside policy_action =
+  -- 'allow', since there was nothing to bypass.
+  policy_bypassed_for_admin boolean not null default false,
 
   -- Job leasing (docs/architecture.md sec 13). Only one agent may hold a job.
   lease_owner_agent_id uuid references agents(id),

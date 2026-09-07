@@ -1,12 +1,13 @@
 "use client";
 
 import { useActionState } from "react";
-import { Globe, Mail, BookOpen } from "lucide-react";
+import { Globe, Mail, BookOpen, ShieldAlert } from "lucide-react";
 import { Button, Textarea, FieldLabel, FormError, FormSuccess, Card, Badge, Select } from "@/components/ui";
 import {
   updateAllowedDomainsAction,
   updateMagicLinkDomainToggleAction,
   updateDefaultBookletBindingSideAction,
+  updateAdminsBypassRestrictionsAction,
   type SettingsActionState,
 } from "./actions";
 
@@ -18,11 +19,13 @@ export function SettingsPanel({
   allowedDomains,
   magicLinkRequiresAllowedDomain,
   defaultBookletBindingSide,
+  adminsBypassRestrictions,
   canManage,
 }: {
   allowedDomains: string[];
   magicLinkRequiresAllowedDomain: boolean;
   defaultBookletBindingSide: "left" | "right";
+  adminsBypassRestrictions: boolean;
   canManage: boolean;
 }) {
   const [domainsState, domainsFormAction, domainsPending] = useActionState(
@@ -35,6 +38,10 @@ export function SettingsPanel({
   );
   const [bindingSideState, bindingSideFormAction, bindingSidePending] = useActionState(
     updateDefaultBookletBindingSideAction,
+    initialSettingsActionState,
+  );
+  const [adminBypassState, adminBypassFormAction, adminBypassPending] = useActionState(
+    updateAdminsBypassRestrictionsAction,
     initialSettingsActionState,
   );
 
@@ -161,6 +168,49 @@ export function SettingsPanel({
             <FormSuccess message={bindingSideState.success} />
             <div>
               <Button type="submit" size="sm" pending={bindingSidePending} pendingLabel="Saving...">
+                Save
+              </Button>
+            </div>
+          </form>
+        )}
+      </Card>
+
+      <Card>
+        <div className="mb-3 flex items-center gap-2">
+          <ShieldAlert className="h-4 w-4 text-[var(--color-muted)]" />
+          <h2 className="text-sm font-semibold">Admins bypass approval &amp; quota</h2>
+        </div>
+        <p className="mb-3 text-sm text-[var(--color-muted)]">
+          By default, an org_admin&apos;s own print jobs are never held up by a &quot;requires approval&quot; or
+          &quot;denied&quot; policy outcome, or by a quota limit - there&apos;s often no one else around to approve
+          an admin&apos;s own job. The job still records exactly what the rule/quota would have done, and shows it
+          as a warning, rather than hiding it. Turn this off if you want your own admins held to the same rules as
+          everyone else.
+        </p>
+
+        {!canManage && (
+          <p className="text-sm text-[var(--color-muted)]">
+            {adminsBypassRestrictions
+              ? "Admins' own print jobs bypass approval and quota rules (shown as a warning when one would apply)."
+              : "Admins are subject to the same approval and quota rules as everyone else."}
+          </p>
+        )}
+
+        {canManage && (
+          <form action={adminBypassFormAction} className="flex flex-col gap-3">
+            <label className="flex items-start gap-2 text-sm text-[var(--color-text)]">
+              <input
+                type="checkbox"
+                name="adminsBypassRestrictions"
+                defaultChecked={adminsBypassRestrictions}
+                className="mt-0.5"
+              />
+              Admin print jobs bypass approval/deny and quota blocking
+            </label>
+            <FormError message={adminBypassState.error} />
+            <FormSuccess message={adminBypassState.success} />
+            <div>
+              <Button type="submit" size="sm" pending={adminBypassPending} pendingLabel="Saving...">
                 Save
               </Button>
             </div>

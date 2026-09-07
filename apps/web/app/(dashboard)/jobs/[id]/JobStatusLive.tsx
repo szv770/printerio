@@ -175,6 +175,29 @@ export function JobStatusLive({
         </div>
       )}
 
+      {/* Never silent about an override: this job's own policy_action/reasons
+       *  say what the rules would otherwise have done - see
+       *  lib/policy/admin-bypass.ts and Admin → Settings' "Admins bypass
+       *  approval & quota" toggle, which is what let this through. */}
+      {job.policy_bypassed_for_admin && (
+        <div className={`mt-3 rounded-lg border p-3 text-sm ${TONE_PANEL.warning}`}>
+          <p className="font-medium">Printed as an admin override</p>
+          <p className="mt-1">
+            This would normally have {job.policy_action === "deny" ? "been denied" : "required approval"}:
+          </p>
+          {policyReasons.length > 0 && (
+            <ul className="mt-1 list-inside list-disc">
+              {policyReasons.map((r, i) => (
+                <li key={i}>{r}</li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-1 text-xs text-[var(--color-muted)]">
+            Allowed anyway because admin jobs bypass these rules in this organization (Admin → Settings).
+          </p>
+        </div>
+      )}
+
       <div className="mt-4 border-t border-[var(--color-border)] pt-4">
         <JobProgressStepper
           progress={progress}
