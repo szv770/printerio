@@ -366,7 +366,30 @@ try {
         }
         Import-DotEnvFile -Path $EnvFilePath
     }
+    # A bare host (e.g. "printio.szvtech.org", copy-pasted without the
+    # "https://" the person was told about) parses fine as far as Read-Host
+    # is concerned, gets saved verbatim, and then fails much later with a
+    # confusing "PRINTIO_API_URL is not a valid URL" error out of the Agent
+    # itself - by which point the person has already re-run the whole
+    # script. Catch it here instead, where it's one Write-Info away from
+    # just working.
+    function Normalize-ApiUrl {
+        param([string]$Url)
+        if ($Url -notmatch "^[a-zA-Z][a-zA-Z0-9+.\-]*://") {
+            Write-Info "Assuming https:// - saving this as https://$Url"
+            return "https://$Url"
+        }
+        return $Url
+    }
+
     $placeholderApiUrl = "https://printio.szvtech.org"
+    if ($env:PRINTIO_API_URL -and $env:PRINTIO_API_URL.Trim() -ne "") {
+        $existing = Normalize-ApiUrl ($env:PRINTIO_API_URL.Trim())
+        if ($existing -ne $env:PRINTIO_API_URL.Trim()) {
+            Set-DotEnvValue -Path $EnvFilePath -Key "PRINTIO_API_URL" -Value $existing
+            $env:PRINTIO_API_URL = $existing
+        }
+    }
     if ((-not $env:PRINTIO_API_URL) -or ($env:PRINTIO_API_URL.Trim() -eq "") -or ($env:PRINTIO_API_URL.Trim() -eq $placeholderApiUrl)) {
         Write-Info "This machine doesn't have a Printio cloud address configured yet."
         Write-Info "This is the web address of your organization's Printio cloud (ask your Printio administrator if you don't have it)."
@@ -376,6 +399,7 @@ try {
             Show-StopMessage "A Printio cloud URL is required to continue. Double-click setup-agent.bat again when you have it."
             return
         }
+        $apiUrl = Normalize-ApiUrl $apiUrl
         Set-DotEnvValue -Path $EnvFilePath -Key "PRINTIO_API_URL" -Value $apiUrl
         $env:PRINTIO_API_URL = $apiUrl
         Write-Ok "Saved - apps\agent\.env now has this, so you won't be asked again."
