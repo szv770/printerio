@@ -3,10 +3,12 @@
 import { useActionState, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, RefreshCw, WifiOff, ArrowRight, ArrowLeft, ListChecks } from "lucide-react";
+import Link from "next/link";
 import { Button, Card, Badge, Select, Input, FieldLabel, FormError, EmptyState } from "@/components/ui";
 import { PRINTER_PROFILE_ICON_COMPONENTS, type PrinterProfileIconKey } from "@/lib/printer-profile-icons";
 import { PRINTER_ARCHETYPE_IDS, PRINTER_ARCHETYPES, buildRecipeCards, isPrinterArchetypeId, type PrinterArchetypeId, type RecipeCard } from "@/lib/printer-setup-wizard";
 import { createPrinterProfilesFromWizardAction, initialPrinterActionState } from "../actions";
+import { routes } from "@/lib/routes";
 
 export interface DiscoveredQueue {
   windowsQueueName: string;
@@ -256,15 +258,42 @@ function Step2RegisterMachine({
   onNext: () => void;
 }) {
   const ready = onlineAgents.length > 0;
+  // Only meaningful client-side (window is undefined during server
+  // rendering) - this is exactly the value setup-agent.bat's first prompt
+  // asks for, so showing it here removes the one piece of information nobody
+  // ever tells the person standing at the Windows machine.
+  const apiUrl = typeof window !== "undefined" ? window.location.origin : "";
+
   return (
     <Card>
       <h2 className="mb-1 text-lg font-semibold">Step 2: Register the machine</h2>
-      <p className="mb-4 text-sm text-[var(--color-muted)]">
-        On the Windows machine with your printer queues set up, open the <code>printio</code> folder and double-click{" "}
-        <code>apps\agent\scripts\setup-agent.bat</code> - it walks through registering the Agent and running it (see{" "}
-        <code>docs/agent-install.md</code>&apos;s &quot;fast path&quot; for the full details). Come back here once it says
-        it&apos;s heartbeating successfully.
-      </p>
+
+      <ol className="mb-4 flex list-decimal flex-col gap-3 pl-5 text-sm text-[var(--color-muted)]">
+        <li>
+          Get an enrollment code first - go to{" "}
+          <Link href={routes.adminAgents} target="_blank" className="text-[var(--color-primary)] underline">
+            Admin &rarr; Agents
+          </Link>{" "}
+          and click &quot;Register new agent.&quot; The code appears on that agent&apos;s own row and stays there
+          (valid 24h) until it&apos;s used - come back to this tab afterward, you don&apos;t need to close it.
+        </li>
+        <li>
+          On the Windows machine with your printer queues already set up, open the <code>printio</code> folder and
+          double-click <code>apps\agent\scripts\setup-agent.bat</code>.
+        </li>
+        <li>
+          When it asks for your organization&apos;s cloud URL, enter exactly:{" "}
+          {apiUrl && (
+            <code className="rounded bg-gray-100 px-2 py-1 font-mono text-[var(--color-text)]">{apiUrl}</code>
+          )}
+          . When it asks for the enrollment code, paste the one from step 1.
+        </li>
+        <li>
+          Choose option 1 (run now) to test, or 2 to install as a permanent Windows service. Come back here once it
+          says it&apos;s heartbeating successfully - see <code>docs/agent-install.md</code>&apos;s &quot;fast
+          path&quot; if anything above doesn&apos;t match what you see.
+        </li>
+      </ol>
 
       <div className="mb-4 rounded-lg border border-[var(--color-border)] p-3">
         {ready ? (
