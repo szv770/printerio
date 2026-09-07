@@ -11,7 +11,7 @@ import { createBookletPaddedPdf } from "@/lib/pdf/booklet";
 import { imposeBookletPdf, resolvePaperSizePoints } from "@/lib/pdf/imposition";
 import { computePrintMath, computeCostCents, computeBookletPadding, type PricingConfig } from "@printio/shared";
 import { evaluateJobPolicy } from "@/lib/policy/build-facts";
-import { adjustMonthlyUsage, getApplicableQuotaLimit } from "@/lib/quota";
+import { adjustMonthlyUsage, type UsageAmounts } from "@/lib/quota";
 import { jobFilePath, PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 
@@ -82,20 +82,17 @@ async function createPrintJob(
     return { error: "You're submitting jobs too quickly. Wait a few minutes and try again." };
   }
 
-  const { data: printerProfile, error: profileError } = await supabase
-    .from("printer_profiles")
-    .select("*, printers!inner(id, organization_id)")
-    .eq("id", printerProfileId)
-    .single();
+  // Independent lookups - the profile doesn't gate the settings read or vice
+  // versa - so they overlap instead of costing two sequential round trips
+  // while the user waits with their file already uploaded.
+  const [{ data: printerProfile, error: profileError }, { data: settings }] = await Promise.all([
+    supabase.from("printer_profiles").select("*, printers!inner(id, organization_id)").eq("id", printerProfileId).single(),
+    supabase.from("organization_settings").select("*").eq("organization_id", organizationId).single(),
+  ]);
   if (profileError || !printerProfile || printerProfile.printers.organization_id !== organizationId) {
     return { error: "Selected printer is not available." };
   }
 
-  const { data: settings } = await supabase
-    .from("organization_settings")
-    .select("*")
-    .eq("organization_id", organizationId)
-    .single();
   const maxUploadBytes = settings?.max_upload_size_bytes ?? 52428800;
   const quotaBasis = (settings?.quota_basis ?? "physical_sheets") as
     | "pdf_pages"
@@ -163,7 +160,7 @@ async function createPrintJob(
     pricing,
   });
 
-  const { result: policy } = await evaluateJobPolicy(supabase, {
+  const { result: policy, quotaLimit } = await evaluateJobPolicy(supabase, {
     organizationId,
     userId: session.userId,
     role: session.membership.role as Parameters<typeof evaluateJobPolicy>[1]["role"],
@@ -185,30 +182,24 @@ async function createPrintJob(
   if (policy.action === "deny") jobStatus = "denied";
   else if (policy.action === "require_approval") jobStatus = "pending_approval";
 
+  // Reused from the policy evaluation above, which already had to resolve the
+  // caller's groups and applicable limit to build its quota fact - no second
+  // group_members/quotas round trip.
+  const colorWeight = colorMode === "color" ? 2 : 1;
+  const reservedAmounts: UsageAmounts = {
+    pdfPages: sourcePages * copies,
+    printedSides: printMath.printedSides,
+    physicalSheets: printMath.physicalSheets,
+    colorWeighted: printMath.physicalSheets * colorWeight,
+  };
+
   if (jobStatus !== "denied") {
-    const { data: groupRows } = await supabase.from("group_members").select("group_id").eq("user_id", session.userId);
-    const limit = await getApplicableQuotaLimit(supabase, {
-      organizationId,
-      userId: session.userId,
-      role: session.membership.role,
-      department: session.membership.department,
-      groupIds: (groupRows ?? []).map((g) => g.group_id),
-    });
-
-    const colorWeight = colorMode === "color" ? 2 : 1;
-    const amounts = {
-      pdfPages: sourcePages * copies,
-      printedSides: printMath.printedSides,
-      physicalSheets: printMath.physicalSheets,
-      colorWeighted: printMath.physicalSheets * colorWeight,
-    };
-
     const reserved = await adjustMonthlyUsage(
       supabase,
       { organizationId, userId: session.userId },
-      amounts,
+      reservedAmounts,
       quotaBasis,
-      limit,
+      quotaLimit,
       "reserve",
     );
 
@@ -219,27 +210,64 @@ async function createPrintJob(
 
   const jobId = crypto.randomUUID();
   const originalPath = jobFilePath(organizationId, jobId, "original");
+  const derivedPath = derivedBytes ? jobFilePath(organizationId, jobId, "derived") : null;
 
-  const { error: uploadError } = await supabase.storage
-    .from(PRINT_JOBS_BUCKET)
-    .upload(originalPath, originalBytes, { contentType: "application/pdf" });
-  if (uploadError) return { error: "Failed to store the uploaded file." };
+  /**
+   * Undoes the side effects this function has already committed when a later
+   * step fails. Without this, a failure between "reserve quota" and "insert
+   * row" silently charged the user's monthly quota for a job that does not
+   * exist (repeated failures could burn a student's whole month) and left
+   * uploaded PDFs orphaned in storage forever - the retention sweep walks
+   * print_jobs rows, so an object with no row is never reclaimed.
+   * Best-effort: a rollback that itself fails is logged, never surfaced on
+   * top of the error the user is already being shown.
+   */
+  async function rollback(uploadedPaths: string[]) {
+    try {
+      if (uploadedPaths.length > 0) await supabase.storage.from(PRINT_JOBS_BUCKET).remove(uploadedPaths);
+      if (jobStatus !== "denied") {
+        await adjustMonthlyUsage(
+          supabase,
+          { organizationId, userId: session.userId },
+          reservedAmounts,
+          quotaBasis,
+          quotaLimit,
+          "release",
+        );
+      }
+    } catch (err) {
+      logger.error("failed to roll back a partially-created print job", {
+        jobId,
+        organizationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
-  let derivedPath: string | null = null;
-  if (derivedBytes) {
-    derivedPath = jobFilePath(organizationId, jobId, "derived");
-    // Unlike the originalPath upload above, this one's result used to be
-    // discarded entirely - a transient Storage failure here would still
-    // write derivedPath into print_jobs.derived_file_path below, so the job
-    // would proceed through policy/approval as if the (booklet-imposed)
-    // file existed. The failure only surfaced much later and far away, as a
-    // generic 500 from the Agent's download-url route with nothing in the
-    // logs from submission time to explain why. Fail the submission here
-    // instead, same as the original-file upload already does.
-    const { error: derivedUploadError } = await supabase.storage
-      .from(PRINT_JOBS_BUCKET)
-      .upload(derivedPath, derivedBytes, { contentType: "application/pdf" });
-    if (derivedUploadError) return { error: "Failed to store the processed file. Please try again." };
+  // Both objects are independent writes to distinct keys, so they upload
+  // concurrently rather than one after the other - on a booklet job that
+  // halves the storage wait the user sits through after submitting.
+  const [originalUpload, derivedUpload] = await Promise.all([
+    supabase.storage.from(PRINT_JOBS_BUCKET).upload(originalPath, originalBytes, { contentType: "application/pdf" }),
+    derivedBytes && derivedPath
+      ? supabase.storage.from(PRINT_JOBS_BUCKET).upload(derivedPath, derivedBytes, { contentType: "application/pdf" })
+      : Promise.resolve({ error: null }),
+  ]);
+  // A failed derived upload used to be swallowed entirely: the row was still
+  // written pointing at a derived_file_path that did not exist, so the job
+  // looked fine here and then failed at the Agent with nothing explaining why.
+  if (originalUpload.error || derivedUpload.error) {
+    const uploaded = [
+      ...(originalUpload.error ? [] : [originalPath]),
+      ...(derivedUpload.error || !derivedPath ? [] : [derivedPath]),
+    ];
+    logger.error("print job storage upload failed", {
+      jobId,
+      organizationId,
+      error: (originalUpload.error ?? derivedUpload.error)?.message,
+    });
+    await rollback(uploaded);
+    return { error: "Could not upload your document. Check your connection and submit again." };
   }
 
   const now = new Date();
@@ -277,7 +305,8 @@ async function createPrintJob(
     // names, constraint details) - log server-side only and return a
     // generic message. See docs/architecture.md sec 3.2.
     logger.error("print_jobs insert failed", { jobId, organizationId, error: insertError.message });
-    return { error: "Failed to create the print job. Please try again." };
+    await rollback([originalPath, ...(derivedPath ? [derivedPath] : [])]);
+    return { error: "Could not create the print job. Your file is still selected - submit again." };
   }
 
   const events = [

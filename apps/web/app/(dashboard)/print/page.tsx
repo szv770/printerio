@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
 import { PageHeader } from "@/components/ui";
+import { DEFAULT_MAX_UPLOAD_BYTES } from "@/lib/pdf/client-precheck";
 import { PrintForm } from "./PrintForm";
 
 export default async function PrintPage() {
@@ -10,13 +11,24 @@ export default async function PrintPage() {
   if (!session.membership) redirect(routes.noAccess);
 
   const supabase = await createClient();
-  const { data: profiles } = await supabase
-    .from("printer_profiles")
-    .select(
-      "id, label, key, description, icon_key, declared_paper_sizes, declared_capabilities, booklet_binding_side, is_default, printers!inner(id, name, organization_id, status)",
-    )
-    .eq("printers.organization_id", session.membership.organization_id)
-    .order("is_default", { ascending: false });
+  const [{ data: profiles }, { data: settings }] = await Promise.all([
+    supabase
+      .from("printer_profiles")
+      .select(
+        "id, label, key, description, icon_key, declared_paper_sizes, declared_capabilities, booklet_binding_side, is_default, printers!inner(id, name, organization_id, status)",
+      )
+      .eq("printers.organization_id", session.membership.organization_id)
+      .order("is_default", { ascending: false }),
+    // Only the upload limit is handed to the client, purely so the form can
+    // say "too big" before a slow upload rather than after. The server action
+    // re-reads this setting itself and remains the authority - see
+    // print/actions.ts and lib/pdf/client-precheck.ts.
+    supabase
+      .from("organization_settings")
+      .select("max_upload_size_bytes")
+      .eq("organization_id", session.membership.organization_id)
+      .maybeSingle(),
+  ]);
 
   const printerProfiles = (profiles ?? []).map((p) => ({
     id: p.id,
@@ -42,7 +54,10 @@ export default async function PrintPage() {
        *  its own inline notice and disables Submit in that case, rather than
        *  blocking the user from picking a file and preparing everything
        *  else just because a printer isn't connected yet. */}
-      <PrintForm printerProfiles={printerProfiles} />
+      <PrintForm
+        printerProfiles={printerProfiles}
+        maxUploadBytes={settings?.max_upload_size_bytes ?? DEFAULT_MAX_UPLOAD_BYTES}
+      />
     </main>
   );
 }

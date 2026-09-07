@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/auth/session";
 import { Card } from "@/components/ui";
+import { jobEventDisplay } from "@/lib/job-event-labels";
 import { JobStatusLive } from "./JobStatusLive";
 import { ReprintButton } from "./ReprintButton";
 
@@ -79,12 +80,21 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
       {events && events.length > 0 && (
         <div className="mt-6">
           <p className="mb-2 text-sm font-medium">History</p>
-          <ul className="flex flex-col gap-1 text-xs text-[var(--color-muted)]">
-            {events.map((e) => (
-              <li key={e.id}>
-                {new Date(e.created_at).toLocaleString()} — {e.event_type}
-              </li>
-            ))}
+          {/* Plain-English labels, not the raw print_job_events.event_type
+           *  pipeline constants - this list is the one place a user comes to
+           *  answer "where did my job get to", so it has to read as a
+           *  sentence. See lib/job-event-labels.ts. */}
+          <ul className="flex flex-col gap-1.5 text-xs text-[var(--color-muted)]">
+            {events.map((e) => {
+              const { Icon, label } = jobEventDisplay(e.event_type);
+              return (
+                <li key={e.id} className="flex items-center gap-2">
+                  <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  <span className="text-[var(--color-text)]">{label}</span>
+                  <span>{new Date(e.created_at).toLocaleString()}</span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}

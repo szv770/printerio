@@ -5,6 +5,7 @@ import { AlertTriangle } from "lucide-react";
 import { computePrintMath } from "@printio/shared";
 import { Button, Input, Select, FieldLabel, FormError, Card } from "@/components/ui";
 import { PRINTER_PROFILE_ICON_COMPONENTS, type PrinterProfileIconKey } from "@/lib/printer-profile-icons";
+import { formatFileSize, precheckPdfHeader, precheckSelectedFile } from "@/lib/pdf/client-precheck";
 import { submitPrintJobAction, initialSubmitJobState } from "./actions";
 
 interface PrinterProfileOption {
@@ -75,12 +76,23 @@ async function renderFirstPageThumbnail(file: File, canvas: HTMLCanvasElement): 
  * making, not four unrelated ones - copies/paper size are a separate, lower-
  * priority section below.
  */
-export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfileOption[] }) {
+export function PrintForm({
+  printerProfiles,
+  maxUploadBytes,
+}: {
+  printerProfiles: PrinterProfileOption[];
+  /** organization_settings.max_upload_size_bytes, forwarded only so the file
+   *  picker can reject an oversized file instantly. Advisory: print/actions.ts
+   *  re-reads the same setting server-side and is the real gate. */
+  maxUploadBytes: number;
+}) {
   const [state, formAction, pending] = useActionState(submitPrintJobAction, initialSubmitJobState);
 
   const [profileId, setProfileId] = useState(printerProfiles[0]?.id ?? "");
   const [estimatedPages, setEstimatedPages] = useState<number | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [fileSizeLabel, setFileSizeLabel] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
   const [thumbnailReady, setThumbnailReady] = useState(false);
   const [thumbnailLoading, setThumbnailLoading] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -106,16 +118,52 @@ export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfile
     setBindingSideOverride(null);
   }
 
-  async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+  /** Clears the picked file and explains why, so the user can't sit through a
+   *  slow upload of something the server was always going to reject. */
+  function rejectSelectedFile(input: HTMLInputElement, reason: string) {
+    input.value = "";
+    setFileName(null);
+    setFileSizeLabel(null);
     setEstimatedPages(null);
+    setThumbnailReady(false);
+    setFileError(reason);
+  }
+
+  async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const input = e.target;
+    const file = input.files?.[0];
+    setEstimatedPages(null);
+    setFileError(null);
     setFileName(file?.name ?? null);
+    setFileSizeLabel(file ? formatFileSize(file.size) : null);
     setThumbnailReady(false);
     if (!file) return;
 
+    // Advisory only - lib/pdf/preflight.ts re-runs all of this server-side on
+    // the real bytes and stays the only source of truth. The point is purely
+    // that an empty/oversized/non-PDF file is knowable the instant it's
+    // picked, instead of after a multi-minute upload on a school connection.
+    const metaCheck = precheckSelectedFile(file, maxUploadBytes);
+    if (!metaCheck.ok) {
+      rejectSelectedFile(input, metaCheck.reason);
+      return;
+    }
+
+    let bytes: ArrayBuffer;
+    try {
+      bytes = await file.arrayBuffer();
+    } catch {
+      return; // can't read it here - let the server have the final say
+    }
+
+    const headerCheck = precheckPdfHeader(new Uint8Array(bytes.slice(0, 5)));
+    if (!headerCheck.ok) {
+      rejectSelectedFile(input, headerCheck.reason);
+      return;
+    }
+
     try {
       const { PDFDocument } = await import("pdf-lib");
-      const bytes = await file.arrayBuffer();
       const doc = await PDFDocument.load(bytes, { updateMetadata: false });
       setEstimatedPages(doc.getPageCount());
     } catch {
@@ -184,8 +232,11 @@ export function PrintForm({ printerProfiles }: { printerProfiles: PrinterProfile
             )}
           </div>
         </div>
-        {estimatedPages !== null && (
-          <p className="mt-1 text-xs text-[var(--color-muted)]">Estimated {estimatedPages} page(s).</p>
+        {fileError && <p className="mt-2 text-sm text-[var(--color-danger)]">{fileError}</p>}
+        {!fileError && estimatedPages !== null && (
+          <p className="mt-1 text-xs text-[var(--color-muted)]">
+            Estimated {estimatedPages} page(s){fileSizeLabel ? ` · ${fileSizeLabel}` : ""}.
+          </p>
         )}
       </div>
 
