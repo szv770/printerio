@@ -113,6 +113,7 @@ export async function restartAgentServiceAction(_prev: AgentActionState, formDat
   if (!result.ok) return { error: result.error };
 
   revalidatePath(routes.adminAgents);
+  revalidatePath(routes.adminAgentDetail(agentId));
   return {};
 }
 
@@ -132,6 +133,146 @@ export async function clearAgentTempFilesAction(_prev: AgentActionState, formDat
   if (!result.ok) return { error: result.error };
 
   revalidatePath(routes.adminAgents);
+  revalidatePath(routes.adminAgentDetail(agentId));
+  return {};
+}
+
+/**
+ * "Pause"/"Resume" - the freeze switch on app/admin/agents/[agentId].
+ *
+ * Writing `agents.paused` is the WHOLE mechanism: the two agent-facing routes
+ * that hand out work (`/api/agents/jobs/claimable` and
+ * `/api/agents/jobs/[jobId]/claim`) read it on every call and refuse a paused
+ * Agent, so the pause takes effect on the Agent's very next poll (~15s)
+ * whether or not the Agent itself cooperates. The Agent is separately told
+ * `paused: true` in its heartbeat response so it stops asking at all, but
+ * that is only an optimization on top.
+ *
+ * Deliberately NOT done here: cancelling or reclaiming jobs the Agent already
+ * holds a lease on. Those finish printing normally - "pause" means "stop
+ * taking new work", and yanking a job out of a machine mid-print would be a
+ * much bigger, much less recoverable action wearing a small button.
+ */
+export async function pauseAgentAction(_prev: AgentActionState, formData: FormData): Promise<AgentActionState> {
+  return setAgentPaused(formData, true);
+}
+
+export async function resumeAgentAction(_prev: AgentActionState, formData: FormData): Promise<AgentActionState> {
+  return setAgentPaused(formData, false);
+}
+
+/** Shared body of pause/resume. Not exported - a "use server" file may only export async functions, and this is an implementation detail of the two above regardless. */
+async function setAgentPaused(formData: FormData, paused: boolean): Promise<AgentActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const agentId = String(formData.get("agentId") ?? "");
+
+  const supabase = await createClient();
+  const { data: updated, error } = await supabase
+    .from("agents")
+    .update({
+      paused,
+      paused_at: paused ? new Date().toISOString() : null,
+      paused_by: paused ? session.userId : null,
+    })
+    .eq("id", agentId)
+    .eq("organization_id", session.membership.organization_id)
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    return { error: describeDatabaseError(error, paused ? "Couldn't pause that agent." : "Couldn't resume that agent.") };
+  }
+  if (!updated) return { error: "Agent not found." };
+
+  await supabase.from("audit_logs").insert({
+    organization_id: session.membership.organization_id,
+    actor_id: session.userId,
+    action: paused ? "agent.paused" : "agent.resumed",
+    target_type: "agents",
+    target_id: agentId,
+    metadata: {},
+  });
+
+  revalidatePath(routes.adminAgents);
+  revalidatePath(routes.adminAgentDetail(agentId));
+  revalidatePath(routes.adminPrinters);
+  return {};
+}
+
+/** "Restart print queue" from the per-Agent detail page - the same fixed
+ *  allow-listed command the Printers page issues, addressed by the queue
+ *  (printer_profile) row it was clicked on. Whole-machine in effect: on
+ *  Windows this restarts the Print Spooler service, which affects every queue
+ *  on that machine (docs/architecture.md sec 11). */
+export async function restartAgentPrintQueueAction(
+  _prev: AgentActionState,
+  formData: FormData,
+): Promise<AgentActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const agentId = String(formData.get("agentId") ?? "");
+  const printerId = String(formData.get("printerId") ?? "");
+  const printerProfileId = String(formData.get("printerProfileId") ?? "");
+
+  const supabase = await createClient();
+  const result = await issueRemoteCommand(supabase, {
+    organizationId: session.membership.organization_id,
+    issuedBy: session.userId,
+    agentId,
+    printerId: printerId || null,
+    command: "RESTART_PRINT_QUEUE",
+    payload: { printerProfileId },
+  });
+  if (!result.ok) return { error: result.error };
+
+  revalidatePath(routes.adminAgentDetail(agentId));
+  return {};
+}
+
+/** "Check for updates" - issues the fixed CHECK_FOR_UPDATE command. What the
+ *  Agent does with it is entirely Agent-side and entirely hardcoded (git pull
+ *  --ff-only + pnpm install in its own checkout, then a graceful self-restart,
+ *  or a clear "this isn't a git checkout" answer) - see
+ *  apps/agent/src/self-update.ts. Nothing about the update sequence is sent
+ *  from here; this issues a command NAME, never a command STRING. */
+export async function checkAgentForUpdateAction(
+  _prev: AgentActionState,
+  formData: FormData,
+): Promise<AgentActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const agentId = String(formData.get("agentId") ?? "");
+
+  const supabase = await createClient();
+  const result = await issueRemoteCommand(supabase, {
+    organizationId: session.membership.organization_id,
+    issuedBy: session.userId,
+    agentId,
+    command: "CHECK_FOR_UPDATE",
+  });
+  if (!result.ok) return { error: result.error };
+
+  revalidatePath(routes.adminAgentDetail(agentId));
+  return {};
+}
+
+/** "Refresh printer status" from the detail page - asks the Agent to
+ *  re-enumerate its Windows queues and heartbeat immediately, rather than
+ *  waiting out the poll interval. */
+export async function refreshAgentPrinterStatusAction(
+  _prev: AgentActionState,
+  formData: FormData,
+): Promise<AgentActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const agentId = String(formData.get("agentId") ?? "");
+
+  const supabase = await createClient();
+  const result = await issueRemoteCommand(supabase, {
+    organizationId: session.membership.organization_id,
+    issuedBy: session.userId,
+    agentId,
+    command: "REFRESH_PRINTER_STATUS",
+  });
+  if (!result.ok) return { error: result.error };
+
+  revalidatePath(routes.adminAgentDetail(agentId));
   return {};
 }
 

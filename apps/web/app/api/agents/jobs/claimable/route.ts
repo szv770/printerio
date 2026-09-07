@@ -8,6 +8,15 @@ export async function GET(request: Request) {
   const agent = await authenticateAgentRequest(request);
   if (!agent) return apiError(401, "unauthenticated", "Invalid or revoked agent credentials.");
 
+  // A paused Agent is simply never offered work (agents.paused - see the
+  // column comment in supabase/migrations/0021_*.sql). This is one of the two
+  // server-side enforcement points for pausing; the other is the claim route,
+  // which refuses even a job id an Agent already knows about. Deliberately an
+  // empty list rather than an error: being paused is a normal administrative
+  // state, not a fault, and the Agent's poll loop should treat it as "nothing
+  // to do right now", not as a failure to back off from.
+  if (agent.paused) return Response.json({ jobs: [] });
+
   const supabase = createServiceRoleClient();
 
   const { data: profiles } = await supabase.from("printer_profiles").select("id").eq("agent_id", agent.id);

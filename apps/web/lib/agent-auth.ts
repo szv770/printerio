@@ -33,6 +33,18 @@ export function verifyDeviceSecret(secret: string, stored: string): boolean {
 export interface AuthenticatedAgent {
   id: string;
   organizationId: string;
+  /**
+   * `agents.paused` - true while an org_admin is deliberately holding this
+   * Agent back from taking new print jobs. Surfaced here, on the one
+   * function every agent-facing route already calls, so the two routes that
+   * hand out work (`jobs/claimable`, `jobs/[jobId]/claim`) enforce the pause
+   * without a second lookup and without any route being able to forget the
+   * check by accident. Note this is deliberately NOT part of the
+   * authentication decision: a paused Agent still authenticates normally and
+   * still heartbeats (that's how it stays visible in the console, and how it
+   * learns it is paused) - only job claiming is refused.
+   */
+  paused: boolean;
 }
 
 /** Parses and verifies the `Authorization: Bearer <agentId>.<deviceSecret>` header. */
@@ -52,5 +64,5 @@ export async function authenticateAgentRequest(request: Request): Promise<Authen
   if (!agent || agent.status !== "active" || !agent.device_secret_hash) return null;
   if (!verifyDeviceSecret(secret, agent.device_secret_hash)) return null;
 
-  return { id: agent.id, organizationId: agent.organization_id };
+  return { id: agent.id, organizationId: agent.organization_id, paused: agent.paused };
 }

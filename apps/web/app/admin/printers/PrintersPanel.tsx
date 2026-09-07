@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { Printer as PrinterIcon, Wifi, WifiOff } from "lucide-react";
+import { Pause, Printer as PrinterIcon, Wifi, WifiOff } from "lucide-react";
 import type { Tables } from "@/lib/database.types";
 import { Button, Input, Select, FieldLabel, FormError, EmptyState, Badge, Card } from "@/components/ui";
 import {
@@ -28,6 +28,9 @@ interface AgentInfo {
   id: string;
   name: string;
   last_seen_at: string | null;
+  /** agents.paused - a deliberately held Agent is connected and healthy but
+   *  taking no new jobs, which must not read as "offline"/broken here. */
+  paused: boolean;
 }
 
 const STATUS_TONE: Record<string, "success" | "warning" | "danger" | "neutral"> = {
@@ -193,6 +196,19 @@ function AgentOnlineBadge({ agent }: { agent: AgentInfo }) {
   // rationale as admin/page.tsx's onlineCutoff and AgentsPanel's `online`.
   // eslint-disable-next-line react-hooks/purity
   const online = !!agent.last_seen_at && Date.now() - new Date(agent.last_seen_at).getTime() < AGENT_ONLINE_WINDOW_MS;
+  // Paused outranks online/offline: this queue is intentionally held, which is
+  // a different (and much less alarming) thing than a machine that has stopped
+  // answering. See lib/agent-detail.ts's describeAgentConnection.
+  if (agent.paused) {
+    return (
+      <Badge tone="warning">
+        <span className="flex items-center gap-1">
+          <Pause className="h-3.5 w-3.5" />
+          Agent: {agent.name} • paused by admin
+        </span>
+      </Badge>
+    );
+  }
   return (
     <Badge tone={online ? "success" : "neutral"}>
       <span className="flex items-center gap-1">

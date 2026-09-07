@@ -14,6 +14,7 @@ import type { SpoolerMonitor } from "./spooler-monitor.js";
 import type { PrinterManager } from "./printer-manager.js";
 import type { JobQueue } from "./job-queue.js";
 import type { Logger } from "./logger.js";
+import type { SelfUpdateResult } from "./self-update.js";
 
 export interface CommandResult {
   status: "completed" | "failed";
@@ -30,6 +31,13 @@ export interface CommandHandlerDeps {
   refreshHeartbeatNow: () => Promise<void>;
   /** Schedules a controlled process exit so the OS Service Control Manager's configured recovery action relaunches the process (see windows-service.ts / README). Never called synchronously inside the handler - the ack must go out first. */
   scheduleServiceRestart: () => void;
+  /**
+   * Runs the fixed, hardcoded self-update sequence (self-update.ts) - injected
+   * rather than called directly so tests can drive every outcome (not a git
+   * checkout, git missing, pull failed, already up to date, updated) without a
+   * real git remote or a real `pnpm install`.
+   */
+  runSelfUpdate: () => Promise<SelfUpdateResult>;
 }
 
 const REMOTE_COMMAND_SET = new Set<string>(REMOTE_COMMANDS);
@@ -157,6 +165,32 @@ export async function handleCommand(
       const removed = clearFilesUnder(downloadsDir, logger) + clearFilesUnder(tmpDir, logger);
       logger.info("CLEAR_AGENT_TEMP_FILES completed", { removed, downloadsDir, tmpDir });
       return { status: "completed", result: { filesRemoved: removed } };
+    }
+
+    case "CHECK_FOR_UPDATE": {
+      // Takes no payload at all (RemoteCommandPayload.CHECK_FOR_UPDATE is
+      // Record<string, never>) and this branch reads none: the update
+      // sequence self-update.ts runs is entirely hardcoded, in the Agent's
+      // own checkout directory, with no value from the cloud reaching a
+      // process invocation. See that module's header.
+      const update = await deps.runSelfUpdate();
+
+      // Every outcome - including "can't self-update at all" - acks as
+      // `completed` with a specific reason, because the command DID run to a
+      // definite conclusion; `failed` is reserved for the handler itself
+      // going wrong. The console renders `message` verbatim, so an admin who
+      // can't self-update is told exactly what to do instead of seeing a
+      // button that appears to do nothing.
+      if (update.updated) {
+        // Same controlled-exit path RESTART_AGENT_SERVICE uses: the ack is
+        // sent by the caller (orchestrator.ts pollCommands) before the exit
+        // actually happens, so the result above is never lost to the restart.
+        deps.scheduleServiceRestart();
+      }
+      return {
+        status: "completed",
+        result: { updated: update.updated, reason: update.reason, message: update.message },
+      };
     }
   }
 }

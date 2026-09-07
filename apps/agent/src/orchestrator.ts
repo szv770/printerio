@@ -23,6 +23,7 @@ import { findNewJobId } from "./spooler-monitor.js";
 import type { HealthMonitor } from "./health-monitor.js";
 import { buildPrintSettingsString, executePrint } from "./print-executor.js";
 import { handleCommand } from "./commands.js";
+import { createSelfUpdateDeps, performSelfUpdate } from "./self-update.js";
 import { DownloadValidationError, PrintExecutionError, SpoolerError } from "./errors.js";
 import type { Logger } from "./logger.js";
 
@@ -380,6 +381,17 @@ export function createOrchestrator(deps: OrchestratorDeps) {
    * `getClaimableJobs()` itself failed after cloud-client.ts's own retries.
    */
   async function pollClaimableJobs(): Promise<boolean> {
+    // Defense in depth on top of the cloud's own refusal (see
+    // HeartbeatResponse.paused / docs/agent-api.md): while an admin has this
+    // Agent paused, don't even ask for work. Returns `true` because nothing
+    // failed - the cloud was reached this cycle by the heartbeat that told us
+    // we're paused, and treating a deliberate pause as a connectivity failure
+    // would wrongly escalate the outer poll backoff (see CycleOutcome).
+    if (healthMonitor.isPaused()) {
+      logger.debug("agent is paused by an administrator - not polling for claimable jobs this cycle");
+      return true;
+    }
+
     let jobs: ClaimableJob[];
     try {
       jobs = await cloudClient.getClaimableJobs();
@@ -424,6 +436,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           scheduleServiceRestart: () => {
             restartRequested = true;
           },
+          runSelfUpdate: () => performSelfUpdate(createSelfUpdateDeps(logger)),
         });
         await cloudClient.ackCommand(envelope.id, result.status, result.result);
       } catch (err) {
@@ -441,7 +454,10 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     }
 
     if (restartRequested) {
-      logger.warn("RESTART_AGENT_SERVICE: exiting process now so the service manager can relaunch it");
+      logger.warn(
+        "a restart was requested by a remote command (RESTART_AGENT_SERVICE, or a successful CHECK_FOR_UPDATE) - " +
+          "exiting the process now, after the ack above, so the service manager can relaunch it",
+      );
       // Give the ack request above a moment to actually flush over the network.
       await sleep(1000);
       process.exit(1);

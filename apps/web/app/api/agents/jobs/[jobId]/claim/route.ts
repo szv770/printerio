@@ -14,6 +14,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ job
   if (!agent) return apiError(401, "unauthenticated", "Invalid or revoked agent credentials.");
   const { jobId } = await params;
 
+  // The pause that actually matters (agents.paused). Checked here, before any
+  // lookup, so an Agent holding a job id it learned before the pause - or one
+  // ignoring the `paused` flag in its heartbeat response entirely - still
+  // cannot take the job. Uses the claim endpoint's own documented conflict
+  // shape (`{ ok: false, reason }` with a 409) rather than the generic error
+  // envelope, so an older Agent build already handles it correctly as "someone
+  // else got it, move on" instead of treating it as a hard API error
+  // (apps/agent/src/cloud-client.ts claimJob).
+  if (agent.paused) {
+    return Response.json({ ok: false, reason: "agent_paused" }, { status: 409 });
+  }
+
   const supabase = createServiceRoleClient();
 
   const { data: job } = await supabase

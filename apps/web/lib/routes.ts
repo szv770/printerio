@@ -31,6 +31,7 @@ export const routes = {
   adminPrinters: "/admin/printers",
   adminPrintersSetup: "/admin/printers/setup",
   adminAgents: "/admin/agents",
+  adminAgentDetail: (agentId: string) => `/admin/agents/${agentId}`,
   adminAudit: "/admin/audit",
   adminReports: "/admin/reports",
 

@@ -46,9 +46,30 @@ export interface HeartbeatQueue {
   status: string;
 }
 
+/** What this Agent reports about the machine it runs on - see machine-info.ts for what is and isn't included, and why. */
+export interface HeartbeatMachineInfo {
+  hostname: string;
+  osVersion: string;
+  ipAddresses: string[];
+  isGitCheckout: boolean;
+}
+
 export interface HeartbeatResponse {
   ok: true;
   serverTime: string;
+  /**
+   * True while an org_admin has this Agent paused (agents.paused). The Agent
+   * honors it by not polling for claimable jobs at all
+   * (orchestrator.ts/health-monitor.ts), which saves a pointless round trip
+   * and makes the Agent's own log say plainly why it is idle - but this is
+   * DEFENSE IN DEPTH ONLY. The pause that actually matters is enforced in the
+   * cloud: `/api/agents/jobs/claimable` returns nothing and
+   * `/api/agents/jobs/:jobId/claim` refuses with 409 `agent_paused` while it
+   * is set, so an older or modified Agent that ignores this field still
+   * cannot take work. Absent from an older server's response, in which case
+   * it reads as `false` and nothing changes.
+   */
+  paused?: boolean;
 }
 
 export interface ClaimableJob {
@@ -248,12 +269,21 @@ export class CloudClient {
     );
   }
 
-  /** POST /api/agents/heartbeat */
-  async heartbeat(version: string, queues: HeartbeatQueue[]): Promise<HeartbeatResponse> {
+  /**
+   * POST /api/agents/heartbeat. `machine` is optional on the wire (the server
+   * treats a heartbeat without it exactly as before - see
+   * docs/agent-api.md), so this parameter stays optional here too rather
+   * than forcing every existing caller/test to supply one.
+   */
+  async heartbeat(
+    version: string,
+    queues: HeartbeatQueue[],
+    machine?: HeartbeatMachineInfo,
+  ): Promise<HeartbeatResponse> {
     return this.request<HeartbeatResponse>(
       "POST",
       "/api/agents/heartbeat",
-      { version, queues },
+      machine ? { version, queues, machine } : { version, queues },
       { auth: true, retry: true },
     );
   }

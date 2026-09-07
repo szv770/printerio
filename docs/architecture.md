@@ -217,8 +217,14 @@ Agent **never** ships or holds `SUPABASE_SERVICE_ROLE_KEY`. Registration:
    (disable) an Agent from the dashboard; both are audit-logged.
 
 Heartbeats (`POST /api/agents/heartbeat`) update `agents.last_seen_at` and report agent
-version + configured printer queues; the dashboard derives online/offline from staleness
-of `last_seen_at` (no persistent connection is required or held open — see §8).
+version, configured printer queues, and an optional self-reported `machine` block
+(hostname, OS description, non-loopback IP addresses, and whether the Agent is running from
+a real git checkout — `apps/agent/src/machine-info.ts`); the dashboard derives
+online/offline from staleness of `last_seen_at` (no persistent connection is required or
+held open — see §8). The `machine` values are **display-only**: they exist so an admin can
+tell which physical PC a row corresponds to, and nothing in Printio authenticates,
+authorizes, or routes on them, which is precisely what makes accepting a self-report safe
+(§3.2). The heartbeat *response* carries `paused` back down (§12.2).
 
 ## 5. PDF preflight
 
@@ -510,12 +516,67 @@ CANCEL_PRINT_JOB        (payload: { job_id })
 RESTART_PRINT_QUEUE     (payload: { printer_profile_id })
 RESTART_AGENT_SERVICE
 CLEAR_AGENT_TEMP_FILES  (only files under the Agent's own Printio temp directory)
+CHECK_FOR_UPDATE        (no payload at all)
 ```
 
 Every issuance is authenticated (admin session), authorized (admin must be an org_admin of
 the target Agent's organization), recorded in `remote_commands` with the issuing admin id,
 and mirrored into `audit_logs`. The Agent's command handler is a `switch` over this fixed
-set — there is no code path that accepts or `eval`s an arbitrary string from the cloud.
+set — there is no code path that accepts or `eval`s an arbitrary string from the cloud. The
+set is enforced in three independent places: `REMOTE_COMMANDS` in `packages/shared`, the
+`remote_commands.command` CHECK constraint in Postgres, and the Agent's own `switch`.
+
+### 12.1 `CHECK_FOR_UPDATE` and why adding it doesn't weaken the above
+
+`apps/agent` is a locally-run Node app on the school's Windows machine; the cloud cannot
+push a binary to it. Its only real self-update path is the `git pull` inside
+`apps/agent/scripts/setup-agent.ps1`, which today only runs when someone is physically at
+the machine re-launching that script. `CHECK_FOR_UPDATE` runs that *same* sequence on
+demand (`apps/agent/src/self-update.ts`), and is a fixed command name for exactly the same
+reason every other entry is:
+
+- **It carries no payload and reads none.** `RemoteCommandPayload.CHECK_FOR_UPDATE` is
+  `Record<string, never>`, and the handler passes nothing to the updater. There is no
+  branch, remote, path, flag, or command string that can travel from the cloud into a
+  process invocation — a test asserts the updater is invoked with zero arguments even when
+  the payload is deliberately hostile.
+- **Two hardcoded argv arrays, `shell: false`:** `git pull --ff-only` and `<pnpm> install`,
+  both in the Agent's own checkout directory (computed from its own module path, never
+  supplied). `--ff-only` rather than setup-agent.ps1's bare `git pull`: an unattended
+  update must either fast-forward cleanly or refuse, never invent a merge commit on a
+  machine nobody is watching.
+- **It refuses to pretend.** With no `.git` at the repo root (the Downloads-ZIP case) it
+  acks back a specific `not_a_git_checkout` result whose message tells the admin to re-run
+  `setup-agent.bat`, rather than silently doing nothing. Same for git being absent, the
+  pull being rejected, or `pnpm install` failing — each is a distinct, admin-facing reason,
+  and none of them restarts the Agent.
+- **The restart is the existing mechanism.** On a successful update it reuses
+  `scheduleServiceRestart` — the same controlled exit `RESTART_AGENT_SERVICE` already uses,
+  which acks first and lets the Service Control Manager's recovery action relaunch the
+  process. No new restart path.
+
+The console pairs this with a compare-target so the version string means something:
+`LATEST_AGENT_VERSION` in `packages/shared` is what this repository ships (both deployables
+depend on that package; `apps/web` cannot import `apps/agent`), and
+`apps/agent/test/self-update.test.ts` fails the build if it ever drifts from
+`apps/agent/package.json`'s own version.
+
+### 12.2 Pausing an Agent
+
+`agents.paused` holds an Agent back from taking **new** work without revoking its
+credential. It is enforced in the cloud, in the two routes that hand out work:
+`/api/agents/jobs/claimable` returns an empty list and `/api/agents/jobs/:jobId/claim`
+refuses with `409 agent_paused`, both read from `authenticateAgentRequest`'s result so no
+route can forget the check. The Agent is *also* told `paused: true` in its heartbeat
+response and stops polling — but that is an optimization, not the mechanism: an older or
+modified Agent that ignores it still gets nothing.
+
+Deliberately distinct from `status = 'disabled'`, which revokes the credential outright (a
+disabled Agent can't even heartbeat, so it vanishes from the dashboard). And deliberately
+*not* something that touches jobs already leased: those finish printing normally. Pausing
+stops new work; it does not abandon work in flight. The UI reflects the same distinction —
+a paused Agent's queues read "Paused by admin", never "offline"/"error", because a
+deliberately held queue is not a broken one.
 
 ## 13. Job state machine & leasing
 

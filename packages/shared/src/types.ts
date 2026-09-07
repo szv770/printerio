@@ -69,6 +69,7 @@ export const REMOTE_COMMANDS = [
   "RESTART_PRINT_QUEUE",
   "RESTART_AGENT_SERVICE",
   "CLEAR_AGENT_TEMP_FILES",
+  "CHECK_FOR_UPDATE",
 ] as const;
 
 export type RemoteCommand = (typeof REMOTE_COMMANDS)[number];
@@ -79,6 +80,53 @@ export interface RemoteCommandPayload {
   REFRESH_PRINTER_STATUS: Record<string, never>;
   RESTART_AGENT_SERVICE: Record<string, never>;
   CLEAR_AGENT_TEMP_FILES: Record<string, never>;
+  /** Deliberately payload-free: the Agent runs one hardcoded update sequence
+   *  in its own checkout (apps/agent/src/self-update.ts) and takes no branch,
+   *  remote, path, or command string from the cloud. */
+  CHECK_FOR_UPDATE: Record<string, never>;
+}
+
+/**
+ * The Agent version this repository currently ships - the compare-target the
+ * admin console shows next to whatever version an Agent actually reported
+ * (`agents.version`), so "this machine is on 0.1.0, latest is 0.2.0" is
+ * answerable instead of just showing a bare version string with nothing to
+ * compare it to.
+ *
+ * It lives here, not in apps/agent/package.json, because apps/web cannot
+ * import from apps/agent (two independent deployables - docs/architecture.md
+ * sec 1) while both already depend on this package. Bump it in the same
+ * commit that bumps apps/agent/package.json's "version":
+ * apps/agent/test/version.test.ts fails the build if the two ever drift, so
+ * this cannot silently go stale.
+ */
+export const LATEST_AGENT_VERSION = "0.1.0";
+
+/**
+ * Compares two dot-separated version strings numerically (not
+ * lexicographically - "0.10.0" is newer than "0.9.0", which a string compare
+ * gets backwards). Missing/unparseable segments count as 0, and a null/empty
+ * reported version yields "unknown" rather than a guess.
+ *
+ * Pure and dependency-free specifically so both the web app and the Agent's
+ * tests can use the same implementation.
+ */
+export function compareAgentVersions(
+  reported: string | null | undefined,
+  latest: string,
+): "unknown" | "up_to_date" | "outdated" | "ahead" {
+  if (!reported || !reported.trim()) return "unknown";
+  const parse = (v: string) => v.trim().split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const a = parse(reported);
+  const b = parse(latest);
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i += 1) {
+    const x = a[i] ?? 0;
+    const y = b[i] ?? 0;
+    if (x < y) return "outdated";
+    if (x > y) return "ahead";
+  }
+  return "up_to_date";
 }
 
 /** print_job_events.metadata shapes worth typing; unlisted event types carry Record<string, unknown>. */
