@@ -2060,7 +2060,7 @@ revoke execute on function claim_invitation_use(uuid) from authenticated;
 
 
 -- ===================================================================
--- Source: migrations/0021_agent_machine_info_pause_and_check_for_update.sql
+-- Source: migrations/0022_agent_machine_info_pause_and_check_for_update.sql
 -- ===================================================================
 -- Everything the per-Agent detail page (app/admin/agents/[agentId]) needs
 -- that the schema could not already answer. Three additive changes, none of

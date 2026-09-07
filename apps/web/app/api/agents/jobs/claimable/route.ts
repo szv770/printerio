@@ -9,7 +9,7 @@ export async function GET(request: Request) {
   if (!agent) return apiError(401, "unauthenticated", "Invalid or revoked agent credentials.");
 
   // A paused Agent is simply never offered work (agents.paused - see the
-  // column comment in supabase/migrations/0021_*.sql). This is one of the two
+  // column comment in supabase/migrations/0022_*.sql). This is one of the two
   // server-side enforcement points for pausing; the other is the claim route,
   // which refuses even a job id an Agent already knows about. Deliberately an
   // empty list rather than an error: being paused is a normal administrative
