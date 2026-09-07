@@ -131,3 +131,84 @@ export async function clearAgentTempFilesAction(_prev: AgentActionState, formDat
   revalidatePath(routes.adminAgents);
   return {};
 }
+
+/** Renames an agent's display name - purely cosmetic, no effect on its
+ *  credential, printer_profiles mappings, or Windows queue names. */
+export async function renameAgentAction(_prev: AgentActionState, formData: FormData): Promise<AgentActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const agentId = String(formData.get("agentId") ?? "");
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) return { error: "Name is required." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("agents")
+    .update({ name })
+    .eq("id", agentId)
+    .eq("organization_id", session.membership.organization_id);
+  if (error) return { error: error.message };
+
+  revalidatePath(routes.adminAgents);
+  return {};
+}
+
+/**
+ * Permanently removes an agent record. Only allowed for a `pending` (never
+ * successfully registered - e.g. a mistyped test/duplicate) or already
+ * `disabled` agent - an `active` agent must be disabled first (same
+ * decommission order docs/agent-install.md sec 8 already documents), so this
+ * can never silently pull the credential out from under a machine that's
+ * still actually printing.
+ *
+ * printer_profiles.agent_id is `on delete restrict` (0002_printing_tables.sql)
+ * specifically so a profile can never end up pointing at a row that no
+ * longer exists - checked here first for a clear, actionable error instead
+ * of a raw FK-violation message; reassign or delete those profiles first if
+ * the printer itself is genuinely going away, per that same doc section.
+ */
+export async function deleteAgentAction(_prev: AgentActionState, formData: FormData): Promise<AgentActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const agentId = String(formData.get("agentId") ?? "");
+
+  const supabase = await createClient();
+
+  const { data: agent } = await supabase
+    .from("agents")
+    .select("status")
+    .eq("id", agentId)
+    .eq("organization_id", session.membership.organization_id)
+    .maybeSingle();
+  if (!agent) return { error: "Agent not found." };
+  if (agent.status === "active") {
+    return { error: "Disable this agent first, then delete it - an active agent must not be removed out from under a machine that may still be printing." };
+  }
+
+  const { count } = await supabase
+    .from("printer_profiles")
+    .select("id", { count: "exact", head: true })
+    .eq("agent_id", agentId);
+  if (count && count > 0) {
+    return {
+      error: `${count} printer profile${count === 1 ? "" : "s"} still point at this agent - reassign or delete ${count === 1 ? "it" : "them"} first (Printers page).`,
+    };
+  }
+
+  const { error } = await supabase
+    .from("agents")
+    .delete()
+    .eq("id", agentId)
+    .eq("organization_id", session.membership.organization_id);
+  if (error) return { error: error.message };
+
+  await supabase.from("audit_logs").insert({
+    organization_id: session.membership.organization_id,
+    actor_id: session.userId,
+    action: "agent.deleted",
+    target_type: "agents",
+    target_id: agentId,
+    metadata: {},
+  });
+
+  revalidatePath(routes.adminAgents);
+  return {};
+}
