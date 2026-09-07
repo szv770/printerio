@@ -23,11 +23,13 @@ import { HelpMenu } from "@/components/help/HelpMenu";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   let isOrgAdmin = false;
+  let isSuperAdmin = false;
   let organizationId: string | null = null;
   let userId = "";
   try {
     const session = await requireOrgRole(["org_admin", "approver"]);
     isOrgAdmin = session.membership.role === "org_admin";
+    isSuperAdmin = session.profile.platform_role === "super_admin";
     organizationId = session.membership.organization_id;
     userId = session.userId;
   } catch {
@@ -106,6 +108,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </NavGroup>
 
         <div className="mt-6 flex flex-col gap-1 border-t border-[var(--color-border)] pt-4 text-sm">
+          {isSuperAdmin && (
+            <Link href={routes.platform} className="block rounded-lg px-3 py-2 hover:bg-[var(--color-surface)]">
+              Platform console
+            </Link>
+          )}
           <Link href={routes.dashboard} className="block rounded-lg px-3 py-2 hover:bg-[var(--color-surface)]">
             Switch to student view
           </Link>
