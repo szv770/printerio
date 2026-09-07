@@ -1231,9 +1231,21 @@ as $$
   end
 $$;
 
+-- 0023_fix_print_job_transition_trigger_privileges.sql: this trigger function
+-- calls private.print_job_transition_allowed(), but an ordinary `authenticated`
+-- role has no USAGE grant on schema `private` at all - so without
+-- SECURITY DEFINER, any real user's status-changing UPDATE (approve, reject,
+-- ...) failed outright with "permission denied for schema private" the
+-- instant it was first exercised. The earlier search_path hardening pass
+-- below added `set search_path = ''` but missed that this one - unlike a
+-- plain helper function, a trigger body needing to reach into `private`
+-- needs SECURITY DEFINER too. The print_jobs RLS UPDATE policy still fully
+-- governs who may write the row at all; this only validates the transition
+-- shape.
 create or replace function private.validate_print_job_transition()
 returns trigger
 language plpgsql
+security definer
 set search_path = ''
 as $$
 begin
