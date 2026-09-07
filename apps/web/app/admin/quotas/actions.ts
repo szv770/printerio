@@ -11,8 +11,6 @@ export interface QuotaActionState {
   error?: string;
   success?: string;
 }
-const initial: QuotaActionState = {};
-export { initial as initialQuotaActionState };
 
 const VALID_SCOPE_TYPES = ["organization", "role", "department", "group", "user"];
 const VALID_ROLES = ["student", "staff", "approver", "org_admin"];

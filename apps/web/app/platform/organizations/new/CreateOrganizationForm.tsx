@@ -3,7 +3,11 @@
 import { useActionState } from "react";
 import { Building2 } from "lucide-react";
 import { Button, Input, Textarea, FieldLabel, FormError, FormSuccess, Card } from "@/components/ui";
-import { createOrganizationAction, initialCreateOrganizationActionState } from "./actions";
+import { createOrganizationAction, type CreateOrganizationActionState } from "./actions";
+
+// A "use server" file may only export async functions, so this trivial seed
+// value for useActionState lives here instead of alongside the action.
+const initialCreateOrganizationActionState: CreateOrganizationActionState = {};
 
 export function CreateOrganizationForm() {
   const [state, formAction, pending] = useActionState(createOrganizationAction, initialCreateOrganizationActionState);

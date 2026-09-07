@@ -10,8 +10,6 @@ export interface PlatformActionState {
   error?: string;
   success?: string;
 }
-const initial: PlatformActionState = {};
-export { initial as initialPlatformActionState };
 
 /**
  * "Join organization as admin" (docs/architecture.md sec 2.1: a super_admin's

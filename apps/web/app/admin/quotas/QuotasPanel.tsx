@@ -4,7 +4,11 @@ import { useActionState, useState } from "react";
 import { Info } from "lucide-react";
 import type { Tables } from "@/lib/database.types";
 import { Button, Input, Select, FieldLabel, FormError, FormSuccess, Badge, EmptyState, Card } from "@/components/ui";
-import { createQuotaAction, deleteQuotaAction, initialQuotaActionState } from "./actions";
+import { createQuotaAction, deleteQuotaAction, type QuotaActionState } from "./actions";
+
+// A "use server" file may only export async functions, so this trivial seed
+// value for useActionState lives here instead of alongside the action.
+const initialQuotaActionState: QuotaActionState = {};
 
 type Quota = Tables<"quotas">;
 interface GroupOption {

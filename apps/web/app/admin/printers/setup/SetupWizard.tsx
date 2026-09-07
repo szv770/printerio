@@ -7,8 +7,12 @@ import Link from "next/link";
 import { Button, Card, Badge, Select, Input, FieldLabel, FormError, EmptyState } from "@/components/ui";
 import { PRINTER_PROFILE_ICON_COMPONENTS, type PrinterProfileIconKey } from "@/lib/printer-profile-icons";
 import { PRINTER_ARCHETYPE_IDS, PRINTER_ARCHETYPES, buildRecipeCards, isPrinterArchetypeId, type PrinterArchetypeId, type RecipeCard } from "@/lib/printer-setup-wizard";
-import { createPrinterProfilesFromWizardAction, initialPrinterActionState } from "../actions";
+import { createPrinterProfilesFromWizardAction, type PrinterActionState } from "../actions";
 import { routes } from "@/lib/routes";
+
+// A "use server" file may only export async functions, so this trivial seed
+// value for useActionState lives here instead of alongside the action.
+const initialPrinterActionState: PrinterActionState = {};
 
 export interface DiscoveredQueue {
   windowsQueueName: string;

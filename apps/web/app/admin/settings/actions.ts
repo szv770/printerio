@@ -15,8 +15,6 @@ export interface SettingsActionState {
    *  Save gets no signal at all and can't tell success from a dead button. */
   success?: string;
 }
-const initial: SettingsActionState = {};
-export { initial as initialSettingsActionState };
 
 /** Updates organizations.allowed_domains - the sign-in domain gate for
  *  brand-new users (docs/architecture.md sec 19, email_domain_allowed() in

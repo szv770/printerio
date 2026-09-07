@@ -9,8 +9,6 @@ import { routes } from "@/lib/routes";
 export interface GroupActionState {
   error?: string;
 }
-const initial: GroupActionState = {};
-export { initial as initialGroupActionState };
 
 const VALID_KINDS = ["department", "class", "custom"];
 

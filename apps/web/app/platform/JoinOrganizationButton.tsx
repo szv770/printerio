@@ -3,7 +3,11 @@
 import { useActionState } from "react";
 import { LogIn } from "lucide-react";
 import { Button, FormError, FormSuccess } from "@/components/ui";
-import { joinOrganizationAsAdminAction, initialPlatformActionState } from "./actions";
+import { joinOrganizationAsAdminAction, type PlatformActionState } from "./actions";
+
+// A "use server" file may only export async functions, so this trivial seed
+// value for useActionState lives here instead of alongside the action.
+const initialPlatformActionState: PlatformActionState = {};
 
 /** One per organization row on the Overview page - only rendered for an
  *  organization the acting super_admin isn't already a member of (see

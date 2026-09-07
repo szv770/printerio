@@ -12,8 +12,6 @@ export interface CreateOrganizationActionState {
   error?: string;
   success?: string;
 }
-const initial: CreateOrganizationActionState = {};
-export { initial as initialCreateOrganizationActionState };
 
 /**
  * Creates an organizations row plus its organization_settings row - the two

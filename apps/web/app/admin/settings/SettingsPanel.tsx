@@ -7,8 +7,12 @@ import {
   updateAllowedDomainsAction,
   updateMagicLinkDomainToggleAction,
   updateDefaultBookletBindingSideAction,
-  initialSettingsActionState,
+  type SettingsActionState,
 } from "./actions";
+
+// A "use server" file may only export async functions, so this trivial seed
+// value for useActionState lives here instead of alongside the action.
+const initialSettingsActionState: SettingsActionState = {};
 
 export function SettingsPanel({
   allowedDomains,

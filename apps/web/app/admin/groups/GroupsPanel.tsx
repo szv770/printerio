@@ -9,8 +9,12 @@ import {
   deleteGroupAction,
   addGroupMemberAction,
   removeGroupMemberAction,
-  initialGroupActionState,
+  type GroupActionState,
 } from "./actions";
+
+// A "use server" file may only export async functions, so this trivial seed
+// value for useActionState lives here instead of alongside the action.
+const initialGroupActionState: GroupActionState = {};
 
 type Group = Tables<"groups">;
 interface GroupMember {

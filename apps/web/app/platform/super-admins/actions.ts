@@ -11,8 +11,6 @@ export interface SuperAdminActionState {
   error?: string;
   success?: string;
 }
-const initial: SuperAdminActionState = {};
-export { initial as initialSuperAdminActionState };
 
 type ServiceRoleClient = ReturnType<typeof createServiceRoleClient>;
 

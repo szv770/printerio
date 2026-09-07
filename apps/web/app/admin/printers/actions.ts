@@ -14,8 +14,6 @@ export interface PrinterActionState {
   error?: string;
 }
 
-const initial: PrinterActionState = {};
-export { initial as initialPrinterActionState };
 
 export async function createPrinterAction(_prev: PrinterActionState, formData: FormData): Promise<PrinterActionState> {
   const session = await requireOrgRole(["org_admin"]);

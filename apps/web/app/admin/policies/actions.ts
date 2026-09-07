@@ -11,8 +11,6 @@ import { routes } from "@/lib/routes";
 export interface PolicyActionState {
   error?: string;
 }
-const initial: PolicyActionState = {};
-export { initial as initialPolicyActionState };
 
 export async function createPolicyAction(_prev: PolicyActionState, formData: FormData): Promise<PolicyActionState> {
   const session = await requireOrgRole(["org_admin"]);
