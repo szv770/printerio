@@ -202,14 +202,21 @@ function Test-SumatraFound {
     return @{ Found = $false; Detail = "SumatraPDF.exe was not found on PATH, and PRINTIO_SUMATRA_PATH is not set" }
 }
 
-# SumatraPDF's own vendor-hosted "always latest" direct-download link for the
-# portable (no-install, no-admin-needed) 64-bit build - documented on
-# https://www.sumatrapdfreader.org/download-free-pdf-viewer as the stable URL
-# for exactly this purpose, so it isn't a version we have to keep updating
-# here ourselves.
-$SumatraPortableDownloadUrl = "https://www.sumatrapdfreader.org/dl/rel/latest/SumatraPDF-64-portable.exe"
+# A "/dl/rel/latest/..." alias was tried here first, on the assumption
+# SumatraPDF's site published one - it does not: that path 404s, confirmed
+# by a real run of this script in the field ("The remote server returned an
+# error: (404) Not Found"), which silently left PRINTIO_SUMATRA_PATH
+# pointing nowhere. Pinned to a real, confirmed-working release build
+# instead - the exact "no-install" 64-bit exe SumatraPDF's own download page
+# offers (same file a person downloads by hand, hence the filename below
+# matching one already seen working on a real machine). This means it goes
+# stale as new SumatraPDF versions ship; bump SumatraPdfPinnedVersion when
+# that matters (an old-but-working build is still infinitely better than a
+# broken auto-download, so this is not urgent to chase).
+$SumatraPdfPinnedVersion = "3.6.1"
+$SumatraPortableDownloadUrl = "https://www.sumatrapdfreader.org/dl/rel/$SumatraPdfPinnedVersion/SumatraPDF-$SumatraPdfPinnedVersion-64.exe"
 $SumatraPortableInstallDir = "$env:ProgramData\Printio"
-$SumatraPortableInstallPath = "$SumatraPortableInstallDir\SumatraPDF-64-portable.exe"
+$SumatraPortableInstallPath = "$SumatraPortableInstallDir\SumatraPDF-64.exe"
 
 function Install-SumatraPortable {
     # Downloads the portable build straight from SumatraPDF's own site - no
