@@ -61,6 +61,36 @@ for the research basis of each design decision this responds to.
   database recording "this printer supports booklet" reflects what an admin configured on
   the Windows queue, not something the cloud has confirmed against the physical device.
 
+## Uploaded files / malware
+
+- **There is no antivirus/malware scanning of uploaded PDFs.** Supabase Storage provides
+  none, and Printio does not run ClamAV or any third-party scanning API over uploads — that
+  would mean either a paid per-file scanning service in the upload path or a long-lived host
+  for a scanner, neither of which this architecture has (see architecture.md §16). What is
+  enforced instead, on the server, before a file is persisted: real `%PDF-` magic bytes (not
+  the extension), a full structural parse, a page count computed from the file itself, the
+  organization's size limit, rejection of encrypted PDFs, and rejection of any PDF declaring
+  **active content** — embedded JavaScript, a `/Launch` action, or an embedded file
+  attachment (`lib/pdf/active-content.ts`). Full reasoning, and what the residual risk
+  actually is, in architecture.md §5.1.
+- **The residual risk is a parser/rasterizer exploit, and it is not mitigated by any of the
+  above.** A malicious PDF that targets a specific bug in pdf-lib (server-side parse),
+  pdfjs-dist (in a submitter's or approver's own browser tab) or SumatraPDF/the printer
+  driver (on the Agent PC) is the class of thing AV signatures catch and structure validation
+  does not. Mitigation here is operational rather than architectural: keep the Agent machine
+  and its drivers patched, and keep dependencies current. If a school's own policy requires
+  scanning, the insertion point is between "preflight passed" and "object persisted" in
+  `app/(dashboard)/print/actions.ts` — deliberately left unimplemented rather than half-built.
+- **Active-content rejection is by declaration, not by intent.** A legitimate fillable form
+  whose fields carry calculation JavaScript, or a PDF that legitimately bundles an
+  attachment, is refused along with a hostile one. The message says how to fix it (re-export
+  via Print → Save as PDF), and this is a deliberate trade: those constructs have no role in
+  a document destined for paper. There is currently no per-organization toggle to allow them.
+- **A downloaded print file lingers on the Agent PC.** The Agent writes each job's PDF into
+  its own downloads folder to hand to the print queue and does not delete it afterwards;
+  clearing them is the explicit `CLEAR_AGENT_TEMP_FILES` remote command (architecture.md
+  §12). Cloud-side retention (§16) does not reach that machine's disk.
+
 ## Multi-tenancy / security
 
 - **JWT claims (organization/role) can be briefly stale** after a role change or removal,

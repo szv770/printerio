@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   Gauge,
   Globe,
+  HardDrive,
   BarChart3,
   ScrollText,
   type LucideIcon,
@@ -92,6 +93,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <NavLink href={routes.adminSettings} icon={Globe}>
             Settings
           </NavLink>
+          {/* Storage requires org_admin (app/admin/storage/page.tsx) - hidden
+           *  for approvers rather than showing a link that redirects them. */}
+          {isOrgAdmin && (
+            <NavLink href={routes.adminStorage} icon={HardDrive}>
+              Storage
+            </NavLink>
+          )}
         </NavGroup>
 
         <NavGroup title="Insights">

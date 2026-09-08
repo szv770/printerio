@@ -3,8 +3,11 @@ import { createClient } from "@/lib/supabase/server";
 import { requireSession } from "@/lib/auth/session";
 import { Card } from "@/components/ui";
 import { jobEventDisplay } from "@/lib/job-event-labels";
+import { formatFileSize } from "@/lib/pdf/client-precheck";
+import { canOwnerPurgeFiles } from "@/lib/retention";
 import { JobStatusLive } from "./JobStatusLive";
 import { ReprintButton } from "./ReprintButton";
+import { DeleteFileButton } from "./DeleteFileButton";
 import { LocalTime } from "../LocalTime";
 
 /** The approver's own words, recorded on the REJECTED event alongside the
@@ -23,11 +26,15 @@ function rejectionReasonFrom(events: { event_type: string; metadata: unknown }[]
 
 export default async function JobDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  await requireSession(); // RLS below still governs actual row visibility
+  // RLS below still governs actual row visibility; the session is read here
+  // so the page can tell whether the viewer is the job's own submitter (an
+  // approver can see the row too, but only the owner may delete its file).
+  const session = await requireSession();
 
   const supabase = await createClient();
   const { data: job } = await supabase.from("print_jobs").select("*").eq("id", id).maybeSingle();
   if (!job) notFound();
+  const isOwner = job.created_by === session.userId;
 
   const { data: events } = await supabase
     .from("print_job_events")
@@ -43,7 +50,11 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
           <h1 className="mb-1 text-2xl font-semibold">{job.original_file_name}</h1>
           <p className="text-sm text-[var(--color-muted)]">{job.job_number}</p>
         </div>
-        <ReprintButton jobId={job.id} />
+        {/* Reprinting re-runs the pipeline against the ORIGINAL stored bytes
+         *  and is scoped to the job's own submitter, so it is shown only when
+         *  both still hold - a purged file (or another person's job) would
+         *  otherwise offer a button that can only fail. */}
+        {isOwner && !job.files_purged_at && <ReprintButton jobId={job.id} />}
       </div>
 
       {/* The stage-by-stage answer to "where is this up to right now", live
@@ -79,7 +90,37 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
           <p className="text-[var(--color-muted)]">Physical sheets</p>
           <p className="font-medium">{job.estimated_physical_sheets}</p>
         </div>
+        <div>
+          <p className="text-[var(--color-muted)]">File size</p>
+          <p className="font-medium">{formatFileSize(Number(job.file_size_bytes))}</p>
+        </div>
+        <div>
+          <p className="text-[var(--color-muted)]">Stored file</p>
+          <p className="font-medium">
+            {job.files_purged_at ? (
+              <>
+                Deleted <LocalTime iso={job.files_purged_at} />
+              </>
+            ) : (
+              "Kept for now"
+            )}
+          </p>
+        </div>
       </Card>
+
+      {/* Only the submitter, only once the job has genuinely finished, and
+       *  only while a file is actually there - the action re-checks all three
+       *  server-side (lib/retention.ts's canOwnerPurgeFiles); this just keeps
+       *  the control from appearing when it could not possibly work. */}
+      {isOwner && !job.files_purged_at && canOwnerPurgeFiles(job).ok && (
+        <div className="mt-4">
+          <p className="mb-2 text-sm text-[var(--color-muted)]">
+            Your uploaded PDF is stored until this organization&apos;s retention window ends. You can remove it now
+            instead - the job record and its history are kept either way.
+          </p>
+          <DeleteFileButton jobId={job.id} />
+        </div>
+      )}
 
       {eventRows.length > 0 && (
         <div className="mt-6">

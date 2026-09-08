@@ -238,8 +238,131 @@ Every upload is validated server-side before anything else happens:
 - A malformed PDF is rejected with a clear error and a `PREFLIGHT_REJECTED` job event; it
   never reaches the policy engine or storage as a "real" job.
 
-Optional/V1.5: thumbnail generation, mixed-page-size detection, landscape/portrait
-detection. These are explicitly optional and never gate the core upload → print flow.
+Optional/V1.5: mixed-page-size detection, landscape/portrait detection. These are
+explicitly optional and never gate the core upload → print flow. (First-page thumbnail
+rendering is built: `lib/pdf/render-page.ts`, used by both the submitter's own preview and
+an approver's — §5.2.)
+
+### 5.1 "Where does an uploaded file go, and what stops a virus?" — the plain answer
+
+This section is deliberately written for a school IT administrator rather than for a
+developer, because it is the question that actually gets asked. Everything in it is a
+statement about code that exists, not an intention.
+
+**Where the file goes, step by step.**
+
+1. A student or teacher picks a PDF in their browser. Before anything is sent, the browser
+   checks it locally (size against the organization's limit, the `%PDF-` header bytes, page
+   count, and the active-content check below) purely so an obviously-unacceptable file is
+   refused in a second instead of after a long upload. None of this is trusted — it is a
+   courtesy, and a scripted upload can skip it entirely (`lib/pdf/client-precheck.ts`).
+2. The bytes are POSTed to Printio's own server (a Next.js Server Action running on Vercel).
+   They exist there only as memory inside that one request. **Nothing is written to a
+   disk on the web server** — there is no upload folder, no shared temp directory, nothing
+   left behind for a later request to find.
+3. That request re-runs every check itself, on the real bytes, and this pass is the only one
+   that counts (`lib/pdf/preflight.ts` — §5). A file that fails is refused with a plain
+   reason and is never stored anywhere.
+4. Only a file that passed is written to Supabase Storage, in a **private** bucket
+   (`print-jobs`), under a path scoped to the organization and the job
+   (`org/{organizationId}/jobs/{jobId}/original.pdf`).
+5. When it is time to print, the on-premises Windows Agent asks the cloud for that one job,
+   is handed a **signed URL that expires in 5 minutes**, downloads the file to its own
+   folder on that PC, re-checks the `%PDF-` header, and hands it to the Windows print
+   queue. Downloaded copies stay in the Agent's own folder on that machine until an admin
+   runs `CLEAR_AGENT_TEMP_FILES` (§12) — worth knowing, because that PC's own disk is then
+   the one place a print file lingers.
+
+**What is actually checked before a file is accepted** (all of it server-side, all of it
+in `lib/pdf/preflight.ts`, tested in `preflight.test.ts`):
+
+- The file is not empty, and is within the organization's configured size limit
+  (`organization_settings.max_upload_size_bytes`, 50 MB by default; the bucket also has a
+  hard 100 MiB ceiling of its own).
+- It really is a PDF — the leading `%PDF-` bytes are checked, not the filename or the
+  extension. A `.docx` renamed to `.pdf`, an image, a script, an executable: all rejected
+  here, whatever the browser claimed the file was.
+- It parses as a structurally valid PDF end to end (pdf-lib), and has at least one page. A
+  truncated or corrupted file is rejected, not queued and then mysteriously failed at the
+  printer.
+- A password-protected/encrypted PDF is rejected with an explanation, rather than being
+  stored as something nobody downstream can open.
+- The page count is computed here, from the file itself. A number claimed by the browser is
+  never stored or used for quota/policy (§3.2).
+- **New: the PDF must not declare active content.** A structurally valid PDF can still
+  carry an embedded JavaScript action, a `/Launch` action (an instruction to run a program
+  or open another file), or an embedded file attachment (the classic way a PDF is used as a
+  container to smuggle something else). `lib/pdf/active-content.ts` walks the document's
+  parsed object graph — every indirect object, including the ones packed inside compressed
+  object streams, which a naive text search over the raw bytes would miss — and a document
+  declaring any of the three is **rejected outright**, with a message telling the submitter
+  to re-export it via Print → Save as PDF (which drops all three). Ordinary link
+  annotations are not affected: a hyperlink is inert on paper and is not treated as active
+  content.
+
+**Is there virus scanning? No — and that is a deliberate, stated position, not an
+oversight.** Supabase Storage has no built-in malware scanning, and Printio does not run
+ClamAV or any third-party AV engine over uploads. Running one would mean either a paid
+scanning API in the upload path (a per-file cost and a new failure mode on a volunteer-run
+system) or a long-lived machine to host the scanner, which this architecture deliberately
+does not have (§16 — everything is serverless plus one on-prem Agent). What Printio does
+instead is narrow the attack surface to the point where a scanner would have very little
+left to find:
+
+- Nothing on the server ever *opens* the file as a document. The cloud parses its structure
+  and counts pages; it never renders it.
+- The file reaches its destination as a PDF handed to the Windows print pipeline via
+  SumatraPDF. Printer drivers and print spoolers draw page content; they do not execute
+  document scripts, and they do not open attachments. Page content — text, vectors, images
+  — is not a code-execution channel.
+- The three constructs that *could* be acted on later, if a human opened the same file in a
+  full PDF reader (JavaScript, `/Launch`, attachments), are now refused at upload rather
+  than stored.
+
+**The residual risk, stated honestly.** A malicious PDF that exploits a parser bug in a
+specific PDF reader/rasterizer version is still theoretically possible — that class of bug
+is what AV signatures catch and structure validation does not. In this system that would
+have to be a bug in pdf-lib's parser (server-side, in a short-lived function with no disk
+and no credentials beyond that request), in pdfjs-dist (client-side, in the submitter's or
+approver's own browser tab), or in SumatraPDF/the printer driver on the Agent PC. That is
+the same exposure any school has when a staff member opens a PDF that arrived by email, and
+it is bounded here by the two things that matter operationally: keep the Agent PC patched
+(Windows, drivers, SumatraPDF), and keep dependencies current. If a school's policy later
+*requires* AV scanning of uploads, the natural insertion point is between step 3 and step 4
+above — a scan call after preflight passes and before the object is persisted — and that
+remains an unimplemented option, recorded in [known-limitations.md](./known-limitations.md)
+rather than half-built.
+
+**Can one school (or one student) read another's files?** No, and this is enforced by the
+database rather than by application code remembering to filter:
+
+- The bucket is **private** (`public = false`, `0007_storage.sql`). There is no public URL
+  for any object in it, so guessing or leaking a path is not enough to read anything — an
+  unauthenticated request gets nothing.
+- Storage's own row-level security parses the object path and requires the `org/{id}`
+  segment to be one of the caller's own active organizations (`private.user_org_ids()`), so
+  a member of organization A presenting a valid session and a correct-looking path from
+  organization B is refused by Postgres, not by a check somewhere in the app.
+- Every download — the Agent's, an approver's preview, a reprint — goes through a
+  short-lived **signed URL** (`createSignedUrl`: 5 minutes for the Agent, 2 minutes for a
+  browser preview), minted only after the caller's role and the job's ownership have been
+  re-derived server-side. Never a permanent or public link.
+- Within an organization, file access follows the same rule as the job row itself: your own
+  jobs, plus (for an approver/org_admin) the jobs they are responsible for approving. Job
+  ids are random UUIDs, so there is no sequence to walk.
+
+### 5.2 Approver preview of the actual document
+
+An approver decides on a real document, not just a filename and a page count, so the
+approval queue (`app/admin/approvals/`) shows the submitter, page count, file size, target
+printer profile and the full settings line, plus an on-demand preview: `View file` calls
+`createJobFileUrlAction`, which re-checks the caller is an `org_admin`/`approver` **of that
+job's own organization**, then mints a 2-minute signed URL as that caller (so Storage's
+path-scoped policy is an independent third check). Page 1 is rendered in the approver's own
+browser from those same bytes (`lib/pdf/render-page.ts`, the renderer the submitter's own
+preview uses), and the same URL backs an "Open the original PDF" link for reading the whole
+document. Nothing is fetched until an approver asks, so opening a queue of a dozen pending
+jobs mints no URLs at all.
 
 ## 6. Print policy / rules engine
 
@@ -701,6 +824,55 @@ are removed, filtered via `is null` in the retention SELECT) is what makes repea
 cheap rather than wasted work — a job whose files are already gone is never reselected
 again. Every LIMIT is a re-query by state/timestamp, never an offset/cursor, so a tick that
 hits its cap simply makes partial progress and the next scheduled tick picks up the rest.
+
+### 16.1 Retention has one implementation, and three ways to trigger it
+
+The retention pass itself lives in `apps/web/lib/retention.ts`, not in the cron route, because
+three callers share it and must not drift into three different notions of "delete a job's
+files":
+
+1. **The scheduled sweep** (`app/api/cron/sweep/route.ts`) — every organization, every
+   window, on a timer.
+2. **An admin's "clean up now"** (`app/admin/storage/`) — the *same* pass, scoped to one
+   organization, run on demand. Deliberately not more aggressive than the scheduled one: it
+   removes exactly what the timer would already remove (terminal jobs past that org's
+   configured window), so the number the page shows as "ready to clean up" is by
+   construction what the button deletes. It runs as the calling admin, not as service-role
+   — Storage's delete policy already admits an org_admin for their own org's path prefix and
+   `print_jobs`' update policy admits them via `private.is_org_approver`, so RLS stays the
+   enforcement point end to end.
+3. **A user deleting their own finished job's file early**
+   (`app/(dashboard)/jobs/[id]/actions.ts`) — for the submitter who would rather not leave a
+   copy of their document sitting in the cloud for the rest of the retention window.
+
+The invariant all three inherit from that module: **only Storage objects are ever removed;
+the `print_jobs` row always survives** (job number, page/sheet counts, quota history and the
+`print_job_events` trail are what an audit needs after the file is gone). There is
+deliberately no `delete` policy on `print_jobs` for any user role, precisely so nobody can
+erase their own history by "deleting a job".
+
+Eligibility for the user-initiated case is stricter than the sweep's and is one pure,
+unit-tested function (`canOwnerPurgeFiles`): the job must be in a genuinely terminal state
+(`completed` / `rejected` / `denied` / `cancelled` / `expired`), and a `failed` job only once
+its retry budget is exhausted — `failed → claimed` is a legal transition (§13), so a job that
+can still be retried keeps its file. An in-flight or still-pending job can never have its file
+pulled out from under the Agent or the approver. The action re-reads the live row (scoped to
+`created_by = caller` and their own organization) and re-checks it against that function;
+nothing is decided in the browser. The removal itself goes through service-role for this one
+path only, because Storage's delete policy admits org_admins alone and a student deleting
+their own file is exactly the case it does not cover — safe because no path ever comes from
+the client: the object paths are read off the verified row and handed to the same
+`purgeJobFiles()` the sweep uses.
+
+`/admin/storage` also answers "how much is this costing us in space": total bytes/files
+currently stored, how much is already past its window, how much belongs to jobs still in
+flight, and a per-window breakdown, computed by `lib/storage-usage.ts` from the *same*
+retention definitions (`summarizeStorageUsage` is pure and unit-tested). Two honest caveats
+the page states itself rather than hiding: the figures come from `file_size_bytes`, which
+records the uploaded original only (a booklet job's generated print-ready copy has no
+recorded size, so the total is a floor), and the page reads a capped number of job rows —
+only ones whose files still exist, which retention keeps to a few days' worth — and says so
+if it ever hits the cap.
 
 **Research basis:** Next.js 16 blog/docs (App Router is the actively developed target,
 Pages Router is maintenance-only); Vercel Functions/Cron docs (duration limits, `waitUntil`

@@ -91,6 +91,11 @@ describe("formatFileSize", () => {
     expect(formatFileSize(Math.round(4.25 * MB))).toBe("4.3 MB");
   });
 
+  it("formats multi-gigabyte totals in gigabytes (the admin storage page adds many files up)", () => {
+    expect(formatFileSize(3 * 1024 * MB)).toBe("3.0 GB");
+    expect(formatFileSize(1536 * MB)).toBe("1.5 GB");
+  });
+
   it("formats sub-megabyte sizes in kilobytes", () => {
     expect(formatFileSize(512 * 1024)).toBe("512 KB");
     expect(formatFileSize(2048)).toBe("2.0 KB");

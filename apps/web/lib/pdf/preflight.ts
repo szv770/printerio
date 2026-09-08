@@ -1,5 +1,6 @@
 import "server-only";
 import { EncryptedPDFError, PDFDocument } from "pdf-lib";
+import { activeContentRejectionMessage, findActiveContent } from "./active-content";
 
 /**
  * Server-side PDF preflight (docs/architecture.md sec 5). Never trust a
@@ -33,6 +34,18 @@ export async function preflightPdf(bytes: Uint8Array, opts: { maxSizeBytes: numb
     if (pageCount === 0) {
       return { ok: false, reason: "PDF has no pages." };
     }
+
+    // Structural validity is not the same as harmlessness: a perfectly valid
+    // PDF can still declare embedded JavaScript, a /Launch action, or a file
+    // attachment. None of those has any role in a document destined for
+    // paper, and they are the realistic residual risk in this pipeline
+    // (docs/architecture.md sec 5.1), so a job declaring one is rejected here
+    // - before the bytes are ever persisted to Storage or handed to an Agent.
+    const activeContent = findActiveContent(doc);
+    if (activeContent.length > 0) {
+      return { ok: false, reason: activeContentRejectionMessage(activeContent) };
+    }
+
     return { ok: true, pageCount, fileSizeBytes: bytes.byteLength };
   } catch (err) {
     if (err instanceof EncryptedPDFError) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, PDFName, PDFString } from "pdf-lib";
 import { preflightPdf } from "./preflight";
 
 async function makeValidPdf(pageCount: number): Promise<Uint8Array> {
@@ -45,6 +45,29 @@ describe("preflightPdf", () => {
     const result = await preflightPdf(bytes, { maxSizeBytes: 10 }); // absurdly small ceiling
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toMatch(/exceeds/i);
+  });
+
+  it("rejects a structurally valid PDF that declares embedded JavaScript", async () => {
+    // Valid PDF, real page - the only thing wrong with it is the active
+    // content, which is exactly the case a structure-only check would pass.
+    const doc = await PDFDocument.create();
+    doc.addPage([612, 792]);
+    doc.catalog.set(
+      PDFName.of("OpenAction"),
+      doc.context.obj({ Type: "Action", S: "JavaScript", JS: PDFString.of("app.alert('x')") }),
+    );
+    const result = await preflightPdf(await doc.save(), { maxSizeBytes: 10 * 1024 * 1024 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/embedded JavaScript/);
+  });
+
+  it("rejects a valid PDF carrying a file attachment", async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage([612, 792]);
+    await doc.attach(new Uint8Array([1, 2, 3]), "payload.bin", { mimeType: "application/octet-stream" });
+    const result = await preflightPdf(await doc.save(), { maxSizeBytes: 10 * 1024 * 1024 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/embedded file attachment/);
   });
 
   it("never trusts a client-supplied page count - the returned count is always derived from the bytes", async () => {

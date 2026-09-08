@@ -20,9 +20,12 @@ export const DEFAULT_MAX_UPLOAD_BYTES = 52428800;
 
 export type ClientPrecheckResult = { ok: true } | { ok: false; reason: string };
 
-/** Human-readable file size for UI copy - "4.2 MB", "812 KB", "0.5 KB". */
+/** Human-readable file size for UI copy - "1.4 GB", "4.2 MB", "812 KB",
+ *  "0.5 KB". The GB step matters for the admin storage page
+ *  (app/admin/storage), which totals many files, not just one. */
 export function formatFileSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return "";
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${Math.max(0.1, bytes / 1024).toFixed(bytes < 10240 ? 1 : 0)} KB`;
 }

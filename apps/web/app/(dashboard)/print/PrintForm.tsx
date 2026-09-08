@@ -6,6 +6,8 @@ import { computePrintMath } from "@printio/shared";
 import { Button, Input, Select, FieldLabel, FormError, Card } from "@/components/ui";
 import { PRINTER_PROFILE_ICON_COMPONENTS, type PrinterProfileIconKey } from "@/lib/printer-profile-icons";
 import { formatFileSize, precheckPdfHeader, precheckSelectedFile } from "@/lib/pdf/client-precheck";
+import { activeContentRejectionMessage, findActiveContent } from "@/lib/pdf/active-content";
+import { renderPdfPageToCanvas } from "@/lib/pdf/render-page";
 import { submitPrintJobAction, type SubmitJobState } from "./actions";
 
 // A "use server" file may only export async functions, so this trivial seed
@@ -31,38 +33,6 @@ interface PrinterProfileOption {
 }
 
 const THUMBNAIL_MAX_WIDTH_PX = 200;
-
-/**
- * Renders page 1 of a locally-selected PDF onto a canvas, entirely
- * client-side (pdfjs-dist) - no upload/server round trip needed just to show
- * the user what they're about to print. Dynamically imported so pdfjs-dist's
- * ~1MB never ends up in the initial page bundle for users who haven't picked
- * a file yet. Swallows its own errors (malformed/encrypted PDF, worker load
- * failure) - the thumbnail is a nicety, never a blocker; the server's own
- * preflight (lib/pdf/preflight.ts) is the authoritative validation either way.
- */
-async function renderFirstPageThumbnail(file: File, canvas: HTMLCanvasElement): Promise<boolean> {
-  try {
-    const pdfjs = await import("pdfjs-dist");
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
-
-    const bytes = await file.arrayBuffer();
-    const pdf = await pdfjs.getDocument({ data: bytes }).promise;
-    const page = await pdf.getPage(1);
-    const unscaledViewport = page.getViewport({ scale: 1 });
-    const scale = THUMBNAIL_MAX_WIDTH_PX / unscaledViewport.width;
-    const viewport = page.getViewport({ scale });
-
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const context = canvas.getContext("2d");
-    if (!context) return false;
-    await page.render({ canvas, canvasContext: context, viewport }).promise;
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * V1 scope note: this form shows a LIVE, CLIENT-COMPUTED estimate (page count
@@ -170,13 +140,24 @@ export function PrintForm({
       const { PDFDocument } = await import("pdf-lib");
       const doc = await PDFDocument.load(bytes, { updateMetadata: false });
       setEstimatedPages(doc.getPageCount());
+
+      // Advisory, exactly like every other check in this handler: the server
+      // re-runs findActiveContent on the real bytes in lib/pdf/preflight.ts
+      // and is the only thing that actually decides. Doing it here as well
+      // just means a PDF carrying JavaScript/a launch action/an attachment is
+      // refused the instant it's picked, rather than after the whole upload.
+      const activeContent = findActiveContent(doc);
+      if (activeContent.length > 0) {
+        rejectSelectedFile(input, activeContentRejectionMessage(activeContent));
+        return;
+      }
     } catch {
       setEstimatedPages(null); // not a fatal UI error - server preflight is authoritative anyway
     }
 
     if (canvasRef.current) {
       setThumbnailLoading(true);
-      const ok = await renderFirstPageThumbnail(file, canvasRef.current);
+      const ok = await renderPdfPageToCanvas(bytes, canvasRef.current, { maxWidthPx: THUMBNAIL_MAX_WIDTH_PX });
       setThumbnailLoading(false);
       setThumbnailReady(ok);
     }

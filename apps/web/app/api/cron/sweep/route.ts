@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { apiError } from "@/lib/api-errors";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { adjustMonthlyUsage } from "@/lib/quota";
-import { PRINT_JOBS_BUCKET } from "@/lib/storage";
+import { sweepRetention } from "@/lib/retention";
 import { getCronSecret } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { filterAffectedRows, groupJobsByAttemptCount, groupQuotaReleases } from "@/lib/cron-sweep";
@@ -283,60 +283,14 @@ export async function GET(request: Request) {
   //    repeat ticks: once a job's files are removed it's marked and never
   //    reselected again, instead of being re-fetched and re-remove()'d on
   //    every future run forever.
-  const { data: orgSettings } = await supabase
-    .from("organization_settings")
-    .select("organization_id, retention_completed_days, retention_rejected_days, retention_failed_days");
-
-  for (const org of orgSettings ?? []) {
-    const statusWindows: Array<{ statuses: string[]; days: number }> = [
-      { statuses: ["completed"], days: org.retention_completed_days },
-      { statuses: ["rejected", "denied", "cancelled", "expired"], days: org.retention_rejected_days },
-      { statuses: ["failed"], days: org.retention_failed_days },
-    ];
-
-    for (const window of statusWindows) {
-      const cutoff = new Date(Date.now() - window.days * 86_400_000).toISOString();
-      const { data: toClean } = await supabase
-        .from("print_jobs")
-        .select("id, original_file_path, derived_file_path")
-        .eq("organization_id", org.organization_id)
-        .in("status", window.statuses)
-        .lt("updated_at", cutoff)
-        .not("original_file_path", "is", null)
-        .is("files_purged_at", null)
-        .order("updated_at", { ascending: true })
-        .limit(SELECTION_LIMIT);
-      const jobs = toClean ?? [];
-      if (jobs.length === 0) continue;
-      if (jobs.length === SELECTION_LIMIT) {
-        logger.info("cron sweep: retention cap hit, will continue next tick", {
-          step: "retention",
-          organizationId: org.organization_id,
-          limit: SELECTION_LIMIT,
-        });
-      }
-
-      // One remove() call for every path in this org/window batch, instead
-      // of one per job - Supabase Storage's remove() already accepts an
-      // array. remove() is a no-op (not an error) for objects that no
-      // longer exist, so a path already gone from a previous partial run is
-      // harmless to include again.
-      const paths = jobs.flatMap((job) => [job.original_file_path, job.derived_file_path].filter((p): p is string => !!p));
-      if (paths.length === 0) continue;
-
-      const { error: removeError } = await supabase.storage.from(PRINT_JOBS_BUCKET).remove(paths);
-      if (!removeError) {
-        results.filesDeleted += paths.length;
-        await supabase
-          .from("print_jobs")
-          .update({ files_purged_at: nowIso })
-          .in(
-            "id",
-            jobs.map((job) => job.id),
-          );
-      }
-    }
-  }
+  //
+  //    The pass itself lives in lib/retention.ts because two other callers
+  //    now share it - an admin's manual "clean up now" (which runs this exact
+  //    logic for one organization, on demand) and a user deleting their own
+  //    finished job's file early. One deletion path, one set of rules about
+  //    what is eligible.
+  const retention = await sweepRetention(supabase, { now: new Date(nowIso), limit: SELECTION_LIMIT });
+  results.filesDeleted = retention.filesDeleted;
 
   return Response.json({ ok: true, ranAt: nowIso, results });
 }

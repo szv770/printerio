@@ -5,11 +5,73 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requireOrgRole } from "@/lib/auth/session";
 import { adjustMonthlyUsage, usageAmountsForJob } from "@/lib/quota";
+import { PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { routes } from "@/lib/routes";
 import { logger } from "@/lib/logger";
 
 export interface ApprovalActionState {
   error?: string;
+}
+
+export interface JobFileUrlState {
+  error?: string;
+  /** Short-lived Supabase Storage signed URL for the job's ORIGINAL upload. */
+  url?: string;
+  expiresInSeconds?: number;
+}
+
+/** Matches the "2 minutes for browser preview" figure documented in
+ *  docs/architecture.md sec 3.3. Storage signed URLs cannot be revoked early
+ *  (docs/known-limitations.md), so the expiry is the whole control - it is
+ *  deliberately much shorter than the Agent's own 5-minute download window,
+ *  which has a large file to pull over a school connection and this does not. */
+const PREVIEW_URL_TTL_SECONDS = 120;
+
+/**
+ * Mints a short-lived signed URL so an approver can look at the actual
+ * document before deciding, rather than approving a filename and a page
+ * count. Never a public URL, and never a URL for a file outside the caller's
+ * own organization:
+ *
+ *  - `requireOrgRole(["org_admin", "approver"])` is the role gate.
+ *  - the job row is read through the RLS-governed client (print_jobs' select
+ *    policy already limits an approver to their own org's jobs) and its
+ *    organization_id is then re-checked against the caller's own membership,
+ *    so a guessed job id from another organization returns "not found" twice
+ *    over.
+ *  - the signed URL itself is minted as the caller, not as service-role, so
+ *    Storage's own path-scoped RLS (0007_storage.sql) is a third,
+ *    independent check on the org segment of the object path.
+ */
+export async function createJobFileUrlAction(jobId: string): Promise<JobFileUrlState> {
+  const session = await requireOrgRole(["org_admin", "approver"]);
+
+  const supabase = await createClient();
+  const { data: job, error } = await supabase
+    .from("print_jobs")
+    .select("id, organization_id, original_file_path, files_purged_at")
+    .eq("id", jobId)
+    .maybeSingle();
+  if (error || !job || job.organization_id !== session.membership.organization_id) {
+    return { error: "Job not found." };
+  }
+  if (job.files_purged_at) {
+    return { error: "This job's file has already been deleted under the organization's retention policy." };
+  }
+
+  const { data: signed, error: signError } = await supabase.storage
+    .from(PRINT_JOBS_BUCKET)
+    .createSignedUrl(job.original_file_path, PREVIEW_URL_TTL_SECONDS);
+  if (signError || !signed) {
+    logger.error("failed to sign a job file URL for an approver", {
+      jobId,
+      organizationId: job.organization_id,
+      error: signError?.message,
+    });
+    return { error: "Could not open this file right now. Try again in a moment." };
+  }
+
+  return { url: signed.signedUrl, expiresInSeconds: PREVIEW_URL_TTL_SECONDS };
 }
 
 async function loadPendingJob(jobId: string, organizationId: string) {

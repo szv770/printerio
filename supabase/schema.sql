@@ -2166,3 +2166,28 @@ comment on constraint remote_commands_command_check on remote_commands is
   'the Agent''s own checkout, with no argument ever taken from the payload - '
   'adding a command name to this list never adds a way to send an Agent an '
   'arbitrary string to execute.';
+
+-- ============================================================================
+-- 0025_approver_profile_visibility.sql
+-- ============================================================================
+-- An APPROVER can now see who submitted the job they are being asked to
+-- approve. profiles' original select policy (see above) admits the row's owner
+-- and org_admins of that person's organization only - so an `approver` (the
+-- other role the approval queue is open to, per private.is_org_approver and
+-- print_jobs' own select policy) could read the job but not the submitter's
+-- name or email, and the queue had to render "Unknown" for the one fact an
+-- approver most needs before deciding. Policies are OR-ed, so this only
+-- widens, and only along an axis the same caller already has: they can
+-- already read every print_job in that organization, and its stored file via
+-- Storage's own org-scoped policy.
+
+create policy "approvers can view their org's members' profiles"
+on profiles for select
+to authenticated
+using (
+  exists (
+    select 1 from public.organization_members m
+    where m.user_id = profiles.id
+      and private.is_org_approver(m.organization_id)
+  )
+);
