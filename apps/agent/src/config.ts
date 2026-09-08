@@ -28,6 +28,8 @@ export interface AgentConfig {
   spoolerTimeoutSeconds: number;
   printFitMode: PrintFitMode;
   collateMultiCopy: boolean;
+  /** Escape hatch for the startup dependency check (dependency-check.ts). Off by default; see .env.example for why it exists and why leaving it on is a bad idea. */
+  skipDependencyCheck: boolean;
 }
 
 const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"];
@@ -71,7 +73,12 @@ export function loadConfig(options: LoadConfigOptions = {}): AgentConfig {
 
   const apiUrl = env.PRINTIO_API_URL?.trim();
   if (!apiUrl) {
-    throw new ConfigError("PRINTIO_API_URL is required (e.g. https://printio.szvtech.org)");
+    // Deliberately a reserved-for-documentation domain, not any real
+    // deployment's own URL: an "example" that is somebody's genuine value is
+    // indistinguishable from that value, which is precisely the bug class
+    // that produced setup-agent.ps1's forever-re-asking URL prompt (see
+    // .env.example's PRINTIO_API_URL comment).
+    throw new ConfigError("PRINTIO_API_URL is required (e.g. https://printio.example.org)");
   }
   try {
     const parsed = new URL(apiUrl);
@@ -139,5 +146,10 @@ export function loadConfig(options: LoadConfigOptions = {}): AgentConfig {
     ),
     printFitMode: printFitModeRaw,
     collateMultiCopy: parseBool("PRINTIO_COLLATE_MULTI_COPY", env.PRINTIO_COLLATE_MULTI_COPY, true),
+    skipDependencyCheck: parseBool(
+      "PRINTIO_SKIP_DEPENDENCY_CHECK",
+      env.PRINTIO_SKIP_DEPENDENCY_CHECK,
+      false,
+    ),
   };
 }

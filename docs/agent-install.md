@@ -28,15 +28,21 @@ they're how the first real gaps in this get found.
   `setup-agent.bat` checks for this and offers to download the portable build (no
   install/admin rights needed) automatically if it's missing — you don't need to
   do this by hand unless you decline that prompt or it can't reach the network.
+  **This one is enforced, not just documented**: the Agent verifies it at startup
+  and refuses to start without it — see "Startup checks" below.
 - The PowerShell **PrintManagement module** available to `powershell.exe` (built
   into modern Windows) — this is how the Agent discovers queues and reads/cancels
-  spooler jobs (sec 11).
+  spooler jobs (sec 11). `setup-agent.bat` checks this (`Get-Printer` being
+  callable, or the module being installed) and warns if it's missing.
 - At least one Windows printer queue already configured, with its finishing
   defaults (duplex, staple, booklet, punch) baked in as that queue's Printing
   Defaults — this is **not** something the Agent or Printio software does; it's a
   one-time driver-GUI task. Do this **before** installing the Agent, following
   [printer-setup.md](./printer-setup.md) end to end, so there's something real
-  for the Agent to discover and print to on first run.
+  for the Agent to discover and print to on first run. `setup-agent.bat` lists
+  what it finds via `Get-Printer` and warns if there are none (a warning, not a
+  hard stop — an Agent can legitimately register and heartbeat before its queues
+  exist).
 - Outbound HTTPS connectivity from this machine to the Printio cloud app's
   domain (the Agent only ever makes outbound calls — see agent-api.md "polling,
   not a persistent connection" — so no inbound firewall rule is needed; see
@@ -55,7 +61,8 @@ Node.js 20+ and SumatraPDF are installed per the prerequisites above:
    URL the first time, then your enrollment code), then choose **1** to run the Agent in
    this window as a quick test, or **2** to install it as a permanent Windows service.
 
-It checks Node.js/SumatraPDF and prints what it finds, installs dependencies with `pnpm
+It checks Node.js, SumatraPDF, Windows print management and the machine's print queues and
+prints what it finds, installs dependencies with `pnpm
 install` if they aren't already there (enabling `pnpm` itself via Corepack first if
 needed), registers the Agent if it isn't registered yet, and then does exactly `pnpm
 --filter @printio/agent start` or `install-service` — the same commands documented in §3
@@ -64,6 +71,43 @@ wrong in plain language and where to look for more detail, and it always waits f
 press Enter before the window closes, so an error is never just a window that flashes and
 disappears. It's safe to double-click again later — a second run detects what's already
 done and skips straight to "run now or install as a service?".
+
+It also updates the checkout (`git pull --ff-only`) before doing anything else, prints the
+git commit it is actually running (so "is this machine even on the fixed code yet?" is
+answerable from the screen), and — if that update changed `setup-agent.ps1` itself —
+restarts itself once so the new version is what runs. That restart is not cosmetic:
+PowerShell parses an entire `.ps1` into memory before executing a line of it, so without it
+the run that *downloads* a fix to this script still executes the old copy, prints "Updated
+to the latest version.", and then reproduces the bug that was just fixed.
+
+## Startup checks (what the Agent verifies before it polls for work)
+
+On `printio-agent start` — which is also what the installed Windows Service runs — the Agent
+validates SumatraPDF **before** it asks the cloud for a single job: it resolves the
+configured path, confirms the file is a real Windows executable image, and actually starts
+the program once with a harmless argv to confirm Windows can load it. See architecture.md
+sec 10.1 for the full rationale and the exact probe.
+
+If that fails, the Agent prints a ruled, plain-English block saying what's wrong and how to
+fix it, writes the same failure to its log file, and **exits without starting**. It does not
+start and claim jobs it is guaranteed to fail. Previously this was only ever discovered
+mid-way through a real user's print job, hours or days after setup.
+
+Two consequences worth knowing:
+
+- **In service mode this restart-loops.** `install-service` configures the Windows Service
+  Control Manager to relaunch the Agent on exit (§5), so a machine with broken SumatraPDF
+  will start, log the block, exit, and be relaunched every recovery interval until it's
+  fixed. The log file is where you'll see it; the service will also show as repeatedly
+  starting/stopping. It self-heals the moment SumatraPDF is installed.
+- **The machine goes visibly offline, with no reason shown in the dashboard.** An Agent that
+  refuses to start never heartbeats, so Admin → Agents shows it as offline/last-seen rather
+  than "misconfigured". The reason is local: the console block and the log file.
+
+`PRINTIO_SKIP_DEPENDENCY_CHECK=true` (see `.env.example`) is the escape hatch if this check
+is ever wrong about a machine where printing genuinely works. It is logged loudly on every
+startup while set, and is the first thing to unset if printing then fails — it is not a way
+to run without SumatraPDF.
 
 **This is a convenience wrapper around the exact same CLI documented in the numbered steps
 below, nothing more** — read those steps (and `apps/agent/README.md`) if you want to
@@ -130,9 +174,10 @@ pnpm --filter @printio/agent start
 Watch the log output directly and confirm: it heartbeats successfully (`POST
 /api/agents/heartbeat`), it discovers the printer queue(s) configured on this machine, and
 (once you have a real test job — see [testing.md](./testing.md)) it claims, downloads, and
-prints a job end to end. Console mode is where a misconfigured queue name, a missing
-SumatraPDF path, or a bad device secret shows up immediately, in front of you — don't skip
-straight to service mode. Ctrl+C sends SIGINT; the Agent finishes its current poll cycle and
+prints a job end to end. Console mode is where a misconfigured queue name or a bad device
+secret shows up immediately, in front of you — don't skip straight to service mode. (A
+missing or broken SumatraPDF now shows up before any of that, in both modes: see "Startup
+checks" above.) Ctrl+C sends SIGINT; the Agent finishes its current poll cycle and
 exits cleanly.
 
 ## 4. Configuration
@@ -144,7 +189,7 @@ set these as real Windows environment variables (System Properties → Environme
 or `node-windows`'s service `env` option) if you'd rather not keep a `.env` file on disk at
 all — both approaches work and compose. The only required variable is `PRINTIO_API_URL`; everything else
 (`PRINTIO_LOCAL_STORAGE_PATH`, `PRINTIO_LOG_LEVEL`, `PRINTIO_POLL_INTERVAL_SECONDS`,
-`PRINTIO_SUMATRA_PATH`, `PRINTIO_PRINT_FIT_MODE`, etc.) has a documented default — see the
+`PRINTIO_SUMATRA_PATH`, `PRINTIO_PRINT_FIT_MODE`, `PRINTIO_SKIP_DEPENDENCY_CHECK`, etc.) has a documented default — see the
 `.env.example` file itself for the full list with rationale. `PRINTIO_AGENT_ID`/
 `PRINTIO_AGENT_SECRET` are normally **not** set by hand at all — `register` (§3) persists them
 to secure storage and `start` loads them from there automatically; setting them here is only

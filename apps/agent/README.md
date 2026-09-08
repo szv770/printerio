@@ -72,7 +72,10 @@ matter (type-safety, a real compiled artifact), they're just not what actually e
 
 - **Node.js 20+** on the Windows machine that will run the agent.
 - **SumatraPDF** installed, with `SumatraPDF.exe` either on `PATH` or at a path you set via
-  `PRINTIO_SUMATRA_PATH`.
+  `PRINTIO_SUMATRA_PATH`. This one is *enforced*: `start` resolves it, confirms the file is a
+  real executable image, and actually starts it once before polling for any job - and refuses
+  to start if that fails, rather than letting a real print job be the thing that discovers
+  it (`src/dependency-check.ts`, docs/architecture.md sec 10.1).
 - **Windows print queues already configured**, one per finishing profile, per
   `docs/printer-setup.md` - this agent only ever *selects* a pre-configured queue
   (`windowsQueueName`, resolved by the cloud); it never programs staple/booklet/punch itself

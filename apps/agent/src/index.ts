@@ -20,6 +20,7 @@ import { createSpoolerMonitor } from "./spooler-monitor.js";
 import { createHealthMonitor } from "./health-monitor.js";
 import { createOrchestrator } from "./orchestrator.js";
 import { installService, uninstallService } from "./windows-service.js";
+import { verifyStartupDependencies } from "./dependency-check.js";
 import { ConfigError } from "./errors.js";
 import { AGENT_VERSION } from "./version.js";
 
@@ -94,6 +95,23 @@ async function runRegister(args: Record<string, string>): Promise<void> {
 async function runStart(): Promise<void> {
   const config = loadConfig();
   const logger = createLogger({ level: config.logLevel, logDir: path.join(config.localStoragePath, "logs") });
+
+  // Verify the dependencies the Agent cannot do its job without BEFORE it
+  // starts polling for work - see dependency-check.ts for why this runs here
+  // (earliest possible moment, needs nothing but config) and why a failure
+  // refuses to start rather than starting in a degraded mode that would
+  // claim real jobs it is guaranteed to fail. This is also the installed
+  // Windows Service's path: service-launcher.mjs forces the `start` command
+  // and imports this same entry point, so there is exactly one place this
+  // check can be bypassed from, and it isn't a second code path.
+  const dependencyCheck = await verifyStartupDependencies(
+    { sumatraPath: config.sumatraPath, skip: config.skipDependencyCheck },
+    logger,
+  );
+  if (!dependencyCheck.ok) {
+    process.exitCode = 1;
+    return;
+  }
 
   let agentId = config.agentId;
   let deviceSecret = config.deviceSecret;
