@@ -130,6 +130,23 @@ export function JobStatusLive({
   );
   const position = jobProgressPosition(progress);
 
+  // Guaranteed backstop, independent of Realtime: a real user's job sat on
+  // this page for the better part of a minute and completed without ever
+  // updating live, on a fresh page load, well past the handshake window the
+  // SUBSCRIBED-refresh above closes - meaning something can keep Realtime
+  // from delivering an update at all, not just miss the first one. Rather
+  // than keep chasing exactly why (WebSocket/proxy/browser-specific - none
+  // of it reproducible from here), poll on a plain interval as long as the
+  // job could still move, so the page is correct within a few seconds no
+  // matter what Realtime does. Cheap (one row, RLS-scoped) and only runs
+  // while there's still something to wait for.
+  const stillMoving = !progress.halted || progress.retryable;
+  useEffect(() => {
+    if (!stillMoving) return;
+    const interval = setInterval(() => router.refresh(), 4000);
+    return () => clearInterval(interval);
+  }, [stillMoving, router]);
+
   // Only ticks while the job is sitting in the claim queue - the one place
   // where "how long has this been like this" changes the message. Everything
   // else on this page is event-driven.
