@@ -430,7 +430,15 @@ try {
         return $Url
     }
 
-    $placeholderApiUrl = "https://printio.szvtech.org"
+    # NOTE: this used to also re-ask whenever the saved value equaled one
+    # specific hardcoded string (apps/agent/.env.example's own example
+    # URL). That example happens to BE this deployment's real production
+    # URL (whoever wrote the template used their own real domain as the
+    # "example"), so for this org specifically, a correctly-saved real
+    # value was indistinguishable from "still the unfilled example" - the
+    # script re-asked for the URL on every single run, forever. The only
+    # sound check is whether a value is present at all; matching against a
+    # specific string is exactly what broke here.
     if ($env:PRINTIO_API_URL -and $env:PRINTIO_API_URL.Trim() -ne "") {
         $existing = Normalize-ApiUrl ($env:PRINTIO_API_URL.Trim())
         if ($existing -ne $env:PRINTIO_API_URL.Trim()) {
@@ -438,7 +446,7 @@ try {
             $env:PRINTIO_API_URL = $existing
         }
     }
-    if ((-not $env:PRINTIO_API_URL) -or ($env:PRINTIO_API_URL.Trim() -eq "") -or ($env:PRINTIO_API_URL.Trim() -eq $placeholderApiUrl)) {
+    if ((-not $env:PRINTIO_API_URL) -or ($env:PRINTIO_API_URL.Trim() -eq "")) {
         Write-Info "This machine doesn't have a Printio cloud address configured yet."
         Write-Info "This is the web address of your organization's Printio cloud (ask your Printio administrator if you don't have it)."
         $apiUrl = Read-Host "Enter the Printio cloud URL, then press Enter"
