@@ -1,13 +1,13 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { requireSession } from "@/lib/auth/session";
+import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
 import { PageHeader } from "@/components/ui";
 import { DEFAULT_MAX_UPLOAD_BYTES } from "@/lib/pdf/client-precheck";
 import { PrintForm } from "./PrintForm";
 
 export default async function PrintPage() {
-  const session = await requireSession();
+  const session = await requireSessionOrRedirect();
   if (!session.membership) redirect(routes.noAccess);
 
   const supabase = await createClient();

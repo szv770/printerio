@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { requireSession } from "@/lib/auth/session";
+import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { redeemInvitation } from "@/lib/auth/invitations";
 import { routes } from "@/lib/routes";
 
@@ -13,7 +13,7 @@ export async function redeemInvitationAction(_prev: RedeemState, formData: FormD
   const code = String(formData.get("code") ?? "").trim();
   if (!code) return { error: "Enter an enrollment code." };
 
-  const session = await requireSession();
+  const session = await requireSessionOrRedirect();
   const result = await redeemInvitation(code, session.userId, session.email);
 
   if (!result.ok) {

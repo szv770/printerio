@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { requireSession } from "@/lib/auth/session";
+import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
 import { PageHeader } from "@/components/ui";
 import { JobsList } from "./JobsList";
 
 export default async function JobsPage() {
-  const session = await requireSession();
+  const session = await requireSessionOrRedirect();
   if (!session.membership) redirect(routes.noAccess);
 
   const supabase = await createClient();

@@ -1,4 +1,4 @@
-import { requireSession } from "@/lib/auth/session";
+import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { currentPeriod, getApplicableQuotaLimit, getUsageSnapshot, usageForBasis } from "@/lib/quota";
 import { PageHeader, Card } from "@/components/ui";
@@ -12,7 +12,7 @@ const BASIS_LABEL: Record<QuotaBasis, string> = {
 };
 
 export default async function UsagePage() {
-  const session = await requireSession();
+  const session = await requireSessionOrRedirect();
   const supabase = await createClient();
 
   if (!session.membership) {

@@ -64,6 +64,29 @@ export async function requireSession(): Promise<CurrentSession> {
   return session;
 }
 
+/**
+ * Same as requireSession(), but for a Server Component/Server Action that
+ * would rather redirect a signed-out visitor straight to login than crash to
+ * the nearest error boundary with a raw "Sign-in required" exception - which
+ * is exactly what happened to a real user (a session that read as valid to
+ * (dashboard)/layout.tsx's own check no longer validated a moment later at
+ * the page/action itself - a real, if rare, race between the two, most
+ * visible on a flaky mobile connection). Every (dashboard) page/action that
+ * only needs "some signed-in user" (not a specific org role - see
+ * requireOrgRole/requirePlatformRole, which keep throwing so their own
+ * callers can distinguish UNAUTHENTICATED from FORBIDDEN, per
+ * requirePlatformRole's own comment on that same pattern) should call this
+ * instead of the bare requireSession().
+ */
+export async function requireSessionOrRedirect(): Promise<CurrentSession> {
+  try {
+    return await requireSession();
+  } catch (err) {
+    if (err instanceof AuthError && err.code === "UNAUTHENTICATED") redirect(routes.login);
+    throw err;
+  }
+}
+
 export type SessionWithMembership = CurrentSession & { membership: Tables<"organization_members"> };
 
 export async function requireOrgRole(roles: OrgRole[]): Promise<SessionWithMembership> {

@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { requireSession, type SessionWithMembership } from "@/lib/auth/session";
+import { requireSessionOrRedirect, type SessionWithMembership } from "@/lib/auth/session";
 import type { Database } from "@/lib/database.types";
 import { routes } from "@/lib/routes";
 import { preflightPdf } from "@/lib/pdf/preflight";
@@ -357,7 +357,7 @@ async function createPrintJob(
 }
 
 export async function submitPrintJobAction(_prev: SubmitJobState, formData: FormData): Promise<SubmitJobState> {
-  const session = await requireSession();
+  const session = await requireSessionOrRedirect();
   if (!session.membership) return { error: "You are not a member of any organization yet." };
 
   const file = formData.get("file");
@@ -403,7 +403,7 @@ function parseBindingSideOverride(formData: FormData): "left" | "right" | undefi
  * being reprinted was first submitted.
  */
 export async function reprintJobAction(_prev: SubmitJobState, formData: FormData): Promise<SubmitJobState> {
-  const session = await requireSession();
+  const session = await requireSessionOrRedirect();
   if (!session.membership) return { error: "You are not a member of any organization yet." };
   const organizationId = session.membership.organization_id;
 

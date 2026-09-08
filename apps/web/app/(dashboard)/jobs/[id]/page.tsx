@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { requireSession } from "@/lib/auth/session";
+import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { Card } from "@/components/ui";
 import { jobEventDisplay } from "@/lib/job-event-labels";
 import { formatFileSize } from "@/lib/pdf/client-precheck";
@@ -29,7 +29,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   // RLS below still governs actual row visibility; the session is read here
   // so the page can tell whether the viewer is the job's own submitter (an
   // approver can see the row too, but only the owner may delete its file).
-  const session = await requireSession();
+  const session = await requireSessionOrRedirect();
 
   const supabase = await createClient();
   const { data: job } = await supabase.from("print_jobs").select("*").eq("id", id).maybeSingle();

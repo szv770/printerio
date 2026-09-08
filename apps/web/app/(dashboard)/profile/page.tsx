@@ -1,10 +1,10 @@
-import { requireSession } from "@/lib/auth/session";
+import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader, Card, Badge } from "@/components/ui";
 import { ProfileForm } from "./ProfileForm";
 
 export default async function ProfilePage() {
-  const session = await requireSession();
+  const session = await requireSessionOrRedirect();
   const supabase = await createClient();
   const { data: org } = session.membership
     ? await supabase.from("organizations").select("name").eq("id", session.membership.organization_id).single()

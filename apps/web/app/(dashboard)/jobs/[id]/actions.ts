@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { requireSession } from "@/lib/auth/session";
+import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { canOwnerPurgeFiles, purgeJobFiles } from "@/lib/retention";
 import { routes } from "@/lib/routes";
 import { logger } from "@/lib/logger";
@@ -46,7 +46,7 @@ export async function deleteJobFileAction(
   _prev: DeleteJobFileState,
   formData: FormData,
 ): Promise<DeleteJobFileState> {
-  const session = await requireSession();
+  const session = await requireSessionOrRedirect();
   if (!session.membership) return { error: "You are not a member of any organization yet." };
 
   const jobId = String(formData.get("jobId") ?? "");

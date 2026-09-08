@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Printer as PrinterIcon } from "lucide-react";
 import { JOB_STATES, isTerminalState, type QuotaBasis } from "@printio/shared";
-import { requireSession } from "@/lib/auth/session";
+import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { currentPeriod, getApplicableQuotaLimit, getUsageSnapshot, usageForBasis } from "@/lib/quota";
 import { routes } from "@/lib/routes";
@@ -31,7 +31,7 @@ const ACTIVE_JOB_STATUSES = JOB_STATES.filter((s) => s !== "draft" && !isTermina
  * gets out of the way: primary action first, status strip, recent jobs.
  */
 export default async function DashboardHomePage() {
-  const session = await requireSession();
+  const session = await requireSessionOrRedirect();
   if (!session.membership) {
     return (
       <main className="mx-auto max-w-2xl px-4 py-10">

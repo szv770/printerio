@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { requireSession } from "@/lib/auth/session";
+import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { describeDatabaseError } from "@/lib/action-errors";
 import { routes } from "@/lib/routes";
 
@@ -12,7 +12,7 @@ export interface ProfileActionState {
 }
 
 export async function updateDisplayNameAction(_prev: ProfileActionState, formData: FormData): Promise<ProfileActionState> {
-  const session = await requireSession();
+  const session = await requireSessionOrRedirect();
   const displayName = String(formData.get("displayName") ?? "").trim();
   if (!displayName) return { error: "Name cannot be empty." };
   if (displayName.length > 200) return { error: "Name is too long." };
