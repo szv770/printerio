@@ -120,6 +120,17 @@ export function JobsList({
     };
   }, [userId, router]);
 
+  // Guaranteed backstop, independent of Realtime - see the identical comment
+  // in JobStatusLive.tsx for why this exists (a job updated without ever
+  // arriving live, well past any handshake window). Polls only while at
+  // least one row is still actually moving.
+  const anyActive = useMemo(() => jobs.some((j) => jobListBucket(j.status) === "active"), [jobs]);
+  useEffect(() => {
+    if (!anyActive) return;
+    const interval = setInterval(() => router.refresh(), 4000);
+    return () => clearInterval(interval);
+  }, [anyActive, router]);
+
   const counts = useMemo(() => {
     const next = { all: jobs.length, active: 0, attention: 0, done: 0 };
     for (const job of jobs) {
