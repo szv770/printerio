@@ -189,9 +189,7 @@ function Get-RequiredNodeMajor {
 
 function Test-SumatraFound {
     # Same lookup order the Agent itself uses (src/config.ts): an explicit
-    # PRINTIO_SUMATRA_PATH env var first, then PATH. This is a check, not a
-    # fix - if it's missing, we only warn (see task scope: SumatraPDF must
-    # already be installed per the prerequisites).
+    # PRINTIO_SUMATRA_PATH env var first, then PATH.
     $custom = $env:PRINTIO_SUMATRA_PATH
     if ($custom -and $custom.Trim() -ne "") {
         if (Test-Path -LiteralPath $custom) {
@@ -202,6 +200,40 @@ function Test-SumatraFound {
     $cmd = Get-Command "SumatraPDF.exe" -ErrorAction SilentlyContinue
     if ($cmd) { return @{ Found = $true; Detail = $cmd.Source } }
     return @{ Found = $false; Detail = "SumatraPDF.exe was not found on PATH, and PRINTIO_SUMATRA_PATH is not set" }
+}
+
+# SumatraPDF's own vendor-hosted "always latest" direct-download link for the
+# portable (no-install, no-admin-needed) 64-bit build - documented on
+# https://www.sumatrapdfreader.org/download-free-pdf-viewer as the stable URL
+# for exactly this purpose, so it isn't a version we have to keep updating
+# here ourselves.
+$SumatraPortableDownloadUrl = "https://www.sumatrapdfreader.org/dl/rel/latest/SumatraPDF-64-portable.exe"
+$SumatraPortableInstallDir = "$env:ProgramData\Printio"
+$SumatraPortableInstallPath = "$SumatraPortableInstallDir\SumatraPDF-64-portable.exe"
+
+function Install-SumatraPortable {
+    # Downloads the portable build straight from SumatraPDF's own site - no
+    # installer, no admin rights needed - and points PRINTIO_SUMATRA_PATH at
+    # it, the same way the API URL prompt saves what it's asked for so this
+    # is never asked again. Every failure here (no network, blocked by a
+    # school firewall, etc.) is fail-open: this is a convenience, not a
+    # requirement - the manual install instructions are still right there
+    # for anyone this doesn't work for.
+    Write-Info "Downloading SumatraPDF (portable, no install needed) from sumatrapdfreader.org..."
+    try {
+        New-Item -ItemType Directory -Path $SumatraPortableInstallDir -Force | Out-Null
+        Invoke-WebRequest -Uri $SumatraPortableDownloadUrl -OutFile $SumatraPortableInstallPath -UseBasicParsing
+        if (-not (Test-Path -LiteralPath $SumatraPortableInstallPath)) {
+            throw "download reported success but the file isn't there"
+        }
+        Set-DotEnvValue -Path $EnvFilePath -Key "PRINTIO_SUMATRA_PATH" -Value $SumatraPortableInstallPath
+        $env:PRINTIO_SUMATRA_PATH = $SumatraPortableInstallPath
+        Write-Ok "SumatraPDF installed to $SumatraPortableInstallPath - saved to apps\agent\.env, so this won't be asked again."
+        return $true
+    } catch {
+        Write-Warn "Couldn't download SumatraPDF automatically: $($_.Exception.Message)"
+        return $false
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -349,8 +381,17 @@ try {
         Write-Ok "SumatraPDF found: $($sumatra.Detail)"
     } else {
         Write-Warn "SumatraPDF: $($sumatra.Detail)."
-        Write-Info "Install it from https://www.sumatrapdfreader.org/ , or set PRINTIO_SUMATRA_PATH in apps\agent\.env to its full path."
-        Write-Info "(You can keep going without it, but printing itself will fail until it's there.)"
+        Write-Info "The Agent needs this to actually send a PDF to the printer - without it, every print job will fail."
+        $installNow = Read-Host "Download it now automatically (portable, no admin rights needed)? [Y/n]"
+        if ($installNow.Trim() -eq "" -or $installNow.Trim() -match "^[Yy]") {
+            if (Install-SumatraPortable) {
+                $sumatra = Test-SumatraFound
+            }
+        }
+        if (-not $sumatra.Found) {
+            Write-Info "Install it yourself from https://www.sumatrapdfreader.org/ , or set PRINTIO_SUMATRA_PATH in apps\agent\.env to its full path."
+            Write-Info "(You can keep going without it, but printing itself will fail until it's there.)"
+        }
     }
     Write-Warn "Windows print queue: this script has no way to check for one."
     Write-Info "Make sure at least one printer queue is already configured for this Agent (docs\printer-setup.md) before relying on it for a real print job."
