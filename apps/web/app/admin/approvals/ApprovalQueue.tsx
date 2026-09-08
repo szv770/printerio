@@ -40,6 +40,14 @@ export function ApprovalQueue({
    * those are resolved server-side. Rendering the payload directly would show
    * "Unknown" for exactly the jobs that just arrived, which is when an
    * approver is most likely to be looking.
+   *
+   * `.subscribe()` is async - the websocket/join handshake takes a real,
+   * variable amount of time, and a change landing before it completes is
+   * missed entirely (no error, no replay) - the same gap that hid a job's
+   * failure on the jobs pages (see JobsList.tsx/JobStatusLive.tsx). Firing
+   * one router.refresh() the moment the subscription actually confirms
+   * "SUBSCRIBED" re-syncs with whatever the server already has right as
+   * we'd otherwise start missing live updates.
    */
   useEffect(() => {
     const supabase = createClient();
@@ -52,7 +60,9 @@ export function ApprovalQueue({
           router.refresh();
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") router.refresh();
+      });
 
     return () => {
       supabase.removeChannel(channel);

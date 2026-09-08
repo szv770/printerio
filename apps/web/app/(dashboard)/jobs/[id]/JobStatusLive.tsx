@@ -70,6 +70,16 @@ export function JobStatusLive({
    * applied by hand here, see docs/deployment.md), so refreshing off the
    * job-row change is both simpler and more robust: every event this page
    * cares about is written in the same operation as a status change.
+   *
+   * `.subscribe()` itself is async - the websocket/join handshake takes a
+   * real, variable amount of time, and any change to the row that happens
+   * before it completes is missed entirely (no error, no replay). That
+   * window is exactly the one that bit a real user: landing on a
+   * freshly-created job right after "Print again" redirects here, while its
+   * Agent was mid-poll-cycle and claimed + failed the job within the same
+   * second or two the page was still connecting - so the failure never
+   * arrived live, only on a manual reload. Waiting for the "SUBSCRIBED"
+   * callback and firing one router.refresh() at that moment closes the gap.
    */
   useEffect(() => {
     const supabase = createClient();
@@ -83,7 +93,9 @@ export function JobStatusLive({
           router.refresh();
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") router.refresh();
+      });
 
     return () => {
       supabase.removeChannel(channel);
