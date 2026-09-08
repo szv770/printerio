@@ -679,6 +679,53 @@ A successful (exit 0) SumatraPDF process only means **the spooler accepted the j
 physical completion, and how `submitted_to_spooler` vs `completed` are tracked as distinct,
 separately-timestamped job states rather than being collapsed into one "printed" moment.
 
+### 10.1 SumatraPDF is validated at Agent startup, not at print time
+
+SumatraPDF is the single, unconditional submission path for **every** job — there is no
+per-printer-profile "needs Sumatra" capability (§9: a profile carries a queue name and
+finishing defaults, nothing about how the bytes get there). So "SumatraPDF is missing or
+broken" is not a per-job condition; it is a machine-level configuration fault that makes
+every job on that Agent impossible.
+
+`apps/agent/src/dependency-check.ts` therefore runs, in `runStart()`, **before the Agent
+polls for a single job** — which is also the installed Windows Service's path, since
+`service-launcher.mjs` forces the `start` command and imports the same entry point, so
+there is only one place this can happen and no second code path to keep in sync. It:
+
+1. resolves the configured path exactly as `config.ts` does (`PRINTIO_SUMATRA_PATH`, else
+   the bare `SumatraPDF.exe` via `PATH`),
+2. requires the file to begin with the DOS/PE `MZ` magic — this is what catches a truncated
+   download or an HTML error page saved under an `.exe` name, both of which pass a
+   file-existence check and then fail at print time, and
+3. **actually starts the process** with a harmless argv (`-print-to <randomized synthetic
+   queue> -silent <path that does not exist>`) and confirms Windows could load the image —
+   which is what catches a wrong-architecture build, an AV stub, or an AppLocker block.
+
+If that fails, **the Agent refuses to start**: it prints a ruled, plain-English block
+(matching `setup-agent.ps1`'s `Show-StopMessage` convention, not a JSON log line), writes
+the same failure as a structured `error` line to the log file, and exits non-zero. It does
+*not* start in a degraded mode that polls and claims jobs, because claiming a real user's
+approved job only to fail it destroys work while the dashboard shows a healthy, online
+Agent; refusing to start makes the machine honestly, visibly offline and leaves those jobs
+claimable. Note the consequence in service mode: the SCM recovery action configured by
+`install-service` will keep relaunching it, so a misconfigured machine restart-loops at the
+recovery interval, logging the same loud block each time, until SumatraPDF is fixed.
+
+Deliberately conservative: if the process starts **at all**, the check passes — exit code,
+stdout/stderr, and even "it had to be killed on a timeout" are all treated as success,
+because each proves the only thing being tested. A false "it's broken" would take working
+Agents offline, which is worse than the late-discovery bug being closed. `PRINTIO_SKIP_
+DEPENDENCY_CHECK=true` is a documented escape hatch for exactly that case, logged loudly on
+every startup while it is set. The check makes no claim about whether SumatraPDF then prints
+*correctly* — only the physical validation checklist (`apps/agent/README.md`) can establish
+that.
+
+`setup-agent.ps1` runs the same three-step check (`Test-SumatraUsable`) at setup time, at
+the point where it previously did a bare `Test-Path`, and re-runs it against the portable
+build it offers to download — a download that turns out not to be an executable is deleted
+rather than saved into `.env`, which is what that same 404-page-as-`.exe` incident produced
+once.
+
 ## 11. Windows spooler monitoring
 
 The Agent uses the PowerShell **PrintManagement** module for enumeration and control:
