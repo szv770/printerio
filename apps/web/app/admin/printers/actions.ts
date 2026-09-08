@@ -17,6 +17,10 @@ import type { TablesInsert } from "@/lib/database.types";
 
 export interface PrinterActionState {
   error?: string;
+  /** One-line confirmation for an action whose success isn't otherwise
+   *  visible on the page - see components/ui's FormSuccess for why every
+   *  such admin action says something rather than nothing. */
+  success?: string;
 }
 
 
@@ -40,14 +44,74 @@ export async function createPrinterAction(_prev: PrinterActionState, formData: F
 }
 
 /**
- * Creates a logical printer_profile -> Windows queue mapping
- * (docs/architecture.md sec 9). declared_capabilities/declared_paper_sizes
- * are administrator-declared, NOT verified against the physical device - the
- * UI should make that explicit (see PrintersPanel.tsx copy).
+ * Edits an existing printer's own descriptive fields. Deliberately limited to
+ * the four things an admin actually types in when adding one (name, vendor,
+ * model, location) - `status`/`last_status_at` are Agent-reported facts
+ * (docs/architecture.md sec 11) and must never be settable by hand, or the
+ * dashboard would be able to claim a printer is online when nothing has
+ * reported it.
+ *
+ * Same defense-in-depth as createPrinterAction: org_admin only, and the
+ * client-supplied printer id is only ever used together with the caller's own
+ * organization_id in the WHERE clause, so a guessed id from another
+ * organization matches zero rows rather than being trusted (sec 3.2). RLS is
+ * still the backstop.
  */
-export async function createPrinterProfileAction(_prev: PrinterActionState, formData: FormData): Promise<PrinterActionState> {
+export async function updatePrinterAction(_prev: PrinterActionState, formData: FormData): Promise<PrinterActionState> {
   const session = await requireOrgRole(["org_admin"]);
   const printerId = String(formData.get("printerId") ?? "");
+  const name = String(formData.get("name") ?? "").trim();
+  if (!printerId) return { error: "Missing printer." };
+  if (!name) return { error: "Name is required." };
+
+  const supabase = await createClient();
+  const { data: updated, error } = await supabase
+    .from("printers")
+    .update({
+      name,
+      vendor: String(formData.get("vendor") ?? "").trim() || null,
+      model: String(formData.get("model") ?? "").trim() || null,
+      location: String(formData.get("location") ?? "").trim() || null,
+    })
+    .eq("id", printerId)
+    .eq("organization_id", session.membership.organization_id)
+    .select("id")
+    .maybeSingle();
+  if (error) return { error: describeDatabaseError(error, "Couldn't save that printer.") };
+  if (!updated) return { error: "Printer not found in your organization." };
+
+  revalidatePath(routes.adminPrinters);
+  return { success: "Printer saved." };
+}
+
+/** The administrator-declared shape of a printer_profile, as read off either
+ *  the create or the edit form. Not exported - a "use server" file may only
+ *  export async functions, and this is an implementation detail of the two
+ *  actions below regardless. */
+interface ParsedProfileForm {
+  agentId: string;
+  key: string;
+  label: string;
+  description: string | null;
+  iconKey: string | null;
+  windowsQueueName: string;
+  declaredPaperSizes: string[];
+  declaredCapabilities: { duplex: boolean; color: boolean; staple: boolean; booklet: boolean; punch: boolean };
+  bookletBindingSide: "left" | "right";
+  isDefault: boolean;
+}
+
+/**
+ * Shared field parsing/validation for createPrinterProfileAction and
+ * updatePrinterProfileAction, so the two can never drift on the key format,
+ * the icon allow-list, or how an empty paper-size list is defaulted. Returns
+ * either the parsed row or the exact admin-facing error to show.
+ *
+ * Purely a parser: it performs no authorization and no I/O. Ownership of the
+ * printer and of the target agent is re-checked against the caller's own
+ * organization by each action, after this returns (sec 3.2).
+ */
+function parsePrinterProfileForm(formData: FormData): { ok: true; value: ParsedProfileForm } | { ok: false; error: string } {
   const agentId = String(formData.get("agentId") ?? "");
   const key = String(formData.get("key") ?? "").trim();
   const label = String(formData.get("label") ?? "").trim();
@@ -57,20 +121,58 @@ export async function createPrinterProfileAction(_prev: PrinterActionState, form
     .map((s) => s.trim())
     .filter(Boolean);
 
-  if (!printerId || !agentId || !key || !label || !windowsQueueName) {
-    return { error: "All fields except paper sizes are required." };
+  if (!agentId || !key || !label || !windowsQueueName) {
+    return { ok: false, error: "All fields except paper sizes are required." };
   }
-  if (!/^[a-z0-9_]+$/.test(key)) return { error: "Key must be lowercase letters, numbers, underscores only." };
+  if (!/^[a-z0-9_]+$/.test(key)) {
+    return { ok: false, error: "Key must be lowercase letters, numbers, underscores only." };
+  }
 
-  const description = String(formData.get("description") ?? "").trim();
   const iconKeyRaw = String(formData.get("iconKey") ?? "").trim();
   if (iconKeyRaw && !isPrinterProfileIconKey(iconKeyRaw)) {
     // Defense in depth - the DB CHECK constraint is the actual enforcement,
     // this just gives a friendlier error than a raw Postgres one. The picker
     // UI only ever submits one of the allow-listed values.
-    return { error: "Not a recognized icon." };
+    return { ok: false, error: "Not a recognized icon." };
   }
-  const bindingSide = formData.get("bookletBindingSide") === "right" ? "right" : "left";
+
+  return {
+    ok: true,
+    value: {
+      agentId,
+      key,
+      label,
+      description: String(formData.get("description") ?? "").trim() || null,
+      iconKey: iconKeyRaw || null,
+      windowsQueueName,
+      declaredPaperSizes: paperSizes.length > 0 ? paperSizes : ["letter"],
+      declaredCapabilities: {
+        duplex: formData.get("duplex") === "on",
+        color: formData.get("color") === "on",
+        staple: formData.get("staple") === "on",
+        booklet: formData.get("booklet") === "on",
+        punch: formData.get("punch") === "on",
+      },
+      bookletBindingSide: formData.get("bookletBindingSide") === "right" ? "right" : "left",
+      isDefault: formData.get("isDefault") === "on",
+    },
+  };
+}
+
+/**
+ * Creates a logical printer_profile -> Windows queue mapping
+ * (docs/architecture.md sec 9). declared_capabilities/declared_paper_sizes
+ * are administrator-declared, NOT verified against the physical device - the
+ * UI should make that explicit (see PrintersPanel.tsx copy).
+ */
+export async function createPrinterProfileAction(_prev: PrinterActionState, formData: FormData): Promise<PrinterActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const printerId = String(formData.get("printerId") ?? "");
+  if (!printerId) return { error: "All fields except paper sizes are required." };
+
+  const parsed = parsePrinterProfileForm(formData);
+  if (!parsed.ok) return { error: parsed.error };
+  const profile = parsed.value;
 
   const supabase = await createClient();
 
@@ -78,7 +180,7 @@ export async function createPrinterProfileAction(_prev: PrinterActionState, form
   // depth - RLS also enforces this, but a clear error here is friendlier).
   const [{ data: printer }, { data: agent }] = await Promise.all([
     supabase.from("printers").select("organization_id").eq("id", printerId).maybeSingle(),
-    supabase.from("agents").select("organization_id").eq("id", agentId).maybeSingle(),
+    supabase.from("agents").select("organization_id").eq("id", profile.agentId).maybeSingle(),
   ]);
   if (printer?.organization_id !== session.membership.organization_id || agent?.organization_id !== session.membership.organization_id) {
     return { error: "Printer or agent not found in your organization." };
@@ -86,26 +188,172 @@ export async function createPrinterProfileAction(_prev: PrinterActionState, form
 
   const { error } = await supabase.from("printer_profiles").insert({
     printer_id: printerId,
-    agent_id: agentId,
-    key,
-    label,
-    description: description || null,
-    icon_key: iconKeyRaw || null,
-    windows_queue_name: windowsQueueName,
-    declared_paper_sizes: paperSizes.length > 0 ? paperSizes : ["letter"],
-    declared_capabilities: {
-      duplex: formData.get("duplex") === "on",
-      color: formData.get("color") === "on",
-      staple: formData.get("staple") === "on",
-      booklet: formData.get("booklet") === "on",
-      punch: formData.get("punch") === "on",
-    },
-    booklet_binding_side: bindingSide,
-    is_default: formData.get("isDefault") === "on",
+    agent_id: profile.agentId,
+    key: profile.key,
+    label: profile.label,
+    description: profile.description,
+    icon_key: profile.iconKey,
+    windows_queue_name: profile.windowsQueueName,
+    declared_paper_sizes: profile.declaredPaperSizes,
+    declared_capabilities: profile.declaredCapabilities,
+    booklet_binding_side: profile.bookletBindingSide,
+    is_default: profile.isDefault,
   });
   if (error) return { error: describeDatabaseError(error, "Couldn't save that printer profile.") };
 
   revalidatePath(routes.adminPrinters);
+  return {};
+}
+
+/**
+ * Edits an existing printer_profile in place - including the two mappings an
+ * admin genuinely needs to be able to change after hardware moves: the
+ * `windows_queue_name` this logical profile resolves to, and which registered
+ * Agent's machine that queue lives on. Without this, a printer moving to a
+ * different PC (or a queue being renamed in Windows) meant deleting and
+ * re-creating the profile, which is exactly what a profile id being
+ * referenced by every historical print_jobs row makes undesirable.
+ *
+ * Authorization is the same three-layer shape as its sibling create action:
+ *   1. org_admin only (requireOrgRole).
+ *   2. The profile is looked up through its OWN printer's organization_id and
+ *      rejected unless that is the caller's organization - the client-supplied
+ *      profile id is never trusted on its own (docs/architecture.md sec 3.2).
+ *   3. The newly-chosen agent_id is independently re-checked against the
+ *      caller's organization, so a tampered request cannot re-point one org's
+ *      queue at another org's Agent.
+ * RLS (printer_profiles' own update policy) remains the backstop under all
+ * three.
+ *
+ * The profile stays on its current printer: moving a profile between printers
+ * would silently rewrite what every historical job on it was printed on, so
+ * that is deliberately not offered here.
+ */
+export async function updatePrinterProfileAction(_prev: PrinterActionState, formData: FormData): Promise<PrinterActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const organizationId = session.membership.organization_id;
+  const printerProfileId = String(formData.get("printerProfileId") ?? "");
+  if (!printerProfileId) return { error: "Missing printer profile." };
+
+  const parsed = parsePrinterProfileForm(formData);
+  if (!parsed.ok) return { error: parsed.error };
+  const profile = parsed.value;
+
+  const supabase = await createClient();
+
+  const [{ data: existing }, { data: agent }] = await Promise.all([
+    supabase
+      .from("printer_profiles")
+      .select("id, agent_id, printers!inner(id, organization_id)")
+      .eq("id", printerProfileId)
+      .maybeSingle(),
+    supabase.from("agents").select("organization_id").eq("id", profile.agentId).maybeSingle(),
+  ]);
+  if (!existing || existing.printers.organization_id !== organizationId) {
+    return { error: "That printer profile isn't in your organization." };
+  }
+  if (!agent || agent.organization_id !== organizationId) {
+    return { error: "Agent not found in your organization." };
+  }
+
+  const { data: updated, error } = await supabase
+    .from("printer_profiles")
+    .update({
+      agent_id: profile.agentId,
+      key: profile.key,
+      label: profile.label,
+      description: profile.description,
+      icon_key: profile.iconKey,
+      windows_queue_name: profile.windowsQueueName,
+      declared_paper_sizes: profile.declaredPaperSizes,
+      declared_capabilities: profile.declaredCapabilities,
+      booklet_binding_side: profile.bookletBindingSide,
+      is_default: profile.isDefault,
+    })
+    .eq("id", printerProfileId)
+    .select("id")
+    .maybeSingle();
+  if (error) return { error: describeDatabaseError(error, "Couldn't save that printer profile.") };
+  if (!updated) return { error: "That printer profile isn't in your organization." };
+
+  await supabase.from("audit_logs").insert({
+    organization_id: organizationId,
+    actor_id: session.userId,
+    action: "printer_profile.updated",
+    target_type: "printer_profiles",
+    target_id: printerProfileId,
+    // What an admin will actually want to reconstruct later is which queue
+    // and which machine this logical profile pointed at, since that is what
+    // silently changes where paper comes out.
+    metadata: {
+      windowsQueueName: profile.windowsQueueName,
+      agentId: profile.agentId,
+      previousAgentId: existing.agent_id,
+    },
+  });
+
+  revalidatePath(routes.adminPrinters);
+  revalidatePath(routes.adminAgentDetail(profile.agentId));
+  if (existing.agent_id !== profile.agentId) revalidatePath(routes.adminAgentDetail(existing.agent_id));
+  return { success: `Saved - this profile now prints to "${profile.windowsQueueName}".` };
+}
+
+/**
+ * Removes a printer_profile an admin created by mistake (or that no longer
+ * exists as a Windows queue).
+ *
+ * `print_jobs.printer_profile_id` references this table with no ON DELETE
+ * action, so a profile any job has ever used cannot be deleted - the FK
+ * refuses, and that is correct: a job's audit trail must keep naming the
+ * profile it was actually printed on. The count is checked here first purely
+ * so the admin gets that explanation instead of a raw constraint violation,
+ * and is told to edit the profile (above) rather than remove it.
+ *
+ * This is the delete deleteAgentAction's own error message already points
+ * admins at ("reassign or delete them first (Printers page)"), which until now
+ * had no UI behind it.
+ */
+export async function deletePrinterProfileAction(_prev: PrinterActionState, formData: FormData): Promise<PrinterActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const organizationId = session.membership.organization_id;
+  const printerProfileId = String(formData.get("printerProfileId") ?? "");
+  if (!printerProfileId) return { error: "Missing printer profile." };
+
+  const supabase = await createClient();
+
+  const { data: existing } = await supabase
+    .from("printer_profiles")
+    .select("id, label, agent_id, printers!inner(organization_id)")
+    .eq("id", printerProfileId)
+    .maybeSingle();
+  if (!existing || existing.printers.organization_id !== organizationId) {
+    return { error: "That printer profile isn't in your organization." };
+  }
+
+  const { count } = await supabase
+    .from("print_jobs")
+    .select("id", { count: "exact", head: true })
+    .eq("printer_profile_id", printerProfileId);
+  if (count && count > 0) {
+    return {
+      error: `${count} print job${count === 1 ? " has" : "s have"} been sent to this profile, so it can't be deleted without breaking their history - edit it instead to point it at a different queue.`,
+    };
+  }
+
+  const { error } = await supabase.from("printer_profiles").delete().eq("id", printerProfileId);
+  if (error) return { error: describeDatabaseError(error, "Couldn't delete that printer profile.") };
+
+  await supabase.from("audit_logs").insert({
+    organization_id: organizationId,
+    actor_id: session.userId,
+    action: "printer_profile.deleted",
+    target_type: "printer_profiles",
+    target_id: printerProfileId,
+    metadata: { label: existing.label, agentId: existing.agent_id },
+  });
+
+  revalidatePath(routes.adminPrinters);
+  revalidatePath(routes.adminAgentDetail(existing.agent_id));
   return {};
 }
 

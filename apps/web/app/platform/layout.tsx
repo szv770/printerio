@@ -21,13 +21,17 @@ export default async function PlatformLayout({ children }: { children: React.Rea
   }
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-5xl gap-8 px-4 py-8">
-      <nav className="w-48 shrink-0">
+    // Same mobile-first stack as app/admin/layout.tsx: the nav sits above the
+    // content on a phone and only becomes a fixed-width sidebar once there is
+    // room for one. This console is three links and super-admin-only, so it
+    // gets the wrapped-row treatment rather than admin's full drawer.
+    <div className="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-4 md:flex-row md:gap-8 md:py-8">
+      <nav className="w-full shrink-0 md:w-48">
         <Link href={routes.platform} className="mb-1 block text-lg font-semibold">
           Printio Platform
         </Link>
         <p className="mb-4 text-xs text-[var(--color-muted)]">Signed in as super admin</p>
-        <ul className="flex flex-col gap-1 text-sm">
+        <ul className="flex flex-wrap gap-1 text-sm md:flex-col">
           <NavLink href={routes.platform} icon={LayoutDashboard}>
             Overview
           </NavLink>
@@ -39,7 +43,7 @@ export default async function PlatformLayout({ children }: { children: React.Rea
           </NavLink>
         </ul>
 
-        <div className="mt-6 flex flex-col gap-1 border-t border-[var(--color-border)] pt-4 text-sm">
+        <div className="mt-4 flex flex-wrap gap-1 border-t border-[var(--color-border)] pt-4 text-sm md:mt-6 md:flex-col">
           <Link href={routes.dashboard} className="block rounded-lg px-3 py-2 hover:bg-[var(--color-surface)]">
             Back to app
           </Link>

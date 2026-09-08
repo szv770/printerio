@@ -17,7 +17,7 @@ export default async function AuditPage() {
     <div>
       <PageHeader title="Audit log" />
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[44rem] text-sm">
           <thead>
             <tr className="border-b border-[var(--color-border)] text-left text-[var(--color-muted)]">
               <th className="py-2 pr-4">When</th>

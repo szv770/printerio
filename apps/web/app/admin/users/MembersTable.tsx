@@ -35,7 +35,7 @@ export function MembersTable({ members, canEdit }: { members: Member[]; canEdit:
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="w-full min-w-[48rem] text-sm">
         <thead>
           <tr className="border-b border-[var(--color-border)] text-left text-[var(--color-muted)]">
             <th className="py-2 pr-4">Name</th>

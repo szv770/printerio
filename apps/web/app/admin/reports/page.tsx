@@ -302,7 +302,7 @@ export default async function ReportsPage() {
 function ReportTable({ columns, rows }: { columns: string[]; rows: string[][] }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="w-full min-w-[40rem] text-sm">
         <thead>
           <tr className="border-b border-[var(--color-border)] text-left text-[var(--color-muted)]">
             {columns.map((c) => (

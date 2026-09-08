@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  CLIENT_PREVIEW_MAX_BYTES,
   DEFAULT_MAX_UPLOAD_BYTES,
   formatFileSize,
   precheckPdfHeader,
   precheckSelectedFile,
+  shouldPreviewInBrowser,
 } from "./client-precheck";
 
 const MB = 1024 * 1024;
@@ -104,5 +106,25 @@ describe("formatFileSize", () => {
   it("returns an empty string rather than nonsense for an unusable size", () => {
     expect(formatFileSize(Number.NaN)).toBe("");
     expect(formatFileSize(-1)).toBe("");
+  });
+});
+
+describe("shouldPreviewInBrowser", () => {
+  it("previews an ordinary document", () => {
+    expect(shouldPreviewInBrowser(2 * MB)).toBe(true);
+  });
+
+  it("previews right up to the threshold", () => {
+    expect(shouldPreviewInBrowser(CLIENT_PREVIEW_MAX_BYTES)).toBe(true);
+  });
+
+  it("skips a large scan - the parse+render is what kills a phone tab, not the upload", () => {
+    expect(shouldPreviewInBrowser(CLIENT_PREVIEW_MAX_BYTES + 1)).toBe(false);
+    expect(shouldPreviewInBrowser(45 * MB)).toBe(false);
+  });
+
+  it("skips a zero-length or nonsense size rather than trying to parse it", () => {
+    expect(shouldPreviewInBrowser(0)).toBe(false);
+    expect(shouldPreviewInBrowser(Number.NaN)).toBe(false);
   });
 });

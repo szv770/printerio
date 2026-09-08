@@ -142,9 +142,9 @@ export function QuotasPanel({
         {quotas.map((q) => (
           <li
             key={q.id}
-            className="flex items-center justify-between rounded-lg border border-[var(--color-border)] px-4 py-3 text-sm"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--color-border)] px-4 py-3 text-sm"
           >
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <Badge>{describe(q)}</Badge>
               <span className="text-[var(--color-muted)]">{q.limit_value.toLocaleString()} / month</span>
             </div>
