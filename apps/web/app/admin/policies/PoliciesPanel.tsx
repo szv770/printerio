@@ -25,7 +25,7 @@ export function PoliciesPanel({ policies, rules, canManage }: { policies: Policy
     <div className="flex flex-col gap-6" data-tour="admin-policies-panel">
       {canManage && (
         <Card>
-          <form action={createAction} className="flex items-end gap-3">
+          <form action={createAction} className="flex flex-wrap items-end gap-3">
             <div>
               <FieldLabel htmlFor="policyName">New policy name</FieldLabel>
               <Input id="policyName" name="name" required placeholder="Staff Policy" />

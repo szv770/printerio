@@ -18,6 +18,35 @@
 /** Mirrors organization_settings.max_upload_size_bytes' own default (50 MiB). */
 export const DEFAULT_MAX_UPLOAD_BYTES = 52428800;
 
+/**
+ * Above this, the in-browser page count + first-page thumbnail are skipped.
+ *
+ * The preview costs three copies of the file in the tab's memory at once: the
+ * ArrayBuffer read off the File, pdf-lib's fully-parsed object graph, and
+ * pdfjs-dist's own parse plus the rendered canvas. At the 50 MB upload
+ * ceiling that is comfortably enough to be killed by a phone browser's
+ * per-tab memory limit - and being killed mid-parse looks to the user exactly
+ * like "it gave me an error", on a file the server would have accepted
+ * perfectly well.
+ *
+ * 8 MiB is chosen to cover essentially every real text document (a 40-page
+ * essay exported from Docs is well under 1 MB) while excluding the scans and
+ * photo-heavy PDFs that make up the large end - i.e. it gives up the preview
+ * exactly where the preview is most likely to break the page instead.
+ */
+export const CLIENT_PREVIEW_MAX_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Whether a file this size should be parsed/rendered in the browser at all.
+ * The upload itself is never gated on this - a file over the threshold is
+ * still submitted normally, it just goes without a local page count and
+ * thumbnail (lib/pdf/preflight.ts computes the authoritative page count
+ * server-side either way - docs/architecture.md sec 5).
+ */
+export function shouldPreviewInBrowser(sizeBytes: number): boolean {
+  return Number.isFinite(sizeBytes) && sizeBytes > 0 && sizeBytes <= CLIENT_PREVIEW_MAX_BYTES;
+}
+
 export type ClientPrecheckResult = { ok: true } | { ok: false; reason: string };
 
 /** Human-readable file size for UI copy - "1.4 GB", "4.2 MB", "812 KB",

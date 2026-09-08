@@ -88,7 +88,7 @@ export function MemberDetailControls({ member, canEdit }: { member: DetailMember
         <input type="hidden" name="userId" value={member.userId} />
         <div>
           <FieldLabel htmlFor="department">Department</FieldLabel>
-          <Input id="department" name="department" defaultValue={member.department ?? ""} placeholder="—" className="w-40" />
+          <Input id="department" name="department" defaultValue={member.department ?? ""} placeholder="—" className="w-full sm:w-40" />
         </div>
         <Button type="submit" size="sm">
           Save

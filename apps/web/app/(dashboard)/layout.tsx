@@ -19,8 +19,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
   return (
     <div className="min-h-screen">
       <header className="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-        <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
-          <nav className="flex items-center gap-5 text-sm font-medium">
+        <div className="mx-auto flex max-w-2xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3">
+          <nav className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm font-medium">
             <Link href={routes.home} className="font-semibold">
               Printio
             </Link>

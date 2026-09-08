@@ -133,17 +133,42 @@ async function createPrintJob(
     // (docs/architecture.md sec 8), not just padding. The derived file
     // uploaded below is the fully-imposed PDF; the Agent's driver queue does
     // no booklet reflow of its own for a Printio-submitted booklet job.
-    const padded = await createBookletPaddedPdf(originalBytes);
-    effectivePageCount = padded.paddedPages;
-    blankPagesAdded = padded.blankPagesAdded;
+    //
+    // Wrapped because these two are the only steps in this function that
+    // re-write the user's PDF rather than just reading it, and pdf-lib can
+    // throw on a document that nonetheless passed preflight (an unusual
+    // page tree, a page with no MediaBox of its own to inherit, an
+    // embedding pdf-lib can parse but not copy). Uncaught, that threw out of
+    // the Server Action and rendered the error boundary - a bare "something
+    // went wrong" on the booklet path specifically, with nothing recorded
+    // anywhere saying which document or profile did it. Nothing has been
+    // reserved or uploaded at this point, so returning is a clean stop.
+    let bindingSide: "left" | "right" = "left";
+    try {
+      const padded = await createBookletPaddedPdf(originalBytes);
+      effectivePageCount = padded.paddedPages;
+      blankPagesAdded = padded.blankPagesAdded;
 
-    // Defaults to the target profile's own stored binding side
-    // (printer_profiles.booklet_binding_side) - PrintForm.tsx's per-job
-    // override, when present, wins for this one job only, without touching
-    // the profile's own default (docs/architecture.md sec 8).
-    const bindingSide: "left" | "right" =
-      bindingSideOverride ?? (printerProfile.booklet_binding_side === "right" ? "right" : "left");
-    derivedBytes = await imposeBookletPdf(padded.bytes, resolvePaperSizePoints(paperSize), bindingSide);
+      // Defaults to the target profile's own stored binding side
+      // (printer_profiles.booklet_binding_side) - PrintForm.tsx's per-job
+      // override, when present, wins for this one job only, without touching
+      // the profile's own default (docs/architecture.md sec 8).
+      bindingSide = bindingSideOverride ?? (printerProfile.booklet_binding_side === "right" ? "right" : "left");
+      derivedBytes = await imposeBookletPdf(padded.bytes, resolvePaperSizePoints(paperSize), bindingSide);
+    } catch (err) {
+      logger.error("booklet imposition failed", {
+        organizationId,
+        printerProfileId,
+        sourcePages,
+        paperSize,
+        bindingSide,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return {
+        error:
+          "This PDF couldn't be laid out as a booklet. Try printing it without the Booklet option, or re-export it (Print → Save as PDF) and submit again.",
+      };
+    }
   }
 
   const printMath = computePrintMath({ pageCount: effectivePageCount, copies, duplex, booklet });
@@ -366,7 +391,21 @@ export async function submitPrintJobAction(_prev: SubmitJobState, formData: Form
   }
 
   const supabase = await createClient();
-  const originalBytes = new Uint8Array(await file.arrayBuffer());
+
+  // A File handed to a Server Action can still fail to read - a multipart body
+  // cut short mid-upload (a phone dropping off wifi is the everyday case) is
+  // the one that actually happens. Uncaught, that threw out of the action and
+  // rendered the error boundary instead of telling the user to try again.
+  let originalBytes: Uint8Array;
+  try {
+    originalBytes = new Uint8Array(await file.arrayBuffer());
+  } catch (err) {
+    logger.error("could not read the uploaded file", {
+      userId: session.userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { error: "Your file didn't finish uploading. Check your connection and submit again." };
+  }
 
   return createPrintJob(supabase, session as SessionWithMembership, originalBytes, file.name, {
     printerProfileId: String(formData.get("printerProfileId") ?? ""),

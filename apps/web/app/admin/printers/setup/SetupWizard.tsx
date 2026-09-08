@@ -386,7 +386,7 @@ function Step3Finish({
         <input type="hidden" name="agentId" value={agentId} />
         <input type="hidden" name="cardsJson" value={JSON.stringify(cardsPayload)} />
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <FieldLabel htmlFor="wizardAgent">Agent</FieldLabel>
             <Select id="wizardAgent" value={agentId} onChange={(e) => setAgentId(e.target.value)}>

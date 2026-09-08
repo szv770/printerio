@@ -26,7 +26,7 @@ export function AgentsPanel({ agents, canManage }: { agents: Tables<"agents">[];
     <div>
       {canManage && (
         <Card className="mb-8">
-          <form action={createAction} className="flex items-end gap-3">
+          <form action={createAction} className="flex flex-wrap items-end gap-3">
             <div>
               <FieldLabel htmlFor="agentName">Agent name</FieldLabel>
               <Input id="agentName" name="name" required placeholder="Main Office PC" />
@@ -76,20 +76,20 @@ function AgentRow({ agent, canManage }: { agent: Tables<"agents">; canManage: bo
   return (
     <li>
       <Card>
-        <div className="flex items-center justify-between">
-          <div className="flex items-start gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
             {/* Leading device icon, tinted by online status - gives each row a
              *  visual identity beyond its name string, and reads faster than
              *  scanning meta-line text in a long agent list. */}
             <Cpu className={`mt-0.5 h-6 w-6 shrink-0 ${online ? "text-[var(--color-success)]" : "text-[var(--color-muted)]"}`} />
-            <div>
+            <div className="min-w-0">
               {isRenaming ? (
                 <form
                   action={(formData) => {
                     renameAction(formData);
                     setIsRenaming(false);
                   }}
-                  className="flex items-center gap-2"
+                  className="flex flex-wrap items-center gap-2"
                 >
                   <input type="hidden" name="agentId" value={agent.id} />
                   <Input name="name" defaultValue={agent.name} required autoFocus className="h-7 py-1 text-sm" />
@@ -150,7 +150,7 @@ function AgentRow({ agent, canManage }: { agent: Tables<"agents">; canManage: bo
               </Link>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {canManage && agent.status !== "disabled" && (
               <>
                 <form action={rotateAction}>
