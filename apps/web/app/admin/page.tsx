@@ -18,6 +18,11 @@ export default async function AdminOverviewPage() {
         .from("print_jobs")
         .select("id", { count: "exact", head: true })
         .eq("organization_id", orgId)
+        // "Jobs today" is a volume stat about what the organization printed,
+        // so an admin's own test prints don't belong in it. "Failed jobs"
+        // below deliberately does NOT filter them out: a test print that
+        // failed is exactly the kind of thing this page should surface.
+        .eq("is_test_print", false)
         .gte("created_at", startOfToday.toISOString()),
       supabase
         .from("print_jobs")

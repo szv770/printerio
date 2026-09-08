@@ -158,6 +158,52 @@ describe("buildJobProgress - a job moving normally", () => {
   });
 });
 
+/** An admin test print (app/admin/printers/actions.ts's sendTestPrintAction):
+ *  the same pipeline from the upload onwards, but the policy engine, the
+ *  approval queue and quota were genuinely never involved. */
+const TEST_PRINT_EVENTS = ["JOB_CREATED", "PDF_UPLOADED", "PREFLIGHT_COMPLETED", "APPROVED"];
+
+describe("buildJobProgress - an admin test print", () => {
+  it("shows the print-rules stage as skipped rather than claiming it was checked", () => {
+    const input: JobProgressInput = {
+      status: "approved",
+      policyAction: null,
+      isTestPrint: true,
+      eventTypes: TEST_PRINT_EVENTS,
+    };
+    const progress = buildJobProgress(input);
+    const policy = progress.stages.find((s) => s.id === "policy");
+    expect(policy?.state).toBe("skipped");
+    expect(policy?.note).toMatch(/test print/i);
+    expect(progress.stages.find((s) => s.id === "approval")?.state).toBe("skipped");
+  });
+
+  it("is otherwise the ordinary pipeline - same stages, same current position", () => {
+    const testPrint = buildJobProgress({ status: "printing", isTestPrint: true, eventTypes: TEST_PRINT_EVENTS });
+    const realJob = buildJobProgress({ status: "printing", policyAction: "allow", eventTypes: AUTO_APPROVED_EVENTS });
+    expect(testPrint.currentStageId).toBe(realJob.currentStageId);
+    expect(testPrint.stages.map((s) => s.id)).toEqual(realJob.stages.map((s) => s.id));
+    expect(testPrint.stages.find((s) => s.id === "sent")?.state).toBe("done");
+  });
+
+  it("still reports a real failure exactly as it would for a user's job", () => {
+    const progress = buildJobProgress({
+      status: "failed",
+      isTestPrint: true,
+      errorMessage: "Windows queue 'Kyocera_Main' not found",
+      attemptCount: 3,
+      maxAttempts: 3,
+      eventTypes: [...TEST_PRINT_EVENTS, "AGENT_CLAIMED", "PRINT_FAILED"],
+    });
+    expect(progress.halted).toBe(true);
+    expect(progress.explanation?.lines[0]).toContain("Kyocera_Main");
+  });
+
+  it("leaves every other job untouched - the flag defaults off", () => {
+    expect(stageState({ status: "approved", policyAction: "allow" }, "policy")).toBe("done");
+  });
+});
+
 describe("buildJobProgress - stopped jobs say where and why", () => {
   it("fails a denied job at the print-rules stage and lists the real rule reasons", () => {
     const progress = buildJobProgress({

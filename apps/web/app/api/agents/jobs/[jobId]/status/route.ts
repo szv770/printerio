@@ -66,6 +66,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ job
   // Convert the submission-time reservation into recorded usage (completed),
   // or release it once retries are exhausted (failed for good) - see
   // docs/architecture.md sec 14.
+  //
+  // An admin test print reserved nothing at creation (it never runs the
+  // policy/quota path - see app/admin/printers/actions.ts), so it must not
+  // touch monthly_usage at all here. This is not just a tidiness point:
+  // 'consume' would add sheets nobody requested to that admin's recorded
+  // usage AND subtract from their reserved counters, silently eating a
+  // reservation belonging to one of their real, still-pending jobs
+  // (adjust_monthly_usage works on the shared per-user row, not per job).
+  if (job.is_test_print) return Response.json({ ok: true });
+
   const amounts = usageAmountsForJob({
     organizationId: job.organization_id,
     userId: job.created_by,

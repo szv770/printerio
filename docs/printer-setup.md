@@ -221,6 +221,17 @@ in the Printio admin dashboard so the cloud/Agent can target it:
    - `key` and `label` — a short internal key (`booklet`, `stapled`, `main`)
      and a human-readable label shown in the admin UI.
 3. Repeat for every queue created in §1 and §4.
+4. **Prove each one works before anyone relies on it.** On Admin → Printers,
+   press **Send test print** on the profile you just registered (the same button
+   is on each queue row of that Agent's detail page). It puts one real page
+   through the entire pipeline to that queue — same upload, same Agent claim,
+   same Windows queue as a student's job — and opens the job's status page so
+   you can watch it move, or see exactly where it stops. The printed sheet names
+   the printer, profile and Windows queue it came from, so with several queues
+   pointed at one MFP you can tell which one produced the page in your hand, and
+   whether that queue's Printing Defaults (§3) really do what you declared in
+   step 2 above. Test prints skip print rules, approval and quota, and are left
+   out of usage reports (architecture.md sec 9.1).
 
 ## 6. SNMP telemetry (optional)
 

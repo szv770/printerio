@@ -8,6 +8,11 @@ import { describeDatabaseError } from "@/lib/action-errors";
 import { routes } from "@/lib/routes";
 import { issueRemoteCommand } from "@/lib/remote-commands";
 import { isPrinterProfileIconKey } from "@/lib/printer-profile-icons";
+import { createTestPrintPdf } from "@/lib/pdf/test-print";
+import { preflightPdf } from "@/lib/pdf/preflight";
+import { jobFilePath, PRINT_JOBS_BUCKET } from "@/lib/storage";
+import { logger } from "@/lib/logger";
+import { computeCostCents, computePrintMath, type PricingConfig } from "@printio/shared";
 import type { TablesInsert } from "@/lib/database.types";
 
 export interface PrinterActionState {
@@ -147,6 +152,212 @@ export async function restartPrintQueueAction(_prev: PrinterActionState, formDat
 
   revalidatePath(routes.adminPrinters);
   return {};
+}
+
+/**
+ * "Send test print" - puts a real, one-page print job through the real
+ * pipeline against any printer_profile in the caller's own organization, so
+ * an admin can prove a queue works end to end without waiting for a student
+ * to submit something.
+ *
+ * What makes it a genuine test rather than a simulation: everything after the
+ * PDF is generated is the ordinary path a student's essay takes. The
+ * generated PDF goes through the same `preflightPdf` (docs/architecture.md
+ * sec 5), is uploaded to the same private, org-scoped bucket under the same
+ * `jobFilePath` convention (sec 3.3), and becomes a `print_jobs` row in
+ * `approved` - which is exactly what /api/agents/jobs/claimable offers, what
+ * the Agent claims and leases, what /download-url signs a URL for, and what
+ * the Agent hands to SumatraPDF on the profile's Windows queue (sec 9-13).
+ * No branch anywhere in the Agent, the job API, or the job state machine
+ * knows or cares that this job is a test.
+ *
+ * What it deliberately skips is only what belongs to a *person's* job:
+ *   - Policy evaluation and approval. A test print must not sit in the
+ *     approval queue waiting for the very admin who sent it, and an org whose
+ *     rules deny (say) all color would otherwise be unable to test its own
+ *     printer. `policy_action` is left null rather than faked as "allow" -
+ *     nothing evaluated, so nothing is claimed to have.
+ *   - Quota. Nothing is reserved here, which is why `is_test_print` must also
+ *     stop the completion/failure paths from consuming or releasing anything
+ *     for this job (see app/api/agents/jobs/[jobId]/status and the cron
+ *     sweep): releasing a reservation that never existed would decrement some
+ *     other pending job's live reservation on the shared monthly_usage row.
+ *
+ * Authorization is the same defense-in-depth shape as every other action
+ * here: org_admin only, and the profile id from the form is re-checked
+ * against the caller's own organization through its printer's
+ * organization_id before anything is generated, uploaded or written - RLS is
+ * still the backstop, this is just the clear error (sec 3.2).
+ */
+export async function sendTestPrintAction(_prev: PrinterActionState, formData: FormData): Promise<PrinterActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const organizationId = session.membership.organization_id;
+  const printerProfileId = String(formData.get("printerProfileId") ?? "");
+  if (!printerProfileId) return { error: "Choose which printer profile to test." };
+
+  const supabase = await createClient();
+
+  // Same DB-backed fixed-window limiter the submit path uses (and for the
+  // same reason - Vercel has no shared process to count in, see
+  // supabase/migrations/0012_rate_limiting.sql). Keyed separately from
+  // print_submit so a burst of test prints can't eat an admin's own
+  // allowance for real submissions, or vice versa. Deliberately lower: a
+  // double-clicked button should cost paper once, not ten times.
+  const { data: withinLimit, error: rateLimitError } = await supabase.rpc("check_rate_limit", {
+    p_key: `test_print:${session.userId}`,
+    p_max_count: 10,
+    p_window_seconds: 300,
+  });
+  if (rateLimitError) {
+    logger.error("test print rate limit check failed", { userId: session.userId, error: rateLimitError.message });
+  } else if (!withinLimit) {
+    return { error: "You've sent a lot of test prints in the last few minutes. Wait a moment and try again." };
+  }
+
+  const [{ data: profile }, { data: organization }, { data: settings }] = await Promise.all([
+    supabase
+      .from("printer_profiles")
+      .select("*, printers!inner(id, name, organization_id)")
+      .eq("id", printerProfileId)
+      .maybeSingle(),
+    supabase.from("organizations").select("name").eq("id", organizationId).maybeSingle(),
+    supabase.from("organization_settings").select("max_upload_size_bytes").eq("organization_id", organizationId).maybeSingle(),
+  ]);
+  // Never trust the client-supplied profile id: it only counts if its own
+  // printer belongs to the caller's organization.
+  if (!profile || profile.printers.organization_id !== organizationId) {
+    return { error: "That printer profile isn't in your organization." };
+  }
+
+  const paperSize = profile.declared_paper_sizes[0] ?? "letter";
+  const sentAt = new Date();
+  const jobId = crypto.randomUUID();
+
+  const pdfBytes = await createTestPrintPdf({
+    profileLabel: profile.label,
+    windowsQueueName: profile.windows_queue_name,
+    printerName: profile.printers.name,
+    sentBy: session.profile.display_name ?? session.email,
+    organizationName: organization?.name ?? "This organization",
+    jobId,
+    sentAt,
+    paperSize,
+  });
+
+  // The real preflight, not a rubber stamp: if this ever fails, the generator
+  // above is producing something the ordinary upload path would reject too,
+  // and that is worth surfacing rather than printing anyway.
+  const preflight = await preflightPdf(pdfBytes, { maxSizeBytes: settings?.max_upload_size_bytes ?? 52428800 });
+  if (!preflight.ok) {
+    logger.error("generated test print failed preflight", { organizationId, printerProfileId, reason: preflight.reason });
+    return { error: "Couldn't build a valid test page for this printer. Nothing was sent." };
+  }
+
+  // One page, one copy, black & white, single-sided, and no finishing flags
+  // requested. That last part is the point rather than a limitation: what a
+  // queue's driver defaults actually do (staple, fold, saddle-stitch) is
+  // precisely what Printio cannot introspect (docs/architecture.md sec 9), so
+  // a test print asks for nothing and lets the sheet that comes out show the
+  // admin what that queue is really configured to do.
+  const printMath = computePrintMath({ pageCount: preflight.pageCount, copies: 1, duplex: false, booklet: false });
+  const costCents = computeCostCents({
+    printedSides: printMath.printedSides,
+    copies: 1,
+    colorMode: "bw",
+    paperSize,
+    finishingStaple: false,
+    finishingBooklet: false,
+    pricing: (profile.pricing as unknown as PricingConfig | null) ?? null,
+  });
+
+  const originalPath = jobFilePath(organizationId, jobId, "original");
+  const { error: uploadError } = await supabase.storage
+    .from(PRINT_JOBS_BUCKET)
+    .upload(originalPath, pdfBytes, { contentType: "application/pdf" });
+  if (uploadError) {
+    logger.error("test print storage upload failed", { jobId, organizationId, error: uploadError.message });
+    return { error: "Couldn't upload the test page to storage. Nothing was sent - try again." };
+  }
+
+  const fileName = `Printio test print - ${profile.label}.pdf`;
+  const { error: insertError } = await supabase.from("print_jobs").insert({
+    id: jobId,
+    organization_id: organizationId,
+    created_by: session.userId,
+    printer_id: profile.printers.id,
+    printer_profile_id: profile.id,
+    status: "approved",
+    is_test_print: true,
+    original_file_path: originalPath,
+    derived_file_path: null,
+    original_file_name: fileName,
+    source_pdf_pages: preflight.pageCount,
+    file_size_bytes: preflight.fileSizeBytes,
+    copies: 1,
+    color_mode: "bw",
+    duplex: false,
+    paper_size: paperSize,
+    finishing: { staple: false, booklet: false, punch: false },
+    estimated_printed_sides: printMath.printedSides,
+    estimated_physical_sheets: printMath.physicalSheets,
+    estimated_cost_cents: costCents,
+    // Null, not 'allow': the policy engine was never run for this job, and
+    // recording an outcome it never produced would make the audit trail lie.
+    policy_action: null,
+    policy_reasons: [],
+    approved_at: sentAt.toISOString(),
+    expires_at: null,
+  });
+  if (insertError) {
+    // Don't leave the object orphaned in the bucket - the retention sweep
+    // walks print_jobs rows, so a file with no row is never reclaimed.
+    const { error: cleanupError } = await supabase.storage.from(PRINT_JOBS_BUCKET).remove([originalPath]);
+    if (cleanupError) {
+      logger.error("failed to clean up an orphaned test print upload", { jobId, organizationId, error: cleanupError.message });
+    }
+    logger.error("test print job insert failed", { jobId, organizationId, error: insertError.message });
+    return { error: describeDatabaseError(insertError, "Couldn't create the test print job.") };
+  }
+
+  await supabase.from("print_job_events").insert(
+    [
+      {
+        event_type: "JOB_CREATED" as const,
+        metadata: { testPrint: true, printerProfileId: profile.id, printerProfileLabel: profile.label },
+      },
+      { event_type: "PDF_UPLOADED" as const, metadata: { fileName, fileSizeBytes: preflight.fileSizeBytes } },
+      { event_type: "PREFLIGHT_COMPLETED" as const, metadata: { sourcePages: preflight.pageCount, blankPagesAdded: 0 } },
+      {
+        event_type: "APPROVED" as const,
+        metadata: {
+          testPrint: true,
+          reason: "Admin test print - print rules, approval and quota are deliberately skipped for a test print.",
+        },
+      },
+    ].map((event) => ({
+      job_id: jobId,
+      event_type: event.event_type,
+      actor_type: "admin" as const,
+      actor_id: session.userId,
+      metadata: event.metadata,
+    })),
+  );
+
+  await supabase.from("audit_logs").insert({
+    organization_id: organizationId,
+    actor_id: session.userId,
+    action: "printer_profile.test_print_sent",
+    target_type: "printer_profiles",
+    target_id: profile.id,
+    metadata: { jobId, printerId: profile.printers.id, agentId: profile.agent_id },
+  });
+
+  revalidatePath(routes.adminPrinters);
+  revalidatePath(routes.adminAgentDetail(profile.agent_id));
+  // Straight to the same job page a real submission lands on - the admin
+  // watches this test move through the identical stepper, because it is
+  // moving through the identical pipeline.
+  redirect(routes.job(jobId));
 }
 
 /** One recipe card submitted from the guided setup wizard's Step 3
