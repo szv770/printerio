@@ -590,6 +590,7 @@ export type Database = {
           files_purged_at: string | null
           finishing: Json
           id: string
+          is_test_print: boolean
           job_number: string
           lease_expires_at: string | null
           lease_owner_agent_id: string | null
@@ -628,6 +629,7 @@ export type Database = {
           files_purged_at?: string | null
           finishing?: Json
           id?: string
+          is_test_print?: boolean
           job_number?: string
           lease_expires_at?: string | null
           lease_owner_agent_id?: string | null
@@ -666,6 +668,7 @@ export type Database = {
           files_purged_at?: string | null
           finishing?: Json
           id?: string
+          is_test_print?: boolean
           job_number?: string
           lease_expires_at?: string | null
           lease_owner_agent_id?: string | null

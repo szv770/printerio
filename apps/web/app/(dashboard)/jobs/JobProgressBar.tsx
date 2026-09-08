@@ -20,13 +20,17 @@ export function JobProgressBar({
   status,
   policyAction,
   eventTypes,
+  isTestPrint,
 }: {
   status: string;
   policyAction: string | null;
   /** This job's recorded events - what tells a stopped job's bar where it actually stopped. */
   eventTypes?: string[];
+  /** print_jobs.is_test_print - so the bar shows the print-rules stage as
+   *  skipped, matching what actually happened to this job. */
+  isTestPrint?: boolean;
 }) {
-  const progress = buildJobProgress({ status, policyAction, eventTypes });
+  const progress = buildJobProgress({ status, policyAction, eventTypes, isTestPrint });
   const { step, total } = jobProgressPosition(progress);
   const stageLabel = JOB_STAGE_LABELS[progress.currentStageId];
   const label = progress.halted

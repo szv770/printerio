@@ -248,7 +248,12 @@ export async function GET(request: Request) {
         })),
       );
 
-      const exhausted = affected.filter((job) => job.attempt_count + 1 >= job.max_attempts);
+      // A test print never reserved quota (app/admin/printers/actions.ts), so
+      // releasing for one would subtract from the sending admin's *shared*
+      // monthly_usage reservation counters and quietly free quota held by one
+      // of their real pending jobs. Excluded here, not deeper inside
+      // groupQuotaReleases, so that helper stays a pure grouping function.
+      const exhausted = affected.filter((job) => !job.is_test_print && job.attempt_count + 1 >= job.max_attempts);
       const releaseGroups = groupQuotaReleases(
         exhausted.map((job) => ({
           organizationId: job.organization_id,

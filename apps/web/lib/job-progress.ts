@@ -88,6 +88,11 @@ export interface JobProgressInput {
   /** print_job_events.event_type values for this job, oldest first. Optional: the jobs list renders without them. */
   eventTypes?: readonly string[];
   sourcePdfPages?: number | null;
+  /** print_jobs.is_test_print - an admin-issued test print, which never went
+   *  through the policy engine, the approval queue, or quota at all (see
+   *  app/admin/printers/actions.ts). Everything after that is the identical
+   *  pipeline, so only the two skipped stages change here. */
+  isTestPrint?: boolean;
 }
 
 /** The stage a job sitting in each state is AT. */
@@ -187,6 +192,7 @@ function noteForStage(stage: JobStageId, state: JobStageState, input: JobProgres
       }
       return null;
     case "policy":
+      if (state === "skipped") return "Not needed - a test print isn't checked against print rules or quota.";
       if (state === "failed") return "Your organization's print rules do not allow this job.";
       if (state === "done" || state === "current") return "Checked against your organization's print rules and quota.";
       return null;
@@ -299,7 +305,14 @@ export function buildJobProgress(input: JobProgressInput): JobProgress {
 
   const stages: JobProgressStage[] = JOB_STAGES.map((id, index) => {
     let state: JobStageState;
-    if (id === "approval" && !needsApproval) {
+    // An admin test print genuinely never ran the policy engine (its
+    // policy_action is null, not "allow"), so claiming it was "checked
+    // against your print rules" would be a small lie on the one screen whose
+    // whole job is to say honestly where a job is. Marked skipped for the
+    // same reason approval is on an auto-approved job.
+    if (id === "policy" && input.isTestPrint) {
+      state = "skipped";
+    } else if (id === "approval" && !needsApproval) {
       // Auto-approved and auto-denied jobs never had an approval step. Saying
       // so explicitly answers the question a waiting user actually has
       // ("is a teacher sitting on this?") instead of hiding the step.

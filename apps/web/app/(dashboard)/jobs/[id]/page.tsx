@@ -43,7 +43,11 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
           <h1 className="mb-1 text-2xl font-semibold">{job.original_file_name}</h1>
           <p className="text-sm text-[var(--color-muted)]">{job.job_number}</p>
         </div>
-        <ReprintButton jobId={job.id} />
+        {/* "Print again" re-runs the ordinary submission pipeline - policy,
+         *  quota and all - so it is deliberately not offered for a test
+         *  print, which would silently become a real, quota-charged job.
+         *  Another test print is sent from Admin → Printers instead. */}
+        {!job.is_test_print && <ReprintButton jobId={job.id} />}
       </div>
 
       {/* The stage-by-stage answer to "where is this up to right now", live

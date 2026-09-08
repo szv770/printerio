@@ -7,6 +7,7 @@ import {
   Clock,
   Cpu,
   Download,
+  FileCheck2,
   Globe,
   Monitor,
   Pause,
@@ -18,6 +19,10 @@ import {
 import type { Tables } from "@/lib/database.types";
 import { Badge, Button, Card, EmptyState, FormError } from "@/components/ui";
 import type { AgentActivity, AgentVersionStatus, QueueUsage } from "@/lib/agent-detail";
+// "Send test print" is deliberately the SAME server action the Printers page
+// binds its own button to, imported rather than re-implemented here: one
+// authorization check, one pipeline, one place to change.
+import { sendTestPrintAction, type PrinterActionState } from "../../printers/actions";
 import {
   checkAgentForUpdateAction,
   clearAgentTempFilesAction,
@@ -33,6 +38,7 @@ import {
 // value for useActionState lives here instead of alongside the action - the
 // same placement PrintersPanel uses for the identical reason.
 const initialAgentActionState: AgentActionState = {};
+const initialPrinterActionState: PrinterActionState = {};
 
 interface QueueRow {
   id: string;
@@ -358,11 +364,21 @@ function QueuesCard({
       {queues.length === 0 ? (
         <EmptyState message="No print queues are mapped to this Agent yet." icon={PrinterIcon} />
       ) : (
-        <ul className="flex flex-col gap-3">
-          {queues.map((queue) => (
-            <QueueRowItem key={queue.id} agent={agent} queue={queue} canManage={canManage} />
-          ))}
-        </ul>
+        <>
+          <ul className="flex flex-col gap-3">
+            {queues.map((queue) => (
+              <QueueRowItem key={queue.id} agent={agent} queue={queue} canManage={canManage} />
+            ))}
+          </ul>
+          {canManage && (
+            <p className="mt-3 text-xs text-[var(--color-muted)]">
+              &ldquo;Send test print&rdquo; puts one real page through the whole pipeline to that queue — the same
+              upload, the same agent claim, the same Windows queue a student&apos;s job uses — and opens its status page
+              so you can watch it. It skips print rules, approval and quota, and is left out of the usage reports. The
+              job counts above do include test prints, since they really were sent to that queue.
+            </p>
+          )}
+        </>
       )}
     </Card>
   );
@@ -378,6 +394,7 @@ function QueueRowItem({
   canManage: boolean;
 }) {
   const [state, action, pending] = useActionState(restartAgentPrintQueueAction, initialAgentActionState);
+  const [testState, testAction, testPending] = useActionState(sendTestPrintAction, initialPrinterActionState);
 
   return (
     <li className="rounded-lg border border-[var(--color-border)] p-3">
@@ -400,18 +417,36 @@ function QueueRowItem({
             {agent.paused ? "Paused by admin" : queue.printerStatus}
           </Badge>
           {canManage && (
-            <form action={action}>
-              <input type="hidden" name="agentId" value={agent.id} />
-              <input type="hidden" name="printerId" value={queue.printerId} />
-              <input type="hidden" name="printerProfileId" value={queue.id} />
-              <Button type="submit" variant="outline" size="sm" pending={pending} pendingLabel="…">
-                Restart queue
-              </Button>
-            </form>
+            <div className="flex items-center gap-2">
+              {/* One real page through the real pipeline to THIS queue - the
+               *  fastest way to answer "does this machine actually print?"
+               *  without waiting for someone to submit a job. */}
+              <form action={testAction}>
+                <input type="hidden" name="printerProfileId" value={queue.id} />
+                <Button type="submit" variant="outline" size="sm" pending={testPending} pendingLabel="Sending…">
+                  <span className="flex items-center gap-1">
+                    <FileCheck2 className="h-3.5 w-3.5" /> Send test print
+                  </span>
+                </Button>
+              </form>
+              <form action={action}>
+                <input type="hidden" name="agentId" value={agent.id} />
+                <input type="hidden" name="printerId" value={queue.printerId} />
+                <input type="hidden" name="printerProfileId" value={queue.id} />
+                <Button type="submit" variant="outline" size="sm" pending={pending} pendingLabel="…">
+                  Restart queue
+                </Button>
+              </form>
+            </div>
           )}
         </div>
       </div>
-      <FormError message={state.error} />
+      {agent.paused && canManage && (
+        <p className="mt-2 text-xs text-[var(--color-muted)]">
+          This Agent is paused, so a test print will queue up and only print once you resume it.
+        </p>
+      )}
+      <FormError message={testState.error ?? state.error} />
     </li>
   );
 }
