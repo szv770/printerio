@@ -25,6 +25,9 @@ they're how the first real gaps in this get found.
 - [SumatraPDF](https://www.sumatrapdfreader.org/) installed, with `SumatraPDF.exe`
   either on `PATH` or its full path set via `PRINTIO_SUMATRA_PATH` (the Agent
   invokes it directly by path — see architecture.md sec 10 — so either works).
+  `setup-agent.bat` checks for this and offers to download the portable build (no
+  install/admin rights needed) automatically if it's missing — you don't need to
+  do this by hand unless you decline that prompt or it can't reach the network.
 - The PowerShell **PrintManagement module** available to `powershell.exe` (built
   into modern Windows) — this is how the Agent discovers queues and reads/cancels
   spooler jobs (sec 11).
