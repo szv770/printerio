@@ -78,6 +78,17 @@ export function JobsList({
    * payload is applied straight away so a status change is instant, and
    * router.refresh() re-runs the page so anything the server derives stays
    * in step.
+   *
+   * `.subscribe()` itself is async - establishing the websocket/join
+   * handshake takes a real, variable amount of time, and any change to a row
+   * that happens before it completes is missed entirely (no error, no
+   * replay). That window is exactly the one that bit a real user: navigating
+   * straight to a freshly-created job whose Agent was mid-poll-cycle already,
+   * so it claimed and failed the job within the same second or two the page
+   * was still connecting. Waiting for the "SUBSCRIBED" callback and firing
+   * one router.refresh() at that moment closes the gap - it re-syncs with
+   * whatever the server already has the instant we know we'd otherwise start
+   * missing live updates, at the cost of one extra refresh per page load.
    */
   useEffect(() => {
     const supabase = createClient();
@@ -100,7 +111,9 @@ export function JobsList({
           router.refresh();
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") router.refresh();
+      });
 
     return () => {
       supabase.removeChannel(channel);
