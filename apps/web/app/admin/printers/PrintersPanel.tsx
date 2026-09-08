@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { Pause, Printer as PrinterIcon, Wifi, WifiOff } from "lucide-react";
+import { FileCheck2, Pause, Printer as PrinterIcon, Wifi, WifiOff } from "lucide-react";
 import type { Tables } from "@/lib/database.types";
 import { Button, Input, Select, FieldLabel, FormError, EmptyState, Badge, Card } from "@/components/ui";
 import {
@@ -15,6 +15,7 @@ import {
   createPrinterProfileAction,
   refreshPrinterStatusAction,
   restartPrintQueueAction,
+  sendTestPrintAction,
   type PrinterActionState,
 } from "./actions";
 
@@ -184,7 +185,9 @@ export function PrintersPanel({
         Capabilities and paper sizes above are administrator-declared, not verified against the physical device by
         Printio - see docs/printer-setup.md for how to actually configure a Windows queue&apos;s finishing defaults before
         declaring them here. Status only ever reflects what the Agent last reported at heartbeat time (docs/architecture.md
-        sec 11) - it is not polled live.
+        sec 11) - it is not polled live. That is what &ldquo;Send test print&rdquo; is for: it puts one real page through
+        the whole pipeline to that queue - same upload, same agent, same Windows queue as a student&apos;s job - and opens
+        its status page so you can watch it. It skips print rules, approval and quota, and is excluded from usage reports.
       </p>
     </div>
   );
@@ -221,13 +224,34 @@ function AgentOnlineBadge({ agent }: { agent: AgentInfo }) {
 
 /** "Refresh status"/"Restart queue" - issues a fixed, allow-listed remote
  *  command (docs/architecture.md sec 12) via a Server Action, never a raw
- *  fetch() from the client. */
+ *  fetch() from the client. "Send test print" sits alongside them because it
+ *  answers the same question those two are usually pressed to answer ("is
+ *  this queue actually working?") - but it is NOT a remote command: it
+ *  creates a real print job on the real pipeline (see sendTestPrintAction)
+ *  and navigates to that job's own status page. */
 function ProfileRemoteActions({ printer, profile }: { printer: Printer; profile: PrinterProfile }) {
   const [refreshState, refreshAction, refreshPending] = useActionState(refreshPrinterStatusAction, initialPrinterActionState);
   const [restartState, restartAction, restartPending] = useActionState(restartPrintQueueAction, initialPrinterActionState);
+  const [testState, testAction, testPending] = useActionState(sendTestPrintAction, initialPrinterActionState);
 
   return (
     <div className="flex shrink-0 items-center gap-2">
+      <form action={testAction}>
+        <input type="hidden" name="printerProfileId" value={profile.id} />
+        <Button
+          type="submit"
+          variant="outline"
+          size="sm"
+          pending={testPending}
+          pendingLabel="Sending…"
+          title={`Print one test page on ${profile.label} to check this queue works end to end`}
+        >
+          <span className="flex items-center gap-1">
+            <FileCheck2 className="h-3.5 w-3.5" />
+            Send test print
+          </span>
+        </Button>
+      </form>
       <form action={refreshAction}>
         <input type="hidden" name="agentId" value={profile.agent_id} />
         <input type="hidden" name="printerId" value={printer.id} />
@@ -243,7 +267,7 @@ function ProfileRemoteActions({ printer, profile }: { printer: Printer; profile:
           Restart queue
         </Button>
       </form>
-      <FormError message={refreshState.error ?? restartState.error} />
+      <FormError message={testState.error ?? refreshState.error ?? restartState.error} />
     </div>
   );
 }

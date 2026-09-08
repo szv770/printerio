@@ -44,6 +44,11 @@ export default async function ReportsPage() {
         "id, created_by, color_mode, status, printer_id, estimated_physical_sheets, source_pdf_pages, copies, created_at",
       )
       .eq("organization_id", orgId)
+      // Admin test prints are real jobs on a real queue, but they are not
+      // anyone's print activity - counting them here would inflate the
+      // sending admin's own row, their department, and that printer's totals
+      // with paper nobody requested (supabase/migrations/0024_*.sql).
+      .eq("is_test_print", false)
       .gte("created_at", since),
     supabase.from("organization_members").select("user_id, department, profiles(email, display_name)").eq("organization_id", orgId),
     supabase.from("printers").select("id, name").eq("organization_id", orgId),
@@ -115,7 +120,7 @@ export default async function ReportsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Reports"
-        description={`Job activity over the last ${JOB_WINDOW_DAYS} days and usage over the last ${USAGE_MONTHS} months. "Sheets" only counts jobs that actually reached a printer (completed/printing/submitted_to_spooler) - denied and pending jobs never consumed paper. Tables only for V1 - see docs known-limitations.`}
+        description={`Job activity over the last ${JOB_WINDOW_DAYS} days and usage over the last ${USAGE_MONTHS} months. "Sheets" only counts jobs that actually reached a printer (completed/printing/submitted_to_spooler) - denied and pending jobs never consumed paper. Admin test prints are excluded everywhere on this page. Tables only for V1 - see docs known-limitations.`}
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3" data-tour="admin-reports-stats">

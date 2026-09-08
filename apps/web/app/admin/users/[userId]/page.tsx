@@ -44,6 +44,10 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ u
     .select("id, source_pdf_pages")
     .eq("organization_id", session.membership.organization_id)
     .eq("created_by", userId)
+    // This card is "what has this person printed", so the test prints an
+    // org_admin sent from Admin → Printers are excluded - they are queue
+    // diagnostics, not this person's print activity (0024_*.sql).
+    .eq("is_test_print", false)
     .gte("created_at", since);
 
   const jobCount = recentJobs?.length ?? 0;

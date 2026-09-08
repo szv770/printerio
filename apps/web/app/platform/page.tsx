@@ -33,7 +33,14 @@ export default async function PlatformOverviewPage() {
     supabase.from("organization_members").select("organization_id"),
     supabase.from("printers").select("organization_id"),
     supabase.from("agents").select("organization_id, last_seen_at"),
-    supabase.from("print_jobs").select("organization_id").gte("created_at", thirtyDaysAgo.toISOString()),
+    // Admin test prints are excluded from this per-organization job count for
+    // the same reason they're excluded from Reports: they measure whether a
+    // queue works, not what an organization printed (0024_*.sql).
+    supabase
+      .from("print_jobs")
+      .select("organization_id")
+      .eq("is_test_print", false)
+      .gte("created_at", thirtyDaysAgo.toISOString()),
     supabase.from("organization_members").select("organization_id, role").eq("user_id", session.userId),
   ]);
 

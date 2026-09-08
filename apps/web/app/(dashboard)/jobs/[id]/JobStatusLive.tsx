@@ -112,6 +112,7 @@ export function JobStatusLive({
         maxAttempts: job.max_attempts,
         eventTypes,
         sourcePdfPages: job.source_pdf_pages,
+        isTestPrint: job.is_test_print,
       }),
     [job, eventTypes, rejectionReason],
   );
@@ -159,6 +160,21 @@ export function JobStatusLive({
           updated <LocalTime iso={job.updated_at} />
         </p>
       </div>
+
+      {/* Says plainly what this row is, so nobody reading the job list or an
+       *  audit trail later mistakes an admin's queue check for a person's
+       *  print job - and so the two deliberately-skipped stages below need no
+       *  further explanation. */}
+      {job.is_test_print && (
+        <div className={`mt-3 rounded-lg border p-3 text-sm ${TONE_PANEL.neutral}`}>
+          <p className="font-medium">Test print</p>
+          <p className="mt-1">
+            Sent from Admin → Printers to check this queue end to end. It goes through the same upload, the same print
+            agent and the same Windows queue as a real job, but print rules, approval and quota are skipped on purpose -
+            it isn&apos;t counted in anyone&apos;s usage or in the reports.
+          </p>
+        </div>
+      )}
 
       {explanation && (
         <div className={`mt-3 rounded-lg border p-3 text-sm ${TONE_PANEL[display.tone]}`}>

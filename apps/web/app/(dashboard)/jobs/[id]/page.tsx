@@ -50,11 +50,17 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
           <h1 className="mb-1 text-2xl font-semibold">{job.original_file_name}</h1>
           <p className="text-sm text-[var(--color-muted)]">{job.job_number}</p>
         </div>
-        {/* Reprinting re-runs the pipeline against the ORIGINAL stored bytes
-         *  and is scoped to the job's own submitter, so it is shown only when
-         *  both still hold - a purged file (or another person's job) would
-         *  otherwise offer a button that can only fail. */}
-        {isOwner && !job.files_purged_at && <ReprintButton jobId={job.id} />}
+        {/* Three things have to hold for "Print again" to be offerable at all:
+         *  - it re-runs the ordinary submission pipeline (policy, quota and
+         *    all), so it is deliberately not offered for a test print, which
+         *    would silently become a real, quota-charged job - another test
+         *    print is sent from Admin → Printers instead;
+         *  - it re-runs that pipeline against the ORIGINAL stored bytes, so a
+         *    job whose file has been purged (retention, or the owner deleting
+         *    it below) can only fail;
+         *  - it is scoped to the job's own submitter server-side, so it is
+         *    pointless for an approver looking at someone else's job. */}
+        {!job.is_test_print && isOwner && !job.files_purged_at && <ReprintButton jobId={job.id} />}
       </div>
 
       {/* The stage-by-stage answer to "where is this up to right now", live

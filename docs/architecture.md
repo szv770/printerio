@@ -605,6 +605,59 @@ Instead:
   their declared profile against reality, but Printio cannot introspect a driver's private
   DEVMODE finishing state from software, so it does not pretend to.
 
+### 9.1 Admin test prints
+
+Because §9's whole model is "the queue's own driver defaults are the source of
+truth, and Printio cannot introspect them," the only honest way to answer "is this
+queue actually working?" is to print something through it. An `org_admin` can do
+exactly that from Admin → Printers (per profile, next to Refresh status/Restart
+queue) or from a queue row on the per-Agent detail page:
+`sendTestPrintAction` (`app/admin/printers/actions.ts`) generates a one-page PDF
+(`lib/pdf/test-print.ts`) that names the printer, the profile, its Windows queue,
+who sent it, when, and the job id — so the sheet in the admin's hand identifies
+*which* of several queues on one MFP produced it — and then hands it to the
+ordinary pipeline.
+
+**It is deliberately not a parallel path.** After the PDF exists, everything is
+the same code a student's essay goes through: the same `preflightPdf` (§5), the
+same private, org-scoped `jobFilePath` upload (§3.3), and a real `print_jobs`
+row in `approved` — which is precisely what `/api/agents/jobs/claimable` offers,
+what the Agent claims and leases, what `/download-url` signs a URL for, and what
+the Agent prints through SumatraPDF on that profile's Windows queue (§10-13).
+Nothing in the Agent, the job API, or the state machine branches on a test print;
+the admin watches it move through the same stepper (§13) on the same job page a
+real submission redirects to. A test print requests **no** finishing flags on
+purpose — what the queue's Printing Defaults do to it is the thing being tested.
+
+What it skips is only what belongs to a *person's* job:
+
+- **Policy and approval.** An org whose rules require approval (the fail-safe
+  default, §6.3) would otherwise be unable to test its own printer without an
+  admin approving their own test; worse, a `deny` outcome would make a queue
+  untestable. `policy_action` is stored as `null`, not faked as `'allow'` — the
+  engine genuinely didn't run, and the stepper says "skipped", not "checked"
+  (`lib/job-progress.ts`'s `isTestPrint`).
+- **Quota.** Nothing is reserved. That is why `print_jobs.is_test_print`
+  (`0024_print_jobs_is_test_print.sql`) must also stop the *completion* path from
+  acting: `adjust_monthly_usage` works on the shared per-user `monthly_usage`
+  row, so a `consume`/`release` for a job that never reserved anything would both
+  record paper nobody asked for and silently eat a reservation still held by one
+  of that admin's real pending jobs. Guarded in both places that could do it —
+  `app/api/agents/jobs/[jobId]/status` and the mid-flight-failure step of
+  `app/api/cron/sweep`.
+
+The same flag keeps a test print out of everything that counts real print
+activity: admin Reports (`app/admin/reports`), the platform per-org job count
+(`app/platform`), a member's own activity card (`app/admin/users/[userId]`), and
+the "Jobs today" tile. Two deliberate exceptions: the admin dashboard's **failed
+jobs** count still includes them (a test print that failed is exactly what that
+tile exists to surface), and the per-Agent page's per-queue job counts include
+them too, since those really were jobs sent to that queue and the card is a
+diagnostic rather than a usage report — both are stated in the UI rather than
+left to be inferred. "Print again" is not offered on a test print, since
+reprinting re-runs the ordinary pipeline and would quietly turn it into a real,
+quota-charged job.
+
 ## 10. SumatraPDF invocation
 
 The Agent invokes SumatraPDF with an **argv array**, never a shell string — printer queue
