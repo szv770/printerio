@@ -12,8 +12,14 @@ name: Cron sweep (15-minute cadence)
 # Vercel's own daily cron entry stays in place as a safety net in case this
 # workflow is ever paused/disabled - see the note on that below.
 on:
-  schedule:
-    - cron: "*/15 * * * *"
+  # Paused: the schedule trigger below is commented out while this project
+  # is on hold, so this workflow no longer fires every 15 minutes (and no
+  # longer sends failure-notification emails). Vercel's own daily cron entry
+  # (vercel.json) keeps running as the safety net described above, so the
+  # sweep route still gets called once a day even while this is paused.
+  # To resume the 15-minute cadence, uncomment the "schedule:" block below.
+  # schedule:
+  #   - cron: "*/15 * * * *"
   # Lets you trigger a one-off run from the Actions tab, e.g. right after
   # deploying, without waiting for the next scheduled tick.
   workflow_dispatch:
