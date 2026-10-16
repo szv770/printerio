@@ -27,7 +27,7 @@ const MAGICS = [
 const detect = (b) => (b.length ? (MAGICS.find(([, f]) => f(b))?.[0] ?? 'unknown') : 'empty');
 const EXT = { pdf: 'pdf', 'pwg-raster': 'pwg', 'apple-urf': 'urf', jpeg: 'jpg', 'zip/oxps': 'oxps', postscript: 'ps' };
 
-export function createSpike({ dataDir, publicBase, formats }) {
+export function createSpike({ dataDir, publicBase, formats, openMode = false }) {
   fs.mkdirSync(path.join(dataDir, 'jobs'), { recursive: true });
   const tokenFile = path.join(dataDir, 'token');
   const token =
@@ -163,6 +163,7 @@ export function createSpike({ dataDir, publicBase, formats }) {
       ua: req.headers['user-agent'],
       ip: req.headers['cf-connecting-ip'] || req.socket.remoteAddress,
       ippVersion: msg.version,
+      path: req.url,
       op: opName,
       opAttrs,
       jobTemplate,
@@ -329,7 +330,10 @@ li{margin:.4rem 0}.btn{display:inline-block;background:#111;color:#fff;padding:.
     const parts = url.pathname.split('/').filter(Boolean);
     const send = (code, type, body) => { res.writeHead(code, { 'content-type': type }); res.end(body); };
 
-    if (req.method === 'POST' && parts[0] === 'p' && tokenOk(parts[1])) {
+    // SPIKE_OPEN=1: also accept IPP on ANY path (Android's add-by-address screen can't carry our
+    // secret path). Test-only: anyone who finds the tunnel address could submit files. Turn it off after.
+    const openIpp = openMode && req.method === 'POST' && String(req.headers['content-type']).startsWith('application/ipp');
+    if (req.method === 'POST' && ((parts[0] === 'p' && tokenOk(parts[1])) || openIpp)) {
       const chunks = [];
       let size = 0;
       req.on('data', (c) => {
@@ -367,11 +371,13 @@ if (isMain) {
   const port = Number(process.env.PORT || 8631);
   const dataDir = path.resolve(process.env.SPIKE_DATA || './spike-data');
   const formats = (process.env.SPIKE_FORMATS || 'application/pdf,image/pwg-raster,image/jpeg,application/octet-stream').split(',');
-  const { server, token } = createSpike({ dataDir, publicBase: process.env.PUBLIC_BASE, formats });
+  const openMode = process.env.SPIKE_OPEN === '1';
+  const { server, token } = createSpike({ dataDir, publicBase: process.env.PUBLIC_BASE, formats, openMode });
   server.listen(port, () => {
     console.log(`Printio IPP spike listening on :${port}`);
     console.log(`Data dir: ${dataDir}`);
     console.log(`Advertised formats: ${formats.join(', ')}`);
+    if (openMode) console.log('SPIKE_OPEN=1: accepting IPP on ANY path (test only - stop the server when done).');
     console.log(`Local setup page : http://localhost:${port}/setup/${token}`);
     console.log(`Local report     : http://localhost:${port}/report/${token}`);
     console.log('Put the cloudflared https URL in front of this, then open <that URL>/setup/<token> on each device.');

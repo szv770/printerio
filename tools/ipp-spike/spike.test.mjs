@@ -108,3 +108,22 @@ test('wrong token is a 404, setup page and profile work with the token', async (
     assert.match(await prof.text(), /com\.apple\.airprint/);
   });
 });
+
+test('open mode accepts IPP on a bare path; closed mode does not', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ipp-spike-'));
+  for (const openMode of [true, false]) {
+    const { server } = createSpike({ dataDir, publicBase: null, formats: ['application/pdf'], openMode });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    try {
+      const res = await fetch(`http://127.0.0.1:${server.address().port}/ipp/print`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/ipp' },
+        body: encodeIpp({ code: OP.getPrinterAttributes, requestId: 1, groups: [{ tag: TAG.operation, attrs: opHead }] }),
+      });
+      assert.equal(res.status, openMode ? 200 : 404);
+    } finally {
+      server.close();
+    }
+  }
+  fs.rmSync(dataDir, { recursive: true, force: true });
+});
