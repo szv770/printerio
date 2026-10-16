@@ -66,3 +66,34 @@ approvals, quotas and audit are unchanged. Jobs get `source = 'ipp'` and a
    mapping, "Add to my device" page with per-OS steps.
 2. **Admin**: per-profile exposure toggle, token revoke, source column on dashboard/reports.
 3. **Polish**: `.mobileconfig` and Windows setup helpers, email notices, cancel from dialog.
+
+## Phase 0 findings (real devices, 2026-10-16)
+
+Tested through a Cloudflare quick tunnel to the spike on a Raspberry Pi (`tools/ipp-spike`).
+
+| Platform | Result |
+|---|---|
+| Windows 11 | Adds by URL (4 clicks). Sends **PDF** via Create-Job + Send-Document. Carries copies, `sides` (incl. `two-sided-short-edge`), paper (Letter), orientation. A 16 MB job worked but was slow (Pi upload + free tunnel). |
+| Android (Pixel 8) | Add-by-address accepts a **bare hostname only** (no path), so the secret cannot live in the path. Sends **PDF** via Validate-Job + Print-Job with `sides`, `copies`, `media-col`. |
+| ChromeOS (probably) | `CUPS/2.4.11 ... aarch64` client sent a **PDF** via Create-Job + Send-Document. Still to confirm it was the Chromebook. |
+| macOS / iOS | Not tested yet. |
+
+No format conversion is needed on any platform tried. A scripted Windows one-click setup
+(`Add-Printer -ConnectionName`, `Add-PrinterPort` + `Add-Printer`, `printui /if`) all failed;
+the manual wizard works, so Windows setup stays manual.
+
+**Consequence for identity:** put the per-member secret in the **hostname**
+(`u-<code>.<domain>`, one DNS label so Cloudflare's free wildcard certificate covers it),
+not the path. Domain: szvtech.org on Cloudflare; gateway name `printerio.szvtech.org`.
+
+## Kyocera driver wire capture (print-to-file port, 2026-10-16)
+
+The KX driver emits a readable PJL header followed by PCL XL. Staple is plain PJL:
+`KFEEDEDGE=LONGEDGE`, `OUTBIN=OPTIONFACEDOWN`, `STAPLEOPTION=ONEOPPOSED`, `FINISH=STAPLE`
+(top-right staple, duplex). This contradicts `known-limitations.md`'s claim that finishing is
+not programmable: at the wire level it is, at least for staple. Duplex and booklet/saddle-stitch
+are **not** visible in the PJL header (the header's `DUPLEX ON` comment appeared on every job),
+so they are probably in the PCL XL stream; needs a binary comparison of minimal single-setting
+jobs. Open idea: have the agent send PJL + page data straight to the printer's raw port,
+bypassing the Windows queue and SumatraPDF. Unproven: whether the MZ8500i accepts PDF directly
+or needs PCL XL (Ghostscript `pxl*` could produce it). Separate track from the print-dialog feature.
