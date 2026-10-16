@@ -247,9 +247,13 @@ export function createSpike({ dataDir, publicBase, formats, openMode = false }) 
     for (const [ua, es] of byUa) {
       out.push(`== ${ua}`);
       out.push(`   ops: ${[...new Set(es.map((e) => e.op))].join(', ')}`);
+      out.push(`   paths used: ${[...new Set(es.map((e) => e.path).filter(Boolean))].join(', ') || '(not recorded)'}`);
+      // Create-Job carries the job name and options; Send-Document carries the file. Join them.
+      const created = new Map(es.filter((x) => x.op === 'createJob').map((x) => [x.jobId, x]));
       for (const e of es.filter((x) => x.op === 'printJob' || x.op === 'sendDocument')) {
+        const c = created.get(e.jobId) ?? e;
         out.push(`   JOB ${e.jobId}: declared format=${e.opAttrs['document-format'] ?? e.format ?? '?'} actual=${e.magic} bytes=${e.docBytes}`);
-        out.push(`      name=${e.opAttrs['job-name']}  options=${JSON.stringify(e.jobTemplate)}`);
+        out.push(`      name=${c.opAttrs['job-name']}  options=${JSON.stringify(c.jobTemplate)}`);
       }
       const first = es[0];
       out.push(`   first seen ${first.t} from ${first.ip}, IPP ${first.ippVersion}`);

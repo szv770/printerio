@@ -127,3 +127,28 @@ test('open mode accepts IPP on a bare path; closed mode does not', async () => {
   }
   fs.rmSync(dataDir, { recursive: true, force: true });
 });
+
+test('report joins Create-Job options with Send-Document file (the Windows/ChromeOS flow)', async () => {
+  await withSpike(async ({ base, token }) => {
+    const uri = `${base}/p/${token}`;
+    const created = await post(uri, {
+      code: OP.createJob, requestId: 1,
+      groups: [
+        { tag: TAG.operation, attrs: [...opHead, attr(TAG.uri, 'printer-uri', uri), attr(TAG.name, 'job-name', 'Essay.pdf')] },
+        { tag: TAG.job, attrs: [attr(TAG.integer, 'copies', 3), attr(TAG.keyword, 'sides', 'two-sided-long-edge')] },
+      ],
+    });
+    const jobId = flatten(created.ipp.groups.find((g) => g.tag === TAG.job))['job-id'];
+    await post(uri, {
+      code: OP.sendDocument, requestId: 2,
+      groups: [{ tag: TAG.operation, attrs: [...opHead, attr(TAG.uri, 'printer-uri', uri),
+        attr(TAG.integer, 'job-id', jobId), attr(TAG.mime, 'document-format', 'application/pdf'),
+        attr(TAG.boolean, 'last-document', true)] }],
+    }, Buffer.from('%PDF-1.4\nx'));
+    const rep = await (await fetch(`${base}/report/${token}`)).text();
+    assert.match(rep, /name=Essay\.pdf/);
+    assert.match(rep, /"copies":3/);
+    assert.match(rep, /two-sided-long-edge/);
+    assert.match(rep, /paths used: \/p\/<token>/);
+  });
+});
