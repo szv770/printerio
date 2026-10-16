@@ -25,6 +25,11 @@ for the research basis of each design decision this responds to.
   printer queue per finishing profile, and the Agent only ever picks which queue to print
   to — the actual mechanical action still has to be a queue whose Printing Defaults already
   ask for it.
+- **Update 2026-10-16: staple IS expressible at the wire level.** A print-to-file capture of the KX
+  driver's output shows staple as plain PJL text (`FINISH=STAPLE`, `STAPLEOPTION=...`), and duplex as
+  a PCL XL page attribute. So "no documented API" is true, but the bytes are readable and could be
+  generated when sending to the printer's raw port instead of through the Windows queue. Unproven on
+  a real printer; see `docs/kyocera-raw-print.md`.
 - **Booklet *page layout* is the one exception to the above — Printio does that part itself,
   in software, upstream of the driver entirely** (`apps/web/lib/pdf/imposition.ts`,
   architecture.md sec 8). This does not contradict the driver-private limitation: Printio

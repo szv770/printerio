@@ -86,14 +86,35 @@ the manual wizard works, so Windows setup stays manual.
 (`u-<code>.<domain>`, one DNS label so Cloudflare's free wildcard certificate covers it),
 not the path. Domain: szvtech.org on Cloudflare; gateway name `printerio.szvtech.org`.
 
-## Kyocera driver wire capture (print-to-file port, 2026-10-16)
+## Kyocera driver wire capture
 
-The KX driver emits a readable PJL header followed by PCL XL. Staple is plain PJL:
-`KFEEDEDGE=LONGEDGE`, `OUTBIN=OPTIONFACEDOWN`, `STAPLEOPTION=ONEOPPOSED`, `FINISH=STAPLE`
-(top-right staple, duplex). This contradicts `known-limitations.md`'s claim that finishing is
-not programmable: at the wire level it is, at least for staple. Duplex and booklet/saddle-stitch
-are **not** visible in the PJL header (the header's `DUPLEX ON` comment appeared on every job),
-so they are probably in the PCL XL stream; needs a binary comparison of minimal single-setting
-jobs. Open idea: have the agent send PJL + page data straight to the printer's raw port,
-bypassing the Windows queue and SumatraPDF. Unproven: whether the MZ8500i accepts PDF directly
-or needs PCL XL (Ghostscript `pxl*` could produce it). Separate track from the print-dialog feature.
+Moved to [kyocera-raw-print.md](./kyocera-raw-print.md) (decoded: staple is plain PJL, duplex is a
+PCL XL page attribute, booklet is driver-side imposition; replay experiment pending).
+
+## Decisions made with the owner (2026-10-16)
+
+- Members of the org only, invited one by one; no need for hard security, but each member has their
+  own identity (own hostname) so the dashboard shows who printed what. Cover page with name/time
+  can come later (the gateway holds each PDF, so it is easy).
+- Scope from the print dialog: copies, single/double-sided, page range, paper size. No booklet or
+  finishing from the dialog for now (booklet stays in the web form; "booklet-maker" via IPP
+  `finishings` is a nice later feature that would reuse `lib/pdf/imposition.ts`).
+- Domain: `szvtech.org` on Cloudflare. Gateway `printerio.szvtech.org`. Per-member address must be a
+  single DNS label under the zone (`u-<code>.szvtech.org`): Cloudflare's free certificate covers
+  `*.szvtech.org` but not `*.printerio.szvtech.org`. Create one DNS record per invited member
+  (tidy, revocable) or one wildcard; decide when building. Needs a real named tunnel, not a quick tunnel.
+- Hosting: a spare PC / Raspberry Pi is fine for now (outbound tunnel only); paid hosting later.
+- Windows setup stays the manual wizard; iPhone uses a `.mobileconfig` (untested); Android = copy
+  address and paste; managed Chromebooks can be pushed from Google Admin, personal ones add manually.
+- The Pi already runs a system `cloudflared` service (named tunnel). Do not touch it. Quick tunnels
+  must be started with `--config /dev/null` or they inherit that service's config and return 404.
+
+## Open items / next steps
+
+1. Apple tests (iPhone profile, Mac `lpadmin`) - borrow a device.
+2. Confirm the `CUPS/2.4.11 Linux aarch64` client was the Chromebook.
+3. Kyocera raw-print experiments (see kyocera-raw-print.md).
+4. Phase 1 build once Apple results are in: gateway service, per-member hostnames, token/identity
+   table + migration, intake through the existing preflight/policy/quota pipeline, `source='ipp'`.
+5. Policy question for Phase 1: map Windows' `two-sided-short-edge` / Android's `two-sided-long-edge`
+   to the existing duplex setting; paper size sent is Letter (we advertise A4 default).
