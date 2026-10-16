@@ -283,6 +283,8 @@ li{margin:.4rem 0}.btn{display:inline-block;background:#111;color:#fff;padding:.
 <li>Menu (&#8942;) &rarr; Add printer &rarr; add by address. Try <code>${url}</code> first; if it is refused try <code>${host}</code> with path <code>/p/${token}</code>.</li>
 <li>Print from any app &rarr; choose Printio.</li></ol>
 <h2>Windows 10/11</h2>
+<p><a class=btn href="/setup/${token}/windows.cmd">Download Windows setup file</a> (double-click it; if the browser blocks it, choose Keep)</p>
+<p>Or by hand:</p>
 <ol><li>Settings &rarr; Bluetooth &amp; devices &rarr; Printers &amp; scanners &rarr; Add device &rarr; Add manually.</li>
 <li>"Select a shared printer by name" &rarr; paste <code>${url}</code> &rarr; Next. Pick "Microsoft IPP Class Driver" if asked.</li></ol>
 <h2>Mac</h2>
@@ -292,6 +294,23 @@ li{margin:.4rem 0}.btn{display:inline-block;background:#111;color:#fff;padding:.
 <ol><li>Settings &rarr; Advanced &rarr; Printing &rarr; Printers &rarr; Add printer manually.</li>
 <li>Address <code>${hostOnly}:${port}</code>, Protocol IPPS, Queue <code>p/${token}</code>.</li></ol>
 <p>Then print any test page. These steps are what we are testing - tell Claude exactly where one fails.</p>`;
+  }
+
+  // One-click Windows helper. Tries Add-Printer first, falls back to the printui wizard command.
+  function windowsCmd(req) {
+    const url = `${baseUrl(req)}/p/${token}`;
+    return [
+      '@echo off',
+      'echo Adding the Printio printer...',
+      `powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Add-Printer -ConnectionName '${url}' -ErrorAction Stop; Write-Host 'Printer added.' } catch { Write-Host $_.Exception.Message; exit 1 }"`,
+      'if errorlevel 1 (',
+      '  echo First method failed, trying the second...',
+      `  rundll32 printui.dll,PrintUIEntry /in /n "${url}"`,
+      ')',
+      'echo Done. Check Settings - Printers ^& scanners for "Printio".',
+      'pause',
+      '',
+    ].join('\r\n');
   }
 
   function mobileconfig(req) {
@@ -356,6 +375,10 @@ li{margin:.4rem 0}.btn{display:inline-block;background:#111;color:#fff;padding:.
         }
       });
       return;
+    }
+    if (req.method === 'GET' && parts[0] === 'setup' && parts[2] === 'windows.cmd' && tokenOk(parts[1])) {
+      res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename="Add-Printio-Printer.cmd"' });
+      return res.end(windowsCmd(req));
     }
     if (req.method === 'GET' && parts[0] === 'setup' && tokenOk(parts[1])) return send(200, 'text/html; charset=utf-8', setupPage(req));
     if (req.method === 'GET' && parts[0] === 'report' && tokenOk(parts[1])) return send(200, 'text/plain; charset=utf-8', report());

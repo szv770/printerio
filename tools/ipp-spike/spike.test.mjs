@@ -152,3 +152,16 @@ test('report joins Create-Job options with Send-Document file (the Windows/Chrom
     assert.match(rep, /paths used: \/p\/<token>/);
   });
 });
+
+test('Windows setup file is token-protected and contains the printer URL', async () => {
+  await withSpike(async ({ base, token }) => {
+    assert.equal((await fetch(`${base}/setup/nope/windows.cmd`)).status, 404);
+    const res = await fetch(`${base}/setup/${token}/windows.cmd`);
+    assert.equal(res.status, 200);
+    const body = await res.text();
+    assert.ok(body.includes(`${base}/p/${token}`));
+    assert.match(body, /Add-Printer -ConnectionName/);
+    assert.match(body, /\r\n/);
+    assert.match(await (await fetch(`${base}/setup/${token}`)).text(), /windows\.cmd/);
+  });
+});
