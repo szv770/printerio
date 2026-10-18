@@ -55,6 +55,25 @@ Confirmed PJL for finishing (all plain text before `@PJL ENTER LANGUAGE=PCLXL`):
   stitches) - exactly what `apps/web/lib/pdf/imposition.ts` already produces. Left binding value not yet captured.
 - Duplex is still the PCL XL `DuplexPageMode` attribute, not PJL, in driver output.
 
+## PDF-direct results (2026-10-18): a plain PDF + hand-written PJL header WORKS
+
+`Send-Pdf` (tools/raw-print/send-pdf.ps1): UEL, `@PJL`, `@PJL JOB NAME=...`, `@PJL SET ...` lines,
+`@PJL ENTER LANGUAGE=PDF`, raw PDF bytes, `@PJL EOJ`, UEL, sent to 192.168.100.168:9100. No PCL XL
+conversion needed. Results with a 6-page PDF:
+
+| Header | Result |
+|---|---|
+| none (no SET lines) | printed whole doc, one-sided |
+| `DUPLEX=ON`, `BINDING=LONGEDGE`, `OUTBIN=OPTIONFACEDOWN`, `STAPLEOPTION=ONE`, `FINISH=STAPLE` | double-sided long edge, stapled **top-right** (the driver's PCL XL job with the same STAPLEOPTION gave top-LEFT, so staple position depends on more than this value: page orientation / `KFEEDEDGE` / binding; mapping unfinished) |
+| pre-imposed booklet PDF + `DUPLEX=ON`, `OUTBIN=KBOOKLET`, `FINISH=KREVERSEFOLD` | folded and stitched but **backwards** (fold/staple on the wrong side). Likely that PDF was imposed for left binding while `KREVERSEFOLD` is the right-binding fold; the driver-replay job that worked was a right-binding (Hebrew) doc. Left-binding value not yet known. |
+
+Standard PJL `DUPLEX` / `BINDING` work for duplex. Untested: copies (`QTY`), paper size/tray, color.
+
+## Open mapping work
+
+1. Staple: try `STAPLEOPTION=ONEOPPOSED`, and `ONE` with `KFEEDEDGE=LONGEDGE` (Acrobat's job had it); record where each lands relative to the upright page and the PDF's orientation.
+2. Booklet: capture a **left-binding** saddle-stitch driver job to get its `FINISH=` value; confirm left vs right with the same PDF. Check whether back sides are upright (maybe needs `BINDING=SHORTEDGE` for landscape booklet sheets).
+
 ## Next: does the printer accept a plain PDF with a hand-made PJL header?
 
 Replay only proves the printer obeys the PJL when it is given the captured PCL XL page data. To print

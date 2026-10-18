@@ -113,7 +113,7 @@ PCL XL page attribute, booklet is driver-side imposition; replay experiment pend
 
 1. Apple tests (iPhone profile, Mac `lpadmin`) - borrow a device.
 2. Confirm the `CUPS/2.4.11 Linux aarch64` client was the Chromebook.
-3. Kyocera raw-print: replay works (staple, saddle stitch); next test PDF-direct (see kyocera-raw-print.md).
+3. Kyocera raw-print: replay works (staple, saddle stitch); PDF-direct also works (plain PDF + PJL header); finishing mapping unfinished (see kyocera-raw-print.md).
 4. Phase 1 build once Apple results are in: gateway service, per-member hostnames, token/identity
    table + migration, intake through the existing preflight/policy/quota pipeline, `source='ipp'`.
 5. Policy question for Phase 1: map Windows' `two-sided-short-edge` / Android's `two-sided-long-edge`
