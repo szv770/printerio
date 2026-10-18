@@ -65,9 +65,7 @@ arbitrary PDFs we need either (a) PDF direct (try below), or (b) PDF -> PCL XL c
 
 ## Still unknown
 
-- **Booklet fold / saddle-stitch**: no finishing command appeared in the booklet capture. Either that
-  finisher option was not ticked, or it is expressed another way. Needs a capture with fold + stitch
-  ticked (note exactly which driver options were selected).
+- **Left-binding saddle stitch**: only right binding (`KREVERSEFOLD`) is captured; left binding value unknown.
 - Other staple positions / two staples / punch (`STAPLEOPTION` other values), copies > 1, paper size
   codes (`MediaSize=106` for Letter in the PCL XL), paper tray.
 - Whether the printer accepts **PDF directly** on 9100 (maybe with a PJL header), or whether we must
