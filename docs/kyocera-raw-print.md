@@ -69,6 +69,31 @@ conversion needed. Results with a 6-page PDF:
 
 Standard PJL `DUPLEX` / `BINDING` work for duplex. Untested: copies (`QTY`), paper size/tray, color.
 
+## Staple position map, PDF-direct path (2026-10-18, 6-page PDF, duplex long edge, positions as seen on the upright page)
+
+| `KFEEDEDGE=LONGEDGE` | `STAPLEOPTION` | Staple |
+|---|---|---|
+| no | `ONE` | top-right |
+| no | `ONEOPPOSED` | top-left |
+| yes | `ONE` | top-left |
+| yes | `ONEOPPOSED` | **bottom-left** |
+
+Fits "each of the two switches rotates the staple 90 degrees around the page" (TR -> TL -> BL). Simple
+recipes: top-right = `ONE` alone; top-left = `ONEOPPOSED` alone. Bottom-right not reachable with these two
+switches. Likely depends on PDF page orientation (the test PDF's orientation was not recorded) - re-check with a
+landscape PDF. The driver's PCL XL jobs behave differently (ONE alone = top-left there).
+
+## Booklet: PDF-direct came out in the wrong page order (unresolved)
+
+Same document through two paths, same PJL (`KBOOKLET` + `KREVERSEFOLD`, left- and right-binding driver
+captures both emit exactly these; binding side is not in the PJL, it comes from how the app imposed the pages):
+- driver PCL XL replay: correct saddle-stitched booklet.
+- plain PDF + hand-made header: wrong order (owner: first page position shows page 5, second shows 6, then two blanks, then page 1).
+Hypotheses: PDF engine auto-rotates/places landscape pages differently from the driver's PCL XL;
+sheet/page delivery order; missing orientation/binding PJL. Plan B: convert PDF to PCL XL with Ghostscript
+and prepend the driver's header. Next: replay the fresh driver capture of the same PDF as a control, record the
+PDF's page size/count, and get a per-sheet description or photo of the wrong output.
+
 ## Open mapping work
 
 1. Staple: try `STAPLEOPTION=ONEOPPOSED`, and `ONE` with `KFEEDEDGE=LONGEDGE` (Acrobat's job had it); record where each lands relative to the upright page and the PDF's orientation.
