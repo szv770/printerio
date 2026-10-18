@@ -3,7 +3,7 @@
 Goal: find out whether the Agent can send jobs **straight to the printer's raw port (9100)**,
 bypassing the Windows queue (and the one-queue-per-finishing-profile limit) and SumatraPDF. This
 is a separate track from the print-dialog feature in [ipp-printing.md](./ipp-printing.md) - nothing
-there depends on it. Status: capture and decode done; **replay not yet tried**.
+there depends on it. Status: capture, decode and **replay all confirmed working on the real printer (2026-10-18)**; next is PDF-direct.
 
 ## How the capture was made
 
@@ -35,6 +35,33 @@ A readable **PJL header**, `@PJL ENTER LANGUAGE=PCLXL`, then binary **PCL XL** p
 The `INFO: ... DUPLEX ON/OFF` PJL comment is informational only. Duplex values were confirmed by
 decoding the binary of three captures (they differ only in these bytes). Copies are `QTY` in the
 header (so far only seen as 1).
+
+## Replay results (2026-10-18, real MZ8500i, raw port 9100 reachable from the laptop)
+
+Captured files sent unchanged with a 5-line PowerShell TcpClient snippet (`send-raw.ps1` wraps it):
+
+| Job | What came out |
+|---|---|
+| 1 sheet, duplex long edge, staple | 1 sheet, no staple (nothing to staple with 1 sheet; expected) |
+| 6 pages (3 sheets), duplex, `STAPLEOPTION=ONE` | stapled top-left, double-sided: **works** |
+| 8 pages pre-imposed booklet, `KBOOKLET` + `KREVERSEFOLD` | folded, saddle-stitched, right binding: **works** |
+
+Confirmed PJL for finishing (all plain text before `@PJL ENTER LANGUAGE=PCLXL`):
+
+- Staple top-left: `OUTBIN=OPTIONFACEDOWN`, `STAPLEOPTION=ONE`, `FINISH=STAPLE` (Acrobat's job also had `KFEEDEDGE=LONGEDGE`).
+- Staple top-right: `KFEEDEDGE=LONGEDGE`, `OUTBIN=OPTIONFACEDOWN`, `STAPLEOPTION=ONEOPPOSED`, `FINISH=STAPLE`.
+- Saddle-stitch booklet, right binding: `OUTBIN=KBOOKLET`, `FINISH=KREVERSEFOLD`. The driver was set to
+  "create booklet from application", i.e. the app imposed the pages itself (the printer only folds and
+  stitches) - exactly what `apps/web/lib/pdf/imposition.ts` already produces. Left binding value not yet captured.
+- Duplex is still the PCL XL `DuplexPageMode` attribute, not PJL, in driver output.
+
+## Next: does the printer accept a plain PDF with a hand-made PJL header?
+
+Replay only proves the printer obeys the PJL when it is given the captured PCL XL page data. To print
+arbitrary PDFs we need either (a) PDF direct (try below), or (b) PDF -> PCL XL conversion (Ghostscript
+`pxlmono`/`pxlcolor`) plus our PJL header. Test (a) with `tools/raw-print/send-pdf.ps1`; standard PJL
+`DUPLEX=ON` / `BINDING=LONGEDGE` may replace the PCL XL duplex attribute. Try with and without
+`-NoEnterLanguage`. Untested.
 
 ## Still unknown
 
