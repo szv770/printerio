@@ -153,15 +153,20 @@ test('report joins Create-Job options with Send-Document file (the Windows/Chrom
   });
 });
 
-test('Windows setup file is token-protected and contains the printer URL', async () => {
+test('setup page opens the detected device section and the iPhone steps name the Settings row', async () => {
   await withSpike(async ({ base, token }) => {
-    assert.equal((await fetch(`${base}/setup/nope/windows.cmd`)).status, 404);
-    const res = await fetch(`${base}/setup/${token}/windows.cmd`);
-    assert.equal(res.status, 200);
-    const body = await res.text();
-    assert.ok(body.includes(`${base}/p/${token}`));
-    assert.match(body, /Add-Printer -ConnectionName/);
-    assert.match(body, /\r\n/);
-    assert.match(await (await fetch(`${base}/setup/${token}`)).text(), /windows\.cmd/);
+    const iphone = await (await fetch(`${base}/setup/${token}`, {
+      headers: { 'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari' },
+    })).text();
+    assert.match(iphone, /<details open id="ios">/);
+    assert.match(iphone, /Profile Downloaded/);
+    assert.match(iphone, /VPN &amp; Device Management/);
+    const windows = await (await fetch(`${base}/setup/${token}`, {
+      headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome' },
+    })).text();
+    assert.match(windows, /<details open id="windows">/);
+    assert.doesNotMatch(windows, /<details open id="ios">/);
+    const prof = await (await fetch(`${base}/profile/${token}.mobileconfig`)).text();
+    assert.match(prof, /PayloadDescription/);
   });
 });

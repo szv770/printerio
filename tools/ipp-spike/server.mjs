@@ -264,53 +264,83 @@ export function createSpike({ dataDir, publicBase, formats, openMode = false }) 
 
   function setupPage(req) {
     const base = baseUrl(req);
-    const host = new URL(base).host;
-    const url = `${base}/p/${token}`;
     const hostOnly = new URL(base).hostname;
     const port = new URL(base).port || (base.startsWith('https') ? '443' : '80');
+    const url = `${base}/p/${token}`;
     const ipps = `ipps://${hostOnly}:${port}/p/${token}`;
+    const ua = String(req.headers['user-agent'] ?? '');
+    const detected = /iPhone|iPad|iPod/.test(ua) ? 'ios'
+      : /Android/.test(ua) ? 'android'
+      : /CrOS/.test(ua) ? 'chromeos'
+      : /Windows/.test(ua) ? 'windows'
+      : /Macintosh|Mac OS X/.test(ua) ? 'mac' : '';
+    const steps = (items) => `<ol class=steps>${items.map((t) => `<li>${t}</li>`).join('')}</ol>`;
+    const sections = {
+      ios: {
+        title: 'iPhone or iPad',
+        body: `
+<p class=note><b>Use Safari</b> (the blue compass icon). Chrome and other apps cannot install this. If you opened this page somewhere else, tap Share, then &ldquo;Open in Safari&rdquo;.</p>
+<p><a class=btn href="/profile/${token}.mobileconfig">1. Download the iPhone setup profile</a></p>
+${steps([
+  'Tap the button above. A box says <i>&ldquo;This website is trying to download a configuration profile&rdquo;</i>. Tap <b>Allow</b>, then tap <b>Close</b>.',
+  'Open the <b>Settings</b> app (gray gear). At the very <b>top</b> of Settings, just under your name, tap the new row <b>Profile Downloaded</b>.<br><small>Not there? Go to Settings &rarr; General &rarr; scroll down &rarr; <b>VPN &amp; Device Management</b> &rarr; under &ldquo;Downloaded Profile&rdquo; tap <b>Printio printer</b>.</small>',
+  'Tap <b>Install</b> (top right) and enter your iPhone passcode.',
+  'A warning says <i>&ldquo;Unsigned Profile&rdquo;</i>. That is normal. Tap <b>Install</b> (top right) again, then <b>Install</b> at the bottom, then <b>Done</b>.',
+  'To print: open a photo, PDF or webpage, tap the <b>Share</b> button (square with an arrow), scroll down and tap <b>Print</b>, tap <b>Printer</b>, and choose <b>Printio</b>. If it is not listed, wait 10 seconds and tap Printer again.',
+])}
+<p><small>To remove it later: Settings &rarr; General &rarr; VPN &amp; Device Management &rarr; Printio printer &rarr; Remove Profile. Menu names can differ a little between iOS versions. If you get stuck, tell Claude the step number.</small></p>`,
+      },
+      android: {
+        title: 'Android phone',
+        body: steps([
+          'Open <b>Settings</b> &rarr; <b>Connected devices</b> &rarr; <b>Connection preferences</b> &rarr; <b>Printing</b> &rarr; <b>Default Print Service</b>.',
+          'Tap the <b>&#8942;</b> menu (top right) &rarr; <b>Add printer</b>.',
+          `Type this address exactly (no <code>https://</code>, no slashes): <code>${hostOnly}</code>`,
+          'Tap <b>Add</b> (or Save). Printio now appears in every app&rsquo;s print menu.',
+          'To print: open a document or photo &rarr; &#8942; or Share &rarr; <b>Print</b> &rarr; choose <b>Printio</b>.',
+        ]),
+      },
+      windows: {
+        title: 'Windows 10 / 11',
+        body: steps([
+          'Open <b>Settings</b> &rarr; <b>Bluetooth &amp; devices</b> &rarr; <b>Printers &amp; scanners</b> &rarr; <b>Add device</b>.',
+          'Wait a few seconds, then click <b>Add manually</b>.',
+          `Choose <b>Select a shared printer by name</b> and paste: <code>${url}</code>`,
+          'Click <b>Next</b>. If asked for a driver choose <b>Microsoft IPP Class Driver</b>. Click <b>Next</b>, then <b>Finish</b>.',
+        ]),
+      },
+      mac: {
+        title: 'Mac',
+        body: steps([
+          'Easiest: open <b>Terminal</b> and paste this one line:<br><code>lpadmin -p Printio -E -v ${IPPS} -m everywhere</code>'.replace('${IPPS}', ipps),
+          `Or: <b>System Settings</b> &rarr; <b>Printers &amp; Scanners</b> &rarr; <b>Add Printer</b> &rarr; the <b>IP</b> tab. Protocol <b>IPP</b>, Address <code>${hostOnly}:${port}</code>, Queue <code>p/${token}</code>.`,
+        ]),
+      },
+      chromeos: {
+        title: 'Chromebook',
+        body: steps([
+          'Open <b>Settings</b> &rarr; <b>Advanced</b> &rarr; <b>Printing</b> &rarr; <b>Printers</b> &rarr; <b>Add printer manually</b>.',
+          `Address <code>${hostOnly}:${port}</code>, Protocol <b>IPPS</b>, Queue <code>p/${token}</code>. Name it Printio and Add.`,
+        ]),
+      },
+    };
+    const order = [detected, 'ios', 'android', 'windows', 'mac', 'chromeos'].filter((k, i, a) => k && a.indexOf(k) === i);
+    const blocks = order.map((k) => `<details${k === detected ? ' open' : ''} id="${k}"><summary>${sections[k].title}${k === detected ? ' <em>(your device)</em>' : ''}</summary>${sections[k].body}</details>`).join('\n');
     return `<!doctype html><meta name=viewport content="width=device-width,initial-scale=1"><title>Add Printio printer</title>
-<style>body{font:16px/1.5 system-ui;max-width:42rem;margin:1rem auto;padding:0 1rem}code{background:#eee;padding:.1em .3em;word-break:break-all}
-li{margin:.4rem 0}.btn{display:inline-block;background:#111;color:#fff;padding:.6rem 1rem;border-radius:.5rem;text-decoration:none}</style>
+<style>
+body{font:18px/1.5 system-ui,-apple-system,sans-serif;max-width:40rem;margin:1rem auto;padding:0 1rem;color:#111}
+code{background:#eee;padding:.1em .35em;border-radius:.3em;word-break:break-all;font-size:.9em}
+details{border:1px solid #ccc;border-radius:.7rem;margin:.8rem 0;padding:.2rem 1rem}
+summary{font-weight:700;font-size:1.15rem;padding:.7rem 0;cursor:pointer}summary em{font-weight:400;color:#555}
+.btn{display:block;text-align:center;background:#111;color:#fff;padding:1rem;border-radius:.7rem;text-decoration:none;font-weight:700;margin:1rem 0}
+.steps{counter-reset:s;list-style:none;padding:0}.steps li{counter-increment:s;position:relative;padding:.4rem 0 .9rem 2.6rem}
+.steps li:before{content:counter(s);position:absolute;left:0;top:.35rem;width:1.9rem;height:1.9rem;border-radius:50%;background:#111;color:#fff;text-align:center;line-height:1.9rem;font-weight:700}
+.note{background:#fff7d6;border-radius:.6rem;padding:.7rem .9rem}small{color:#444}
+</style>
 <h1>Add the Printio printer</h1>
-<p>Printer address (keep it private): <code>${url}</code></p>
-<h2>iPhone / iPad</h2>
-<p><a class=btn href="/profile/${token}.mobileconfig">Install iPhone/iPad profile</a></p>
-<ol><li>Tap the button, choose Allow.</li><li>Settings &rarr; Profile Downloaded &rarr; Install (ignore "Not Signed").</li>
-<li>In any app: Share &rarr; Print &rarr; Select Printer &rarr; Printio.</li></ol>
-<h2>Android (Pixel)</h2>
-<ol><li>Settings &rarr; Connected devices &rarr; Connection preferences &rarr; Printing &rarr; Default Print Service.</li>
-<li>Menu (&#8942;) &rarr; Add printer &rarr; add by address. Try <code>${url}</code> first; if it is refused try <code>${host}</code> with path <code>/p/${token}</code>.</li>
-<li>Print from any app &rarr; choose Printio.</li></ol>
-<h2>Windows 10/11</h2>
-<p><a class=btn href="/setup/${token}/windows.cmd">Download Windows setup file</a> (double-click it; if the browser blocks it, choose Keep)</p>
-<p>Or by hand:</p>
-<ol><li>Settings &rarr; Bluetooth &amp; devices &rarr; Printers &amp; scanners &rarr; Add device &rarr; Add manually.</li>
-<li>"Select a shared printer by name" &rarr; paste <code>${url}</code> &rarr; Next. Pick "Microsoft IPP Class Driver" if asked.</li></ol>
-<h2>Mac</h2>
-<ol><li>Easiest: Terminal: <code>lpadmin -p Printio -E -v ${ipps} -m everywhere</code></li>
-<li>Or System Settings &rarr; Printers &amp; Scanners &rarr; Add Printer &rarr; IP tab, Protocol IPP, Address <code>${hostOnly}:${port}</code>, Queue <code>p/${token}</code>.</li></ol>
-<h2>Chromebook</h2>
-<ol><li>Settings &rarr; Advanced &rarr; Printing &rarr; Printers &rarr; Add printer manually.</li>
-<li>Address <code>${hostOnly}:${port}</code>, Protocol IPPS, Queue <code>p/${token}</code>.</li></ol>
-<p>Then print any test page. These steps are what we are testing - tell Claude exactly where one fails.</p>`;
-  }
-
-  // One-click Windows helper. Tries Add-Printer first, falls back to the printui wizard command.
-  function windowsCmd(req) {
-    const url = `${baseUrl(req)}/p/${token}`;
-    return [
-      '@echo off',
-      'echo Adding the Printio printer...',
-      `powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Add-Printer -ConnectionName '${url}' -ErrorAction Stop; Write-Host 'Printer added.' } catch { Write-Host $_.Exception.Message; exit 1 }"`,
-      'if errorlevel 1 (',
-      '  echo First method failed, trying the second...',
-      `  rundll32 printui.dll,PrintUIEntry /in /n "${url}"`,
-      ')',
-      'echo Done. Check Settings - Printers ^& scanners for "Printio".',
-      'pause',
-      '',
-    ].join('\r\n');
+<p>Do this once per device. Keep the address private: <code>${url}</code></p>
+${blocks}
+<p><small>After setup, print a test page and tell Claude exactly where any step did not match what you see here.</small></p>`;
   }
 
   function mobileconfig(req) {
@@ -332,8 +362,12 @@ li{margin:.4rem 0}.btn{display:inline-block;background:#111;color:#fff;padding:.
 <key>PayloadIdentifier</key><string>com.printio.airprint.${id('a').slice(0, 8)}</string>
 <key>PayloadUUID</key><string>${id('a')}</string>
 <key>PayloadDisplayName</key><string>Printio printer</string>
+<key>PayloadDescription</key><string>Adds the Printio printer to this device so you can print from any app.</string>
+<key>PayloadOrganization</key><string>Printio</string>
 </dict></array>
 <key>PayloadDisplayName</key><string>Printio printer</string>
+<key>PayloadDescription</key><string>Adds the Printio printer to this device so you can print from any app.</string>
+<key>PayloadOrganization</key><string>Printio</string>
 <key>PayloadIdentifier</key><string>com.printio.profile.${id('b').slice(0, 8)}</string>
 <key>PayloadType</key><string>Configuration</string>
 <key>PayloadUUID</key><string>${id('b')}</string>
@@ -375,10 +409,6 @@ li{margin:.4rem 0}.btn{display:inline-block;background:#111;color:#fff;padding:.
         }
       });
       return;
-    }
-    if (req.method === 'GET' && parts[0] === 'setup' && parts[2] === 'windows.cmd' && tokenOk(parts[1])) {
-      res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename="Add-Printio-Printer.cmd"' });
-      return res.end(windowsCmd(req));
     }
     if (req.method === 'GET' && parts[0] === 'setup' && tokenOk(parts[1])) return send(200, 'text/html; charset=utf-8', setupPage(req));
     if (req.method === 'GET' && parts[0] === 'report' && tokenOk(parts[1])) return send(200, 'text/plain; charset=utf-8', report());

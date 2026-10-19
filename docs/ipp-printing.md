@@ -111,6 +111,8 @@ PCL XL page attribute, booklet is driver-side imposition; replay experiment pend
 
 ## Open items / next steps
 
+0. iPhone: the profile downloads fine in Safari, but users got lost after the download. The spike's setup page now has numbered iPhone steps (Allow > Settings > Profile Downloaded or General > VPN & Device Management > Install x3) and opens the section for the detected device. Still unknown whether the printer then actually shows up in Share > Print.
+
 1. Apple tests (iPhone profile, Mac `lpadmin`) - borrow a device.
 2. Confirm the `CUPS/2.4.11 Linux aarch64` client was the Chromebook.
 3. Kyocera raw-print: replay works (staple, saddle stitch); PDF-direct also works (plain PDF + PJL header); finishing mapping unfinished (see kyocera-raw-print.md).
