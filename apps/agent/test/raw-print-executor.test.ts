@@ -96,13 +96,15 @@ describe("executeRawPrint", () => {
     const { port } = await listen(() => {
       connections += 1;
     });
+    // A right-binding booklet is supported now (KFOLD + SHORTEDGE, see pjl.ts), so use an
+    // input buildRawJob still refuses: a booklet that also asks for a separate staple.
     const res = await executeRawPrint({
-      raw: { ...raw(port), bindingSide: "right" },
-      request: { ...req, finishing: { staple: false, booklet: true, punch: false } },
+      raw: raw(port),
+      request: { ...req, finishing: { staple: true, booklet: true, punch: false } },
       pdf,
     });
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.reason).toMatch(/right-binding/);
+    if (!res.ok) expect(res.reason).toMatch(/staple/);
     await new Promise((r) => setTimeout(r, 50));
     expect(connections).toBe(0);
   });
