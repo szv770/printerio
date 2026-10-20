@@ -47,7 +47,7 @@ function isAgentOnline(agent: WizardAgent): boolean {
   return agent.status === "active" && !!agent.lastSeenAt && Date.now() - new Date(agent.lastSeenAt).getTime() < AGENT_ONLINE_WINDOW_MS;
 }
 
-const SESSION_STORAGE_KEY = "printerio.setupWizard.selectedArchetypes";
+const SESSION_STORAGE_KEY = "printio.setupWizard.selectedArchetypes";
 
 export function SetupWizard({
   printers,
