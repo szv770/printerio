@@ -22,6 +22,7 @@ import type { SpoolerMonitor } from "./spooler-monitor.js";
 import { findNewJobId } from "./spooler-monitor.js";
 import type { HealthMonitor } from "./health-monitor.js";
 import { buildPrintSettingsString, executePrint } from "./print-executor.js";
+import { executeRawPrint } from "./raw-print-executor.js";
 import { handleCommand } from "./commands.js";
 import { createSelfUpdateDeps, performSelfUpdate } from "./self-update.js";
 import { DownloadValidationError, PrintExecutionError, SpoolerError } from "./errors.js";
@@ -221,7 +222,9 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     try {
       // --- Download ---
       const dl = await cloudClient.getDownloadUrl(claimable.jobId);
-      jobQueue.rememberQueueForProfile(dl.printRequest.printerProfileId, dl.printRequest.windowsQueueName);
+      if (!dl.printRequest.raw) {
+        jobQueue.rememberQueueForProfile(dl.printRequest.printerProfileId, dl.printRequest.windowsQueueName);
+      }
       jobQueue.upsertJob(claimable.jobId, { state: "downloading", windowsQueueName: dl.printRequest.windowsQueueName });
 
       const localFileName = `${claimable.jobId}-${sanitizeFileName(dl.fileName)}`;
@@ -233,6 +236,27 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       // --- Print ---
       jobQueue.upsertJob(claimable.jobId, { state: "printing" });
       await safeReportStatus(claimable.jobId, "printing");
+
+      if (dl.printRequest.raw) {
+        // Raw-port path: no SumatraPDF, no spooler, nothing to identify or
+        // monitor. Flushed + closed socket == completed. Failure is terminal
+        // (reported once, never retried by the agent).
+        const result = await executeRawPrint({
+          raw: dl.printRequest.raw,
+          request: dl.printRequest,
+          pdf: readFileSync(localFilePath),
+        });
+        if (!result.ok) {
+          jobLogger.error("raw print failed", { reason: result.reason });
+          jobQueue.upsertJob(claimable.jobId, { state: "failed", lastError: result.reason });
+          await safeReportStatus(claimable.jobId, "failed", `raw print: ${result.reason}`);
+          return;
+        }
+        jobQueue.upsertJob(claimable.jobId, { state: "completed" });
+        await safeReportStatus(claimable.jobId, "completed", "sent to printer raw port", { bytesSent: result.bytesSent });
+        jobLogger.info("job completed (raw port)", { bytesSent: result.bytesSent });
+        return;
+      }
 
       const settingsString = buildPrintSettingsString({
         colorMode: dl.printRequest.colorMode,

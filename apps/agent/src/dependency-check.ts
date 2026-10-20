@@ -401,7 +401,7 @@ export function formatDependencyFailureBanner(result: SumatraCheckResult): strin
  * command - see file header).
  */
 export async function verifyStartupDependencies(
-  options: { sumatraPath: string; skip?: boolean },
+  options: { sumatraPath: string; skip?: boolean; rawOnly?: boolean },
   logger: Logger,
   deps: SumatraCheckDeps = createSumatraCheckDeps(),
 ): Promise<{ ok: boolean; sumatra?: SumatraCheckResult }> {
@@ -422,6 +422,15 @@ export async function verifyStartupDependencies(
       resolvedPath: sumatra.resolvedPath,
       detail: sumatra.detail,
     });
+    return { ok: true, sumatra };
+  }
+
+  if (options.rawOnly) {
+    logger.warn(
+      "PRINTIO_RAW_ONLY is set - SumatraPDF is not invocable, but continuing: only raw-port (output_mode='raw') " +
+        "jobs can succeed. Queue-mode jobs will fail until SumatraPDF is fixed.",
+      { status: sumatra.status, configuredPath: sumatra.configuredPath, detail: sumatra.detail },
+    );
     return { ok: true, sumatra };
   }
 

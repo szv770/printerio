@@ -357,6 +357,24 @@ describe("verifyStartupDependencies", () => {
     }
   });
 
+  it("with rawOnly, a failed SumatraPDF check is only a warning and the Agent proceeds", async () => {
+    const { logger, lines } = recordingLogger();
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await verifyStartupDependencies(
+        { sumatraPath: "SumatraPDF.exe", rawOnly: true },
+        logger,
+        makeDeps({ resolveOnPath: () => undefined }),
+      );
+      expect(result.ok).toBe(true);
+      expect(lines.some((l) => l.level === "warn" && /PRINTIO_RAW_ONLY/.test(l.msg))).toBe(true);
+      expect(lines.some((l) => l.level === "error")).toBe(false);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("honours the documented escape hatch, but says loudly that it did", async () => {
     const { logger, lines } = recordingLogger();
     const probe = vi.fn(async (): Promise<ProbeOutcome> => ({ started: true }));

@@ -105,7 +105,7 @@ async function runStart(): Promise<void> {
   // and imports this same entry point, so there is exactly one place this
   // check can be bypassed from, and it isn't a second code path.
   const dependencyCheck = await verifyStartupDependencies(
-    { sumatraPath: config.sumatraPath, skip: config.skipDependencyCheck },
+    { sumatraPath: config.sumatraPath, skip: config.skipDependencyCheck, rawOnly: config.rawOnly },
     logger,
   );
   if (!dependencyCheck.ok) {

@@ -76,6 +76,13 @@ matter (type-safety, a real compiled artifact), they're just not what actually e
   real executable image, and actually starts it once before polling for any job - and refuses
   to start if that fails, rather than letting a real print job be the thing that discovers
   it (`src/dependency-check.ts`, docs/architecture.md sec 10.1).
+- **Raw-port profiles** (`output_mode='raw'`): the agent builds a PJL header + PDF with
+  `@printio/shared` and writes it to the printer's TCP port (15s connect / 120s write timeouts,
+  `src/raw-print-executor.ts`) - no SumatraPDF, no spooler, no spooler monitoring. The job is
+  `completed` once the socket is flushed and closed; any failure (including an unsupported
+  option combination) is reported `failed` once and not retried. If the machine only runs raw
+  profiles, set `PRINTIO_RAW_ONLY=true` so a missing SumatraPDF is a startup warning, not a
+  hard exit.
 - **Windows print queues already configured**, one per finishing profile, per
   `docs/printer-setup.md` - this agent only ever *selects* a pre-configured queue
   (`windowsQueueName`, resolved by the cloud); it never programs staple/booklet/punch itself
