@@ -315,7 +315,7 @@ describe("notes", () => {
   it("never claims physical pages came out of the printer", () => {
     const progress = buildJobProgress({ status: "completed" });
     const done = progress.stages.find((s) => s.id === "done");
-    expect(done?.note).toMatch(/not that every page physically came out/i);
+    expect(done?.note).toMatch(/can't see the paper come out/i);
   });
 });
 

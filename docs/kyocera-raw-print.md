@@ -73,8 +73,7 @@ Standard PJL `DUPLEX` / `BINDING` work for duplex. Untested: copies (`QTY`), pap
 
 SUPERSEDED: an earlier table here (from a different 6-page PDF) said `ONE` = top-right. That was wrong for the portrait test
 documents. The confirmed map is under "Right binding solved, staple map corrected" below: `ONE` = top-left,
-`ONE` + `KFEEDEDGE=SHORTEDGE` = top-right, `ONEOPPOSED` = bottom-left (portrait, duplex long edge). Not yet verified: simplex
-(one-sided) stapling and landscape pages.
+`ONE` + `KFEEDEDGE=SHORTEDGE` = top-right, `ONEOPPOSED` = bottom-left (portrait, duplex long edge). **Simplex verified (Q1, Q2, 2026-10-20):** one-sided `ONE` = top-left, one-sided `ONE` + `KFEEDEDGE=SHORTEDGE` = top-right, same as duplex. Not yet verified: landscape pages.
 
 ## Booklet: PDF-direct came out in the wrong page order (unresolved)
 

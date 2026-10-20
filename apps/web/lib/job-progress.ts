@@ -225,15 +225,15 @@ function noteForStage(stage: JobStageId, state: JobStageState, input: JobProgres
       return null;
     case "printing":
       if (state === "current") {
-        if (status === "printing") return "Handed to the Windows print queue on the printer's PC.";
-        return "Accepted by the Windows print queue - the printer is working through it.";
+        if (status === "printing") return "Sending your document to the printer.";
+        return "The printer has accepted your document and is working through it.";
       }
-      if (state === "failed") return "The printer or its print queue rejected this job.";
+      if (state === "failed") return "The printer rejected this job or could not be reached.";
       if (state === "done") return "Sent to the printer.";
       return null;
     case "done":
       if (state === "done") {
-        return "The print queue finished this job cleanly. Printio can confirm the queue emptied, not that every page physically came out - collect your pages to be sure.";
+        return "The printer accepted the whole job. Printio can't see the paper come out, so collect your pages to be sure.";
       }
       return null;
   }
