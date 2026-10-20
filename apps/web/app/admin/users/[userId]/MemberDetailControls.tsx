@@ -14,6 +14,7 @@ import {
   type StatusChangeState,
   type RemoveMemberState,
 } from "../actions";
+import { roleLabel } from "@/lib/role-label";
 
 export interface DetailMember {
   userId: string;
@@ -51,7 +52,7 @@ export function MemberDetailControls({ member, canEdit }: { member: DetailMember
       <div className="flex flex-col gap-3 text-sm">
         <div>
           <p className="mb-1 text-[var(--color-muted)]">Role</p>
-          <Badge>{member.role}</Badge>
+          <Badge>{roleLabel(member.role)}</Badge>
         </div>
         <div>
           <p className="mb-1 text-[var(--color-muted)]">Department</p>
@@ -72,10 +73,10 @@ export function MemberDetailControls({ member, canEdit }: { member: DetailMember
         <div>
           <FieldLabel htmlFor="role">Role</FieldLabel>
           <Select id="role" name="role" defaultValue={member.role} className="w-auto">
-            <option value="student">Student</option>
-            <option value="staff">Staff</option>
-            <option value="approver">Approver</option>
-            <option value="org_admin">Org admin</option>
+            <option value="student">{roleLabel("student")}</option>
+            <option value="staff">{roleLabel("staff")}</option>
+            <option value="approver">{roleLabel("approver")}</option>
+            <option value="org_admin">{roleLabel("org_admin")}</option>
           </Select>
         </div>
         <Button type="submit" size="sm">

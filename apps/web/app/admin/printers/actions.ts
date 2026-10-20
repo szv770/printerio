@@ -429,11 +429,11 @@ export async function restartPrintQueueAction(_prev: PrinterActionState, formDat
 /**
  * "Send test print" - puts a real, one-page print job through the real
  * pipeline against any printer_profile in the caller's own organization, so
- * an admin can prove a queue works end to end without waiting for a student
+ * an admin can prove a queue works end to end without waiting for a user
  * to submit something.
  *
  * What makes it a genuine test rather than a simulation: everything after the
- * PDF is generated is the ordinary path a student's essay takes. The
+ * PDF is generated is the ordinary path a user's essay takes. The
  * generated PDF goes through the same `preflightPdf` (docs/architecture.md
  * sec 5), is uploaded to the same private, org-scoped bucket under the same
  * `jobFilePath` convention (sec 3.3), and becomes a `print_jobs` row in

@@ -5,6 +5,7 @@ import { Info } from "lucide-react";
 import type { Tables } from "@/lib/database.types";
 import { Button, Input, Select, FieldLabel, FormError, FormSuccess, Badge, EmptyState, Card } from "@/components/ui";
 import { createQuotaAction, deleteQuotaAction, type QuotaActionState } from "./actions";
+import { roleLabel } from "@/lib/role-label";
 
 // A "use server" file may only export async functions, so this trivial seed
 // value for useActionState lives here instead of alongside the action.
@@ -50,6 +51,7 @@ export function QuotasPanel({
     if (q.scope_type === "organization") return "Entire organization";
     if (q.scope_type === "group" && q.scope_value) return `Group: ${groupName(q.scope_value)}`;
     if (q.scope_type === "user" && q.scope_value) return `User: ${memberLabel(q.scope_value)}`;
+    if (q.scope_type === "role" && q.scope_value) return `Role: ${roleLabel(q.scope_value)}`;
     return `${SCOPE_LABEL[q.scope_type] ?? q.scope_type}: ${q.scope_value ?? ""}`;
   }
 
@@ -78,10 +80,10 @@ export function QuotasPanel({
               <div>
                 <FieldLabel htmlFor="scopeValueRole">Role</FieldLabel>
                 <Select id="scopeValueRole" name="scopeValue">
-                  <option value="student">Student</option>
-                  <option value="staff">Staff</option>
-                  <option value="approver">Approver</option>
-                  <option value="org_admin">Org admin</option>
+                  <option value="student">{roleLabel("student")}</option>
+                  <option value="staff">{roleLabel("staff")}</option>
+                  <option value="approver">{roleLabel("approver")}</option>
+                  <option value="org_admin">{roleLabel("org_admin")}</option>
                 </Select>
               </div>
             )}

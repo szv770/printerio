@@ -13,6 +13,7 @@
 
 export const JOB_STATES = [
   "draft",
+  "held",
   "pending_approval",
   "approved",
   "denied",
@@ -66,7 +67,10 @@ export function isTerminalState(state: JobState): boolean {
  * included below rather than treated as a special case.
  */
 export const ALLOWED_TRANSITIONS: Record<JobState, readonly JobState[]> = {
-  draft: ["pending_approval", "approved", "denied", "cancelled"],
+  draft: ["held", "pending_approval", "approved", "denied", "cancelled"],
+  // held: print options could not be confidently resolved; the sender or an admin must choose.
+  // Entered only from draft. Expires (7 days, admin-configurable) and is then cancelled/expired.
+  held: ["pending_approval", "approved", "denied", "cancelled", "expired"],
   pending_approval: ["approved", "rejected", "expired", "cancelled"],
   approved: ["claimed", "expired", "cancelled"],
   denied: [],

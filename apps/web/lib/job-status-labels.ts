@@ -23,6 +23,7 @@ export interface JobStatusDisplay {
  */
 export const JOB_STATUS_DISPLAY: Record<JobState, JobStatusDisplay> = {
   draft: { Icon: FileEdit, label: "Draft", tone: "neutral" },
+  held: { Icon: Clock, label: "Needs your choices", tone: "warning" },
   pending_approval: { Icon: Clock, label: "Awaiting approval", tone: "warning" },
   approved: { Icon: CheckCircle2, label: "Approved", tone: "success" },
   denied: { Icon: Ban, label: "Denied", tone: "danger" },

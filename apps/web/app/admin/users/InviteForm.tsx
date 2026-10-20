@@ -4,6 +4,7 @@ import { useActionState } from "react";
 import { Button, Input, Select, FieldLabel, FormError, Card } from "@/components/ui";
 import { createInvitationAction, type InviteState } from "./actions";
 import { CopyCodeButton } from "./CopyCodeButton";
+import { roleLabel } from "@/lib/role-label";
 
 const initialState: InviteState = {};
 
@@ -16,10 +17,10 @@ export function InviteForm() {
         <div>
           <FieldLabel htmlFor="role">Role</FieldLabel>
           <Select id="role" name="role" defaultValue="student">
-            <option value="student">Student</option>
-            <option value="staff">Staff</option>
-            <option value="approver">Approver</option>
-            <option value="org_admin">Org admin</option>
+            <option value="student">{roleLabel("student")}</option>
+            <option value="staff">{roleLabel("staff")}</option>
+            <option value="approver">{roleLabel("approver")}</option>
+            <option value="org_admin">{roleLabel("org_admin")}</option>
           </Select>
         </div>
         <div>

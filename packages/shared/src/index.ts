@@ -7,6 +7,7 @@
 // which needs the opposite convention and handles extensionless specifiers
 // fine too).
 export * from "./job-state";
+export * from "./page-range";
 export * from "./policy-engine";
 export * from "./pjl";
 export * from "./print-math";

@@ -98,6 +98,7 @@ export interface JobProgressInput {
 /** The stage a job sitting in each state is AT. */
 const STATUS_STAGE: Record<JobState, JobStageId> = {
   draft: "submitted",
+  held: "submitted",
   pending_approval: "approval",
   approved: "queued",
   denied: "policy",
