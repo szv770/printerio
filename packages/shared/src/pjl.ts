@@ -1,0 +1,82 @@
+// Builds the PJL header + framing for sending a PDF straight to a Kyocera
+// printer's raw port (TCP 9100). Mappings come from real-printer tests on a
+// TASKalfa MZ8500i - see docs/kyocera-raw-print.md. Anything not proven
+// returns { ok: false } so the caller can HOLD the job instead of guessing.
+
+export type StaplePosition = "top-left" | "top-right";
+
+export interface RawPrintOptions {
+  copies: number;
+  colorMode: "bw" | "color";
+  duplex: boolean;
+  jobName: string;
+  staple?: StaplePosition;
+  booklet?: boolean;
+  /** Only used with booklet; must match how the PDF was imposed. */
+  bindingSide?: "left" | "right";
+}
+
+export type PjlSettingsResult = { ok: true; settings: string[] } | { ok: false; reason: string };
+export type RawJobResult = { ok: true; bytes: Uint8Array } | { ok: false; reason: string };
+
+const UEL = "\x1b%-12345X";
+const MAX_TEXT = 60;
+
+/** Job names/users are member-controlled; keep them from injecting PJL or escape sequences. */
+export function sanitizePjlText(input: string): string {
+  const s = input.replace(/[^A-Za-z0-9 ._-]/g, "").trim().slice(0, MAX_TEXT).trim();
+  return s || "printio";
+}
+
+export function buildPjlSettings(o: RawPrintOptions): PjlSettingsResult {
+  if (!Number.isInteger(o.copies) || o.copies < 1) {
+    return { ok: false, reason: `invalid copies: ${o.copies}` };
+  }
+  const settings: string[] = [];
+
+  if (o.booklet) {
+    if (o.bindingSide !== "left" && o.bindingSide !== "right") {
+      return { ok: false, reason: "booklet needs a binding side" };
+    }
+    if (o.staple) {
+      return { ok: false, reason: "booklet together with a separate staple is not supported" };
+    }
+    // Proven 2026-10-19 (E1 left, F1 right): the PDF is imposed for the binding side
+    // (mirrored for right) in normal sheet order; the printer setting is the same for both.
+    // KREVERSEFOLD scrambles pages - do not use.
+    settings.push("DUPLEX=ON", "BINDING=SHORTEDGE", "OUTBIN=KBOOKLET", "FINISH=KFOLD");
+  } else {
+    if (o.duplex) settings.push("DUPLEX=ON", "BINDING=LONGEDGE");
+    else settings.push("DUPLEX=OFF");
+    if (o.staple) {
+      // Position map from a portrait 6-page test; recheck on landscape pages.
+      settings.push(
+        "OUTBIN=OPTIONFACEDOWN",
+        o.staple === "top-right" ? "STAPLEOPTION=ONE" : "STAPLEOPTION=ONEOPPOSED",
+        "FINISH=STAPLE",
+      );
+    }
+  }
+
+  settings.push(`QTY=${o.copies}`);
+  if (o.colorMode === "bw") settings.push("KCOLORMODE=MONO");
+  return { ok: true, settings };
+}
+
+export function buildRawJob(o: RawPrintOptions, pdf: Uint8Array): RawJobResult {
+  const s = buildPjlSettings(o);
+  if (!s.ok) return s;
+  const name = sanitizePjlText(o.jobName);
+  let head = `${UEL}@PJL\r\n@PJL JOB NAME="${name}"\r\n`;
+  for (const line of s.settings) head += `@PJL SET ${line}\r\n`;
+  head += "@PJL ENTER LANGUAGE=PDF\r\n";
+  const tail = `\r\n${UEL}@PJL EOJ NAME="${name}"\r\n${UEL}`;
+  const enc = (t: string) => Uint8Array.from(t, (c) => c.charCodeAt(0) & 0xff);
+  const h = enc(head);
+  const t = enc(tail);
+  const bytes = new Uint8Array(h.length + pdf.length + t.length);
+  bytes.set(h, 0);
+  bytes.set(pdf, h.length);
+  bytes.set(t, h.length + pdf.length);
+  return { ok: true, bytes };
+}

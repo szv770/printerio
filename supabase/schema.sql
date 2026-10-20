@@ -177,7 +177,12 @@ create table printer_profiles (
   agent_id uuid not null references agents(id) on delete restrict,
   key text not null check (key ~ '^[a-z0-9_]+$'),
   label text not null check (char_length(label) between 1 and 200),
-  windows_queue_name text not null,
+  windows_queue_name text,
+  -- 0027: 'raw' = send straight to raw_host:raw_port (PJL + PDF) instead of a Windows queue.
+  output_mode text not null default 'queue' check (output_mode in ('queue', 'raw')),
+  raw_host text,
+  raw_port integer not null default 9100 check (raw_port between 1 and 65535),
+  raw_staple_position text not null default 'top-left' check (raw_staple_position in ('top-left', 'top-right')),
   -- Administrator-declared, not cloud-verified against the physical device -
   -- see docs/architecture.md sec 9.
   declared_paper_sizes text[] not null default '{letter}',

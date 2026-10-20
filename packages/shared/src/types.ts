@@ -60,6 +60,21 @@ export interface ResolvedPrintRequest {
    * undo that work. See docs/architecture.md sec 8-10.
    */
   fitMode?: PrintFitMode;
+  /**
+   * Present only when the profile's output_mode is 'raw': the Agent sends the
+   * job straight to host:port (PJL header + PDF) instead of a Windows queue,
+   * and `windowsQueueName` is then an empty string. See packages/shared/src/pjl.ts.
+   */
+  raw?: RawTarget;
+}
+
+export interface RawTarget {
+  host: string;
+  port: number;
+  staplePosition: "top-left" | "top-right";
+  /** Only meaningful for booklet jobs. */
+  bindingSide: "left" | "right";
+  jobName: string;
 }
 
 /** The fixed, allow-listed remote command set - see docs/architecture.md sec 12. */
