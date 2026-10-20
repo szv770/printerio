@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { roleLabel } from "@/lib/role-label";
 import { Button, FormError } from "@/components/ui";
 import { revokeInvitationAction, type RevokeInvitationState } from "./actions";
 import { CopyCodeButton } from "./CopyCodeButton";
@@ -40,7 +41,7 @@ function InvitationRow({ invitation }: { invitation: OpenInvitation }) {
         <code className="rounded bg-gray-100 px-2 py-1 font-mono">{invitation.code}</code>
         {invitation.code && <CopyCodeButton code={invitation.code} />}
         <span className="text-[var(--color-muted)]">
-          role: {invitation.role} — used {invitation.usesCount}
+          role: {roleLabel(invitation.role)} — used {invitation.usesCount}
           {invitation.maxUses ? `/${invitation.maxUses}` : ""} times
           {invitation.expiresAt ? ` — expires ${new Date(invitation.expiresAt).toLocaleDateString()}` : ""}
         </span>

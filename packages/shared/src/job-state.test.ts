@@ -55,4 +55,25 @@ describe("job state machine", () => {
   it("draft cannot jump directly to claimed (must pass through approval)", () => {
     expect(canTransition("draft", "claimed")).toBe(false);
   });
+
+  it("held: draft -> held, and held exits only to approval/denial/cancel/expiry", () => {
+    expect(canTransition("draft", "held")).toBe(true);
+    for (const to of JOB_STATES) {
+      const legal = ["pending_approval", "approved", "denied", "cancelled", "expired"].includes(to);
+      expect(canTransition("held", to)).toBe(legal);
+    }
+    expect(isTerminalState("held")).toBe(false);
+    expect(isDeadEnd("held")).toBe(false);
+  });
+
+  it("held can only be entered from draft", () => {
+    for (const from of JOB_STATES) {
+      expect(canTransition(from, "held")).toBe(from === "draft");
+    }
+  });
+
+  it("held never reaches the print pipeline directly", () => {
+    expect(canTransition("held", "claimed")).toBe(false);
+    expect(canTransition("held", "printing")).toBe(false);
+  });
 });

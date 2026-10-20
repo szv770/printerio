@@ -138,7 +138,7 @@ export function PrintersPanel({
         Printio - see docs/printer-setup.md for how to actually configure a Windows queue&apos;s finishing defaults before
         declaring them here. Status only ever reflects what the Agent last reported at heartbeat time (docs/architecture.md
         sec 11) - it is not polled live. That is what &ldquo;Send test print&rdquo; is for: it puts one real page through
-        the whole pipeline to that queue - same upload, same agent, same Windows queue as a student&apos;s job - and opens
+        the whole pipeline to that queue - same upload, same agent, same Windows queue as a user&apos;s job - and opens
         its status page so you can watch it. It skips print rules, approval and quota, and is excluded from usage reports.
       </p>
     </div>
@@ -386,7 +386,7 @@ function ProfileRowActions({
       <form
         action={deleteAction}
         onSubmit={(e) => {
-          if (!confirm(`Delete the "${profile.label}" profile? Students will no longer be able to pick it.`)) {
+          if (!confirm(`Delete the "${profile.label}" profile? Users will no longer be able to pick it.`)) {
             e.preventDefault();
           }
         }}
@@ -500,13 +500,13 @@ function ProfileFields({
   return (
     <>
       <div>
-        <FieldLabel htmlFor={`${idPrefix}Key`} hint="internal only, never shown to students">
+        <FieldLabel htmlFor={`${idPrefix}Key`} hint="internal only, never shown to users">
           Key
         </FieldLabel>
         <Input id={`${idPrefix}Key`} name="key" placeholder="booklet_saddle" defaultValue={defaults.key} required />
       </div>
       <div>
-        <FieldLabel htmlFor={`${idPrefix}Label`} hint="what students see in the printer list">
+        <FieldLabel htmlFor={`${idPrefix}Label`} hint="what users see in the printer list">
           Label
         </FieldLabel>
         <Input id={`${idPrefix}Label`} name="label" placeholder="Booklet + Staple" defaultValue={defaults.label} required />

@@ -24,9 +24,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
             <Link href={routes.home} className="font-semibold">
               Printio
             </Link>
-            <Link href={routes.dashboard} className="text-[var(--color-muted)] hover:text-[var(--color-text)]">
-              Home
-            </Link>
             <Link href={routes.print} className="text-[var(--color-muted)] hover:text-[var(--color-text)]">
               Print
             </Link>
@@ -35,7 +32,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
               data-tour="nav-my-jobs"
               className="text-[var(--color-muted)] hover:text-[var(--color-text)]"
             >
-              My Jobs
+              My jobs
             </Link>
             <Link href={routes.usage} className="text-[var(--color-muted)] hover:text-[var(--color-text)]">
               Usage

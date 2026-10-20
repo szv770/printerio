@@ -151,6 +151,7 @@ export function createJobQueue(localStoragePath: string, logger: Logger): JobQue
  */
 const PROGRESS_RANK: Record<JobState, number> = {
   draft: 0,
+  held: 1,
   pending_approval: 1,
   approved: 2,
   claimed: 3,

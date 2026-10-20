@@ -16,6 +16,10 @@ import {
   HardDrive,
   BarChart3,
   ScrollText,
+  FilePlus,
+  ListChecks,
+  PieChart,
+  UserRound,
   Menu,
   X,
   type LucideIcon,
@@ -128,7 +132,7 @@ export function AdminNav({
       )}
 
       <nav className="hidden w-48 shrink-0 md:block">
-        <Link href={routes.home} className="mb-4 block text-lg font-semibold">
+        <Link href={routes.admin} className="mb-4 block text-lg font-semibold">
           Printio Admin
         </Link>
         <NavItems
@@ -178,16 +182,25 @@ function NavItems({
        *  everything else is grouped by what it's actually for, not shown as
        *  one flat list. */}
       <ul className="flex flex-col gap-1 text-sm">
+        <NavLink href={routes.print} icon={FilePlus} pathname={pathname}>
+          Print
+        </NavLink>
+        <NavLink href={routes.jobs} icon={ListChecks} pathname={pathname}>
+          My jobs
+        </NavLink>
+        <NavLink href={routes.usage} icon={PieChart} pathname={pathname}>
+          Usage
+        </NavLink>
+        <NavLink href={routes.profile} icon={UserRound} pathname={pathname}>
+          Profile
+        </NavLink>
+      </ul>
+
+      <NavGroup title="Admin">
         <NavLink href={routes.admin} icon={LayoutDashboard} pathname={pathname} exact>
           Overview
         </NavLink>
-        <NavLink href={routes.adminApprovals} icon={CheckSquare} pathname={pathname}>
-          <span className="flex items-center justify-between gap-2">
-            Approvals
-            {pendingApprovals > 0 && <Badge tone="warning">{pendingApprovals}</Badge>}
-          </span>
-        </NavLink>
-      </ul>
+      </NavGroup>
 
       <NavGroup title="People">
         <NavLink href={routes.adminUsers} icon={Users} pathname={pathname}>
@@ -198,7 +211,7 @@ function NavItems({
         </NavLink>
       </NavGroup>
 
-      <NavGroup title="Print infrastructure">
+      <NavGroup title="Printers">
         <NavLink href={routes.adminPrinters} icon={Printer} pathname={pathname}>
           Printers
         </NavLink>
@@ -207,26 +220,22 @@ function NavItems({
         </NavLink>
       </NavGroup>
 
-      <NavGroup title="Governance">
+      <NavGroup title="Rules">
+        <NavLink href={routes.adminApprovals} icon={CheckSquare} pathname={pathname}>
+          <span className="flex items-center justify-between gap-2">
+            Approvals
+            {pendingApprovals > 0 && <Badge tone="warning">{pendingApprovals}</Badge>}
+          </span>
+        </NavLink>
         <NavLink href={routes.adminPolicies} icon={ShieldCheck} pathname={pathname}>
           Policies
         </NavLink>
         <NavLink href={routes.adminQuotas} icon={Gauge} pathname={pathname}>
           Quotas
         </NavLink>
-        <NavLink href={routes.adminSettings} icon={Globe} pathname={pathname}>
-          Settings
-        </NavLink>
-        {/* Storage requires org_admin (app/admin/storage/page.tsx) - hidden
-         *  for approvers rather than showing a link that redirects them. */}
-        {isOrgAdmin && (
-          <NavLink href={routes.adminStorage} icon={HardDrive} pathname={pathname}>
-            Storage
-          </NavLink>
-        )}
       </NavGroup>
 
-      <NavGroup title="Insights">
+      <NavGroup title="Reports & settings">
         <NavLink href={routes.adminReports} icon={BarChart3} pathname={pathname}>
           Reports
         </NavLink>
@@ -237,6 +246,16 @@ function NavItems({
             Audit log
           </NavLink>
         )}
+        {/* Storage requires org_admin (app/admin/storage/page.tsx) - hidden
+         *  for approvers rather than showing a link that redirects them. */}
+        {isOrgAdmin && (
+          <NavLink href={routes.adminStorage} icon={HardDrive} pathname={pathname}>
+            Storage
+          </NavLink>
+        )}
+        <NavLink href={routes.adminSettings} icon={Globe} pathname={pathname}>
+          Settings
+        </NavLink>
       </NavGroup>
 
       <div className="mt-6 flex flex-col gap-1 border-t border-[var(--color-border)] pt-4 text-sm">
@@ -245,9 +264,6 @@ function NavItems({
             Platform console
           </Link>
         )}
-        <Link href={routes.dashboard} className="block rounded-lg px-3 py-2 hover:bg-[var(--color-surface)]">
-          Switch to student view
-        </Link>
         {/* Exactly one HelpMenu is ever mounted (see mountHelp's own note):
          *  it owns the first-login tour and the `data-tour="help-button"`
          *  anchor, and two copies would auto-open two tours and give the

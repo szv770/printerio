@@ -40,7 +40,7 @@ export interface TourSlide {
   clickToAdvance?: boolean;
 }
 
-/** Shown to student/staff roles - the people submitting print jobs. */
+/** Shown to student/staff roles (displayed as "User" - the stored role stays 'student') - the people submitting print jobs. */
 export const STUDENT_TOUR: TourSlide[] = [
   {
     title: "Welcome to Printio",
@@ -87,7 +87,7 @@ export const STUDENT_TOUR: TourSlide[] = [
   },
   {
     title: "Track your job",
-    body: "Click My Jobs to see everything you've ever submitted.",
+    body: "Click My jobs to see everything you've ever submitted.",
     anchor: "nav-my-jobs",
     route: "/print",
     clickToAdvance: true,
@@ -134,12 +134,12 @@ export const ADMIN_TOUR: TourSlide[] = [
   },
   {
     title: "People",
-    body: "Users (in the sidebar) and Groups (here) are where you manage who can print - groups are the departments/classes/cohorts that policies and quotas can target as a whole instead of one user at a time.",
+    body: "Users (under People in the sidebar) and Groups (here) are where you manage who can print - groups are the departments/classes/cohorts that policies and quotas can target as a whole instead of one user at a time.",
     anchor: "admin-groups-panel",
     route: "/admin/groups",
   },
   {
-    title: "Print infrastructure",
+    title: "Printers",
     body: "Printers lists every configured printer and its finishing profiles (duplex, booklet, staple, etc.); Agents (in the sidebar) shows the on-site program that actually sends approved jobs to each one.",
     anchor: "admin-printers-panel",
     route: "/admin/printers",
@@ -152,19 +152,19 @@ export const ADMIN_TOUR: TourSlide[] = [
     clickToAdvance: true,
   },
   {
-    title: "Governance: Quotas",
+    title: "Rules: Quotas",
     body: "Monthly print limits, scoped to the whole organization, a role, a department, a group, or a single user - when someone matches more than one, the lowest limit wins.",
     anchor: "admin-quotas-panel",
     route: "/admin/quotas",
   },
   {
-    title: "Governance: Policies",
+    title: "Rules: Policies",
     body: "The rules that decide whether a job is automatically allowed, denied, or held for approval - a DENY rule always wins first, then REQUIRE_APPROVAL, then ALLOW, then your organization's default.",
     anchor: "admin-policies-panel",
     route: "/admin/policies",
   },
   {
-    title: "Insights",
+    title: "Reports",
     body: "Reports shows usage by user/department/printer and recently denied/failed jobs. Audit log (org admins only, in the sidebar) is a full record of every administrative action.",
     anchor: "admin-reports-stats",
     route: "/admin/reports",

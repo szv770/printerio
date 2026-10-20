@@ -1,4 +1,5 @@
 import { requireSessionOrRedirect } from "@/lib/auth/session";
+import { roleLabel } from "@/lib/role-label";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader, Card, Badge } from "@/components/ui";
 import { ProfileForm } from "./ProfileForm";
@@ -26,7 +27,7 @@ export default async function ProfilePage() {
             </div>
             <div>
               <p className="text-[var(--color-muted)]">Role</p>
-              <Badge tone="neutral">{session.membership.role}</Badge>
+              <Badge tone="neutral">{roleLabel(session.membership.role)}</Badge>
             </div>
             {session.membership.department && (
               <div>

@@ -15,6 +15,7 @@ import {
   type StatusChangeState,
   type RemoveMemberState,
 } from "./actions";
+import { roleLabel } from "@/lib/role-label";
 
 interface Member {
   userId: string;
@@ -81,17 +82,17 @@ function MemberRow({ member, canEdit }: { member: Member; canEdit: boolean }) {
           <form action={roleAction} className="inline-flex items-center gap-2">
             <input type="hidden" name="userId" value={member.userId} />
             <Select name="role" defaultValue={member.role} className="w-auto py-1 text-xs">
-              <option value="student">Student</option>
-              <option value="staff">Staff</option>
-              <option value="approver">Approver</option>
-              <option value="org_admin">Org admin</option>
+              <option value="student">{roleLabel("student")}</option>
+              <option value="staff">{roleLabel("staff")}</option>
+              <option value="approver">{roleLabel("approver")}</option>
+              <option value="org_admin">{roleLabel("org_admin")}</option>
             </Select>
             <button type="submit" className="text-xs text-[var(--color-primary)]">
               Save
             </button>
           </form>
         ) : (
-          <Badge>{member.role}</Badge>
+          <Badge>{roleLabel(member.role)}</Badge>
         )}
         <FormError message={roleState.error} />
       </td>

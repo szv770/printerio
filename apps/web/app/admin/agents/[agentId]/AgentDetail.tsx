@@ -375,7 +375,7 @@ function QueuesCard({
           {canManage && (
             <p className="mt-3 text-xs text-[var(--color-muted)]">
               &ldquo;Send test print&rdquo; puts one real page through the whole pipeline to that queue — the same
-              upload, the same agent claim, the same Windows queue a student&apos;s job uses — and opens its status page
+              upload, the same agent claim, the same Windows queue a user&apos;s job uses — and opens its status page
               so you can watch it. It skips print rules, approval and quota, and is left out of the usage reports. The
               job counts above do include test prints, since they really were sent to that queue.
             </p>

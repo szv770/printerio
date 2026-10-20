@@ -67,6 +67,26 @@ Unverified: mono (`KCOLORMODE=MONO`), landscape pages, paper size/tray, punch.
    in one "Needs attention" list.
 5. A small faint user code is stamped on page 1 of each printout (so the owner knows whose pile is whose).
 
+## Connecting a device (a first-class feature, owner request 2026-10-20)
+
+Members add their own devices from the website, with clear, short, good-looking steps (not a bare test page):
+- **My devices** page: "Add a device" -> pick Windows / Android / Chromebook / iPhone / Mac -> one screen of
+  numbered steps with a big copy button for that person's address, screenshots/illustrations, and a "Send a test
+  page" button. Each device a member adds is a row (name, type, added date, status).
+- **Status the system can see** (from the gateway): *address created*, *device connected* (the gateway saw the
+  device ask for printer attributes), *first job received*, *first job printed*. This gives the admin the head start
+  the owner wants: **connected but never printed** is shown as a problem to look at.
+- **"I'm having trouble"** button on every device: the member picks what went wrong (couldn't add it, added but
+  nothing prints, prints wrong, other) and may add a note. It creates a support item.
+- **Admin > Devices:** one list of all devices with their status and every open "having trouble" item, sorted so
+  stuck ones come first (e.g. connected, no print after 10 minutes), with the gateway's log of what that device sent
+  (OS user-agent, requested options, last error) so the admin can see what went wrong. Admin can mark items
+  resolved with a note, regenerate/revoke a member's address, and send the member a message.
+- Needs: a `member_devices` table (per member, token reference, type, last_seen, first_job_at), a
+  `device_issues` table (device, kind, note, status, resolved_by), and gateway-side event logging. Built in
+  Phase 5 together with the gateway; the pages (My devices, Admin > Devices) can be built earlier against the
+  tables, with the "connected" signals filling in once the gateway exists.
+
 ## Admin experience
 
 Menus grouped: Overview, Printers, People, Rules, Reports. **Quick setup** for the printer: enter its address,
@@ -111,8 +131,8 @@ dialog-level staple on every device until the spike proves it.
    normal job and on a booklet cover; off means nothing stamped.
 4. **IPP spike for finishings:** extend `tools/ipp-spike` to advertise finishings and log what Windows, Android and
    ChromeOS show and send. *Decision point:* which fallbacks are needed.
-5. **IPP gateway MVP:** service, token table + migration, intake with `source='ipp'`, hold reasons, "Add to my
-   device" page, Cloudflare Tunnel with `u-<token>` hostnames. *Accept:* print from Windows and Android to the real
+5. **IPP gateway MVP:** service, token table + migration, intake with `source='ipp'`, hold reasons, **My devices
+   (add device, steps, test page, "I'm having trouble") and Admin > Devices (status, issues, logs)**, Cloudflare Tunnel with `u-<token>` hostnames. *Accept:* print from Windows and Android to the real
    printer, with held-job behaviour shown.
 6. **Admin cleanup and Quick setup:** one-screen printer setup, grouped menus, plain wording, "Needs attention".
 7. **Later:** push/email status notices (owner wants these), Apple profile, landscape and paper-size mapping, SNMP
