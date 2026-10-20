@@ -12,6 +12,13 @@
 import net from "node:net";
 import { buildRawJob, type RawTarget } from "@printio/shared";
 
+/**
+ * Statuses reported after a successful raw send, in order. The cloud state
+ * machine forbids printing -> completed directly, so a raw job passes through
+ * submitted_to_spooler (here meaning "the printer accepted the bytes").
+ */
+export const RAW_SUCCESS_STATUSES = ["submitted_to_spooler", "completed"] as const;
+
 export const RAW_CONNECT_TIMEOUT_MS = 15_000;
 export const RAW_WRITE_TIMEOUT_MS = 120_000;
 

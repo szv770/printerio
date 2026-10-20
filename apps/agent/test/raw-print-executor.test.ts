@@ -1,8 +1,9 @@
 import net from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildRawJob } from "@printio/shared";
+import { buildRawJob, canTransition, type JobState } from "@printio/shared";
 import {
   RAW_CONNECT_TIMEOUT_MS,
+  RAW_SUCCESS_STATUSES,
   RAW_WRITE_TIMEOUT_MS,
   executeRawPrint,
   sendRawBytes,
@@ -114,5 +115,16 @@ describe("executeRawPrint", () => {
     await new Promise((r) => servers.pop()!.close(() => r(undefined)));
     const res = await executeRawPrint({ raw: raw(port), request: req, pdf });
     expect(res.ok).toBe(false);
+  });
+});
+
+describe("RAW_SUCCESS_STATUSES", () => {
+  it("is a legal chain from 'printing' that ends in 'completed' (the cloud rejects skipping a state)", () => {
+    let current: JobState = "printing";
+    for (const next of RAW_SUCCESS_STATUSES) {
+      expect(canTransition(current, next)).toBe(true);
+      current = next;
+    }
+    expect(current).toBe("completed");
   });
 });

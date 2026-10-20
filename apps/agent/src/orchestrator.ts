@@ -22,7 +22,7 @@ import type { SpoolerMonitor } from "./spooler-monitor.js";
 import { findNewJobId } from "./spooler-monitor.js";
 import type { HealthMonitor } from "./health-monitor.js";
 import { buildPrintSettingsString, executePrint } from "./print-executor.js";
-import { executeRawPrint } from "./raw-print-executor.js";
+import { RAW_SUCCESS_STATUSES, executeRawPrint } from "./raw-print-executor.js";
 import { handleCommand } from "./commands.js";
 import { createSelfUpdateDeps, performSelfUpdate } from "./self-update.js";
 import { DownloadValidationError, PrintExecutionError, SpoolerError } from "./errors.js";
@@ -253,7 +253,9 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           return;
         }
         jobQueue.upsertJob(claimable.jobId, { state: "completed" });
-        await safeReportStatus(claimable.jobId, "completed", "sent to printer raw port", { bytesSent: result.bytesSent });
+        for (const status of RAW_SUCCESS_STATUSES) {
+          await safeReportStatus(claimable.jobId, status, "sent to printer raw port", { bytesSent: result.bytesSent });
+        }
         jobLogger.info("job completed (raw port)", { bytesSent: result.bytesSent });
         return;
       }
