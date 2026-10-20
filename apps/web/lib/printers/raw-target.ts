@@ -73,14 +73,20 @@ interface RawProfileFields {
 /** Maps a printer_profiles row to the Agent's `raw` target, or undefined for queue-mode profiles. */
 export function rawTargetFromProfile(
   profile: RawProfileFields,
-  opts: { jobTitle?: string | null; bindingSide?: "left" | "right" | null },
+  opts: {
+    jobTitle?: string | null;
+    /** The job's own booklet binding side (print_jobs.booklet_binding_side); null/absent = the printer's default. */
+    bindingSide?: "left" | "right" | null;
+    /** The job's own staple corner (print_jobs.staple_position); null/absent = the printer's default. */
+    staplePosition?: StaplePosition | null;
+  },
 ): RawTarget | undefined {
   if (profile.output_mode !== "raw" || !profile.raw_host) return undefined;
   const side = opts.bindingSide ?? (profile.booklet_binding_side === "right" ? "right" : "left");
   return {
     host: profile.raw_host,
     port: profile.raw_port,
-    staplePosition: profile.raw_staple_position === "top-right" ? "top-right" : "top-left",
+    staplePosition: opts.staplePosition ?? (profile.raw_staple_position === "top-right" ? "top-right" : "top-left"),
     bindingSide: side,
     jobName: safeJobName(opts.jobTitle),
   };

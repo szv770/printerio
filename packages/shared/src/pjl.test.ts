@@ -22,10 +22,13 @@ describe("buildPjlSettings", () => {
     expect(r.settings).toContain("QTY=7");
   });
 
-  it("mono sets KCOLORMODE=MONO", () => {
-    const r = buildPjlSettings({ ...base, colorMode: "bw" });
-    if (!r.ok) throw new Error(r.reason);
-    expect(r.settings).toContain("KCOLORMODE=MONO");
+  it("never sends a colour setting until KCOLORMODE=MONO is verified on the printer", () => {
+    // Unverified (see docs/kyocera-raw-print.md); staff prints must keep the printer's default.
+    for (const colorMode of ["bw", "color"] as const) {
+      const r = buildPjlSettings({ ...base, colorMode });
+      if (!r.ok) throw new Error(r.reason);
+      expect(r.settings.join()).not.toContain("KCOLORMODE");
+    }
   });
 
   it("staple maps match the real-printer results (2026-10-19)", () => {

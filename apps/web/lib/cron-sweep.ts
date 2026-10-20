@@ -95,3 +95,13 @@ export function groupJobsByAttemptCount<T extends { id: string; attemptCount: nu
   }
   return [...byCount.entries()].map(([currentAttemptCount, ids]) => ({ currentAttemptCount, ids }));
 }
+
+/**
+ * Of the jobs the sweep just expired, the ones that actually hold a quota
+ * reservation. Only pending_approval jobs reserved quota; a `held` job never
+ * did (print/actions.ts: reservesQuota is false for held), so releasing for
+ * it would quietly free quota held by one of the same member's real jobs.
+ */
+export function jobsHoldingQuota<T extends { status: string }>(jobs: T[]): T[] {
+  return jobs.filter((j) => j.status === "pending_approval");
+}

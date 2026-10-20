@@ -573,6 +573,7 @@ export type Database = {
           approved_at: string | null
           approved_by: string | null
           attempt_count: number
+          booklet_binding_side: string | null
           booklet_padding_added: number
           color_mode: string
           completed_at: string | null
@@ -589,6 +590,7 @@ export type Database = {
           file_size_bytes: number
           files_purged_at: string | null
           finishing: Json
+          held_reason: string | null
           id: string
           is_test_print: boolean
           job_number: string
@@ -598,6 +600,7 @@ export type Database = {
           organization_id: string
           original_file_name: string
           original_file_path: string
+          page_range: string | null
           paper_size: string
           policy_action: string | null
           policy_bypassed_for_admin: boolean
@@ -605,6 +608,7 @@ export type Database = {
           printer_id: string | null
           printer_profile_id: string | null
           source_pdf_pages: number
+          staple_position: string | null
           status: string
           updated_at: string
         }
@@ -612,6 +616,7 @@ export type Database = {
           approved_at?: string | null
           approved_by?: string | null
           attempt_count?: number
+          booklet_binding_side?: string | null
           booklet_padding_added?: number
           color_mode?: string
           completed_at?: string | null
@@ -628,6 +633,7 @@ export type Database = {
           file_size_bytes: number
           files_purged_at?: string | null
           finishing?: Json
+          held_reason?: string | null
           id?: string
           is_test_print?: boolean
           job_number?: string
@@ -637,6 +643,7 @@ export type Database = {
           organization_id: string
           original_file_name: string
           original_file_path: string
+          page_range?: string | null
           paper_size?: string
           policy_action?: string | null
           policy_bypassed_for_admin?: boolean
@@ -644,6 +651,7 @@ export type Database = {
           printer_id?: string | null
           printer_profile_id?: string | null
           source_pdf_pages: number
+          staple_position?: string | null
           status?: string
           updated_at?: string
         }
@@ -651,6 +659,7 @@ export type Database = {
           approved_at?: string | null
           approved_by?: string | null
           attempt_count?: number
+          booklet_binding_side?: string | null
           booklet_padding_added?: number
           color_mode?: string
           completed_at?: string | null
@@ -667,6 +676,7 @@ export type Database = {
           file_size_bytes?: number
           files_purged_at?: string | null
           finishing?: Json
+          held_reason?: string | null
           id?: string
           is_test_print?: boolean
           job_number?: string
@@ -676,6 +686,7 @@ export type Database = {
           organization_id?: string
           original_file_name?: string
           original_file_path?: string
+          page_range?: string | null
           paper_size?: string
           policy_action?: string | null
           policy_bypassed_for_admin?: boolean
@@ -683,6 +694,7 @@ export type Database = {
           printer_id?: string | null
           printer_profile_id?: string | null
           source_pdf_pages?: number
+          staple_position?: string | null
           status?: string
           updated_at?: string
         }

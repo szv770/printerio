@@ -24,6 +24,16 @@ function rejectionReasonFrom(events: { event_type: string; metadata: unknown }[]
   return null;
 }
 
+/** Plain words for what was asked for, from the per-job fields (older jobs have no corner / side stored). */
+function finishingLabel(job: { finishing: unknown; staple_position: string | null; booklet_binding_side: string | null }): string {
+  const f = job.finishing as { staple?: boolean; booklet?: boolean; punch?: boolean } | null;
+  const parts: string[] = [];
+  if (f?.booklet) parts.push(job.booklet_binding_side ? `Booklet, bound on the ${job.booklet_binding_side}` : "Booklet");
+  if (f?.staple) parts.push(job.staple_position ? `Stapled ${job.staple_position}` : "Stapled");
+  if (f?.punch) parts.push("Hole punch");
+  return parts.length > 0 ? parts.join(", ") : "None";
+}
+
 export default async function JobDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   // RLS below still governs actual row visibility; the session is read here
@@ -75,6 +85,16 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         <div>
           <p className="text-[var(--color-muted)]">Pages</p>
           <p className="font-medium">{job.source_pdf_pages}</p>
+        </div>
+        {job.page_range && (
+          <div>
+            <p className="text-[var(--color-muted)]">Page range</p>
+            <p className="font-medium">{job.page_range}</p>
+          </div>
+        )}
+        <div>
+          <p className="text-[var(--color-muted)]">Finishing</p>
+          <p className="font-medium">{finishingLabel(job)}</p>
         </div>
         <div>
           <p className="text-[var(--color-muted)]">Copies</p>

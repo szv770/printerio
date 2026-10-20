@@ -5,3 +5,4 @@ export { Badge } from "./Badge";
 export { PageHeader } from "./PageHeader";
 export { EmptyState } from "./EmptyState";
 export { Skeleton } from "./Skeleton";
+export { Segmented, type SegmentedOption } from "./Segmented";

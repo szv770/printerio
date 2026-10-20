@@ -15,7 +15,7 @@ export default async function PrintPage() {
     supabase
       .from("printer_profiles")
       .select(
-        "id, label, key, description, icon_key, declared_paper_sizes, declared_capabilities, booklet_binding_side, is_default, printers!inner(id, name, organization_id, status)",
+        "id, label, key, description, declared_paper_sizes, declared_capabilities, output_mode, is_default, printers!inner(id, name, organization_id, status)",
       )
       .eq("printers.organization_id", session.membership.organization_id)
       .order("is_default", { ascending: false }),
@@ -32,9 +32,11 @@ export default async function PrintPage() {
 
   const printerProfiles = (profiles ?? []).map((p) => ({
     id: p.id,
-    label: `${p.printers.name} — ${p.label}`,
+    // A raw-port printer is just "the printer" to a member; only Windows-queue printers still need the
+    // profile name to tell several queues on one printer apart.
+    isRaw: p.output_mode === "raw",
+    label: p.output_mode === "raw" ? p.printers.name : `${p.printers.name} — ${p.label}`,
     description: p.description,
-    iconKey: p.icon_key,
     declaredPaperSizes: p.declared_paper_sizes,
     declaredCapabilities: p.declared_capabilities as {
       duplex: boolean;
@@ -43,13 +45,12 @@ export default async function PrintPage() {
       booklet: boolean;
       punch: boolean;
     },
-    bookletBindingSide: p.booklet_binding_side === "right" ? ("right" as const) : ("left" as const),
     printerOnline: p.printers.status === "online",
   }));
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-10">
-      <PageHeader title="Print a document" description="Upload a PDF, choose your printer and options." />
+      <PageHeader title="Print a document" description="Upload a PDF and choose how you want it printed." />
       {/* Always render the form, even with zero printer_profiles - it shows
        *  its own inline notice and disables Submit in that case, rather than
        *  blocking the user from picking a file and preparing everything

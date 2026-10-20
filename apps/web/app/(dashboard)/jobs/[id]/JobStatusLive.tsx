@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { routes } from "@/lib/routes";
 import { jobStatusDisplay } from "@/lib/job-status-labels";
 import { buildJobProgress, jobProgressPosition } from "@/lib/job-progress";
 import { Card } from "@/components/ui";
@@ -119,6 +121,7 @@ export function JobStatusLive({
         policyAction: job.policy_action,
         policyReasons: job.policy_reasons,
         errorMessage: job.error_message,
+        heldReason: job.held_reason,
         rejectionReason,
         attemptCount: job.attempt_count,
         maxAttempts: job.max_attempts,
@@ -218,6 +221,14 @@ export function JobStatusLive({
             </ul>
           )}
         </div>
+      )}
+
+      {job.status === "held" && (
+        <p className="mt-3 text-sm">
+          <Link href={routes.print} className="font-medium text-[var(--color-primary)] underline">
+            Choose your options again
+          </Link>
+        </p>
       )}
 
       {/* Never silent about an override: this job's own policy_action/reasons
