@@ -1,77 +1,101 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
-import { AlertTriangle } from "lucide-react";
-import { computePrintMath } from "@printio/shared";
-import { Button, Input, Select, FieldLabel, FormError, Card } from "@/components/ui";
-import { PRINTER_PROFILE_ICON_COMPONENTS, type PrinterProfileIconKey } from "@/lib/printer-profile-icons";
+import { useActionState, useEffect, useRef, useState, startTransition } from "react";
+import { AlertTriangle, Minus, Plus, Printer } from "lucide-react";
+import { parsePageRange } from "@printio/shared";
+import { Button, Input, Select, FieldLabel, FormError, Card, Segmented } from "@/components/ui";
 import { formatFileSize, precheckPdfHeader, precheckSelectedFile, shouldPreviewInBrowser } from "@/lib/pdf/client-precheck";
 import { activeContentRejectionMessage, findActiveContent } from "@/lib/pdf/active-content";
 import { renderPdfPageToCanvas } from "@/lib/pdf/render-page";
-import { clampOptionsToCapabilities } from "@/lib/print-options";
+import {
+  MAX_COPIES,
+  buildSummary,
+  describeAvailability,
+  type BookletChoice,
+  type SidesChoice,
+  type StapleChoice,
+} from "@/lib/print-choices";
 import { submitPrintJobAction, type SubmitJobState } from "./actions";
 
 // A "use server" file may only export async functions, so this trivial seed
 // value for useActionState lives here instead of alongside the action.
 const initialSubmitJobState: SubmitJobState = {};
 
-interface PrinterProfileOption {
+interface PrinterOption {
   id: string;
+  /** What a member sees. For a raw-port printer this is just the printer's name. */
   label: string;
-  /** Admin-written blurb (printer_profiles.description) - shown under the
-   *  label so a user picks a profile by what it does, not a cryptic internal
-   *  label. Null if the admin never set one. */
   description: string | null;
-  /** printer_profiles.icon_key - one of PRINTER_PROFILE_ICON_KEYS, or null. */
-  iconKey: string | null;
+  /** True when the printer prints on the raw port: colour and paper size are hidden (unverified) and the server derives them. */
+  isRaw: boolean;
   declaredPaperSizes: string[];
   declaredCapabilities: { duplex: boolean; color: boolean; staple: boolean; booklet: boolean; punch: boolean };
-  /** This profile's own stored booklet_binding_side default (only meaningful
-   *  when declaredCapabilities.booklet is true) - prefills the per-job
-   *  override below rather than always showing "left". */
-  bookletBindingSide: "left" | "right";
   printerOnline: boolean;
 }
 
 const THUMBNAIL_MAX_WIDTH_PX = 200;
+const STORAGE_KEY = "printio.print-choices.v1";
 
-/** The live estimate under the form. Returns null (rather than throwing)
- *  whenever there is nothing sensible to estimate - no page count yet, or a
- *  count computePrintMath rejects - since this is a preview and the server
- *  recomputes all of it authoritatively after submission. */
-function safePrintMath(pageCount: number | null, copies: number, duplex: boolean, booklet: boolean) {
-  if (!pageCount || pageCount <= 0) return null;
+interface SavedChoices {
+  profileId?: string;
+  sides?: SidesChoice;
+  staple?: StapleChoice;
+  booklet?: BookletChoice;
+  copies?: number;
+  colorMode?: "bw" | "color";
+  paperSize?: string;
+  punch?: boolean;
+}
+
+/** Remembered choices are a convenience only: any failure (private window, blocked storage, junk) means "no memory". */
+function readSavedChoices(): SavedChoices {
   try {
-    return computePrintMath({ pageCount, copies, duplex, booklet });
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return {};
+    const v = JSON.parse(raw) as Record<string, unknown>;
+    const out: SavedChoices = {};
+    if (typeof v.profileId === "string") out.profileId = v.profileId;
+    if (v.sides === "one" || v.sides === "two") out.sides = v.sides;
+    if (v.staple === "none" || v.staple === "top-left" || v.staple === "top-right") out.staple = v.staple;
+    if (v.booklet === "none" || v.booklet === "left" || v.booklet === "right") out.booklet = v.booklet;
+    if (typeof v.copies === "number" && Number.isInteger(v.copies) && v.copies >= 1 && v.copies <= MAX_COPIES) out.copies = v.copies;
+    if (v.colorMode === "bw" || v.colorMode === "color") out.colorMode = v.colorMode;
+    if (typeof v.paperSize === "string") out.paperSize = v.paperSize;
+    if (typeof v.punch === "boolean") out.punch = v.punch;
+    return out;
   } catch {
-    return null;
+    return {};
   }
 }
 
+function writeSavedChoices(c: SavedChoices) {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(c));
+  } catch {
+    /* storage unavailable - the form just will not remember */
+  }
+}
+
+function clampCopies(n: number): number {
+  return Math.min(MAX_COPIES, Math.max(1, n));
+}
+
 /**
- * V1 scope note: this form shows a LIVE, CLIENT-COMPUTED estimate (page count
- * via a best-effort in-browser PDF parse, sides/sheets via the same pure
- * @printio/shared math used server-side) so the user sees an immediate
- * summary while choosing options - matching the spec's print-submission
- * wireframe. It is explicitly NOT the authoritative policy decision: the
- * frontend never claims "approved"/"requires approval" itself. The real,
- * server-computed page count, print math, and policy decision are only ever
- * produced by submitPrintJobAction, and the user is taken straight to the job
- * status page to see that authoritative result immediately after submitting.
+ * The upload page. Plain choices (sides, staple, booklet, copies, page range) instead of printer-profile names;
+ * what each choice means for the selected printer is decided by lib/print-choices.ts, which the server action
+ * runs again as the authority. The summary is an estimate: the server recomputes the page count, print math and
+ * the approval decision after submitting and the member lands on the job's status page.
  *
- * Layout groups every "how this prints" decision (printer, color, duplex,
- * finishing) into one section, since they're really one decision the user is
- * making, not four unrelated ones - copies/paper size are a separate, lower-
- * priority section below.
+ * Every visible control must do something: colour and paper size are only shown for printers that honour them
+ * (Windows-queue printers); a raw-port printer's colour/paper settings are unverified, so they are hidden.
  */
 export function PrintForm({
   printerProfiles,
   maxUploadBytes,
 }: {
-  printerProfiles: PrinterProfileOption[];
-  /** organization_settings.max_upload_size_bytes, forwarded only so the file
-   *  picker can reject an oversized file instantly. Advisory: print/actions.ts
-   *  re-reads the same setting server-side and is the real gate. */
+  printerProfiles: PrinterOption[];
+  /** organization_settings.max_upload_size_bytes, forwarded only so the file picker can reject an oversized file
+   *  instantly. Advisory: print/actions.ts re-reads the same setting server-side and is the real gate. */
   maxUploadBytes: number;
 }) {
   const [state, formAction, pending] = useActionState(submitPrintJobAction, initialSubmitJobState);
@@ -83,48 +107,106 @@ export function PrintForm({
   const [fileError, setFileError] = useState<string | null>(null);
   const [thumbnailReady, setThumbnailReady] = useState(false);
   const [thumbnailLoading, setThumbnailLoading] = useState(false);
-  /** Set when a file is too large to parse/render safely in the browser (see
-   *  shouldPreviewInBrowser) - the upload itself is unaffected. */
+  /** Set when a file is too large to parse/render safely in the browser (see shouldPreviewInBrowser) - the upload itself is unaffected. */
   const [previewSkipped, setPreviewSkipped] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const bookletConfirmRef = useRef<HTMLDivElement>(null);
-  const [copies, setCopies] = useState(1);
-  const [colorMode, setColorMode] = useState<"bw" | "color">("bw");
-  const [duplex, setDuplex] = useState(true);
-  const [paperSize, setPaperSize] = useState("letter");
-  const [staple, setStaple] = useState(false);
-  const [booklet, setBooklet] = useState(false);
-  const [punch, setPunch] = useState(false);
-  // null = "use the selected profile's own default" (bookletBindingSide
-  // below resolves it); set explicitly once the user touches the override
-  // control. Reset to null whenever the profile changes so switching
-  // printers re-derives from the newly-selected profile's own default
-  // rather than carrying over a stale explicit choice.
-  const [bindingSideOverride, setBindingSideOverride] = useState<"left" | "right" | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  /** True only while the member's explicit click on "Add blank pages & print" is submitting the form. */
+  const confirmingRef = useRef(false);
+  /** Bumped whenever a different file is picked, so the booklet prompt below cannot outlive the file it asked about. */
+  const [fileVersion, setFileVersion] = useState(0);
+  /** What the form looked like when the server last asked the padding question (null = not asked / cleared). */
+  const [askedSignature, setAskedSignature] = useState<string | null>(null);
+  /** The server response whose booklet prompt the member cancelled - that response's prompt stays hidden. */
+  const [dismissedState, setDismissedState] = useState<SubmitJobState | null>(null);
+  /** Set by a refused submit (Enter pressed while the form is invalid); cleared by the next valid submit. */
+  const [clientError, setClientError] = useState<string | null>(null);
 
-  const profile = printerProfiles.find((p) => p.id === profileId);
-  const bookletBindingSide = bindingSideOverride ?? profile?.bookletBindingSide ?? "left";
+  const [sides, setSides] = useState<SidesChoice>("two");
+  const [staple, setStaple] = useState<StapleChoice>("none");
+  const [booklet, setBooklet] = useState<BookletChoice>("none");
+  const [copiesText, setCopiesText] = useState("1");
+  const [pageRange, setPageRange] = useState("");
+  const [colorMode, setColorMode] = useState<"bw" | "color">("bw");
+  const [paperSize, setPaperSize] = useState("letter");
+  const [punch, setPunch] = useState(false);
+  /** False until the remembered choices have been read, so the first render never overwrites them. */
+  const [restored, setRestored] = useState(false);
+
+  const profile = printerProfiles.find((p) => p.id === profileId) ?? printerProfiles[0];
+  const hasPrinters = printerProfiles.length > 0;
+  const isRaw = profile?.isRaw ?? false;
+  // With no printer at all the form is a preview only (Submit is disabled), so nothing is greyed out.
+  const caps = profile?.declaredCapabilities ?? { duplex: true, color: true, staple: true, booklet: true, punch: true };
+
+  // Restore the member's last choices after mount (never during the first render: it would not match the
+  // server-rendered HTML). A timer rather than a direct setState keeps this out of the render/commit cascade.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const saved = readSavedChoices();
+      if (saved.profileId && printerProfiles.some((p) => p.id === saved.profileId)) setProfileId(saved.profileId);
+      if (saved.sides) setSides(saved.sides);
+      if (saved.staple) setStaple(saved.staple);
+      if (saved.booklet) setBooklet(saved.booklet);
+      if (saved.copies) setCopiesText(String(saved.copies));
+      if (saved.colorMode) setColorMode(saved.colorMode);
+      if (saved.paperSize) setPaperSize(saved.paperSize);
+      if (typeof saved.punch === "boolean") setPunch(saved.punch);
+      setRestored(true);
+    }, 0);
+    return () => clearTimeout(t);
+    // Runs once; the printer list does not change while the page is open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const copiesNumber = /^\d+$/.test(copiesText.trim()) ? parseInt(copiesText, 10) : NaN;
+  const copiesValid = Number.isInteger(copiesNumber) && copiesNumber >= 1 && copiesNumber <= MAX_COPIES;
+  const copies = copiesValid ? copiesNumber : 1;
+
+  useEffect(() => {
+    if (!restored) return;
+    writeSavedChoices({ profileId, sides, staple, booklet, copies, colorMode, paperSize, punch });
+  }, [restored, profileId, sides, staple, booklet, copies, colorMode, paperSize, punch]);
 
   /**
-   * What the form will actually submit, given what the selected profile
-   * declares it can do. Rendered instead of the raw state above so a control
-   * can never be shown ticked while being `disabled` (and therefore omitted
-   * from the FormData entirely) - see lib/print-options.ts for the real bug
-   * that caused. The raw choice stays in state, so switching back to a
-   * capable profile restores it.
+   * What the form will actually submit, given what the selected printer can do. The raw picks stay in state, so
+   * switching back to a printer that supports an option restores it; but what is shown and sent is always the
+   * effective value, so the page never shows something it will not do.
    */
-  const effective = clampOptionsToCapabilities(
-    { colorMode, duplex, staple, booklet, punch },
-    profile?.declaredCapabilities ?? null,
-  );
+  const exclusive = isRaw; // only a raw-port printer cannot combine a booklet with a corner staple
+  const effBooklet: BookletChoice = describeAvailability({ staple, booklet }, caps, { exclusive }).bookletDisabledReason ? "none" : booklet;
+  const effStaple: StapleChoice = describeAvailability({ staple, booklet: effBooklet }, caps, { exclusive }).stapleDisabledReason
+    ? "none"
+    : isRaw
+      ? staple
+      : staple === "none"
+        ? "none"
+        : "top-left";
+  const avail = describeAvailability({ staple: effStaple, booklet: effBooklet }, caps, { exclusive });
+  const effSides: SidesChoice = avail.sidesLocked ? "two" : caps.duplex ? sides : "one";
 
-  function onProfileChange(id: string) {
-    setProfileId(id);
-    setBindingSideOverride(null);
-  }
+  // The page range, checked as far as the browser can (the server checks it again against the real document).
+  const rangeText = pageRange.trim();
+  const rangeCheck = rangeText && estimatedPages ? parsePageRange(rangeText, estimatedPages) : null;
+  const rangeError = (rangeCheck && !rangeCheck.ok ? rangeCheck.reason : null) ?? state.fieldErrors?.pageRange ?? null;
+  const selectedPages = rangeCheck?.ok ? rangeCheck.pages.length : rangeText && !estimatedPages ? null : estimatedPages;
+  const summary = buildSummary({ pages: selectedPages, copies, sides: effSides, staple: effStaple, booklet: effBooklet });
 
-  /** Clears the picked file and explains why, so the user can't sit through a
-   *  slow upload of something the server was always going to reject. */
+  // The padding question belongs to one exact set of choices. Server action state is never cleared, so the prompt
+  // only shows while the form still matches what was submitted and the member has not cancelled that answer.
+  const formSignature = JSON.stringify([fileVersion, profileId, effBooklet, effSides, effStaple, copiesText.trim(), rangeText]);
+  const needsBookletConfirm =
+    state.needsBookletConfirm && askedSignature === formSignature && dismissedState !== state ? state.needsBookletConfirm : undefined;
+  const serverError = state.error && state.error !== state.fieldErrors?.pageRange ? state.error : null;
+
+  // The booklet padding question replaces the Submit button. On a phone the button the user just tapped is at
+  // the bottom of the viewport and the question appears above it, so without this it reads as "nothing happened".
+  useEffect(() => {
+    if (needsBookletConfirm) bookletConfirmRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [needsBookletConfirm]);
+
+  /** Clears the picked file and explains why, so the user can't sit through a slow upload of something the server was always going to reject. */
   function rejectSelectedFile(input: HTMLInputElement, reason: string) {
     input.value = "";
     setFileName(null);
@@ -138,6 +220,7 @@ export function PrintForm({
   async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const input = e.target;
     const file = input.files?.[0];
+    setFileVersion((v) => v + 1);
     setEstimatedPages(null);
     setFileError(null);
     setFileName(file?.name ?? null);
@@ -146,22 +229,17 @@ export function PrintForm({
     setPreviewSkipped(false);
     if (!file) return;
 
-    // Advisory only - lib/pdf/preflight.ts re-runs all of this server-side on
-    // the real bytes and stays the only source of truth. The point is purely
-    // that an empty/oversized/non-PDF file is knowable the instant it's
-    // picked, instead of after a multi-minute upload on a school connection.
+    // Advisory only - lib/pdf/preflight.ts re-runs all of this server-side on the real bytes and stays the only
+    // source of truth. The point is that an empty/oversized/non-PDF file is knowable the instant it's picked.
     const metaCheck = precheckSelectedFile(file, maxUploadBytes);
     if (!metaCheck.ok) {
       rejectSelectedFile(input, metaCheck.reason);
       return;
     }
 
-    // Everything below reads the whole file into the tab and then parses it
-    // twice (pdf-lib for the page count, pdfjs-dist for the thumbnail). On a
-    // phone that is enough to get the tab killed on a large scan, which the
-    // user experiences as the page erroring on a file the server would have
-    // accepted. Over the threshold, skip all of it and say so - the upload
-    // and the server's own authoritative preflight are unaffected.
+    // Everything below reads the whole file into the tab and parses it twice (pdf-lib for the page count,
+    // pdfjs-dist for the thumbnail). Over the threshold, skip all of it - the upload and the server's own
+    // preflight are unaffected.
     if (!shouldPreviewInBrowser(file.size)) {
       setPreviewSkipped(true);
       return;
@@ -185,11 +263,7 @@ export function PrintForm({
       const doc = await PDFDocument.load(bytes, { updateMetadata: false });
       setEstimatedPages(doc.getPageCount());
 
-      // Advisory, exactly like every other check in this handler: the server
-      // re-runs findActiveContent on the real bytes in lib/pdf/preflight.ts
-      // and is the only thing that actually decides. Doing it here as well
-      // just means a PDF carrying JavaScript/a launch action/an attachment is
-      // refused the instant it's picked, rather than after the whole upload.
+      // Advisory, like every other check here: the server re-runs findActiveContent in lib/pdf/preflight.ts.
       const activeContent = findActiveContent(doc);
       if (activeContent.length > 0) {
         rejectSelectedFile(input, activeContentRejectionMessage(activeContent));
@@ -207,42 +281,50 @@ export function PrintForm({
     }
   }
 
-  // Passed the CLAMPED duplex/booklet, so the estimate matches what will
-  // actually be submitted rather than what was ticked on a profile that
-  // can't do it. Left as a plain call (no useMemo): it is a couple of
-  // arithmetic operations, and the React Compiler memoizes it as well as a
-  // hand-written dependency list would - better, since `effective` is a
-  // fresh object each render and would have defeated a manual one.
-  const preview = safePrintMath(estimatedPages, copies, effective.duplex, effective.booklet);
+  const canSubmit = hasPrinters && !rangeError && copiesValid && !fileError;
 
-  const needsBookletConfirm = state.needsBookletConfirm;
+  /**
+   * Submitted by hand (not `<form action>`): React 19 resets an uncontrolled form after an action finishes,
+   * which would empty the file picker whenever the server answers with an error or the booklet-padding question,
+   * and "your file is still selected" would not be true. No submitter is read: confirmBookletPadding is added
+   * only when the member explicitly clicked the confirm button (confirmingRef), never because Enter in a text
+   * field happened to activate some submit button.
+   */
+  function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (pending) return;
+    if (!canSubmit) {
+      // The inline messages (copies, pages, file) are already on screen; this covers what has no field of its own.
+      setClientError(
+        !hasPrinters
+          ? "No printer is connected yet."
+          : fileError
+            ? fileError
+            : !copiesValid
+              ? `Enter a number of copies from 1 to ${MAX_COPIES}.`
+              : (rangeError ?? "Check the highlighted fields and try again."),
+      );
+      return;
+    }
+    setClientError(null);
+    const data = new FormData(e.currentTarget);
+    if (confirmingRef.current && needsBookletConfirm) data.set("confirmBookletPadding", "true");
+    setAskedSignature(formSignature);
+    startTransition(() => formAction(data));
+  }
 
-  // The booklet padding question replaces the Submit button further down the
-  // page. On a phone the button the user just tapped is at the bottom of the
-  // viewport and the question appears above it, so without this it reads as
-  // "I pressed Submit and nothing happened".
-  useEffect(() => {
-    if (needsBookletConfirm) bookletConfirmRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [needsBookletConfirm]);
-
-  // No printer_profiles configured for this org yet (e.g. the Agent isn't
-  // connected, or an admin hasn't added a profile). Rather than hiding the
-  // whole form (the previous behavior - see print/page.tsx), still let a
-  // user pick a file and set up everything except the printer itself, so
-  // they aren't blocked from preparing a job just because nobody's finished
-  // the printer setup - they just can't submit until one exists.
-  const hasPrinters = printerProfiles.length > 0;
-
-  const anyFinishingDisabled =
-    !profile?.declaredCapabilities.duplex ||
-    !profile?.declaredCapabilities.color ||
-    !profile?.declaredCapabilities.staple ||
-    !profile?.declaredCapabilities.booklet ||
-    !profile?.declaredCapabilities.punch;
+  function confirmBookletPadding() {
+    confirmingRef.current = true;
+    try {
+      formRef.current?.requestSubmit();
+    } finally {
+      confirmingRef.current = false;
+    }
+  }
 
   return (
-    <form action={formAction} className="flex flex-col gap-6">
-      <div>
+    <form ref={formRef} onSubmit={onSubmit} className="flex flex-col gap-5">
+      <Card className="flex flex-col gap-3">
         <FieldLabel htmlFor="file">Document</FieldLabel>
         <div className="flex items-start gap-4" data-tour="print-file-picker">
           <input
@@ -252,11 +334,10 @@ export function PrintForm({
             accept="application/pdf"
             required
             onChange={onFileChange}
-            className="block w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-sm"
+            className="block w-full min-w-0 rounded-xl border border-dashed border-[var(--color-border)] bg-[var(--color-bg)] p-3 text-sm file:mr-3 file:min-h-11 file:cursor-pointer file:rounded-lg file:border-0 file:bg-[var(--color-primary)] file:px-4 file:py-2 file:text-sm file:font-medium file:text-[var(--color-primary-fg)]"
           />
-          {/* Canvas always mounted (just hidden when empty) so its ref is
-           *  available the moment a file is chosen - no render-order race
-           *  with the async thumbnail draw. */}
+          {/* Canvas always mounted (just hidden when empty) so its ref is available the moment a file is chosen - no
+           *  render-order race with the async thumbnail draw. */}
           <div
             className="flex h-24 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--color-border)] bg-gray-50"
             data-tour="print-preview"
@@ -269,240 +350,307 @@ export function PrintForm({
             )}
           </div>
         </div>
-        {fileError && <p className="mt-2 text-sm text-[var(--color-danger)]">{fileError}</p>}
+        {fileError && <p className="text-sm text-[var(--color-danger)]">{fileError}</p>}
         {!fileError && estimatedPages !== null && (
-          <p className="mt-1 text-xs text-[var(--color-muted)]">
-            Estimated {estimatedPages} page(s){fileSizeLabel ? ` · ${fileSizeLabel}` : ""}.
+          <p className="text-xs text-[var(--color-muted)]">
+            {estimatedPages} {estimatedPages === 1 ? "page" : "pages"}
+            {fileSizeLabel ? ` · ${fileSizeLabel}` : ""}
           </p>
         )}
         {!fileError && previewSkipped && (
-          <p className="mt-1 text-xs text-[var(--color-muted)]">
+          <p className="text-xs text-[var(--color-muted)]">
             {fileSizeLabel ? `${fileSizeLabel} · ` : ""}too large to preview here - it will still upload and print
-            normally, and the page count is confirmed by the server after you submit.
+            normally, and the page count is confirmed after you submit.
           </p>
         )}
-      </div>
+      </Card>
 
-      <Card>
-        <p className="mb-3 text-sm font-medium">How it prints</p>
-        <div className="flex flex-col gap-4">
-          <fieldset className="flex flex-col gap-2" data-tour="print-printer-fieldset">
-            <legend className="mb-1 text-sm font-medium">Printer</legend>
-            {!hasPrinters && (
-              <div className="flex items-start gap-2 rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-3 text-sm">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-warning)]" />
-                <span>
-                  No printer is connected to your organization yet. You can still pick a file and set everything up
-                  below - submitting just isn&apos;t possible until an administrator adds one under Admin &rarr;
-                  Printers.
-                </span>
-              </div>
-            )}
-            {/* Icon + description shown per option (not a plain <select>) so a
-             *  user picks a profile by what it actually does - duplex,
-             *  color, booklet, etc. - rather than a cryptic internal label. */}
-            {printerProfiles.map((p) => {
-              const Icon = p.iconKey ? PRINTER_PROFILE_ICON_COMPONENTS[p.iconKey as PrinterProfileIconKey] : null;
-              return (
-                <label
-                  key={p.id}
-                  className={`flex items-start gap-3 rounded-lg border p-3 text-sm ${
-                    profileId === p.id ? "border-[var(--color-primary)] bg-[var(--color-primary)]/5" : "border-[var(--color-border)]"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="printerProfileId"
-                    value={p.id}
-                    checked={profileId === p.id}
-                    onChange={() => onProfileChange(p.id)}
-                    className="mt-0.5"
-                  />
-                  {Icon && <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-muted)]" />}
-                  <span className="flex flex-col">
-                    <span className="font-medium">
-                      {p.label}
-                      {!p.printerOnline ? " (offline)" : ""}
-                    </span>
-                    {p.description && <span className="text-xs text-[var(--color-muted)]">{p.description}</span>}
-                  </span>
-                </label>
-              );
-            })}
-          </fieldset>
-
-          <fieldset className="flex flex-col gap-2">
-            <legend className="mb-1 text-sm font-medium">Color</legend>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="radio"
-                name="colorMode"
-                value="bw"
-                checked={effective.colorMode === "bw"}
-                onChange={() => setColorMode("bw")}
-              />
-              Black &amp; white
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="radio"
-                name="colorMode"
-                value="color"
-                checked={effective.colorMode === "color"}
-                onChange={() => setColorMode("color")}
-                disabled={!profile?.declaredCapabilities.color}
-              />
-              Color
-            </label>
-          </fieldset>
-
-          {/* Every box below is `checked={effective.x}`, not the raw request:
-           *  a disabled control is not submitted at all, so showing one ticked
-           *  would promise something the job then wouldn't do (see
-           *  lib/print-options.ts). */}
-          <div className="flex flex-col gap-2 text-sm">
-            <label className="flex items-center gap-2">
-              <input type="checkbox" name="duplex" checked={effective.duplex} onChange={(e) => setDuplex(e.target.checked)} disabled={!profile?.declaredCapabilities.duplex} />
-              Double-sided (duplex)
-            </label>
-            <label className="flex items-center gap-2">
-              <input type="checkbox" name="staple" checked={effective.staple} onChange={(e) => setStaple(e.target.checked)} disabled={!profile?.declaredCapabilities.staple} />
-              Staple
-            </label>
-            <label className="flex items-center gap-2">
-              <input type="checkbox" name="booklet" checked={effective.booklet} onChange={(e) => setBooklet(e.target.checked)} disabled={!profile?.declaredCapabilities.booklet} />
-              Booklet
-            </label>
-            <label className="flex items-center gap-2">
-              <input type="checkbox" name="punch" checked={effective.punch} onChange={(e) => setPunch(e.target.checked)} disabled={!profile?.declaredCapabilities.punch} />
-              Hole punch
-            </label>
+      {/* Always rendered (the tour points at it), but it only asks for a choice when there is one to make. */}
+      <fieldset className="flex flex-col gap-2" data-tour="print-printer-fieldset">
+        <legend className="mb-1 text-sm font-medium">Printer</legend>
+        {!hasPrinters && (
+          <div className="flex items-start gap-2 rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-3 text-sm">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-warning)]" />
+            <span>
+              No printer is connected yet. You can still pick a file and set everything up below - printing isn&apos;t
+              possible until an administrator adds one under Admin &rarr; Printers.
+            </span>
           </div>
+        )}
+        {printerProfiles.length === 1 && profile && (
+          <>
+            <input type="hidden" name="printerProfileId" value={profile.id} />
+            <div className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-sm">
+              <Printer className="h-5 w-5 shrink-0 text-[var(--color-muted)]" aria-hidden />
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate font-medium">{profile.label}</span>
+                {profile.description && <span className="text-xs text-[var(--color-muted)]">{profile.description}</span>}
+              </span>
+              <span className={`ml-auto shrink-0 text-xs ${profile.printerOnline ? "text-[var(--color-success)]" : "text-[var(--color-muted)]"}`}>
+                {profile.printerOnline ? "Ready" : "Offline"}
+              </span>
+            </div>
+          </>
+        )}
+        {printerProfiles.length > 1 &&
+          printerProfiles.map((p) => (
+            <label
+              key={p.id}
+              className={`flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border p-3 text-sm ${
+                profile?.id === p.id ? "border-[var(--color-primary)] bg-[var(--color-primary)]/5" : "border-[var(--color-border)]"
+              }`}
+            >
+              <input
+                type="radio"
+                name="printerProfileId"
+                value={p.id}
+                checked={profile?.id === p.id}
+                onChange={() => setProfileId(p.id)}
+                className="mt-0.5"
+              />
+              <span className="flex flex-col">
+                <span className="font-medium">
+                  {p.label}
+                  {!p.printerOnline ? " (offline)" : ""}
+                </span>
+                {p.description && <span className="text-xs text-[var(--color-muted)]">{p.description}</span>}
+              </span>
+            </label>
+          ))}
+      </fieldset>
 
-          {profile?.declaredCapabilities.booklet && (
+      <Card className="flex flex-col gap-5" data-tour="print-options">
+        <Segmented<SidesChoice>
+          name="sides"
+          label="Sides"
+          value={effSides}
+          onChange={setSides}
+          options={[
+            { value: "one", label: "Single-sided", disabledReason: avail.sidesLocked ? "A booklet is always double-sided." : null },
+            { value: "two", label: "Double-sided", disabledReason: caps.duplex ? null : "This printer can't print double-sided." },
+          ]}
+          hint={avail.sidesLocked ? "A booklet is always double-sided." : !caps.duplex ? "This printer prints single-sided only." : undefined}
+        />
+
+        <Segmented<StapleChoice>
+          name="staple"
+          label="Staple"
+          value={effStaple}
+          onChange={setStaple}
+          disabled={!!avail.stapleDisabledReason}
+          options={
+            isRaw
+              ? [
+                  { value: "none", label: "None" },
+                  { value: "top-left", label: "Top-left" },
+                  { value: "top-right", label: "Top-right" },
+                ]
+              : [
+                  { value: "none", label: "None" },
+                  { value: "top-left", label: "Staple" },
+                ]
+          }
+          hint={avail.stapleDisabledReason ?? undefined}
+        />
+
+        <Segmented<BookletChoice>
+          name="booklet"
+          label="Booklet"
+          value={effBooklet}
+          onChange={setBooklet}
+          disabled={!!avail.bookletDisabledReason}
+          options={[
+            { value: "none", label: "None" },
+            { value: "left", label: "Left edge" },
+            { value: "right", label: "Right edge" },
+          ]}
+          hint={
+            avail.bookletDisabledReason ??
+            (effBooklet === "none"
+              ? "Folds and staples the pages into a booklet. Left edge reads left-to-right; right edge is for right-to-left languages such as Hebrew."
+              : effBooklet === "left"
+                ? "Bound on the left edge, like an English book."
+                : "Bound on the right edge, like a Hebrew book.")
+          }
+        />
+
+        {!isRaw && (
+          <>
+            <Segmented<"bw" | "color">
+              name="colorMode"
+              label="Colour"
+              value={caps.color ? colorMode : "bw"}
+              onChange={setColorMode}
+              options={[
+                { value: "bw", label: "Black & white" },
+                { value: "color", label: "Colour", disabledReason: caps.color ? null : "This printer can't print in colour." },
+              ]}
+            />
             <div>
-              <FieldLabel
-                htmlFor="bookletBindingSide"
-                hint="most jobs should use the profile's own default - only change this for a one-off LTR/RTL exception"
-              >
-                Booklet binding side
-              </FieldLabel>
+              <FieldLabel htmlFor="paperSize">Paper size</FieldLabel>
               <Select
-                id="bookletBindingSide"
-                name="bookletBindingSide"
-                value={bookletBindingSide}
-                onChange={(e) => setBindingSideOverride(e.target.value === "right" ? "right" : "left")}
+                id="paperSize"
+                name="paperSize"
+                value={profile?.declaredPaperSizes.includes(paperSize) ? paperSize : (profile?.declaredPaperSizes[0] ?? "letter")}
+                onChange={(e) => setPaperSize(e.target.value)}
+                className="min-h-11"
               >
-                <option value="left">Left edge binding (LTR reading)</option>
-                <option value="right">Right edge binding (RTL reading, e.g. Hebrew)</option>
+                {(profile?.declaredPaperSizes.length ? profile.declaredPaperSizes : ["letter"]).map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
               </Select>
             </div>
-          )}
+            {caps.punch && (
+              <label className="flex min-h-11 items-center gap-3 text-sm font-medium">
+                <input type="checkbox" name="punch" checked={punch} onChange={(e) => setPunch(e.target.checked)} className="h-5 w-5" />
+                Hole punch
+              </label>
+            )}
+          </>
+        )}
 
-          {anyFinishingDisabled && (
-            <p className="text-xs text-[var(--color-muted)]">
-              Options shown greyed out aren&apos;t supported by the selected printer - choose a different printer above if you need them.
-            </p>
-          )}
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+          <div>
+            <FieldLabel htmlFor="copies">Copies</FieldLabel>
+            <div className="flex items-stretch gap-2">
+              <button
+                type="button"
+                aria-label="Fewer copies"
+                disabled={!copiesValid || copies <= 1}
+                onClick={() => setCopiesText(String(clampCopies(copies - 1)))}
+                className="flex min-h-11 w-11 items-center justify-center rounded-lg border border-[var(--color-border)] hover:bg-[var(--color-bg)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Minus className="h-4 w-4" />
+              </button>
+              <Input
+                id="copies"
+                name="copies"
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                value={copiesText}
+                aria-invalid={!copiesValid}
+                aria-describedby={copiesValid ? undefined : "copies-error"}
+                onChange={(e) => setCopiesText(e.target.value)}
+                onBlur={() => copiesValid && setCopiesText(String(copies))}
+                className="min-h-11 text-center"
+              />
+              <button
+                type="button"
+                aria-label="More copies"
+                disabled={copiesValid && copies >= MAX_COPIES}
+                onClick={() => setCopiesText(String(clampCopies(copies + 1)))}
+                className="flex min-h-11 w-11 items-center justify-center rounded-lg border border-[var(--color-border)] hover:bg-[var(--color-bg)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+            {!copiesValid && (
+              <p id="copies-error" className="mt-1.5 text-xs text-[var(--color-danger)]">
+                Enter a number from 1 to {MAX_COPIES}.
+              </p>
+            )}
+          </div>
+
+          <div>
+            <FieldLabel htmlFor="pageRange" hint="(optional)">
+              Pages
+            </FieldLabel>
+            <Input
+              id="pageRange"
+              name="pageRange"
+              type="text"
+              autoComplete="off"
+              placeholder="All pages, or e.g. 1-5, 8"
+              value={pageRange}
+              aria-invalid={!!rangeError}
+              aria-describedby={rangeError ? "pageRange-error" : undefined}
+              onChange={(e) => setPageRange(e.target.value)}
+              className="min-h-11"
+            />
+            {rangeError ? (
+              <p id="pageRange-error" className="mt-1.5 text-xs text-[var(--color-danger)]">
+                {rangeError}
+              </p>
+            ) : (
+              <p className="mt-1.5 text-xs text-[var(--color-muted)]">Leave empty to print the whole document.</p>
+            )}
+          </div>
         </div>
       </Card>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <FieldLabel htmlFor="copies">Copies</FieldLabel>
-          <Input
-            id="copies"
-            type="number"
-            name="copies"
-            min={1}
-            max={99}
-            value={copies}
-            onChange={(e) => setCopies(Math.max(1, parseInt(e.target.value, 10) || 1))}
-          />
+      {/* Summary + submit stay in view at the bottom of a phone screen while the options above are changed. */}
+      <div className="sticky bottom-3 z-10 flex flex-col gap-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]/95 p-4 shadow-lg backdrop-blur">
+        <div aria-live="polite">
+          {summary ? (
+            <>
+              <p className="text-2xl font-semibold leading-tight">
+                {summary.sheets} {summary.sheets === 1 ? "sheet" : "sheets"}
+              </p>
+              <p className="mt-0.5 text-sm text-[var(--color-muted)]">{summary.text}</p>
+              {summary.blankPagesAdded > 0 && (
+                <p className="mt-0.5 text-xs text-[var(--color-muted)]">
+                  Includes {summary.blankPagesAdded} blank {summary.blankPagesAdded === 1 ? "page" : "pages"} to fill the booklet.
+                </p>
+              )}
+              <p className="mt-1 text-xs text-[var(--color-muted)]">
+                Final page count and any approval needed are confirmed after you submit.
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-[var(--color-muted)]">
+              {rangeText && !estimatedPages
+                ? "The page count is confirmed after you submit."
+                : "Choose a document to see how many sheets this will use."}
+            </p>
+          )}
         </div>
-        <div>
-          <FieldLabel htmlFor="paperSize">Paper size</FieldLabel>
-          <Select id="paperSize" name="paperSize" value={paperSize} onChange={(e) => setPaperSize(e.target.value)}>
-            {(profile?.declaredPaperSizes ?? ["letter"]).map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </Select>
-        </div>
-      </div>
 
-      {preview && (
-        <Card className="text-sm">
-          <p className="font-medium">Estimated usage</p>
-          <p>{preview.printedSides} printed sides</p>
-          <p>{preview.physicalSheets} physical sheets</p>
-          <p className="mt-1 text-xs text-[var(--color-muted)]">
-            Final page count, print math, and approval decision are confirmed by the server after you submit.
-          </p>
-        </Card>
-      )}
-
-      {needsBookletConfirm && (
-        <div ref={bookletConfirmRef} className="rounded-lg border border-[var(--color-warning)] bg-yellow-50 p-4 text-sm">
-          <p className="font-medium">
-            This document has {needsBookletConfirm.sourcePages} pages. Booklet printing needs a multiple of 4.
-          </p>
-          <p className="mt-1">Add {needsBookletConfirm.blankPagesAdded} blank page(s) to make {needsBookletConfirm.paddedPages}?</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => setBooklet(false)}>
-              Cancel booklet
-            </Button>
-            {/* A submit button's own name/value is included in the FormData
-                by native browser form semantics when it's the element that
-                triggered submission - this is deliberately NOT done via React
-                state, since a state update from onClick is not guaranteed to
-                flush into the DOM before the browser reads form fields for
-                the same-tick native submission.
-
-                `pending` matters here specifically because this confirmation
-                re-uploads the whole file: a double-tap (easy to do on a phone,
-                where nothing about the button's appearance changes on press)
-                would otherwise submit two identical jobs and print the
-                booklet twice. */}
-            <Button
-              type="submit"
-              name="confirmBookletPadding"
-              value="true"
-              size="sm"
-              pending={pending}
-              pendingLabel="Submitting..."
-            >
-              Add blank pages &amp; submit
-            </Button>
+        {needsBookletConfirm && (
+          <div ref={bookletConfirmRef} className="rounded-lg border border-[var(--color-warning)] bg-yellow-50 p-3 text-sm">
+            <p className="font-medium">
+              {needsBookletConfirm.sourcePages} {needsBookletConfirm.sourcePages === 1 ? "page" : "pages"} to print. A booklet needs a multiple of 4.
+            </p>
+            <p className="mt-1">
+              Add {needsBookletConfirm.blankPagesAdded} blank {needsBookletConfirm.blankPagesAdded === 1 ? "page" : "pages"} to make {needsBookletConfirm.paddedPages}?
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => {
+                  setBooklet("none");
+                  setDismissedState(state);
+                }}>
+                Cancel booklet
+              </Button>
+              {/* type="button": only this click (via confirmBookletPadding) ever sends confirmBookletPadding=true.
+                  Enter in Copies/Pages submits nothing while this question is open (no submit button exists).
+                  `pending` matters because this re-uploads the whole file: a double-tap would otherwise print the
+                  booklet twice. */}
+              <Button type="button" size="sm" pending={pending} pendingLabel="Submitting..." onClick={confirmBookletPadding}>
+                Add blank pages &amp; print
+              </Button>
+            </div>
+            <p className="mt-2 text-xs text-[var(--color-muted)]">Your file is still selected - confirming re-sends it with the blank pages added.</p>
           </div>
-          <p className="mt-2 text-xs text-[var(--color-muted)]">
-            Your file is still selected - confirming re-sends it with the blank pages added.
-          </p>
-        </div>
-      )}
+        )}
 
-      <FormError message={state.error} />
+        <FormError message={clientError ?? serverError} />
 
-      {!needsBookletConfirm && (
-        <div>
+        {!needsBookletConfirm && (
           <Button
             type="submit"
             data-tour="print-submit-button"
             pending={pending}
-            pendingLabel="Submitting..."
-            disabled={!hasPrinters}
+            pendingLabel="Sending..."
+            disabled={!canSubmit}
+            className="w-full min-h-12"
             title={hasPrinters ? undefined : "No printer is connected yet - see the notice above."}
           >
-            Submit Job
+            Print
           </Button>
-          {!hasPrinters && (
-            <p className="mt-1 text-xs text-[var(--color-muted)]">
-              Submitting is disabled until your organization has at least one printer connected.
-            </p>
-          )}
-        </div>
-      )}
+        )}
+      </div>
     </form>
   );
 }

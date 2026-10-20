@@ -9,15 +9,22 @@ import { routes } from "@/lib/routes";
 import { preflightPdf } from "@/lib/pdf/preflight";
 import { createBookletPaddedPdf } from "@/lib/pdf/booklet";
 import { imposeBookletPdf, resolvePaperSizePoints } from "@/lib/pdf/imposition";
-import { computePrintMath, computeCostCents, computeBookletPadding, type PricingConfig, type OrgRole } from "@printio/shared";
+import { computePrintMath, computeCostCents, computeBookletPadding, type PolicyAction, type PricingConfig, type OrgRole } from "@printio/shared";
+import { createPageSubsetPdf } from "@/lib/pdf/page-subset";
+import { checkQueueCapabilities, mapQueueChoices, mapRawChoices, parseChoices, planPageSubset, type BindingSide, type PrintChoices } from "@/lib/print-choices";
 import { evaluateJobPolicy } from "@/lib/policy/build-facts";
 import { didBypassChangeOutcome, isAdminExemptFromRestrictions } from "@/lib/policy/admin-bypass";
 import { adjustMonthlyUsage, usageAmountsForJob, type UsageAmounts } from "@/lib/quota";
 import { jobFilePath, PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 
+/** A held job waits for its sender (or an admin) for this long before it is cancelled with a note. */
+const HELD_EXPIRY_HOURS = 7 * 24;
+
 export interface SubmitJobState {
   error?: string;
+  /** Errors that belong next to one field of the form (the page range today). */
+  fieldErrors?: { pageRange?: string };
   needsBookletConfirm?: {
     sourcePages: number;
     paddedPages: number;
@@ -27,19 +34,13 @@ export interface SubmitJobState {
 
 interface JobOptions {
   printerProfileId: string;
-  copies: number;
+  /** The upload page's plain choices (sides / staple / booklet / copies / page range). */
+  choices: PrintChoices;
+  /** Queue-mode printers only: raw printers hide these controls, and the server derives them itself. */
   colorMode: "bw" | "color";
-  duplex: boolean;
   paperSize: string;
-  staple: boolean;
-  booklet: boolean;
   punch: boolean;
   confirmBookletPadding: boolean;
-  /** Per-job override of the target printer_profile's own
-   *  booklet_binding_side (PrintForm.tsx's binding-side select, shown only
-   *  for a booklet-capable profile). Undefined = use the profile's stored
-   *  default - see the bindingSide resolution below. */
-  bindingSideOverride?: "left" | "right";
 }
 
 /**
@@ -60,7 +61,7 @@ async function createPrintJob(
   opts: JobOptions,
 ): Promise<SubmitJobState> {
   const organizationId = session.membership.organization_id;
-  const { printerProfileId, copies, colorMode, duplex, paperSize, staple, booklet, punch, confirmBookletPadding, bindingSideOverride } = opts;
+  const { printerProfileId, choices, confirmBookletPadding } = opts;
 
   if (!printerProfileId) return { error: "Choose a printer." };
 
@@ -91,6 +92,47 @@ async function createPrintJob(
     return { error: "Selected printer is not available." };
   }
 
+  // What the member's plain choices mean for THIS printer. A printer that prints on the raw port gets its
+  // colour and paper size from the server (those controls are hidden for it), and anything the shared PJL
+  // builder cannot map comes back as heldReason: the job is held for the member instead of printing
+  // something else. Queue printers keep their plain on/off flags.
+  const profileBindingSide: BindingSide = printerProfile.booklet_binding_side === "right" ? "right" : "left";
+  let duplex: boolean;
+  let staple: boolean;
+  let booklet: boolean;
+  let punch: boolean;
+  let colorMode: "bw" | "color";
+  let paperSize: string;
+  let staplePosition: "top-left" | "top-right" | null;
+  let bindingSide: BindingSide | null;
+  let heldReason: string | null = null;
+  const copies = choices.copies;
+  if (printerProfile.output_mode === "raw") {
+    const caps = printerProfile.declared_capabilities as { duplex?: boolean; staple?: boolean; booklet?: boolean } | null;
+    const mapped = mapRawChoices(choices, {
+      capabilities: { duplex: !!caps?.duplex, staple: !!caps?.staple, booklet: !!caps?.booklet },
+      bookletBindingSide: profileBindingSide,
+      stapleDefault: printerProfile.raw_staple_position === "top-right" ? "top-right" : "top-left",
+      declaredPaperSizes: printerProfile.declared_paper_sizes,
+    });
+    ({ duplex, colorMode, paperSize, staplePosition, bindingSide, heldReason } = mapped);
+    staple = mapped.finishing.staple;
+    booklet = mapped.finishing.booklet;
+    punch = false; // the raw builder has no punch setting, so it is never requested
+  } else {
+    const mapped = mapQueueChoices(choices, { bookletBindingSide: profileBindingSide });
+    ({ duplex, staple, booklet, staplePosition, bindingSide } = mapped);
+    ({ colorMode, paperSize, punch } = opts);
+    // The server is the authority on what a queue printer offers: refuse (inline, not held) anything the
+    // profile does not declare, instead of sending it to a queue that would silently ignore it.
+    const unsupported = checkQueueCapabilities(
+      { duplex, staple, booklet, punch },
+      printerProfile.declared_capabilities as { duplex?: boolean; staple?: boolean; booklet?: boolean; punch?: boolean } | null,
+    );
+    if (unsupported) return { error: unsupported };
+  }
+  const held = heldReason !== null;
+
   const maxUploadBytes = settings?.max_upload_size_bytes ?? 52428800;
   const quotaBasis = (settings?.quota_basis ?? "physical_sheets") as
     | "pdf_pages"
@@ -110,13 +152,43 @@ async function createPrintJob(
   const preflight = await preflightPdf(originalBytes, { maxSizeBytes: maxUploadBytes });
   if (!preflight.ok) return { error: preflight.reason };
 
-  const sourcePages = preflight.pageCount;
+  // The page range is applied FIRST, so booklet padding, imposition, print math, policy and quota all work
+  // on the pages that will actually print. The original upload is stored untouched; the subset is derived.
+  // The held decision is already made above, so a held job never builds a subset PDF (planPageSubset only
+  // validates and counts its range); the sender's range text is stored and re-applied on release.
+  const pageRangeText = choices.pageRange.trim() === "" ? null : choices.pageRange.trim();
+  const plan = planPageSubset({ pageRangeText, pageCount: preflight.pageCount, held });
+  if (!plan.ok) return { error: plan.reason, fieldErrors: { pageRange: plan.reason } };
+  const sourcePages = plan.sourcePages;
+  let workingBytes = originalBytes;
+  let subsetBytes: Uint8Array | null = null;
+  if (plan.subsetPages) {
+    try {
+      subsetBytes = await createPageSubsetPdf(originalBytes, plan.subsetPages);
+    } catch (err) {
+      logger.error("page range subset failed", {
+        organizationId,
+        printerProfileId,
+        pageRange: pageRangeText,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return {
+        error: "Those pages couldn't be pulled out of this PDF. Print the whole document, or re-export it (Print → Save as PDF) and try again.",
+      };
+    }
+    workingBytes = subsetBytes;
+  }
 
-  let derivedBytes: Uint8Array | null = null;
+  let derivedBytes: Uint8Array | null = subsetBytes;
   let effectivePageCount = sourcePages;
   let blankPagesAdded = 0;
 
-  if (booklet) {
+  if (held) {
+    // Held jobs print nothing yet: no imposition, only the originals and an estimate. The sender (or an
+    // admin) finishes it later from the stored original and page range.
+    derivedBytes = null;
+    if (booklet) effectivePageCount = computeBookletPadding(sourcePages).paddedPages;
+  } else if (booklet) {
     const padding = computeBookletPadding(sourcePages);
     if (padding.needsPadding && !confirmBookletPadding) {
       return {
@@ -143,18 +215,14 @@ async function createPrintJob(
     // went wrong" on the booklet path specifically, with nothing recorded
     // anywhere saying which document or profile did it. Nothing has been
     // reserved or uploaded at this point, so returning is a clean stop.
-    let bindingSide: "left" | "right" = "left";
     try {
-      const padded = await createBookletPaddedPdf(originalBytes);
+      const padded = await createBookletPaddedPdf(workingBytes);
       effectivePageCount = padded.paddedPages;
       blankPagesAdded = padded.blankPagesAdded;
 
-      // Defaults to the target profile's own stored binding side
-      // (printer_profiles.booklet_binding_side) - PrintForm.tsx's per-job
-      // override, when present, wins for this one job only, without touching
-      // the profile's own default (docs/architecture.md sec 8).
-      bindingSide = bindingSideOverride ?? (printerProfile.booklet_binding_side === "right" ? "right" : "left");
-      derivedBytes = await imposeBookletPdf(padded.bytes, resolvePaperSizePoints(paperSize), bindingSide);
+      // The side the member chose for this booklet (else the printer's own default, resolved above) is
+      // also stored on the job, so imposition, the Agent and a re-print all agree on it.
+      derivedBytes = await imposeBookletPdf(padded.bytes, resolvePaperSizePoints(paperSize), bindingSide ?? profileBindingSide);
     } catch (err) {
       logger.error("booklet imposition failed", {
         organizationId,
@@ -183,37 +251,53 @@ async function createPrintJob(
     pricing,
   });
 
-  const { result: policy, quotaLimit, adminsBypassRestrictions } = await evaluateJobPolicy(supabase, {
-    organizationId,
-    userId: session.userId,
-    role: session.membership.role as Parameters<typeof evaluateJobPolicy>[1]["role"],
-    department: session.membership.department,
-    printerId: printerProfile.printers.id,
-    pageCount: sourcePages,
-    copies,
-    colorMode,
-    duplex,
-    paperSize,
-    finishingStaple: staple,
-    finishingBooklet: booklet,
-    finishingPunch: punch,
-    estimatedPhysicalSheets: printMath.physicalSheets,
-    estimatedCostCents: costCents,
-  });
+  // A held job is waiting for its sender's choices, so print rules, approval and quota are decided when it
+  // is released (nothing is reserved now). Everything else goes through policy exactly as before.
+  let policyAction: PolicyAction | null = null;
+  let policyReasons: string[] = [];
+  let policyBypassed = false;
+  let quotaLimit: number | null = null;
+  let adminExempt = false;
+  let jobStatus: "held" | "denied" | "pending_approval" | "approved" = "approved";
 
-  // An org_admin's own submission bypasses a deny/require_approval outcome
-  // (and, below, the quota block) by default - see lib/policy/admin-bypass.ts.
-  // policy.action/policy.reasons are still stored on the job exactly as
-  // evaluated; policyBypassed is only the audit flag for "this outcome was
-  // overridden", shown to the admin as a warning rather than hidden.
-  const adminExempt = isAdminExemptFromRestrictions(session.membership.role as OrgRole, adminsBypassRestrictions);
-  const policyBypassed = didBypassChangeOutcome(adminExempt, policy.action);
+  if (held) {
+    jobStatus = "held";
+  } else {
+    const evaluated = await evaluateJobPolicy(supabase, {
+      organizationId,
+      userId: session.userId,
+      role: session.membership.role as Parameters<typeof evaluateJobPolicy>[1]["role"],
+      department: session.membership.department,
+      printerId: printerProfile.printers.id,
+      pageCount: sourcePages,
+      copies,
+      colorMode,
+      duplex,
+      paperSize,
+      finishingStaple: staple,
+      finishingBooklet: booklet,
+      finishingPunch: punch,
+      estimatedPhysicalSheets: printMath.physicalSheets,
+      estimatedCostCents: costCents,
+    });
+    policyAction = evaluated.result.action;
+    policyReasons = evaluated.result.reasons;
+    quotaLimit = evaluated.quotaLimit;
 
-  let jobStatus: "denied" | "pending_approval" | "approved" = "approved";
-  if (!adminExempt) {
-    if (policy.action === "deny") jobStatus = "denied";
-    else if (policy.action === "require_approval") jobStatus = "pending_approval";
+    // An org_admin's own submission bypasses a deny/require_approval outcome
+    // (and, below, the quota block) by default - see lib/policy/admin-bypass.ts.
+    // policy.action/policy.reasons are still stored on the job exactly as
+    // evaluated; policyBypassed is only the audit flag for "this outcome was
+    // overridden", shown to the admin as a warning rather than hidden.
+    adminExempt = isAdminExemptFromRestrictions(session.membership.role as OrgRole, evaluated.adminsBypassRestrictions);
+    policyBypassed = didBypassChangeOutcome(adminExempt, evaluated.result.action);
+
+    if (!adminExempt) {
+      if (evaluated.result.action === "deny") jobStatus = "denied";
+      else if (evaluated.result.action === "require_approval") jobStatus = "pending_approval";
+    }
   }
+  const reservesQuota = jobStatus !== "denied" && jobStatus !== "held";
 
   // Reused from the policy evaluation above, which already had to resolve the
   // caller's groups and applicable limit to build its quota fact - no second
@@ -232,7 +316,7 @@ async function createPrintJob(
     colorMode,
   });
 
-  if (jobStatus !== "denied") {
+  if (reservesQuota) {
     // An admin-exempt submission is never allowed to fail this reserve - a
     // null limit tells adjust_monthly_usage's reserve mode to always
     // succeed (supabase/migrations/0010_quota_functions.sql) while still
@@ -269,7 +353,7 @@ async function createPrintJob(
   async function rollback(uploadedPaths: string[]) {
     try {
       if (uploadedPaths.length > 0) await supabase.storage.from(PRINT_JOBS_BUCKET).remove(uploadedPaths);
-      if (jobStatus !== "denied") {
+      if (reservesQuota) {
         await adjustMonthlyUsage(
           supabase,
           { organizationId, userId: session.userId },
@@ -332,18 +416,26 @@ async function createPrintJob(
     duplex,
     paper_size: paperSize,
     finishing: { staple, booklet, punch },
+    // Per-job choices (migrations 0028 + 0030). staple_position is non-null exactly for a stapled raw job; a
+    // booklet always records which edge it is bound on, so imposition, the Agent and a re-print agree.
+    staple_position: staple ? staplePosition : null,
+    page_range: pageRangeText,
+    booklet_binding_side: booklet ? bindingSide : null,
+    held_reason: heldReason,
     booklet_padding_added: blankPagesAdded,
     estimated_printed_sides: printMath.printedSides,
     estimated_physical_sheets: printMath.physicalSheets,
     estimated_cost_cents: costCents,
-    policy_action: policy.action,
-    policy_reasons: policy.reasons,
+    policy_action: policyAction,
+    policy_reasons: policyReasons,
     policy_bypassed_for_admin: policyBypassed,
     approved_at: jobStatus === "approved" ? now.toISOString() : null,
     expires_at:
       jobStatus === "pending_approval"
         ? new Date(now.getTime() + approvalExpiryHours * 3600 * 1000).toISOString()
-        : null,
+        : jobStatus === "held"
+          ? new Date(now.getTime() + HELD_EXPIRY_HOURS * 3600 * 1000).toISOString()
+          : null,
   });
   if (insertError) {
     // Never surface a raw Postgres error to a student/staff user (column
@@ -354,19 +446,29 @@ async function createPrintJob(
     return { error: "Could not create the print job. Your file is still selected - submit again." };
   }
 
+  // A held job stops after preflight: no policy was evaluated and nothing was approved or denied (and
+  // print_job_events has no event type for "held" - its status and held_reason say it).
   const events = [
     { event_type: "JOB_CREATED" as const, metadata: {} },
     { event_type: "PDF_UPLOADED" as const, metadata: { fileName: originalFileName, fileSizeBytes: preflight.fileSizeBytes } },
     { event_type: "PREFLIGHT_COMPLETED" as const, metadata: { sourcePages, blankPagesAdded } },
-    {
-      event_type: "POLICY_EVALUATED" as const,
-      metadata: { action: policy.action, reasons: policy.reasons, bypassedForAdmin: policyBypassed },
-    },
-    {
-      event_type:
-        jobStatus === "denied" ? ("DENIED" as const) : jobStatus === "pending_approval" ? ("APPROVAL_REQUIRED" as const) : ("APPROVED" as const),
-      metadata: {},
-    },
+    ...(jobStatus === "held"
+      ? []
+      : [
+          {
+            event_type: "POLICY_EVALUATED" as const,
+            metadata: { action: policyAction, reasons: policyReasons, bypassedForAdmin: policyBypassed },
+          },
+          {
+            event_type:
+              jobStatus === "denied"
+                ? ("DENIED" as const)
+                : jobStatus === "pending_approval"
+                  ? ("APPROVAL_REQUIRED" as const)
+                  : ("APPROVED" as const),
+            metadata: {},
+          },
+        ]),
   ];
   await supabase.from("print_job_events").insert(
     events.map((e) => ({
@@ -407,27 +509,19 @@ export async function submitPrintJobAction(_prev: SubmitJobState, formData: Form
     return { error: "Your file didn't finish uploading. Check your connection and submit again." };
   }
 
+  // The form contract: sides / staple / booklet / copies / pageRange / printerProfileId. colorMode,
+  // paperSize and punch are only sent for queue printers (raw printers derive them on the server).
+  const parsedChoices = parseChoices((name) => formData.get(name));
+  if (!parsedChoices.ok) return { error: parsedChoices.reason };
+
   return createPrintJob(supabase, session as SessionWithMembership, originalBytes, file.name, {
     printerProfileId: String(formData.get("printerProfileId") ?? ""),
-    copies: Math.max(1, parseInt(String(formData.get("copies") ?? "1"), 10) || 1),
+    choices: parsedChoices.choices,
     colorMode: formData.get("colorMode") === "color" ? "color" : "bw",
-    duplex: formData.get("duplex") === "on",
     paperSize: String(formData.get("paperSize") ?? "letter"),
-    staple: formData.get("staple") === "on",
-    booklet: formData.get("booklet") === "on",
     punch: formData.get("punch") === "on",
     confirmBookletPadding: formData.get("confirmBookletPadding") === "true",
-    bindingSideOverride: parseBindingSideOverride(formData),
   });
-}
-
-/** Parses PrintForm.tsx's optional per-job booklet binding-side override -
- *  only present (and only meaningful) when a booklet-capable profile is
- *  selected; absent means "use the target profile's own default" (resolved
- *  in createPrintJob). */
-function parseBindingSideOverride(formData: FormData): "left" | "right" | undefined {
-  const raw = formData.get("bookletBindingSide");
-  return raw === "left" || raw === "right" ? raw : undefined;
 }
 
 /**
@@ -467,19 +561,26 @@ export async function reprintJobAction(_prev: SubmitJobState, formData: FormData
 
   const finishing = job.finishing as { staple: boolean; booklet: boolean; punch: boolean };
 
+  // The stored per-job choices go back through the same pipeline, applied to the untouched original. An
+  // older job that never stored a staple corner / binding side falls back to the printer's own default.
+  const choices: PrintChoices = {
+    sides: job.duplex ? "two" : "one",
+    staple: finishing.staple ? (job.staple_position === "top-left" || job.staple_position === "top-right" ? job.staple_position : "profile") : "none",
+    booklet: finishing.booklet
+      ? job.booklet_binding_side === "left" || job.booklet_binding_side === "right"
+        ? job.booklet_binding_side
+        : "profile"
+      : "none",
+    copies: job.copies,
+    pageRange: job.page_range ?? "",
+  };
+
   return createPrintJob(supabase, session as SessionWithMembership, originalBytes, job.original_file_name, {
     printerProfileId: job.printer_profile_id ?? "",
-    copies: job.copies,
+    choices,
     colorMode: job.color_mode as "bw" | "color",
-    duplex: job.duplex,
     paperSize: job.paper_size,
-    staple: finishing.staple,
-    booklet: finishing.booklet,
     punch: finishing.punch,
-    // No stored per-job binding-side override to reuse (print_jobs doesn't
-    // carry one) - reprinting a booklet job resolves against the target
-    // profile's CURRENT booklet_binding_side default, same as any other
-    // fresh submission to that profile.
     confirmBookletPadding: true,
   });
 }

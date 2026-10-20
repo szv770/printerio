@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { groupQuotaReleases, filterAffectedRows, groupJobsByAttemptCount } from "./cron-sweep";
+import { groupQuotaReleases, filterAffectedRows, groupJobsByAttemptCount, jobsHoldingQuota } from "./cron-sweep";
 import { usageAmountsForJob, type QuotaReleaseJobInput } from "./quota";
 
 function releaseJob(overrides: Partial<QuotaReleaseJobInput>): QuotaReleaseJobInput {
@@ -97,5 +97,15 @@ describe("groupJobsByAttemptCount", () => {
 
   it("returns an empty array for no jobs", () => {
     expect(groupJobsByAttemptCount([])).toEqual([]);
+  });
+});
+
+describe("jobsHoldingQuota", () => {
+  it("keeps only pending_approval jobs: held jobs never reserved quota", () => {
+    const rows = [
+      { id: "a", status: "pending_approval" },
+      { id: "b", status: "held" },
+    ];
+    expect(jobsHoldingQuota(rows).map((r) => r.id)).toEqual(["a"]);
   });
 });

@@ -25,6 +25,8 @@ export interface JobRow {
   policy_action: string | null;
   policy_reasons: string[];
   error_message: string | null;
+  /** Why a held job is waiting for its sender's choices (print_jobs.held_reason). */
+  held_reason: string | null;
   /** An admin-issued queue test rather than a document someone chose to print
    *  (app/admin/printers/actions.ts) - flagged on the row so it can't be
    *  mistaken for one. */
@@ -198,6 +200,7 @@ export function JobsList({
               status: job.status,
               errorMessage: job.error_message,
               policyReasons: job.policy_reasons,
+              heldReason: job.held_reason,
             });
             return (
               <li
@@ -231,7 +234,12 @@ export function JobsList({
                       isTestPrint={job.is_test_print}
                     />
                   </div>
-                  {attention && <p className="mt-1 truncate text-xs text-[var(--color-danger)]">{attention}</p>}
+                  {attention &&
+                    (job.status === "held" ? (
+                      <p className="mt-1 text-xs text-[var(--color-warning)]">{attention}</p>
+                    ) : (
+                      <p className="mt-1 truncate text-xs text-[var(--color-danger)]">{attention}</p>
+                    ))}
                 </Link>
                 {/* Reprinting re-runs the ordinary pipeline (policy + quota),
                  *  so it is not offered for a test print - see the job detail

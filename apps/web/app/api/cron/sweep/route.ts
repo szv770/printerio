@@ -5,7 +5,7 @@ import { adjustMonthlyUsage } from "@/lib/quota";
 import { sweepRetention } from "@/lib/retention";
 import { getCronSecret } from "@/lib/env";
 import { logger } from "@/lib/logger";
-import { filterAffectedRows, groupJobsByAttemptCount, groupQuotaReleases } from "@/lib/cron-sweep";
+import { filterAffectedRows, groupJobsByAttemptCount, groupQuotaReleases, jobsHoldingQuota } from "@/lib/cron-sweep";
 
 /** Constant-time compare of two equal-or-different-length strings - avoids
  *  the length/content timing signal a plain `!==` would leak (consistent
@@ -72,15 +72,16 @@ export async function GET(request: Request) {
   const nowIso = new Date().toISOString();
   const results = { expiredApprovals: 0, releasedLeases: 0, failedFromStaleLease: 0, filesDeleted: 0 };
 
-  // 1. Expire pending_approval jobs past their approval deadline. Batched:
+  // 1. Expire pending_approval AND held jobs past their deadline (held -> expired is legal; a held job waits
+  //    for its sender). Only pending_approval jobs reserved quota, so only those are released below. Batched:
   //    one SELECT (capped), one UPDATE ... WHERE id IN (...) RETURNING id,
   //    one bulk print_job_events insert built only from the ids the UPDATE
   //    actually returned, and quota releases batched per distinct
   //    (organization_id, user_id) via groupQuotaReleases.
   const { data: expiring } = await supabase
     .from("print_jobs")
-    .select("id, organization_id, created_by, source_pdf_pages, copies, estimated_printed_sides, estimated_physical_sheets, color_mode")
-    .eq("status", "pending_approval")
+    .select("id, status, organization_id, created_by, source_pdf_pages, copies, estimated_printed_sides, estimated_physical_sheets, color_mode")
+    .in("status", ["pending_approval", "held"])
     .lt("expires_at", nowIso)
     .order("expires_at", { ascending: true })
     .limit(SELECTION_LIMIT);
@@ -101,7 +102,7 @@ export async function GET(request: Request) {
       .from("print_jobs")
       .update({ status: "expired" })
       .in("id", candidateIds)
-      .eq("status", "pending_approval")
+      .in("status", ["pending_approval", "held"])
       .lt("expires_at", nowIso)
       .select("id");
     const expiredIds = (expiredRows ?? []).map((r) => r.id);
@@ -119,7 +120,7 @@ export async function GET(request: Request) {
       );
 
       const releaseGroups = groupQuotaReleases(
-        affected.map((job) => ({
+        jobsHoldingQuota(affected).map((job) => ({
           organizationId: job.organization_id,
           userId: job.created_by,
           sourcePdfPages: job.source_pdf_pages,

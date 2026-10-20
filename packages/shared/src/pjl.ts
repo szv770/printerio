@@ -60,7 +60,8 @@ export function buildPjlSettings(o: RawPrintOptions): PjlSettingsResult {
   }
 
   settings.push(`QTY=${o.copies}`);
-  if (o.colorMode === "bw") settings.push("KCOLORMODE=MONO");
+  // KCOLORMODE=MONO is deliberately NOT sent: unverified on the printer, and the web form stores colour as
+  // "bw" by default, which would turn staff prints grey. Add it back only after a labelled test proves it.
   return { ok: true, settings };
 }
 

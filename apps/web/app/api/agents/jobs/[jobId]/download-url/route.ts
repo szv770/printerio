@@ -66,7 +66,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
 
   // Raw (direct-to-printer) profiles carry no Windows queue; the Agent sends
   // the job straight to host:port instead.
-  const raw = rawTargetFromProfile(profile, { jobTitle: job.original_file_name });
+  // The job's own choices win; null (older jobs, or nothing chosen) falls back to the printer's defaults.
+  const raw = rawTargetFromProfile(profile, {
+    jobTitle: job.original_file_name,
+    bindingSide: job.booklet_binding_side === "left" || job.booklet_binding_side === "right" ? job.booklet_binding_side : null,
+    staplePosition: job.staple_position === "top-left" || job.staple_position === "top-right" ? job.staple_position : null,
+  });
 
   const printRequest: ResolvedPrintRequest = {
     jobId: job.id,

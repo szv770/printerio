@@ -342,6 +342,8 @@ describe("jobListBucket", () => {
     expect(jobListBucket("denied")).toBe("attention");
     expect(jobListBucket("rejected")).toBe("attention");
     expect(jobListBucket("expired")).toBe("attention");
+    // Held = waiting on the sender's choices; it must show up under "Needs attention".
+    expect(jobListBucket("held")).toBe("attention");
     // Waiting on an approver is normal progress, not a problem to chase.
     expect(jobListBucket("pending_approval")).toBe("active");
     expect(jobListBucket("printing")).toBe("active");
@@ -368,10 +370,24 @@ describe("jobAttentionLine", () => {
     );
   });
 
+  it("shows a held job's own reason, with a fallback when none was recorded", () => {
+    expect(jobAttentionLine({ status: "held", heldReason: "A booklet cannot also be stapled." })).toBe("A booklet cannot also be stapled.");
+    expect(jobAttentionLine({ status: "held", heldReason: "  " })).toMatch(/choose|options/i);
+    expect(jobAttentionLine({ status: "held" })).toBeTruthy();
+  });
+
   it("says nothing for a job that is fine", () => {
     expect(jobAttentionLine({ status: "printing" })).toBeNull();
     expect(jobAttentionLine({ status: "completed" })).toBeNull();
     expect(jobAttentionLine({ status: "pending_approval" })).toBeNull();
+  });
+});
+
+describe("held explanation", () => {
+  it("explains a held job with its recorded reason", () => {
+    const e = buildJobProgress({ status: "held", heldReason: "A booklet cannot also be stapled." }).explanation;
+    expect(e?.title).toMatch(/choose|options|held/i);
+    expect(e?.lines).toContain("A booklet cannot also be stapled.");
   });
 });
 

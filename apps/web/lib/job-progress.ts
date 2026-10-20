@@ -83,6 +83,8 @@ export interface JobProgressInput {
   errorMessage?: string | null;
   /** approval_actions.reason / the REJECTED event's metadata.reason, when an approver gave one. */
   rejectionReason?: string | null;
+  /** print_jobs.held_reason - why a held job is waiting for the sender's choices. */
+  heldReason?: string | null;
   attemptCount?: number | null;
   maxAttempts?: number | null;
   /** print_job_events.event_type values for this job, oldest first. Optional: the jobs list renders without them. */
@@ -248,6 +250,14 @@ function buildExplanation(input: JobProgressInput, retryable: boolean): JobProgr
       : null;
 
   switch (input.status) {
+    case "held":
+      return {
+        title: "Waiting for you to choose options",
+        lines: [
+          input.heldReason?.trim() || "Printio could not tell exactly how you want this printed, so it has not printed anything.",
+          "Nothing has been printed. Choose your options again to print it.",
+        ],
+      };
     case "denied":
       return {
         title: "Denied by your organization's print rules",
@@ -349,7 +359,7 @@ export type JobListBucket = "active" | "attention" | "done" | "other";
 
 export function jobListBucket(status: string): JobListBucket {
   if (status === "completed") return "done";
-  if (status === "denied" || status === "rejected" || status === "failed" || status === "expired") return "attention";
+  if (status === "held" || status === "denied" || status === "rejected" || status === "failed" || status === "expired") return "attention";
   if (status === "cancelled") return "other";
   return "active";
 }
@@ -366,8 +376,11 @@ export function jobAttentionLine(input: {
   status: string;
   errorMessage?: string | null;
   policyReasons?: readonly string[] | null;
+  heldReason?: string | null;
 }): string | null {
   switch (input.status) {
+    case "held":
+      return input.heldReason?.trim() || "Waiting for you to choose your print options.";
     case "failed":
       return input.errorMessage?.trim() || "The print agent reported a failure with no detail.";
     case "denied":

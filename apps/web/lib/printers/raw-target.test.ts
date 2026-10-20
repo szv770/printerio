@@ -77,3 +77,12 @@ describe("rawTargetFromProfile", () => {
     expect(rawTargetFromProfile({ ...base, raw_host: null }, {})).toBeUndefined();
   });
 });
+
+describe("rawTargetFromProfile per-job staple corner", () => {
+  const base = { output_mode: "raw", raw_host: "10.0.0.9", raw_port: 9100, raw_staple_position: "top-right", booklet_binding_side: "left" };
+  it("uses the job's staple position, else the printer's default", () => {
+    expect(rawTargetFromProfile(base, { staplePosition: "top-left" })?.staplePosition).toBe("top-left");
+    expect(rawTargetFromProfile(base, { staplePosition: null })?.staplePosition).toBe("top-right");
+    expect(rawTargetFromProfile(base, {})?.staplePosition).toBe("top-right");
+  });
+});
