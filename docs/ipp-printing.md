@@ -2,6 +2,19 @@
 
 Status: **design agreed in conversation, nothing built yet.** Next step is the Phase 0 spike.
 
+## Direction update (2026-10-19, owner)
+
+- Printio is a **virtual printer**: the main way staff print is from the normal print dialog / share sheet
+  on phones and laptops (IPP gateway). Web upload stays as a supported backup, and is the place to choose
+  booklet/finishing explicitly.
+- The Agent should send jobs **straight to the printer's raw port 9100** (PJL header + PDF; no Windows queues,
+  no per-finishing-profile queues, no SumatraPDF) - see [kyocera-raw-print.md](./kyocera-raw-print.md).
+  Keep at most ONE Windows queue as a bad-case fallback an admin can switch to.
+- Options in the dialog (copies, sides, staple, etc.) are mapped to PJL by the server. If a request can't be
+  mapped with confidence, the job is **held** and the member or an admin picks the finishing in the dashboard.
+- The Print Agent moves from the Raspberry Pi (test only) to the Windows 11 Pro server (Tailscale + RDP).
+  The existing Agent still assumes Windows queues + SumatraPDF; a raw-port output path is a Phase 1 item.
+
 ## Goal
 
 An org member adds "Printio" once as a normal printer on their own device (Windows, Mac,
