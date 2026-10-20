@@ -45,4 +45,7 @@ coverage/
 
 # Claude Code local tool state (background-agent worktrees, etc.) - never
 # part of the project itself.
-.claude/
+.claude/*
+# ...except the shared session-start hook that installs dependencies in cloud sessions.
+!.claude/settings.json
+!.claude/hooks/

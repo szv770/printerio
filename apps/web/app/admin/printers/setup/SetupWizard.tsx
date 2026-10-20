@@ -9,6 +9,7 @@ import { PRINTER_PROFILE_ICON_COMPONENTS, type PrinterProfileIconKey } from "@/l
 import { PRINTER_ARCHETYPE_IDS, PRINTER_ARCHETYPES, buildRecipeCards, isPrinterArchetypeId, type PrinterArchetypeId, type RecipeCard } from "@/lib/printer-setup-wizard";
 import { createPrinterProfilesFromWizardAction, type PrinterActionState } from "../actions";
 import { routes } from "@/lib/routes";
+import { isValidRawHost, parseRawPort } from "@/lib/printers/raw-target";
 
 // A "use server" file may only export async functions, so this trivial seed
 // value for useActionState lives here instead of alongside the action.
@@ -46,7 +47,7 @@ function isAgentOnline(agent: WizardAgent): boolean {
   return agent.status === "active" && !!agent.lastSeenAt && Date.now() - new Date(agent.lastSeenAt).getTime() < AGENT_ONLINE_WINDOW_MS;
 }
 
-const SESSION_STORAGE_KEY = "printerio.setupWizard.selectedArchetypes";
+const SESSION_STORAGE_KEY = "printio.setupWizard.selectedArchetypes";
 
 export function SetupWizard({
   printers,
@@ -350,6 +351,11 @@ function Step3Finish({
   const [agentId, setAgentId] = useState(() => onlineAgents[0]?.id ?? agents[0]?.id ?? "");
   const [printerId, setPrinterId] = useState(() => (printers.length === 1 ? (printers[0]?.id ?? "") : ""));
   const [newPrinterName, setNewPrinterName] = useState("");
+  const [outputMode, setOutputMode] = useState<"queue" | "raw">("queue");
+  const [rawHost, setRawHost] = useState("");
+  const [rawHostTouched, setRawHostTouched] = useState(false);
+  const [rawPort, setRawPort] = useState("9100");
+  const [rawStaple, setRawStaple] = useState<"top-left" | "top-right">("top-left");
   const [queueByCardKey, setQueueByCardKey] = useState<Record<string, string>>({});
   const [bindingSideByCardKey, setBindingSideByCardKey] = useState<Record<string, "left" | "right">>(() =>
     Object.fromEntries(recipeCards.filter((c) => c.isBooklet).map((c) => [c.key, c.bookletBindingSide])),
@@ -359,7 +365,13 @@ function Step3Finish({
   const discoveredQueues = selectedAgent?.discoveredQueues ?? [];
 
   const creatingNewPrinter = printerId === "" && printers.length !== 1;
-  const allQueuesChosen = recipeCards.every((c) => !!queueByCardKey[c.key]);
+  const isRaw = outputMode === "raw";
+  const rawHostError = rawHostTouched && rawHost.trim() && !isValidRawHost(rawHost.trim()) ? "That isn't a valid IP address (like 192.168.1.50) or hostname." : null;
+  const rawPortParsed = parseRawPort(rawPort);
+  const rawPortError = rawPortParsed.ok ? null : rawPortParsed.error;
+  const allQueuesChosen = isRaw
+    ? isValidRawHost(rawHost.trim()) && rawPortParsed.ok
+    : recipeCards.every((c) => !!queueByCardKey[c.key]);
   const canSubmit = !!agentId && (printerId !== "" || (creatingNewPrinter && newPrinterName.trim() !== "")) && allQueuesChosen && !pending;
 
   const cardsPayload = recipeCards.map((c) => ({
@@ -369,7 +381,7 @@ function Step3Finish({
     iconKey: c.iconKey,
     declaredCapabilities: c.declaredCapabilities,
     bookletBindingSide: c.isBooklet ? (bindingSideByCardKey[c.key] ?? c.bookletBindingSide) : c.bookletBindingSide,
-    windowsQueueName: queueByCardKey[c.key] ?? "",
+    windowsQueueName: isRaw ? "" : (queueByCardKey[c.key] ?? ""),
   }));
 
   return (
@@ -384,6 +396,7 @@ function Step3Finish({
         <input type="hidden" name="printerId" value={printerId} />
         <input type="hidden" name="newPrinterName" value={printerId === "" ? newPrinterName.trim() : ""} />
         <input type="hidden" name="agentId" value={agentId} />
+        <input type="hidden" name="outputMode" value={outputMode} />
         <input type="hidden" name="cardsJson" value={JSON.stringify(cardsPayload)} />
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -419,7 +432,58 @@ function Step3Finish({
           </div>
         </div>
 
-        {agentId && discoveredQueues.length === 0 && (
+        <div>
+          <FieldLabel htmlFor="wizardOutputMode" hint="how Printio gets jobs onto the printer">
+            Send jobs to
+          </FieldLabel>
+          <Select id="wizardOutputMode" value={outputMode} onChange={(e) => setOutputMode(e.target.value === "raw" ? "raw" : "queue")}>
+            <option value="queue">Windows queue</option>
+            <option value="raw">Direct to printer (raw port 9100)</option>
+          </Select>
+        </div>
+
+        {isRaw && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <p className="text-xs text-[var(--color-muted)] sm:col-span-2">
+              The Agent sends each PDF straight to the printer over the network and Printio adds the stapling and
+              booklet settings itself - no Windows queue or driver needed. The printer must be reachable from the
+              Agent&apos;s machine.
+            </p>
+            <div>
+              <FieldLabel htmlFor="wizardRawHost" hint="IP address or network name">
+                Printer address
+              </FieldLabel>
+              <Input
+                id="wizardRawHost"
+                name="rawHost"
+                placeholder="192.168.1.50"
+                value={rawHost}
+                onChange={(e) => setRawHost(e.target.value)}
+                onBlur={() => setRawHostTouched(true)}
+                aria-invalid={rawHostError ? true : undefined}
+              />
+              {rawHostError && <p className="mt-1 text-xs text-red-600">{rawHostError}</p>}
+            </div>
+            <div>
+              <FieldLabel htmlFor="wizardRawPort" hint="almost always 9100">
+                Port
+              </FieldLabel>
+              <Input id="wizardRawPort" name="rawPort" inputMode="numeric" placeholder="9100" value={rawPort} onChange={(e) => setRawPort(e.target.value)} aria-invalid={rawPortError ? true : undefined} />
+              {rawPortError && <p className="mt-1 text-xs text-red-600">{rawPortError}</p>}
+            </div>
+            <div className="sm:col-span-2">
+              <FieldLabel htmlFor="wizardRawStaple" hint="where the staple goes for stapled jobs">
+                Default staple position
+              </FieldLabel>
+              <Select id="wizardRawStaple" name="rawStaplePosition" value={rawStaple} onChange={(e) => setRawStaple(e.target.value === "top-right" ? "top-right" : "top-left")}>
+                <option value="top-left">Top left</option>
+                <option value="top-right">Top right</option>
+              </Select>
+            </div>
+          </div>
+        )}
+
+        {agentId && !isRaw && discoveredQueues.length === 0 && (
           <EmptyState
             message="This Agent hasn't reported any Windows queues yet. Set up the queue(s) in Windows per docs/printer-setup.md, then wait for its next heartbeat (or recheck below)."
             icon={ListChecks}
@@ -431,7 +495,7 @@ function Step3Finish({
           />
         )}
 
-        {agentId && discoveredQueues.length > 0 && (
+        {agentId && (isRaw || discoveredQueues.length > 0) && (
           <ul className="flex flex-col gap-3">
             {recipeCards.map((card) => {
               const Icon = PRINTER_PROFILE_ICON_COMPONENTS[card.iconKey as PrinterProfileIconKey];
@@ -441,6 +505,8 @@ function Step3Finish({
                     {Icon && <Icon className="h-4 w-4 shrink-0 text-[var(--color-muted)]" />}
                     <span className="font-medium">{card.label}</span>
                   </div>
+                  {!isRaw && (
+                  <>
                   <FieldLabel htmlFor={`queue-${card.key}`}>Windows queue</FieldLabel>
                   <Select
                     id={`queue-${card.key}`}
@@ -455,6 +521,8 @@ function Step3Finish({
                       </option>
                     ))}
                   </Select>
+                  </>
+                  )}
 
                   {card.isBooklet && (
                     <div className="mt-2">

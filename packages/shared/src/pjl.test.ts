@@ -1,0 +1,114 @@
+import { describe, expect, it } from "vitest";
+import { buildPjlSettings, buildRawJob, sanitizePjlText } from "./pjl";
+
+const base = { copies: 1, colorMode: "color" as const, duplex: true, jobName: "Quiz 3" };
+
+describe("buildPjlSettings", () => {
+  it("one-sided", () => {
+    const r = buildPjlSettings({ ...base, duplex: false });
+    expect(r).toMatchObject({ ok: true });
+    if (r.ok) expect(r.settings).toContain("DUPLEX=OFF");
+  });
+
+  it("duplex long edge by default", () => {
+    const r = buildPjlSettings(base);
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.settings).toEqual(expect.arrayContaining(["DUPLEX=ON", "BINDING=LONGEDGE", "QTY=1"]));
+  });
+
+  it("copies map to QTY", () => {
+    const r = buildPjlSettings({ ...base, copies: 7 });
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.settings).toContain("QTY=7");
+  });
+
+  it("mono sets KCOLORMODE=MONO", () => {
+    const r = buildPjlSettings({ ...base, colorMode: "bw" });
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.settings).toContain("KCOLORMODE=MONO");
+  });
+
+  it("staple maps match the real-printer results (2026-10-19)", () => {
+    // top-left: ONE. top-right: ONE + KFEEDEDGE=SHORTEDGE (job P1). bottom-left: ONEOPPOSED.
+    const get = (staple: "top-left" | "top-right" | "bottom-left") => {
+      const r = buildPjlSettings({ ...base, staple });
+      if (!r.ok) throw new Error(r.reason);
+      return r.settings;
+    };
+    const tl = get("top-left");
+    const tr = get("top-right");
+    const bl = get("bottom-left");
+    for (const s of [tl, tr, bl]) {
+      expect(s).toEqual(expect.arrayContaining(["DUPLEX=ON", "BINDING=LONGEDGE", "OUTBIN=OPTIONFACEDOWN", "FINISH=STAPLE"]));
+    }
+    expect(tl).toContain("STAPLEOPTION=ONE");
+    expect(tl.join()).not.toContain("KFEEDEDGE");
+    expect(tr).toEqual(expect.arrayContaining(["STAPLEOPTION=ONE", "KFEEDEDGE=SHORTEDGE"]));
+    expect(bl).toContain("STAPLEOPTION=ONEOPPOSED");
+    expect(bl.join()).not.toContain("KFEEDEDGE");
+  });
+
+  it("left-binding booklet uses the proven KBOOKLET + KFOLD recipe", () => {
+    const r = buildPjlSettings({ ...base, booklet: true, bindingSide: "left" });
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.settings).toEqual(
+      expect.arrayContaining(["DUPLEX=ON", "BINDING=SHORTEDGE", "OUTBIN=KBOOKLET", "FINISH=KFOLD"]),
+    );
+    expect(r.settings).not.toContain("BINDING=LONGEDGE");
+    expect(r.settings.join()).not.toContain("KREVERSEFOLD");
+  });
+
+  it("right-binding booklet uses the same fold as left (the layout carries the side)", () => {
+    // Confirmed 2026-10-19 (job F1): mirrored (right) imposition + KFOLD + SHORTEDGE
+    // gives a perfect right-to-left booklet; KREVERSEFOLD scrambled it.
+    const l = buildPjlSettings({ ...base, booklet: true, bindingSide: "left" });
+    const r = buildPjlSettings({ ...base, booklet: true, bindingSide: "right" });
+    if (!l.ok || !r.ok) throw new Error("expected ok");
+    expect(r.settings).toEqual(l.settings);
+    expect(r.settings.join()).not.toContain("KREVERSEFOLD");
+  });
+
+  it("booklet without a binding side is held", () => {
+    expect(buildPjlSettings({ ...base, booklet: true }).ok).toBe(false);
+  });
+
+  it("booklet + staple together is held", () => {
+    const r = buildPjlSettings({ ...base, booklet: true, bindingSide: "left", staple: "top-left" });
+    expect(r.ok).toBe(false);
+  });
+
+  it("rejects bad copies", () => {
+    expect(buildPjlSettings({ ...base, copies: 0 }).ok).toBe(false);
+    expect(buildPjlSettings({ ...base, copies: 1.5 }).ok).toBe(false);
+  });
+});
+
+describe("sanitizePjlText", () => {
+  it("strips quotes, newlines, escapes and limits length", () => {
+    const s = sanitizePjlText('a"b\r\n@PJL SET X=1\x1b%-12345X' + "z".repeat(200));
+    expect(s).not.toMatch(/["\r\n\x1b]/);
+    expect(s.length).toBeLessThanOrEqual(60);
+  });
+  it("falls back for empty", () => {
+    expect(sanitizePjlText("\r\n")).toBe("printio");
+  });
+});
+
+describe("buildRawJob", () => {
+  const dec = (b: Uint8Array) => new TextDecoder("latin1").decode(b);
+  it("frames: UEL, PJL header, ENTER LANGUAGE=PDF, pdf bytes, EOJ, UEL", () => {
+    const pdf = new TextEncoder().encode("%PDF-1.4\nBODY\n%%EOF");
+    const r = buildRawJob(base, pdf);
+    if (!r.ok) throw new Error(r.reason);
+    const s = dec(r.bytes);
+    expect(s.startsWith("\x1b%-12345X@PJL\r\n")).toBe(true);
+    expect(s).toContain('@PJL JOB NAME="Quiz 3"');
+    expect(s).toContain("@PJL SET DUPLEX=ON\r\n");
+    expect(s).toContain("@PJL ENTER LANGUAGE=PDF\r\n%PDF-1.4");
+    expect(s.endsWith("\x1b%-12345X@PJL EOJ NAME=\"Quiz 3\"\r\n\x1b%-12345X")).toBe(true);
+  });
+  it("propagates a hold", () => {
+    const r = buildRawJob({ ...base, copies: 0 }, new Uint8Array([1]));
+    expect(r.ok).toBe(false);
+  });
+});

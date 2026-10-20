@@ -12,6 +12,7 @@ import { createTestPrintPdf } from "@/lib/pdf/test-print";
 import { preflightPdf } from "@/lib/pdf/preflight";
 import { jobFilePath, PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { logger } from "@/lib/logger";
+import { parseOutputTarget, type OutputTarget } from "@/lib/printers/raw-target";
 import { computeCostCents, computePrintMath, type PricingConfig } from "@printio/shared";
 import type { TablesInsert } from "@/lib/database.types";
 
@@ -94,7 +95,7 @@ interface ParsedProfileForm {
   label: string;
   description: string | null;
   iconKey: string | null;
-  windowsQueueName: string;
+  output: OutputTarget;
   declaredPaperSizes: string[];
   declaredCapabilities: { duplex: boolean; color: boolean; staple: boolean; booklet: boolean; punch: boolean };
   bookletBindingSide: "left" | "right";
@@ -115,15 +116,22 @@ function parsePrinterProfileForm(formData: FormData): { ok: true; value: ParsedP
   const agentId = String(formData.get("agentId") ?? "");
   const key = String(formData.get("key") ?? "").trim();
   const label = String(formData.get("label") ?? "").trim();
-  const windowsQueueName = String(formData.get("windowsQueueName") ?? "").trim();
   const paperSizes = String(formData.get("paperSizes") ?? "letter")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
 
-  if (!agentId || !key || !label || !windowsQueueName) {
-    return { ok: false, error: "All fields except paper sizes are required." };
+  if (!agentId || !key || !label) {
+    return { ok: false, error: "Agent, key and label are required." };
   }
+  const output = parseOutputTarget({
+    outputMode: String(formData.get("outputMode") ?? "queue"),
+    windowsQueueName: String(formData.get("windowsQueueName") ?? ""),
+    rawHost: String(formData.get("rawHost") ?? ""),
+    rawPort: String(formData.get("rawPort") ?? ""),
+    rawStaplePosition: String(formData.get("rawStaplePosition") ?? ""),
+  });
+  if (!output.ok) return { ok: false, error: output.error };
   if (!/^[a-z0-9_]+$/.test(key)) {
     return { ok: false, error: "Key must be lowercase letters, numbers, underscores only." };
   }
@@ -144,7 +152,7 @@ function parsePrinterProfileForm(formData: FormData): { ok: true; value: ParsedP
       label,
       description: String(formData.get("description") ?? "").trim() || null,
       iconKey: iconKeyRaw || null,
-      windowsQueueName,
+      output: output.value,
       declaredPaperSizes: paperSizes.length > 0 ? paperSizes : ["letter"],
       declaredCapabilities: {
         duplex: formData.get("duplex") === "on",
@@ -193,7 +201,11 @@ export async function createPrinterProfileAction(_prev: PrinterActionState, form
     label: profile.label,
     description: profile.description,
     icon_key: profile.iconKey,
-    windows_queue_name: profile.windowsQueueName,
+    windows_queue_name: profile.output.windowsQueueName,
+    output_mode: profile.output.outputMode,
+    raw_host: profile.output.rawHost,
+    raw_port: profile.output.rawPort,
+    raw_staple_position: profile.output.rawStaplePosition,
     declared_paper_sizes: profile.declaredPaperSizes,
     declared_capabilities: profile.declaredCapabilities,
     booklet_binding_side: profile.bookletBindingSide,
@@ -264,7 +276,11 @@ export async function updatePrinterProfileAction(_prev: PrinterActionState, form
       label: profile.label,
       description: profile.description,
       icon_key: profile.iconKey,
-      windows_queue_name: profile.windowsQueueName,
+      windows_queue_name: profile.output.windowsQueueName,
+      output_mode: profile.output.outputMode,
+      raw_host: profile.output.rawHost,
+      raw_port: profile.output.rawPort,
+      raw_staple_position: profile.output.rawStaplePosition,
       declared_paper_sizes: profile.declaredPaperSizes,
       declared_capabilities: profile.declaredCapabilities,
       booklet_binding_side: profile.bookletBindingSide,
@@ -286,7 +302,10 @@ export async function updatePrinterProfileAction(_prev: PrinterActionState, form
     // and which machine this logical profile pointed at, since that is what
     // silently changes where paper comes out.
     metadata: {
-      windowsQueueName: profile.windowsQueueName,
+      outputMode: profile.output.outputMode,
+      windowsQueueName: profile.output.windowsQueueName,
+      rawHost: profile.output.rawHost,
+      rawPort: profile.output.rawPort,
       agentId: profile.agentId,
       previousAgentId: existing.agent_id,
     },
@@ -295,7 +314,12 @@ export async function updatePrinterProfileAction(_prev: PrinterActionState, form
   revalidatePath(routes.adminPrinters);
   revalidatePath(routes.adminAgentDetail(profile.agentId));
   if (existing.agent_id !== profile.agentId) revalidatePath(routes.adminAgentDetail(existing.agent_id));
-  return { success: `Saved - this profile now prints to "${profile.windowsQueueName}".` };
+  return {
+    success:
+      profile.output.outputMode === "raw"
+        ? `Saved - this profile now prints directly to ${profile.output.rawHost}:${profile.output.rawPort}.`
+        : `Saved - this profile now prints to "${profile.output.windowsQueueName}".`,
+  };
 }
 
 /**
@@ -483,7 +507,7 @@ export async function sendTestPrintAction(_prev: PrinterActionState, formData: F
 
   const pdfBytes = await createTestPrintPdf({
     profileLabel: profile.label,
-    windowsQueueName: profile.windows_queue_name,
+    windowsQueueName: profile.windows_queue_name ?? (profile.raw_host ? `direct to ${profile.raw_host}:${profile.raw_port}` : "(none)"),
     printerName: profile.printers.name,
     sentBy: session.profile.display_name ?? session.email,
     organizationName: organization?.name ?? "This organization",
@@ -644,6 +668,16 @@ export async function createPrinterProfilesFromWizardAction(_prev: PrinterAction
   const newPrinterName = String(formData.get("newPrinterName") ?? "").trim();
   const agentId = String(formData.get("agentId") ?? "");
   const cardsRaw = String(formData.get("cardsJson") ?? "");
+  // One destination for the whole batch: either direct-to-printer (raw) or a
+  // per-card Windows queue chosen on each card.
+  const wizardMode = formData.get("outputMode") === "raw" ? "raw" : "queue";
+  const rawOutput = parseOutputTarget({
+    outputMode: "raw",
+    rawHost: String(formData.get("rawHost") ?? ""),
+    rawPort: String(formData.get("rawPort") ?? ""),
+    rawStaplePosition: String(formData.get("rawStaplePosition") ?? ""),
+  });
+  if (wizardMode === "raw" && !rawOutput.ok) return { error: rawOutput.error };
 
   if (!agentId) return { error: "Choose which Agent's machine these queues live on." };
   if (!printerId && !newPrinterName) return { error: "Choose a printer, or name the new one." };
@@ -677,11 +711,11 @@ export async function createPrinterProfilesFromWizardAction(_prev: PrinterAction
     const key = String(card.key ?? "").trim();
     const label = String(card.label ?? "").trim();
     const windowsQueueName = String(card.windowsQueueName ?? "").trim();
-    if (!key || !label || !windowsQueueName) {
+    if (!key || !label || (wizardMode === "queue" && !windowsQueueName)) {
       return { error: `Every recipe card needs a key, label, and a chosen Windows queue (missing for "${label || key || "a card"}").` };
     }
     if (!/^[a-z0-9_]+$/.test(key)) return { error: `Key "${key}" must be lowercase letters, numbers, underscores only.` };
-    if (discoveredQueueNames.size > 0 && !discoveredQueueNames.has(windowsQueueName)) {
+    if (wizardMode === "queue" && discoveredQueueNames.size > 0 && !discoveredQueueNames.has(windowsQueueName)) {
       // Defense in depth - the Step 3 <select> only ever offers queues this
       // Agent actually reported, so this only fires against a tampered
       // request. If the Agent has reported nothing at all yet,
@@ -701,7 +735,15 @@ export async function createPrinterProfilesFromWizardAction(_prev: PrinterAction
       label,
       description: String(card.description ?? "").trim() || null,
       icon_key: iconKeyRaw || null,
-      windows_queue_name: windowsQueueName,
+      ...(wizardMode === "raw" && rawOutput.ok
+        ? {
+            windows_queue_name: null,
+            output_mode: "raw",
+            raw_host: rawOutput.value.rawHost,
+            raw_port: rawOutput.value.rawPort,
+            raw_staple_position: rawOutput.value.rawStaplePosition,
+          }
+        : { windows_queue_name: windowsQueueName }),
       declared_paper_sizes: ["letter"],
       declared_capabilities: {
         duplex: !!card.declaredCapabilities?.duplex,

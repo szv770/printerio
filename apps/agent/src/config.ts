@@ -30,6 +30,8 @@ export interface AgentConfig {
   collateMultiCopy: boolean;
   /** Escape hatch for the startup dependency check (dependency-check.ts). Off by default; see .env.example for why it exists and why leaving it on is a bad idea. */
   skipDependencyCheck: boolean;
+  /** PRINTIO_RAW_ONLY: a missing SumatraPDF is only a startup warning (raw-port jobs do not need it). */
+  rawOnly: boolean;
 }
 
 const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"];
@@ -151,5 +153,6 @@ export function loadConfig(options: LoadConfigOptions = {}): AgentConfig {
       env.PRINTIO_SKIP_DEPENDENCY_CHECK,
       false,
     ),
+    rawOnly: parseBool("PRINTIO_RAW_ONLY", env.PRINTIO_RAW_ONLY, false),
   };
 }

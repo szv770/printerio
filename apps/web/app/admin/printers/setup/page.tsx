@@ -30,7 +30,7 @@ export default async function PrinterSetupWizardPage() {
 
   const claimedQueues: Record<string, string> = {};
   for (const p of existingProfiles ?? []) {
-    if (!(p.windows_queue_name in claimedQueues)) claimedQueues[p.windows_queue_name] = p.label;
+    if (p.windows_queue_name && !(p.windows_queue_name in claimedQueues)) claimedQueues[p.windows_queue_name] = p.label;
   }
 
   const wizardAgents: WizardAgent[] = (agents ?? []).map((a) => ({
