@@ -250,7 +250,7 @@ export function SpotlightTour({
       role="dialog"
       aria-modal="true"
       aria-label={`Printio tour: ${slide.title}`}
-      className="fixed inset-0 z-[100]"
+      className="pointer-events-none fixed inset-0 z-[100]"
     >
       {spotlighted && path ? (
         <svg
@@ -268,12 +268,12 @@ export function SpotlightTour({
           />
         </svg>
       ) : (
-        <div className="fixed inset-0 bg-black/65" />
+        <div className="pointer-events-auto fixed inset-0 bg-black/65" />
       )}
 
       <div
         ref={calloutRef}
-        className={`fixed z-[101] flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-2xl ${
+        className={`pointer-events-auto fixed z-[101] flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-2xl ${
           reducedMotion ? "" : "transition-[top,left] duration-200 ease-out"
         }`}
         style={
