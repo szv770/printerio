@@ -3,7 +3,7 @@
 // TASKalfa MZ8500i - see docs/kyocera-raw-print.md. Anything not proven
 // returns { ok: false } so the caller can HOLD the job instead of guessing.
 
-export type StaplePosition = "top-left" | "top-right";
+export type StaplePosition = "top-left" | "top-right" | "bottom-left";
 
 export interface RawPrintOptions {
   copies: number;
@@ -49,12 +49,13 @@ export function buildPjlSettings(o: RawPrintOptions): PjlSettingsResult {
     if (o.duplex) settings.push("DUPLEX=ON", "BINDING=LONGEDGE");
     else settings.push("DUPLEX=OFF");
     if (o.staple) {
-      // Position map from a portrait 6-page test; recheck on landscape pages.
-      settings.push(
-        "OUTBIN=OPTIONFACEDOWN",
-        o.staple === "top-right" ? "STAPLEOPTION=ONE" : "STAPLEOPTION=ONEOPPOSED",
-        "FINISH=STAPLE",
-      );
+      // Position map from labelled real-printer tests (portrait page, duplex long edge):
+      //   ONE                         -> top-left      (S2, S3)
+      //   ONE + KFEEDEDGE=SHORTEDGE   -> top-right     (P1)
+      //   ONEOPPOSED                  -> bottom-left   (S1, S4, S5)
+      settings.push("OUTBIN=OPTIONFACEDOWN");
+      if (o.staple === "top-right") settings.push("KFEEDEDGE=SHORTEDGE");
+      settings.push(o.staple === "bottom-left" ? "STAPLEOPTION=ONEOPPOSED" : "STAPLEOPTION=ONE", "FINISH=STAPLE");
     }
   }
 

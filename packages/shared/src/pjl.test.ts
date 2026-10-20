@@ -28,14 +28,24 @@ describe("buildPjlSettings", () => {
     expect(r.settings).toContain("KCOLORMODE=MONO");
   });
 
-  it("staple top-right = ONE alone, top-left = ONEOPPOSED alone", () => {
-    const tr = buildPjlSettings({ ...base, staple: "top-right" });
-    const tl = buildPjlSettings({ ...base, staple: "top-left" });
-    if (!tr.ok || !tl.ok) throw new Error("expected ok");
-    expect(tr.settings).toEqual(expect.arrayContaining(["OUTBIN=OPTIONFACEDOWN", "STAPLEOPTION=ONE", "FINISH=STAPLE"]));
-    expect(tl.settings).toEqual(expect.arrayContaining(["STAPLEOPTION=ONEOPPOSED", "FINISH=STAPLE"]));
-    expect(tr.settings).not.toContain("KFEEDEDGE=LONGEDGE");
-    expect(tl.settings).not.toContain("STAPLEOPTION=ONE");
+  it("staple maps match the real-printer results (2026-10-19)", () => {
+    // top-left: ONE. top-right: ONE + KFEEDEDGE=SHORTEDGE (job P1). bottom-left: ONEOPPOSED.
+    const get = (staple: "top-left" | "top-right" | "bottom-left") => {
+      const r = buildPjlSettings({ ...base, staple });
+      if (!r.ok) throw new Error(r.reason);
+      return r.settings;
+    };
+    const tl = get("top-left");
+    const tr = get("top-right");
+    const bl = get("bottom-left");
+    for (const s of [tl, tr, bl]) {
+      expect(s).toEqual(expect.arrayContaining(["DUPLEX=ON", "BINDING=LONGEDGE", "OUTBIN=OPTIONFACEDOWN", "FINISH=STAPLE"]));
+    }
+    expect(tl).toContain("STAPLEOPTION=ONE");
+    expect(tl.join()).not.toContain("KFEEDEDGE");
+    expect(tr).toEqual(expect.arrayContaining(["STAPLEOPTION=ONE", "KFEEDEDGE=SHORTEDGE"]));
+    expect(bl).toContain("STAPLEOPTION=ONEOPPOSED");
+    expect(bl.join()).not.toContain("KFEEDEDGE");
   });
 
   it("left-binding booklet uses the proven KBOOKLET + KFOLD recipe", () => {

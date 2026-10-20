@@ -125,8 +125,7 @@ So for PDF-direct: **left binding = `OUTBIN=KBOOKLET`, `FINISH=KFOLD`, `DUPLEX=O
 - **F1 (right/mirrored layout, normal sheet order, `KFOLD`, `BINDING=SHORTEDGE`) = perfect right-to-left booklet.** Same printer setting as
   left binding; the imposition layout carries the side. F2 (reversed sheet order) was wrong. `KREVERSEFOLD` is never needed.
 - **Staple, portrait test.pdf / num8.pdf, duplex long edge:** `ONE` = top-left, `ONEOPPOSED` = bottom-left; `KFEEDEDGE=LONGEDGE` changes nothing.
-  This supersedes the older table above (that run was on a different PDF and put `ONE` at top-right). Top-right still unmapped (tests P1-P4:
-  `KFEEDEDGE=SHORTEDGE` and `BINDING=SHORTEDGE` variants). Copies via `QTY` work (2 copies confirmed).
+  This supersedes the older table above (that run was on a different PDF and put `ONE` at top-right). **Top-right = `ONE` + `KFEEDEDGE=SHORTEDGE`** (job P1, confirmed). `ONEOPPOSED` + `KFEEDEDGE=SHORTEDGE` (P2) and `BINDING=SHORTEDGE` + `ONE` (P3) both gave top-left. Copies via `QTY` work (2 copies confirmed).
 - Test tools: `tools/raw-print/send-labelled.mjs` (stamps a label on page 1; always label prints), `send-built.mjs`, `make-booklet-test.mjs`, `pxl.js`.
 
 ## Open mapping work
