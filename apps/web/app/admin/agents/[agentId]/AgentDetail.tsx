@@ -43,7 +43,9 @@ const initialPrinterActionState: PrinterActionState = {};
 interface QueueRow {
   id: string;
   label: string;
-  windowsQueueName: string;
+  windowsQueueName: string | null;
+  /** "host:port" for direct-to-printer profiles. */
+  rawTarget?: string | null;
   printerId: string;
   printerName: string;
   printerStatus: string;
@@ -404,7 +406,8 @@ function QueueRowItem({
             {queue.printerName} — {queue.label}
           </p>
           <p className="mt-0.5 text-xs text-[var(--color-muted)]">
-            Windows queue <code className="rounded bg-gray-100 px-1 py-0.5 font-mono">{queue.windowsQueueName}</code>
+            {queue.rawTarget ? "Direct to printer" : "Windows queue"}{" "}
+            <code className="rounded bg-gray-100 px-1 py-0.5 font-mono">{queue.rawTarget ?? queue.windowsQueueName}</code>
           </p>
           <p className="mt-2 text-xs text-[var(--color-muted)]">
             {queue.usage.totalJobs === 0

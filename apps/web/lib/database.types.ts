@@ -781,7 +781,11 @@ export type Database = {
           label: string
           pricing: Json | null
           printer_id: string
-          windows_queue_name: string
+          windows_queue_name: string | null
+          output_mode: string
+          raw_host: string | null
+          raw_port: number
+          raw_staple_position: string
         }
         Insert: {
           agent_id: string
@@ -797,7 +801,11 @@ export type Database = {
           label: string
           pricing?: Json | null
           printer_id: string
-          windows_queue_name: string
+          windows_queue_name?: string | null
+          output_mode?: string
+          raw_host?: string | null
+          raw_port?: number
+          raw_staple_position?: string
         }
         Update: {
           agent_id?: string
@@ -813,7 +821,11 @@ export type Database = {
           label?: string
           pricing?: Json | null
           printer_id?: string
-          windows_queue_name?: string
+          windows_queue_name?: string | null
+          output_mode?: string
+          raw_host?: string | null
+          raw_port?: number
+          raw_staple_position?: string
         }
         Relationships: [
           {

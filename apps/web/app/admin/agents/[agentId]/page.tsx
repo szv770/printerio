@@ -124,6 +124,7 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
           id: profile.id,
           label: profile.label,
           windowsQueueName: profile.windows_queue_name,
+          rawTarget: profile.output_mode === "raw" ? `${profile.raw_host}:${profile.raw_port}` : null,
           printerId: profile.printers.id,
           printerName: profile.printers.name,
           printerStatus: profile.printers.status,

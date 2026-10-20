@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { FileCheck2, Pause, Pencil, Printer as PrinterIcon, Trash2, Wifi, WifiOff } from "lucide-react";
 import type { Tables } from "@/lib/database.types";
+import { isValidRawHost, parseRawPort } from "@/lib/printers/raw-target";
 import { Button, Input, Select, FieldLabel, FormError, FormSuccess, EmptyState, Badge, Card } from "@/components/ui";
 import {
   PRINTER_PROFILE_ICON_KEYS,
@@ -229,7 +230,19 @@ function PrinterCard({
                   <span className="flex min-w-0 items-start gap-2">
                     {ProfileIcon && <ProfileIcon className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-muted)]" />}
                     <span className="min-w-0 break-words">
-                      <span className="font-medium">{p.label}</span> ({p.key}) — queue <code>{p.windows_queue_name}</code>
+                      <span className="font-medium">{p.label}</span> ({p.key}) —{" "}
+                      {p.output_mode === "raw" ? (
+                        <>
+                          direct to{" "}
+                          <code>
+                            {p.raw_host}:{p.raw_port}
+                          </code>
+                        </>
+                      ) : (
+                        <>
+                          queue <code>{p.windows_queue_name}</code>
+                        </>
+                      )}
                     </span>
                   </span>
                   {canManage && (
@@ -454,6 +467,10 @@ function ProfileFields({
     description: string;
     iconKey: PrinterProfileIconKey | "";
     windowsQueueName: string;
+    outputMode: "queue" | "raw";
+    rawHost: string;
+    rawPort: string;
+    rawStaplePosition: "top-left" | "top-right";
     paperSizes: string;
     agentId: string;
     capabilities: Record<CapabilityKey, boolean>;
@@ -467,6 +484,18 @@ function ProfileFields({
   // - it's meaningless for a non-booklet profile (see the column's own
   // comment in supabase/migrations/0017_*.sql).
   const [bookletChecked, setBookletChecked] = useState(defaults.capabilities.booklet);
+  const [outputMode, setOutputMode] = useState<"queue" | "raw">(defaults.outputMode);
+  const [rawHost, setRawHost] = useState(defaults.rawHost);
+  const [rawHostTouched, setRawHostTouched] = useState(false);
+  const [rawPort, setRawPort] = useState(defaults.rawPort);
+  const rawHostError =
+    rawHostTouched && rawHost.trim() && !isValidRawHost(rawHost.trim())
+      ? "That isn't a valid IP address (like 192.168.1.50) or hostname."
+      : null;
+  const rawPortError = (() => {
+    const r = parseRawPort(rawPort);
+    return r.ok ? null : r.error;
+  })();
 
   return (
     <>
@@ -528,25 +557,91 @@ function ProfileFields({
       </div>
 
       <div className="sm:col-span-2">
-        <FieldLabel
-          htmlFor={`${idPrefix}QueueName`}
-          hint="must exactly match the queue name in Windows on that machine - case-sensitive"
+        <FieldLabel hint="how Printio gets the job onto the printer">Send jobs to</FieldLabel>
+        <Select
+          id={`${idPrefix}OutputMode`}
+          name="outputMode"
+          value={outputMode}
+          onChange={(e) => setOutputMode(e.target.value === "raw" ? "raw" : "queue")}
         >
-          Windows queue name
-        </FieldLabel>
-        <Input
-          id={`${idPrefix}QueueName`}
-          name="windowsQueueName"
-          placeholder="Kyocera_Main_Booklet"
-          defaultValue={defaults.windowsQueueName}
-          required
-        />
-        <p className="mt-1 text-xs text-[var(--color-muted)]">
-          On the Agent&apos;s Windows machine: Devices and Printers → right-click the queue →
-          Printer properties → the name at the top. Copy it exactly - a typo here means the
-          Agent can never find this queue.
-        </p>
+          <option value="queue">Windows queue</option>
+          <option value="raw">Direct to printer (raw port 9100)</option>
+        </Select>
       </div>
+
+      {outputMode === "queue" ? (
+        <div className="sm:col-span-2">
+          <FieldLabel
+            htmlFor={`${idPrefix}QueueName`}
+            hint="must exactly match the queue name in Windows on that machine - case-sensitive"
+          >
+            Windows queue name
+          </FieldLabel>
+          <Input
+            id={`${idPrefix}QueueName`}
+            name="windowsQueueName"
+            placeholder="Kyocera_Main_Booklet"
+            defaultValue={defaults.windowsQueueName}
+            required
+          />
+          <p className="mt-1 text-xs text-[var(--color-muted)]">
+            On the Agent&apos;s Windows machine: Devices and Printers → right-click the queue →
+            Printer properties → the name at the top. Copy it exactly - a typo here means the
+            Agent can never find this queue.
+          </p>
+        </div>
+      ) : (
+        <>
+          <p className="text-xs text-[var(--color-muted)] sm:col-span-2">
+            The Agent sends the finished PDF straight to the printer over the network, with the
+            stapling and booklet settings added by Printio itself. No Windows print queue or driver
+            is involved. The printer must be reachable from the Agent&apos;s machine.
+          </p>
+          <div>
+            <FieldLabel htmlFor={`${idPrefix}RawHost`} hint="the printer's IP address or network name">
+              Printer address
+            </FieldLabel>
+            <Input
+              id={`${idPrefix}RawHost`}
+              name="rawHost"
+              placeholder="192.168.1.50"
+              value={rawHost}
+              onChange={(e) => setRawHost(e.target.value)}
+              onBlur={() => setRawHostTouched(true)}
+              aria-invalid={rawHostError ? true : undefined}
+              required
+            />
+            {rawHostError && <p className="mt-1 text-xs text-red-600">{rawHostError}</p>}
+          </div>
+          <div>
+            <FieldLabel htmlFor={`${idPrefix}RawPort`} hint="almost always 9100">
+              Port
+            </FieldLabel>
+            <Input
+              id={`${idPrefix}RawPort`}
+              name="rawPort"
+              inputMode="numeric"
+              placeholder="9100"
+              value={rawPort}
+              onChange={(e) => setRawPort(e.target.value)}
+              aria-invalid={rawPortError ? true : undefined}
+            />
+            {rawPortError && <p className="mt-1 text-xs text-red-600">{rawPortError}</p>}
+          </div>
+          <div className="sm:col-span-2">
+            <FieldLabel
+              htmlFor={`${idPrefix}RawStaple`}
+              hint="where the staple goes when a job asks for stapling (not used for booklets)"
+            >
+              Default staple position
+            </FieldLabel>
+            <Select id={`${idPrefix}RawStaple`} name="rawStaplePosition" defaultValue={defaults.rawStaplePosition}>
+              <option value="top-left">Top left</option>
+              <option value="top-right">Top right</option>
+            </Select>
+          </div>
+        </>
+      )}
 
       <div className="sm:col-span-2">
         <FieldLabel htmlFor={`${idPrefix}PaperSizes`} hint="comma-separated, matches what the driver's Printing Defaults offer">
@@ -629,7 +724,7 @@ function NewProfileForm({
       <input type="hidden" name="printerId" value={printerId} />
 
       <p className="text-xs text-[var(--color-muted)] sm:col-span-2">
-        One profile per Windows print queue. Set up the queue itself first (driver, finishing
+        One profile per Windows print queue (or per direct-to-printer destination). Set up the queue itself first (driver, finishing
         defaults) per <code>docs/printer-setup.md</code> - this form just registers a queue
         that already exists, it doesn&apos;t create one.
       </p>
@@ -643,6 +738,10 @@ function NewProfileForm({
           description: "",
           iconKey: "",
           windowsQueueName: "",
+          outputMode: "queue",
+          rawHost: "",
+          rawPort: "9100",
+          rawStaplePosition: "top-left",
           paperSizes: "",
           agentId: "",
           capabilities: { duplex: false, color: false, staple: false, booklet: false, punch: false },
@@ -708,7 +807,11 @@ function EditProfileForm({
             profile.icon_key && profile.icon_key in PRINTER_PROFILE_ICON_COMPONENTS
               ? (profile.icon_key as PrinterProfileIconKey)
               : "",
-          windowsQueueName: profile.windows_queue_name,
+          windowsQueueName: profile.windows_queue_name ?? "",
+          outputMode: profile.output_mode === "raw" ? "raw" : "queue",
+          rawHost: profile.raw_host ?? "",
+          rawPort: String(profile.raw_port ?? 9100),
+          rawStaplePosition: profile.raw_staple_position === "top-right" ? "top-right" : "top-left",
           paperSizes: profile.declared_paper_sizes.join(","),
           agentId: profile.agent_id,
           capabilities: readCapabilities(profile.declared_capabilities),

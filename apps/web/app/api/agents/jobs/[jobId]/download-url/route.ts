@@ -2,6 +2,7 @@ import { apiError } from "@/lib/api-errors";
 import { authenticateAgentRequest } from "@/lib/agent-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { PRINT_JOBS_BUCKET } from "@/lib/storage";
+import { rawTargetFromProfile } from "@/lib/printers/raw-target";
 import type { ResolvedPrintRequest } from "@printio/shared";
 
 const SIGNED_URL_TTL_SECONDS = 300;
@@ -63,10 +64,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
       : paddedPageCount
     : job.source_pdf_pages;
 
+  // Raw (direct-to-printer) profiles carry no Windows queue; the Agent sends
+  // the job straight to host:port instead.
+  const raw = rawTargetFromProfile(profile, { jobTitle: job.original_file_name });
+
   const printRequest: ResolvedPrintRequest = {
     jobId: job.id,
     printerProfileId: profile.id,
-    windowsQueueName: profile.windows_queue_name,
+    windowsQueueName: raw ? "" : (profile.windows_queue_name ?? ""),
+    ...(raw ? { raw } : {}),
     pageCount,
     copies: job.copies,
     colorMode: job.color_mode as "bw" | "color",
