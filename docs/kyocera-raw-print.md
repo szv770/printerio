@@ -69,19 +69,12 @@ conversion needed. Results with a 6-page PDF:
 
 Standard PJL `DUPLEX` / `BINDING` work for duplex. Untested: copies (`QTY`), paper size/tray, color.
 
-## Staple position map, PDF-direct path (2026-10-18, 6-page PDF, duplex long edge, positions as seen on the upright page)
+## Staple position map
 
-| `KFEEDEDGE=LONGEDGE` | `STAPLEOPTION` | Staple |
-|---|---|---|
-| no | `ONE` | top-right |
-| no | `ONEOPPOSED` | top-left |
-| yes | `ONE` | top-left |
-| yes | `ONEOPPOSED` | **bottom-left** |
-
-Fits "each of the two switches rotates the staple 90 degrees around the page" (TR -> TL -> BL). Simple
-recipes: top-right = `ONE` alone; top-left = `ONEOPPOSED` alone. Bottom-right not reachable with these two
-switches. Likely depends on PDF page orientation (the test PDF's orientation was not recorded) - re-check with a
-landscape PDF. The driver's PCL XL jobs behave differently (ONE alone = top-left there).
+SUPERSEDED: an earlier table here (from a different 6-page PDF) said `ONE` = top-right. That was wrong for the portrait test
+documents. The confirmed map is under "Right binding solved, staple map corrected" below: `ONE` = top-left,
+`ONE` + `KFEEDEDGE=SHORTEDGE` = top-right, `ONEOPPOSED` = bottom-left (portrait, duplex long edge). Not yet verified: simplex
+(one-sided) stapling and landscape pages.
 
 ## Booklet: PDF-direct came out in the wrong page order (unresolved)
 
