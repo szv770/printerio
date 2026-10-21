@@ -20,6 +20,13 @@ Next steps are listed at the bottom of `docs/ipp-printing.md` (Apple tests, Chro
 replay, then Phase 1 gateway).
 
 ## Gotchas
+- Supabase Data API grants (Supabase's Oct 30, 2026 change): new tables in `public` no longer get
+  automatic Data API grants. Every migration that creates a table must include an explicit
+  `grant select, insert, update, delete on public.<table> to authenticated, service_role;` - never
+  `anon`; RLS stays the row-access layer. `0031_explicit_table_grants.sql` made the existing grants
+  explicit and set `alter default privileges` as a backstop, but still write the grant in each new
+  table's migration so the access decision stays reviewable (and revoke from `authenticated` when a
+  table is service-role-only). Mirror each migration into `schema.sql` as before.
 - PRs: the repo's default branch is `claude/upcoming-large-project-3d2j9p` (there is no `main`).
 - `apps/web/lib/pdf/imposition.test.ts` "byte-identical" test is timing-flaky (pdf-lib stamps the
   current time; fails across a clock-second boundary). A re-run passes; the proper fix is fixed dates.
