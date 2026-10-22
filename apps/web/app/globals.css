@@ -1,27 +1,132 @@
 @import "tailwindcss";
 
+/*
+ * Design tokens. Light theme only (as before). Names that existed before this
+ * file was refined (--color-bg, -surface, -border, -text, -muted, -primary,
+ * -primary-fg, -success, -warning, -danger) are kept so every page keeps working.
+ *
+ * Neutrals are a cool slate scale; ONE accent (indigo-blue); semantic colors each
+ * come with a soft tint (-soft) for badges and banners and a strong text color (-ink).
+ */
 :root {
-  --color-bg: #f8fafc;
+  color-scheme: light;
+
+  /* neutrals */
+  --color-bg: #f6f7f9;
   --color-surface: #ffffff;
-  --color-border: #e2e8f0;
-  --color-text: #0f172a;
-  --color-muted: #64748b;
-  --color-primary: #2563eb;
+  --color-surface-2: #f1f3f6; /* wells, hovered rows, segmented tracks */
+  --color-border: #e2e6ec;
+  --color-border-strong: #cdd3dc;
+  --color-text: #0f1729;
+  --color-text-2: #3b4559;
+  --color-muted: #5f6b7e; /* 5.1:1 on white */
+  --color-faint: #8b95a5;
+
+  /* the one accent */
+  --color-primary: #3a56d4;
+  --color-primary-hover: #2f46b3;
+  --color-primary-soft: #eceffc;
   --color-primary-fg: #ffffff;
-  --color-success: #16a34a;
-  --color-warning: #d97706;
-  --color-danger: #dc2626;
+
+  /* semantic */
+  --color-success: #15803d;
+  --color-success-soft: #e7f6ec;
+  --color-success-ink: #14532d;
+  --color-warning: #b45309;
+  --color-warning-soft: #fdf3e1;
+  --color-warning-ink: #78350f;
+  --color-danger: #c62828;
+  --color-danger-soft: #fdecec;
+  --color-danger-ink: #7f1d1d;
+
+  /* radii: controls < cards < overlays */
+  --radius-control: 0.625rem;
+  --radius-card: 0.875rem;
+  --radius-pill: 999px;
+
+  /* soft layered shadows */
+  --shadow-xs: 0 1px 2px rgb(15 23 41 / 0.05);
+  --shadow-card: 0 1px 2px rgb(15 23 41 / 0.04), 0 1px 3px rgb(15 23 41 / 0.04);
+  --shadow-pop: 0 1px 2px rgb(15 23 41 / 0.06), 0 8px 24px -4px rgb(15 23 41 / 0.14), 0 24px 48px -12px rgb(15 23 41 / 0.16);
+
+  /* focus ring: 2px gap + 2px accent, visible on any surface */
+  --ring: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-primary);
+
+  /* spacing rhythm for page sections (use with gap-/space-y-) */
+  --space-section: 1.5rem;
+  --space-card: 1.25rem;
+
+  --tap: 2.75rem; /* 44px minimum touch target */
+}
+
+@theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
   background: var(--color-bg);
   color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 0.9375rem; /* 15px body */
+  line-height: 1.55;
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  overflow-wrap: break-word;
 }
 
-/* Large, touch-friendly controls by default - see docs/architecture.md sec 43. */
+/*
+ * Type scale (line-height in brackets): 12/16 caption, 13/20 small, 15/24 body,
+ * 17/26 lead, 20/28 h3, 24/30 h2, 30/36 h1 (tracking tightens as size grows).
+ */
+h1, h2, h3 {
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+p { text-wrap: pretty; }
+
+/* Form controls stay at 16px on phones so iOS Safari does not zoom on focus. */
 button,
 input,
 select,
 textarea {
   font-size: 1rem;
+  font-family: inherit;
+}
+@media (min-width: 768px) {
+  input,
+  select,
+  textarea {
+    font-size: 0.9375rem;
+  }
+}
+
+/* One consistent keyboard focus ring for anything without its own. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--color-primary-soft);
+}
+
+/* Entrance for the unsaved-changes bar (answers a user action, so it is allowed to move). */
+@keyframes printio-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.printio-rise { animation: printio-rise 180ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@keyframes printio-spin { to { transform: rotate(360deg); } }
+.printio-spin { animation: printio-spin 700ms linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .printio-rise { animation: none; }
+  .printio-spin { animation-duration: 1.6s; }
+  html { scroll-behavior: auto; }
 }
