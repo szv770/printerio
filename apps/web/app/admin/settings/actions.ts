@@ -6,6 +6,7 @@ import { requireOrgRole } from "@/lib/auth/session";
 import { parseAllowedDomainsInput } from "@/lib/auth/domains";
 import { describeDatabaseError } from "@/lib/action-errors";
 import { routes } from "@/lib/routes";
+import { normalizeStampSettings } from "@/lib/jobs/user-code";
 
 export interface SettingsActionState {
   error?: string;
@@ -133,5 +134,35 @@ export async function updateAdminsBypassRestrictionsAction(
     success: bypass
       ? "Saved. Admins' own print jobs will no longer be held up by approval/quota rules (still shown as a warning when one would otherwise have applied)."
       : "Saved. Admins are now subject to the same approval and quota rules as everyone else.",
+  };
+}
+
+/** Updates the organization-level print stamp: whether every job gets its sender's user code stamped on page 1,
+ *  what it shows, and how dark it is (organization_settings.stamp_*, supabase/migrations/0033_print_stamp.sql).
+ *  Applies to jobs created from now on; a job already created keeps the file it was created with. A checked
+ *  checkbox submits "on"; an unchecked one submits nothing, so its absence means off. */
+export async function updateStampSettingsAction(
+  _prev: SettingsActionState,
+  formData: FormData,
+): Promise<SettingsActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const parsed = normalizeStampSettings({
+    stamp_enabled: formData.get("stampEnabled") === "on",
+    stamp_show: String(formData.get("stampShow") ?? ""),
+    stamp_strength: String(formData.get("stampStrength") ?? ""),
+  });
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("organization_settings")
+    .update({ stamp_enabled: parsed.enabled, stamp_show: parsed.show, stamp_strength: parsed.strength })
+    .eq("organization_id", session.membership.organization_id);
+  if (error) return { error: describeDatabaseError(error, "Couldn't save the print stamp settings.") };
+
+  revalidatePath(routes.adminSettings);
+  return {
+    success: parsed.enabled
+      ? "Saved. New print jobs will carry the user code on page 1."
+      : "Saved. New print jobs will not be stamped.",
   };
 }

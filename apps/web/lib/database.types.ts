@@ -505,6 +505,7 @@ export type Database = {
           organization_id: string
           role: string
           status: string
+          user_code: string | null
           user_id: string
         }
         Insert: {
@@ -513,6 +514,7 @@ export type Database = {
           organization_id: string
           role?: string
           status?: string
+          user_code?: string | null
           user_id: string
         }
         Update: {
@@ -521,6 +523,7 @@ export type Database = {
           organization_id?: string
           role?: string
           status?: string
+          user_code?: string | null
           user_id?: string
         }
         Relationships: [
@@ -554,6 +557,9 @@ export type Database = {
           retention_failed_days: number
           retention_pending_days: number | null
           retention_rejected_days: number
+          stamp_enabled: boolean
+          stamp_show: string
+          stamp_strength: string
           updated_at: string
         }
         Insert: {
@@ -569,6 +575,9 @@ export type Database = {
           retention_failed_days?: number
           retention_pending_days?: number | null
           retention_rejected_days?: number
+          stamp_enabled?: boolean
+          stamp_show?: string
+          stamp_strength?: string
           updated_at?: string
         }
         Update: {
@@ -584,6 +593,9 @@ export type Database = {
           retention_failed_days?: number
           retention_pending_days?: number | null
           retention_rejected_days?: number
+          stamp_enabled?: boolean
+          stamp_show?: string
+          stamp_strength?: string
           updated_at?: string
         }
         Relationships: [
