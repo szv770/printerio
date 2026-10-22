@@ -106,7 +106,7 @@ describe("Windows 11 flow", () => {
     expect(h.web.finalizeCalls).toHaveLength(0);
 
     h.web.nextStatus = "held";
-    h.web.nextMessage = "Staple is not available from the print dialog yet.";
+    h.web.nextMessage = "The staple corner is only checked on portrait pages, so nothing was printed. Choose the staple on the website.";
     const sent = await h.ipp(windowsSend(cj["job-id"] as number), PDF, { chunked: true });
     expect(sent.ipp.code).toBe(STATUS.ok);
 
@@ -144,7 +144,7 @@ describe("Windows 11 flow", () => {
     expect(sj["job-id"]).toBe(cj["job-id"]);
     expect(sj["job-state"]).toBe(4);
     expect(sj["job-state-reasons"]).toBe("job-hold-until-specified");
-    expect(sj["job-state-message"]).toBe("Staple is not available from the print dialog yet.");
+    expect(sj["job-state-message"]).toBe("That finishing is not supported. Open Printio > My jobs to choose again");
     expect(h.web.events.map((e) => e.type)).toContain("job_received");
 
     // Windows polls the job afterwards; the web moves it along
@@ -156,7 +156,7 @@ describe("Windows 11 flow", () => {
     const pj = flatGroup(polled.ipp, TAG.job);
     expect(pj["job-state"]).toBe(9);
     expect(pj["job-state-reasons"]).toBe("job-completed-successfully");
-    expect(pj["job-state-message"]).toBeUndefined();
+    expect(pj["job-state-message"]).toBe("Printed");
 
     // ... and by job-uri
     const byUri = await h.ipp({
@@ -239,6 +239,75 @@ describe("Android flow", () => {
       const want = mapJobState(state);
       expect([state, j["job-state"], j["job-state-reasons"]]).toEqual([state, want.state, want.reason]);
     }
+  });
+});
+
+describe("phone-visible job status", () => {
+  const poll = (ippId: number) =>
+    h.ipp({ code: OP.getJobAttributes, groups: [operationGroup(printerUri(), attr(TAG.integer, "job-id", ippId))] });
+
+  it("a held booklet gives the readable message on the Print-Job reply and on a later Get-Job-Attributes", async () => {
+    h.web.nextStatus = "held";
+    h.web.nextMessage = "Booklet: choose left or right binding.";
+    const sent = await h.ipp(androidPrint(), PDF);
+    expect(sent.ipp.code).toBe(STATUS.ok);
+    const want = "Open Printio > My jobs to choose Left or Right binding";
+    expect(flatGroup(sent.ipp, TAG.operation)["status-message"]).toBe(want);
+    const sj = flatGroup(sent.ipp, TAG.job);
+    expect([sj["job-state"], sj["job-state-reasons"], sj["job-state-message"]]).toEqual([4, "job-hold-until-specified", want]);
+    expect(Number.isInteger(sj["job-id"])).toBe(true);
+
+    const later = flatGroup((await poll(sj["job-id"] as number)).ipp, TAG.job);
+    expect([later["job-state"], later["job-state-reasons"], later["job-state-message"]]).toEqual([4, "job-hold-until-specified", want]);
+  });
+
+  it("queued -> printing -> printed each say so, and a printed job is not looked up again", async () => {
+    h.web.nextStatus = "approved";
+    const sent = await h.ipp(androidPrint(), PDF);
+    const sj = flatGroup(sent.ipp, TAG.job);
+    expect(sj["job-state-message"]).toBe("Waiting for the printer");
+    expect(flatGroup(sent.ipp, TAG.operation)["status-message"]).toBe("Waiting for the printer");
+    const id = sj["job-id"] as number;
+    for (const [status, msg] of [["printing", "Printing"], ["completed", "Printed"]] as const) {
+      h.web.jobs.set("web-job-1", { jobId: "web-job-1", status });
+      expect(flatGroup((await poll(id)).ipp, TAG.job)["job-state-message"]).toBe(msg);
+    }
+    let lookups = 0;
+    h.web.getJob = async () => {
+      lookups++;
+      return null;
+    };
+    const again = flatGroup((await poll(id)).ipp, TAG.job);
+    expect([again["job-state"], again["job-state-message"], lookups]).toEqual([9, "Printed", 0]);
+  });
+
+  it("a denied job reports the first policy reason and an aborted state", async () => {
+    h.web.nextStatus = "denied";
+    h.web.nextMessage = "Color printing is not allowed for your group.";
+    const sent = await h.ipp(androidPrint(), PDF);
+    const sj = flatGroup(sent.ipp, TAG.job);
+    expect([sj["job-state"], sj["job-state-message"]]).toEqual([8, "Color printing is not allowed for your group."]);
+  });
+
+  it("a failed job is plain and a cancelled one says cancelled", async () => {
+    h.web.nextStatus = "failed";
+    h.web.nextMessage = "ERR_SPOOLER 0x80070005";
+    const f = flatGroup((await h.ipp(androidPrint(), PDF)).ipp, TAG.job);
+    expect(f["job-state-message"]).toBe("The printer could not print this job. Open Printio > My jobs for details");
+    h.web.nextStatus = "cancelled";
+    h.web.nextMessage = undefined;
+    const c = flatGroup((await h.ipp(androidPrint(), PDF)).ipp, TAG.job);
+    expect([c["job-state"], c["job-state-message"]]).toEqual([7, "Cancelled"]);
+  });
+
+  it("quota and rate-limit refusals carry readable text with the web's wording", async () => {
+    h.web.finalizeResult = { kind: "refused", reason: "quota_exceeded", message: "This job would exceed your monthly print quota. Contact your administrator." };
+    const q = await h.ipp(androidPrint(), PDF);
+    expect(flatGroup(q.ipp, TAG.operation)["status-message"]).toBe("This job would exceed your monthly print quota. Contact your administrator.");
+    h.web.finalizeResult = { kind: "refused", reason: "revoked" };
+    const r = await h.ipp(androidPrint(), PDF);
+    expect(r.ipp.code).toBe(STATUS.notAuthorized);
+    expect(flatGroup(r.ipp, TAG.operation)["status-message"]).toMatch(/Printio/);
   });
 });
 

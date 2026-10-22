@@ -1,7 +1,7 @@
 // IPP operation handlers. Behaviours, error codes, events and job-state mapping follow
 // docs/superpowers/specs/2026-10-22-gateway-contract.md.
 import { hashDeviceToken } from "@printio/shared/device-token";
-import type { JobState } from "@printio/shared";
+import { isTerminalState, type JobState } from "@printio/shared";
 import {
   attr,
   decodeIpp,
@@ -18,6 +18,7 @@ import {
   type IppMessage,
 } from "./ipp/codec.js";
 import { buildPrinterAttributes, filterRequested } from "./ipp/printer-attributes.js";
+import { describeJob, IPP_JOB_STATE } from "./job-messages.js";
 import { JobRegistry, type JobEntry } from "./job-registry.js";
 import type { Logger } from "./logger.js";
 import { intakePath, type IntakeStorage } from "./storage.js";
@@ -49,7 +50,7 @@ const attrEventSeen = new WeakMap<GatewayDeps, Map<string, number>>();
 
 // ---------- job state mapping ----------
 
-export const IPP_JOB_STATE = { pending: 3, pendingHeld: 4, processing: 5, canceled: 7, aborted: 8, completed: 9 } as const;
+export { IPP_JOB_STATE };
 
 export interface IppJobState {
   state: number;
@@ -57,33 +58,8 @@ export interface IppJobState {
 }
 
 export function mapJobState(state: JobState): IppJobState {
-  switch (state) {
-    case "draft":
-    case "held":
-    case "pending_approval":
-      return { state: IPP_JOB_STATE.pendingHeld, reason: "job-hold-until-specified" };
-    case "approved":
-    case "claimed":
-    case "downloading":
-    case "downloaded":
-      return { state: IPP_JOB_STATE.pending, reason: "job-queued" };
-    case "printing":
-    case "submitted_to_spooler":
-      return { state: IPP_JOB_STATE.processing, reason: "job-printing" };
-    case "completed":
-      return { state: IPP_JOB_STATE.completed, reason: "job-completed-successfully" };
-    case "cancelled":
-      return { state: IPP_JOB_STATE.canceled, reason: "job-canceled-by-user" };
-    case "denied":
-    case "rejected":
-    case "expired":
-    case "failed":
-      return { state: IPP_JOB_STATE.aborted, reason: "aborted-by-system" };
-    default: {
-      // A state this gateway does not know about (web newer than gateway): report it as held, never as done.
-      return { state: IPP_JOB_STATE.pendingHeld, reason: "job-hold-until-specified" };
-    }
-  }
+  const d = describeJob(state);
+  return { state: d.state, reason: d.reasons[0] as string };
 }
 
 // ---------- small helpers ----------
@@ -124,7 +100,7 @@ function buildReply(msg: Pick<IppMessage, "version" | "requestId">, reply: Reply
     attr(TAG.charset, "attributes-charset", "utf-8"),
     attr(TAG.language, "attributes-natural-language", "en"),
   ];
-  if (reply.message && reply.status !== STATUS.ok) head.push(attr(TAG.text, "status-message", reply.message));
+  if (reply.message) head.push(attr(TAG.text, "status-message", reply.message));
   return encodeIpp({
     version: SUPPORTED_VERSIONS.includes(msg.version) ? msg.version : "2.0",
     code: reply.status,
@@ -149,19 +125,19 @@ function track(deps: GatewayDeps, p: Promise<unknown>): void {
 // ---------- job attributes ----------
 
 function jobAttributes(deps: GatewayDeps, ctx: RequestContext, e: JobEntry): IppAttr[] {
-  const mapped: IppJobState = e.state ? mapJobState(e.state) : { state: IPP_JOB_STATE.pendingHeld, reason: "job-incoming" };
+  const mapped = describeJob(e.state, e.message);
   const out: IppAttr[] = [
     attr(TAG.integer, "job-id", e.ippId),
     attr(TAG.uri, "job-uri", `${ctx.baseUrl}/ipp/print/jobs/${e.ippId}`),
     attr(TAG.uri, "job-printer-uri", `${ctx.baseUrl}/ipp/print`),
     attr(TAG.enum, "job-state", mapped.state),
-    attr(TAG.keyword, "job-state-reasons", mapped.reason),
+    attr(TAG.keyword, "job-state-reasons", ...mapped.reasons),
     attr(TAG.name, "job-name", e.name),
     attr(TAG.name, "job-originating-user-name", e.userName),
     attr(TAG.integer, "job-k-octets", Math.ceil(e.bytes / 1024)),
     attr(TAG.integer, "time-at-creation", Math.max(0, Math.floor(((deps.now ?? Date.now)() - deps.startedAt) / 1000))),
   ];
-  if (e.message) out.push(attr(TAG.text, "job-state-message", e.message));
+  out.push(attr(TAG.text, "job-state-message", mapped.message));
   return out;
 }
 
@@ -181,10 +157,21 @@ function ippJobId(opAttrs: FlatObject): number | null {
 
 async function refreshState(deps: GatewayDeps, device: ResolvedDevice, e: JobEntry): Promise<void> {
   if (!e.webJobId) return;
+  // A finished job never changes again: stop asking the web app about it.
+  if (e.state && isTerminalState(e.state)) return;
   const info = await deps.web.getJob(e.webJobId, device.deviceId);
   if (!info) return;
   e.state = info.status;
   e.message = info.message;
+}
+
+/** Print-Job / Send-Document success: the job attributes plus a status-message saying where the job is. */
+function submittedReply(deps: GatewayDeps, ctx: RequestContext, e: JobEntry): Reply {
+  return {
+    status: STATUS.ok,
+    message: describeJob(e.state, e.message).message,
+    groups: [{ tag: TAG.job, attrs: jobAttributes(deps, ctx, e) }],
+  };
 }
 
 // ---------- document intake (Print-Job / Send-Document) ----------
@@ -400,7 +387,7 @@ async function dispatch(deps: GatewayDeps, ctx: RequestContext, msg: IppMessage)
         pending: null,
       });
       if (!r.ok) return buildReply(msg, r.reply);
-      return buildReply(msg, { status: STATUS.ok, groups: [{ tag: TAG.job, attrs: jobAttributes(deps, ctx, r.entry) }] });
+      return buildReply(msg, submittedReply(deps, ctx, r.entry));
     }
 
     case OP.createJob: {
@@ -429,7 +416,7 @@ async function dispatch(deps: GatewayDeps, ctx: RequestContext, msg: IppMessage)
         pending,
       });
       if (!r.ok) return buildReply(msg, r.reply);
-      return buildReply(msg, { status: STATUS.ok, groups: [{ tag: TAG.job, attrs: jobAttributes(deps, ctx, r.entry) }] });
+      return buildReply(msg, submittedReply(deps, ctx, r.entry));
     }
 
     case OP.getJobAttributes: {
