@@ -18,6 +18,7 @@ export const routes = {
   jobs: "/jobs",
   job: (jobId: string) => `/jobs/${jobId}`,
   profile: "/profile",
+  devices: "/devices",
   usage: "/usage",
 
   admin: "/admin",
