@@ -16,8 +16,8 @@ export function pageContent(doc: PDFDocument, index: number): string {
 /** The stamp's text and text matrix, read back from the content stream (pdf-lib writes `a b c d e f Tm <hex> Tj`). */
 export function readStamp(doc: PDFDocument, index: number) {
   const content = pageContent(doc, index);
-  // The stamp is the only text drawn in 6.5pt grey (`g` fill) by pdf-lib: `<grey> g /Font 6.5 Tf ... a b c d e f Tm <hex> Tj`.
-  const m = /[\d.]+ g\s+\/\S+ 6\.5 Tf\s+[\d.]+ TL\s+([-\d.e]+) ([-\d.e]+) ([-\d.e]+) ([-\d.e]+) ([-\d.e]+) ([-\d.e]+) Tm\s*<([0-9A-Fa-f]+)> Tj/.exec(content);
+  // The stamp is the only text drawn in 9pt grey (`g` fill) by pdf-lib: `<grey> g /Font 9 Tf ... a b c d e f Tm <hex> Tj`.
+  const m = /[\d.]+ g\s+\/\S+ 9 Tf\s+[\d.]+ TL\s+([-\d.e]+) ([-\d.e]+) ([-\d.e]+) ([-\d.e]+) ([-\d.e]+) ([-\d.e]+) Tm\s*<([0-9A-Fa-f]+)> Tj/.exec(content);
   if (!m) return null;
   const hex = m[7]!;
   let text = "";
