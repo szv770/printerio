@@ -243,41 +243,6 @@ describe("imposeBookletPdf", () => {
     expect(oversizedScale).toBeLessThan(normalScaleOnBack * 0.5);
   });
 
-  it("does not upscale a page already smaller than its slot beyond 100%, and centers it", async () => {
-    // A tiny page fits its slot with huge headroom - per this module's
-    // documented design decision, scale caps at 1.0 rather than enlarging it.
-    const doc = await PDFDocument.create();
-    doc.addPage([100, 150]); // tiny page, front-left (page 1 of a 4-page pad -> sheet0 left=page4... )
-    doc.addPage([100, 150]);
-    doc.addPage([100, 150]);
-    doc.addPage([100, 150]);
-    const bytes = await doc.save();
-
-    const out = await imposeBookletPdf(bytes, { width: 612, height: 792 });
-    const outDoc = await PDFDocument.load(out);
-    const scales = extractDrawnXScales(decodePageContent(outDoc, outDoc.getPage(0)));
-    for (const scale of scales) {
-      expect(scale).toBeLessThanOrEqual(1);
-      expect(scale).toBeCloseTo(1, 5);
-    }
-  });
-
-  it("caps at 1.0 rather than upscaling, verified against the module's own slot geometry", () => {
-    const outputWidth = 792;
-    const outputHeight = 612;
-    const halfGutter = IMPOSITION_GUTTER_PT / 2;
-    const slotWidth = outputWidth / 2 - halfGutter - IMPOSITION_MARGIN_PT;
-    const slotHeight = outputHeight - 2 * IMPOSITION_MARGIN_PT;
-
-    // A page smaller than the slot in both dimensions would compute a
-    // fit-scale > 1 if uncapped.
-    const tinyWidth = slotWidth / 4;
-    const tinyHeight = slotHeight / 4;
-    const fitScale = Math.min(slotWidth / tinyWidth, slotHeight / tinyHeight);
-    expect(fitScale).toBeGreaterThan(1);
-    expect(Math.min(fitScale, 1)).toBe(1);
-  });
-
   it("imposes a real booklet-padded 6-page document (8 padded pages) end to end", async () => {
     const original = await makePdf(Array(6).fill(LETTER));
     const padded = await createBookletPaddedPdf(original);
@@ -391,6 +356,147 @@ describe("imposeBookletPdf bindingSide", () => {
       expect(Buffer.from(explicit)).toEqual(Buffer.from(implicit));
     } finally {
       vi.useRealTimers();
+    }
+  });
+});
+
+/** Composes every `cm` in a `q ... Q` block into one matrix and returns where the source page's box lands. */
+function extractPlacements(
+  content: string,
+  sources: Array<[number, number]>,
+): Array<{ x0: number; y0: number; x1: number; y1: number; scale: number }> {
+  const cm = /(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+cm/g;
+  const out: Array<{ x0: number; y0: number; x1: number; y1: number; scale: number }> = [];
+  let i = 0;
+  for (const block of content.split(/\bQ\b/)) {
+    if (!/\bDo\b/.test(block)) continue;
+    let a = 1;
+    let d = 1;
+    let e = 0;
+    let f = 0;
+    for (const m of block.matchAll(cm)) {
+      const [na, , , nd, ne, nf] = m.slice(1).map(Number) as [number, number, number, number, number, number];
+      // Each new cm is applied inside the current one (diagonal + translate only here).
+      e = e + a * ne;
+      f = f + d * nf;
+      a = a * na;
+      d = d * nd;
+    }
+    const [w, h] = sources[i++]!;
+    out.push({ x0: e, y0: f, x1: e + a * w, y1: f + d * h, scale: a });
+  }
+  return out;
+}
+
+const MIN_UNPRINTABLE_PT = (4 / 25.4) * 72; // ~11.3pt, the Kyocera's unprintable edge
+
+describe("imposeBookletPdf scaling: fill the half-sheet like Acrobat", () => {
+  async function place(pages: Array<[number, number]>, sheet: { width: number; height: number }, side: "left" | "right" = "left") {
+    const out = await PDFDocument.load(await imposeBookletPdf(await makePdf(pages), sheet, side));
+    const res: ReturnType<typeof extractPlacements>[] = [];
+    const order: number[][] = [];
+    for (const [k, page] of out.getPages().entries()) {
+      const sheetIdx = Math.floor(k / 2);
+      const pair = bookletPageOrder(pages.length)[sheetIdx]![k % 2 === 0 ? "front" : "back"];
+      const [l, r] = side === "right" ? [pair[1], pair[0]] : pair;
+      order.push([l, r]);
+      res.push(extractPlacements(decodePageContent(out, page), [pages[l - 1]!, pages[r - 1]!]));
+    }
+    return { res, order, sheetW: sheet.height, sheetH: sheet.width };
+  }
+
+  it("margins: about 0.2in from outer edges, about 0.1in from the fold, never inside the unprintable edge", () => {
+    expect(IMPOSITION_MARGIN_PT).toBeGreaterThanOrEqual(MIN_UNPRINTABLE_PT);
+    expect(IMPOSITION_MARGIN_PT).toBeLessThanOrEqual(15);
+    expect(IMPOSITION_GUTTER_PT / 2).toBeCloseTo(7.2, 1);
+  });
+
+  it("a Letter source on a tabloid sheet fills its half to within the margin", async () => {
+    const { res, sheetW, sheetH } = await place(Array(4).fill(LETTER), { width: 792, height: 1224 });
+    const cellW = sheetW / 2 - IMPOSITION_GUTTER_PT / 2 - IMPOSITION_MARGIN_PT;
+    const cellH = sheetH - 2 * IMPOSITION_MARGIN_PT;
+    const fit = Math.min(cellW / 612, cellH / 792);
+    for (const p of res[0]!) {
+      expect(p.scale).toBeCloseTo(fit, 5);
+      expect(Math.max((p.x1 - p.x0) / cellW, (p.y1 - p.y0) / cellH)).toBeCloseTo(1, 5);
+      expect(p.y0).toBeGreaterThanOrEqual(IMPOSITION_MARGIN_PT - 1e-6);
+      expect(p.y1).toBeLessThanOrEqual(sheetH - IMPOSITION_MARGIN_PT + 1e-6);
+    }
+    const [left, right] = res[0]!;
+    expect(left!.x0).toBeGreaterThanOrEqual(IMPOSITION_MARGIN_PT - 1e-6);
+    expect(left!.x1).toBeLessThanOrEqual(sheetW / 2 - IMPOSITION_GUTTER_PT / 2 + 1e-6);
+    expect(right!.x0).toBeGreaterThanOrEqual(sheetW / 2 + IMPOSITION_GUTTER_PT / 2 - 1e-6);
+    expect(right!.x1).toBeLessThanOrEqual(sheetW - IMPOSITION_MARGIN_PT + 1e-6);
+  });
+
+  it("an oversized source (11x17 and A3) scales down to fit a Letter-sheet half", async () => {
+    for (const big of [
+      [792, 1224],
+      [841.89, 1190.55],
+    ] as Array<[number, number]>) {
+      const { res, sheetW, sheetH } = await place(Array(4).fill(big), { width: 612, height: 792 });
+      for (const p of res[0]!) {
+        expect(p.scale).toBeLessThan(1);
+        expect(p.x0).toBeGreaterThanOrEqual(IMPOSITION_MARGIN_PT - 1e-6);
+        expect(p.y0).toBeGreaterThanOrEqual(IMPOSITION_MARGIN_PT - 1e-6);
+        expect(p.y1).toBeLessThanOrEqual(sheetH - IMPOSITION_MARGIN_PT + 1e-6);
+        expect(p.x1).toBeLessThanOrEqual(sheetW - IMPOSITION_MARGIN_PT + 1e-6);
+      }
+    }
+  });
+
+  it("a small source (A5) is scaled UP to fill its half, capped at 200%", async () => {
+    const A5: [number, number] = [419.53, 595.28];
+    const a3 = await place(Array(4).fill(A5), { width: 841.89, height: 1190.55 });
+    const cellW = 1190.55 / 2 - IMPOSITION_GUTTER_PT / 2 - IMPOSITION_MARGIN_PT;
+    const cellH = 841.89 - 2 * IMPOSITION_MARGIN_PT;
+    const fit = Math.min(cellW / A5[0], cellH / A5[1]);
+    expect(fit).toBeGreaterThan(1);
+    for (const p of a3.res[0]!) expect(p.scale).toBeCloseTo(Math.min(fit, 2), 5);
+
+    const tiny = await place(Array(4).fill([100, 150]), { width: 612, height: 792 });
+    for (const p of tiny.res[0]!) expect(p.scale).toBeCloseTo(2, 5);
+  });
+
+  it("is centered in its cell", async () => {
+    const { res, sheetW, sheetH } = await place(Array(4).fill([200, 200]), { width: 612, height: 792 });
+    const [left, right] = res[0]!;
+    const cellW = sheetW / 2 - IMPOSITION_GUTTER_PT / 2 - IMPOSITION_MARGIN_PT;
+    expect((left!.x0 + left!.x1) / 2).toBeCloseTo(IMPOSITION_MARGIN_PT + cellW / 2, 4);
+    expect((right!.x0 + right!.x1) / 2).toBeCloseTo(sheetW / 2 + IMPOSITION_GUTTER_PT / 2 + cellW / 2, 4);
+    expect((left!.y0 + left!.y1) / 2).toBeCloseTo(sheetH / 2, 4);
+  });
+
+  it("landscape and mixed-size pages each fit their own cell with aspect ratio kept", async () => {
+    const pages: Array<[number, number]> = [LETTER, [792, 612], [300, 300], [2400, 1200]];
+    const { res, order, sheetW, sheetH } = await place(pages, { width: 792, height: 1224 });
+    const cellW = sheetW / 2 - IMPOSITION_GUTTER_PT / 2 - IMPOSITION_MARGIN_PT;
+    const cellH = sheetH - 2 * IMPOSITION_MARGIN_PT;
+    for (const [k, placements] of res.entries()) {
+      placements.forEach((p, slot) => {
+        const [w, h] = pages[order[k]![slot]! - 1]!;
+        expect(p.scale).toBeCloseTo(Math.min(cellW / w, cellH / h, 2), 5);
+        expect(p.x1 - p.x0).toBeLessThanOrEqual(cellW + 1e-6);
+        expect(p.y1 - p.y0).toBeLessThanOrEqual(cellH + 1e-6);
+      });
+    }
+  });
+
+  it("left and right binding give identical scales and mirrored placement", async () => {
+    const pages: Array<[number, number]> = [LETTER, [792, 612], [300, 300], [2400, 1200], LETTER, LETTER, [200, 400], LETTER];
+    const sheet = { width: 792, height: 1224 };
+    const L = await place(pages, sheet, "left");
+    const R = await place(pages, sheet, "right");
+    for (let k = 0; k < L.res.length; k++) {
+      const [ll, lr] = L.res[k]!;
+      const [rl, rr] = R.res[k]!;
+      // The page drawn left under left binding is drawn right under right binding, at the same scale, mirrored.
+      expect(rr!.scale).toBeCloseTo(ll!.scale, 8);
+      expect(rl!.scale).toBeCloseTo(lr!.scale, 8);
+      expect(rr!.x0).toBeCloseTo(L.sheetW - ll!.x1, 6);
+      expect(rr!.x1).toBeCloseTo(L.sheetW - ll!.x0, 6);
+      expect(rl!.x0).toBeCloseTo(L.sheetW - lr!.x1, 6);
+      expect(rr!.y0).toBeCloseTo(ll!.y0, 6);
     }
   });
 });

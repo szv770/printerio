@@ -17,14 +17,23 @@ import { PDFDocument, type PDFPage } from "pdf-lib";
  * imposition.test.ts, which is the test that actually proves it.
  */
 
-/** Fixed clearance kept on every outer edge of a half-sheet slot (0.25in). */
-export const IMPOSITION_MARGIN_PT = 18;
+/**
+ * Clearance kept on every outer edge of the sheet (about 0.2in = 14.4pt, written as 14pt). Stays above the
+ * Kyocera's ~4mm (11.3pt) unprintable edge so nothing is clipped.
+ */
+export const IMPOSITION_MARGIN_PT = 14;
 
 /**
  * Total clear space reserved at the center fold, split evenly between the
- * left and right slots (so each slot's inner edge sits 4.5pt off the fold).
+ * left and right slots (so each slot's inner edge sits 7.2pt = 0.1in off the fold).
  */
-export const IMPOSITION_GUTTER_PT = 9;
+export const IMPOSITION_GUTTER_PT = 14.4;
+
+/**
+ * A source page smaller than its half-sheet cell is enlarged to fill it (like Acrobat's booklet printing), but
+ * never past this factor: beyond 2x, raster content gets visibly soft and a tiny page would look absurd.
+ */
+export const IMPOSITION_MAX_UPSCALE = 2;
 
 export interface SheetSizePt {
   width: number;
@@ -92,20 +101,14 @@ interface SlotTransform {
 }
 
 /**
- * The largest scale that fits a page of `pageWidth`x`pageHeight` fully
- * inside `region` without exceeding either dimension, preserving the page's
- * own aspect ratio - capped at 1.0.
- *
- * Design decision: a page smaller than its slot is centered at 100% and NOT
- * upscaled to fill the slot. Upscaling would enlarge already-embedded raster
- * content (photos, scanned pages) past its native resolution for no benefit
- * other than filling white space, trading a cosmetic gain for a real
- * softness/pixelation cost - the opposite of what this feature is trying to
- * improve. A page only ever shrinks here, never grows.
+ * The scale that makes a page of `pageWidth`x`pageHeight` fill `region` as much as it can: uniform (aspect ratio
+ * kept), touching the limiting edge of the cell, centered. A page bigger than the cell shrinks to fit; a smaller
+ * one is enlarged up to IMPOSITION_MAX_UPSCALE. Only scale and translation are decided here - which page goes in
+ * which cell, the mirroring for right binding and the fold are all decided by the callers.
  */
 function computeSlotTransform(pageWidth: number, pageHeight: number, region: SlotRegion): SlotTransform {
   const fitScale = Math.min(region.width / pageWidth, region.height / pageHeight);
-  const scale = Math.min(fitScale, 1);
+  const scale = Math.min(fitScale, IMPOSITION_MAX_UPSCALE);
   const scaledWidth = pageWidth * scale;
   const scaledHeight = pageHeight * scale;
   return {
