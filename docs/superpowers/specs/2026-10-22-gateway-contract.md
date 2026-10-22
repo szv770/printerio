@@ -123,3 +123,17 @@ this job as held with this reason" (`forcedHeldReason`), reusing its existing he
    shapes (Get-Printer-Attributes, Create-Job + Send-Document, Print-Job) and assert the uploads, finalize calls, and IPP replies.
 3. Token round trip: `generateDeviceToken` -> `deviceHostname` -> `tokenFromHost` -> `hashDeviceToken` matches the stored hash.
 4. Owner then tests on real devices (Windows 11, Pixel 8) with labelled prints; nothing is claimed working before that.
+
+## Web-side details added while implementing (additions, nothing above changed)
+
+- Extra error codes the gateway should map to a plain IPP client/server error, never a crash: `finalize` can also answer
+  `403 quota_exceeded`, `429 rate_limited`, `503 no_printer` (no active raw printer profile yet; retryable), `404 intake_not_found`,
+  `400 invalid_request` (bad body, or `storagePath` not under `gateway-intake/<deviceId>/`), `500 internal_error` (retryable; the intake
+  object is kept). Every other 4xx and a successful answer delete the intake object. `bad_pdf` also covers "over the upload limit".
+- `deviceId` endpoints answer `403 revoked` / `403 inactive_member` / `404 unknown_device` like `device/resolve`. `GET jobs/<id>` does not
+  check revocation (a revoked device can still read what it already sent); `404 unknown_job` for a job that is not that device's.
+  `cancel` answers `409 not_cancellable` outside held / pending_approval / approved.
+- `finalize` 200 body also carries `jobNumber`; `message` is the held reason, the first policy reason (denied), or a short note.
+- `storagePath` must match `gateway-intake/<deviceId>/<file>` where `<file>` is letters, digits, `.`, `_`, `-` (the contract's `<uuid>.pdf` fits).
+- `page-ranges` with an upper bound of 2147483647 ("to the end") becomes `N-`. A range the document does not have holds the job.
+- Job names: `ipp.jobName` (else `fileName`) becomes the stored file name.
