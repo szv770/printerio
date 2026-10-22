@@ -3,7 +3,7 @@ import { generateDeviceToken, hashDeviceToken, deviceHostname } from "@printio/s
 import type { JobState } from "@printio/shared";
 import { createGatewayServer } from "../src/server.js";
 import { JobRegistry } from "../src/job-registry.js";
-import { silentLogger } from "../src/logger.js";
+import { silentLogger, type Logger } from "../src/logger.js";
 import {
   attr,
   decodeIpp,
@@ -113,7 +113,7 @@ export interface HttpResult {
   body: Buffer;
 }
 
-export async function startHarness(over: { maxBodyBytes?: number; now?: () => number } = {}): Promise<Harness> {
+export async function startHarness(over: { maxBodyBytes?: number; now?: () => number; logger?: Logger } = {}): Promise<Harness> {
   const web = new FakeWeb();
   const storage = new FakeStorage();
   const token = generateDeviceToken();
@@ -121,7 +121,7 @@ export async function startHarness(over: { maxBodyBytes?: number; now?: () => nu
   const registry = new JobRegistry(over.now);
   const background = new Set<Promise<unknown>>();
   const server = createGatewayServer({
-    deps: { web, storage, logger: silentLogger, printerName: "Printio", registry, startedAt: Date.now(), now: over.now, background },
+    deps: { web, storage, logger: over.logger ?? silentLogger, printerName: "Printio", registry, startedAt: Date.now(), now: over.now, background },
     baseDomain: BASE_DOMAIN,
     maxBodyBytes: over.maxBodyBytes ?? 1024 * 1024,
   });

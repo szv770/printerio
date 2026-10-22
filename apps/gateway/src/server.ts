@@ -46,12 +46,20 @@ export function createGatewayServer(opts: GatewayServerOptions): http.Server {
         return sendText(res, 200, "ok");
       }
       const token = tokenFromHost(req.headers.host, baseDomain);
+      const seen = {
+        method: req.method,
+        host: req.headers.host,
+        path: req.url?.split("?")[0],
+        userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : undefined,
+      };
       if (!token || req.method !== "POST") {
-        // Not a device hostname (or not an IPP POST): say nothing about what exists.
+        // Not a device hostname (or not an IPP POST): say nothing to the caller, but leave a line for the operator.
+        log.info("ignored request", { ...seen, reason: !token ? "not a device hostname" : "not an IPP POST" });
         req.resume();
         return sendText(res, 404, "not found");
       }
 
+      log.info("request", seen);
       const chunks: Buffer[] = [];
       let size = 0;
       let tooLarge = false;
@@ -90,7 +98,12 @@ export function createGatewayServer(opts: GatewayServerOptions): http.Server {
               },
               Buffer.concat(chunks),
             );
-            if (out === null) return sendText(res, 404, "not found");
+            if (out === null) {
+              log.info("reply", { http: 404, note: "device not registered" });
+              return sendText(res, 404, "not found");
+            }
+            // Bytes 2-3 of an IPP response are its status code (0 = ok).
+            log.info("reply", { http: 200, ippStatus: out.length >= 4 ? out.readUInt16BE(2) : undefined });
             sendIpp(res, out);
           } catch (err) {
             log.error("unhandled error serving request", { error: err instanceof Error ? (err.stack ?? err.message) : String(err) });
