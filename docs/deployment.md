@@ -223,6 +223,17 @@ instead, in two layers:
    back to `*/15 * * * *` and remove the GitHub Actions workflow — the route
    itself doesn't care which scheduler calls it.
 
+### 5.2 Weekly cleanup (`/api/cron/cleanup`)
+
+`vercel.json` also schedules `/api/cron/cleanup` every Sunday 03:00 UTC (same Bearer secret as the sweep). It
+re-runs the retention pass (stored PDFs of finished jobs past each org's window: 7 days completed/failed, 3 days
+rejected/denied/cancelled/expired by default, editable per org; job rows are always kept), deletes orphaned
+Storage objects (`gateway-intake/**` older than 24 h; `org/*/jobs/<id>/*` whose job row is gone, older than 24 h)
+and prunes finished `remote_commands` older than 30 days. Capped at 500 deletions per run; the JSON response and
+the function log carry the counts. **Vercel Cron only sends `Authorization: Bearer $CRON_SECRET`** - set a
+`CRON_SECRET` env var to the same value as `PRINTIO_CRON_SECRET` (both are accepted) or the Vercel-scheduled
+calls get a 401.
+
 ## 6. Post-deploy smoke test
 
 After deploying, before trusting the environment for real use:

@@ -31,6 +31,8 @@ export interface JobRow {
    *  (app/admin/printers/actions.ts) - flagged on the row so it can't be
    *  mistaken for one. */
   is_test_print: boolean;
+  /** Set once retention deleted the stored file - "Print again" can no longer work. */
+  files_purged_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -244,7 +246,14 @@ export function JobsList({
                 {/* Reprinting re-runs the ordinary pipeline (policy + quota),
                  *  so it is not offered for a test print - see the job detail
                  *  page for the same reasoning. */}
-                {!job.is_test_print && <ReprintButton jobId={job.id} />}
+                {!job.is_test_print &&
+                  (job.files_purged_at ? (
+                    <p className="mt-1 text-xs text-[var(--color-muted)]">
+                      File removed after a few days - to print again, upload the original document.
+                    </p>
+                  ) : (
+                    <ReprintButton jobId={job.id} />
+                  ))}
               </li>
             );
           })}

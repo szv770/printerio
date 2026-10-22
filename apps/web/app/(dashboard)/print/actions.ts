@@ -110,10 +110,20 @@ export async function reprintJobAction(_prev: SubmitJobState, formData: FormData
     .maybeSingle();
   if (jobError || !job) return { error: "Job not found." };
 
+  // Retention (or the owner) may already have deleted the stored file; say so plainly instead of failing a download.
+  if (job.files_purged_at || !job.original_file_path) {
+    return {
+      error:
+        "This job's file was removed to save space (finished jobs are cleared after a few days). Print again from the original document using New print job.",
+    };
+  }
+
   const { data: fileData, error: downloadError } = await supabase.storage
     .from(PRINT_JOBS_BUCKET)
     .download(job.original_file_path);
-  if (downloadError || !fileData) return { error: "The original file for this job is no longer available." };
+  if (downloadError || !fileData) {
+    return { error: "The original file for this job is no longer available. Print again from the original document using New print job." };
+  }
   const originalBytes = new Uint8Array(await fileData.arrayBuffer());
 
   const finishing = job.finishing as { staple: boolean; booklet: boolean; punch: boolean };
