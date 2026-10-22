@@ -39,9 +39,9 @@ const PREVIEW_URL_TTL_SECONDS = 120;
  *    organization_id is then re-checked against the caller's own membership,
  *    so a guessed job id from another organization returns "not found" twice
  *    over.
- *  - the signed URL itself is minted as the caller, not as service-role, so
- *    Storage's own path-scoped RLS (0007_storage.sql) is a third,
- *    independent check on the org segment of the object path.
+ *  - the signed URL is minted with the service-role client AFTER those two
+ *    checks (migration 0034 removes members' direct Storage access), and the
+ *    path comes from the verified row, never from the client.
  */
 export async function createJobFileUrlAction(jobId: string): Promise<JobFileUrlState> {
   const session = await requireOrgRole(["org_admin", "approver"]);
@@ -59,8 +59,8 @@ export async function createJobFileUrlAction(jobId: string): Promise<JobFileUrlS
     return { error: "This job's file has already been deleted under the organization's retention policy." };
   }
 
-  const { data: signed, error: signError } = await supabase.storage
-    .from(PRINT_JOBS_BUCKET)
+  const { data: signed, error: signError } = await createServiceRoleClient()
+    .storage.from(PRINT_JOBS_BUCKET)
     .createSignedUrl(job.original_file_path, PREVIEW_URL_TTL_SECONDS);
   if (signError || !signed) {
     logger.error("failed to sign a job file URL for an approver", {
@@ -79,8 +79,28 @@ async function loadPendingJob(jobId: string, organizationId: string) {
   const { data: job, error } = await supabase.from("print_jobs").select("*").eq("id", jobId).single();
   if (error || !job) throw new Error("Job not found");
   if (job.organization_id !== organizationId) throw new Error("Job belongs to a different organization");
-  if (job.status !== "pending_approval") throw new Error("Job is no longer awaiting approval");
-  return { supabase, job };
+  if (job.status !== "pending_approval") throw new Error(NOT_PENDING);
+  return { job };
+}
+
+const NOT_PENDING = "Job is no longer awaiting approval";
+
+/**
+ * The one write both decisions share. Runs as service-role (members and approvers have no UPDATE on print_jobs
+ * after migration 0034), so the authorization is the WHERE clause: this organization, still pending_approval. A
+ * second approver, or the expiry sweep, getting there first leaves zero rows and the caller stops without
+ * recording a decision or touching quota.
+ */
+async function decide(jobId: string, organizationId: string, patch: { status: "approved" | "rejected"; approved_at?: string; approved_by?: string }) {
+  const { data, error } = await createServiceRoleClient()
+    .from("print_jobs")
+    .update(patch)
+    .eq("id", jobId)
+    .eq("organization_id", organizationId)
+    .eq("status", "pending_approval")
+    .select("id");
+  if (error) throw error;
+  if (!data || data.length === 0) throw new Error(NOT_PENDING);
 }
 
 export async function approveJobAction(_prev: ApprovalActionState, formData: FormData): Promise<ApprovalActionState> {
@@ -88,16 +108,17 @@ export async function approveJobAction(_prev: ApprovalActionState, formData: For
   const jobId = String(formData.get("jobId") ?? "");
 
   try {
-    const { supabase, job } = await loadPendingJob(jobId, session.membership.organization_id);
+    const { job } = await loadPendingJob(jobId, session.membership.organization_id);
+    const service = createServiceRoleClient();
 
-    const { error: updateError } = await supabase
-      .from("print_jobs")
-      .update({ status: "approved", approved_at: new Date().toISOString(), approved_by: session.userId })
-      .eq("id", jobId);
-    if (updateError) throw updateError;
+    await decide(jobId, session.membership.organization_id, {
+      status: "approved",
+      approved_at: new Date().toISOString(),
+      approved_by: session.userId,
+    });
 
-    await supabase.from("approval_actions").insert({ job_id: jobId, approver_id: session.userId, decision: "approved" });
-    await supabase.from("print_job_events").insert({
+    await service.from("approval_actions").insert({ job_id: jobId, approver_id: session.userId, decision: "approved" });
+    await service.from("print_job_events").insert({
       job_id: jobId,
       event_type: "APPROVED",
       actor_type: "admin",
@@ -118,15 +139,15 @@ export async function rejectJobAction(_prev: ApprovalActionState, formData: Form
   const reason = String(formData.get("reason") ?? "").trim() || null;
 
   try {
-    const { supabase, job } = await loadPendingJob(jobId, session.membership.organization_id);
+    const { job } = await loadPendingJob(jobId, session.membership.organization_id);
+    const service = createServiceRoleClient();
 
-    const { error: updateError } = await supabase.from("print_jobs").update({ status: "rejected" }).eq("id", jobId);
-    if (updateError) throw updateError;
+    await decide(jobId, session.membership.organization_id, { status: "rejected" });
 
-    await supabase
+    await service
       .from("approval_actions")
       .insert({ job_id: jobId, approver_id: session.userId, decision: "rejected", reason });
-    await supabase.from("print_job_events").insert({
+    await service.from("print_job_events").insert({
       job_id: jobId,
       event_type: "REJECTED",
       actor_type: "admin",
@@ -137,7 +158,7 @@ export async function rejectJobAction(_prev: ApprovalActionState, formData: Form
     // Release the quota reservation made at submission time - this job will
     // never print, so the submitter must not stay charged for it.
     //
-    // Deliberately service-role, unlike everything else in this action.
+    // Service-role (as is every write in this file now).
     // adjust_monthly_usage is SECURITY INVOKER (0010_quota_functions.sql) and
     // monthly_usage's UPDATE policy only admits `user_id = auth.uid()` or
     // private.is_org_admin(...) - while THIS action is open to `approver` too

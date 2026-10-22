@@ -193,8 +193,9 @@ export type QuotaAdjustMode = "reserve" | "release" | "consume";
 /**
  * Atomic reserve/release/consume via the `adjust_monthly_usage` Postgres
  * function - see supabase/migrations/0010_quota_functions.sql and
- * docs/architecture.md sec 14. Runs as the caller's own session (RLS-governed
- * - no service-role needed for an ordinary submission).
+ * docs/architecture.md sec 14. Always call this with the SERVICE-ROLE client,
+ * after the caller's own authorization checks: from migration 0034 on, members
+ * have no EXECUTE on the function and no INSERT/UPDATE on monthly_usage.
  *
  * @returns false only for `mode: "reserve"` when the limit would be exceeded
  *   (the underlying UPDATE affected zero rows); always true for release/consume.

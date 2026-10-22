@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requireOrgRole } from "@/lib/auth/session";
 import { sweepRetention } from "@/lib/retention";
 import { routes } from "@/lib/routes";
@@ -29,12 +30,11 @@ const CLEANUP_LIMIT = 500;
  * sweep, it only ever removes Storage objects - the print_jobs rows, their
  * job numbers and their event history all survive.
  *
- * Runs as the calling admin (not service-role): Storage's delete policy
- * already admits an org_admin for their own org's path prefix
- * (0007_storage.sql) and print_jobs' update policy admits them via
- * private.is_org_approver, so RLS remains the enforcement point end to end -
- * an admin cannot reach another organization's files even if this action had
- * a bug in its own scoping.
+ * Runs as service-role after requireOrgRole(["org_admin"]) (migration 0034
+ * removes the member/admin Storage delete and print_jobs update policies this
+ * used to rely on). The scope is explicit rather than RLS-enforced: sweepRetention
+ * is passed this admin's own organizationId from the session and filters every
+ * query by it. The audit-log line below stays on the admin's own client.
  */
 export async function runStorageCleanupAction(
   _prev: StorageCleanupState,
@@ -46,7 +46,7 @@ export async function runStorageCleanupAction(
 
   let result;
   try {
-    result = await sweepRetention(supabase, { now: new Date(), limit: CLEANUP_LIMIT, organizationId });
+    result = await sweepRetention(createServiceRoleClient(), { now: new Date(), limit: CLEANUP_LIMIT, organizationId });
   } catch (err) {
     logger.error("manual storage cleanup failed", {
       organizationId,

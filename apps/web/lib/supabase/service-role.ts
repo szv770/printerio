@@ -30,8 +30,17 @@ import { getPublicEnv, getServiceRoleEnv } from "@/lib/env";
  *     ever run in a Server Component or Server Action - never anything
  *     client-bundled.
  *
- * Every other read/write in this app must go through lib/supabase/server.ts
- * (or client.ts in the browser) so RLS is always the enforcement point.
+ *   - ALL writes to print_jobs, monthly_usage (adjust_monthly_usage) and the
+ *     print-jobs Storage bucket (migration 0034 removes members' and approvers'
+ *     direct rights): job creation and its uploads (lib/jobs/create-print-job.ts,
+ *     via the web actions in app/(dashboard)/print), approve/reject and
+ *     signed preview URLs (app/admin/approvals), admin test prints, the manual
+ *     storage cleanup and the owner's file deletion. Each one runs an explicit
+ *     authorization check in code FIRST (session, organization, ownership or
+ *     approver role, allowed status) and puts the guards in the WHERE clause.
+ *
+ * Other reads/writes go through lib/supabase/server.ts (or client.ts in the
+ * browser) so RLS stays the enforcement point; reads of one's own jobs stay there.
  */
 export function createServiceRoleClient() {
   const { NEXT_PUBLIC_SUPABASE_URL } = getPublicEnv();

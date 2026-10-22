@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requireSessionOrRedirect, type SessionWithMembership } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
 import { parseChoices, type PrintChoices } from "@/lib/print-choices";
@@ -26,6 +27,13 @@ export interface SubmitJobState {
  * the upload form expects: redirect to the new job's status page on success (next/navigation's redirect() throws
  * and is safe to let propagate), a SubmitJobState otherwise. Shared by submitPrintJobAction (a fresh upload) and
  * reprintJobAction (re-running the pipeline against a previously-uploaded file's bytes).
+ *
+ * Authorization model (migration 0034): the member's own client is used only to READ (RLS select, plus the explicit
+ * created_by / organization filters the callers add). Every WRITE - quota, the storage upload, the print_jobs row,
+ * its events - runs through the service-role client, passed down as opts.writeClient, AFTER the caller has been
+ * authenticated by requireSessionOrRedirect(). organization_id and created_by come from that session inside
+ * createPrintJob, and the job's status and approval fields are decided there by the policy engine: nothing in the
+ * form can set them.
  */
 async function runPipeline(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -34,7 +42,7 @@ async function runPipeline(
   originalFileName: string,
   opts: JobOptions,
 ): Promise<SubmitJobState> {
-  const result = await createPrintJob(supabase, session, originalBytes, originalFileName, opts);
+  const result = await createPrintJob(supabase, session, originalBytes, originalFileName, { ...opts, writeClient: createServiceRoleClient() });
   if (result.ok) redirect(routes.job(result.jobId));
   if (result.kind === "needs_booklet_confirm") return { needsBookletConfirm: result.needsBookletConfirm };
   return { error: result.error, ...(result.fieldErrors ? { fieldErrors: result.fieldErrors } : {}) };
@@ -118,9 +126,10 @@ export async function reprintJobAction(_prev: SubmitJobState, formData: FormData
     };
   }
 
-  const { data: fileData, error: downloadError } = await supabase.storage
-    .from(PRINT_JOBS_BUCKET)
-    .download(job.original_file_path);
+  // Ownership is proven above (created_by + organization from the session), so the file itself is fetched with the
+  // service role: members have no direct read on a bucket path (migration 0034).
+  const service = createServiceRoleClient();
+  const { data: fileData, error: downloadError } = await service.storage.from(PRINT_JOBS_BUCKET).download(job.original_file_path);
   if (downloadError || !fileData) {
     return { error: "The original file for this job is no longer available. Print again from the original document using New print job." };
   }
@@ -185,7 +194,8 @@ export async function finishHeldBookletAction(_prev: SubmitJobState, formData: F
     return { error: "This job is no longer waiting for your choice." };
   }
 
-  const { data: fileData, error: downloadError } = await supabase.storage.from(PRINT_JOBS_BUCKET).download(job.original_file_path);
+  const service = createServiceRoleClient();
+  const { data: fileData, error: downloadError } = await service.storage.from(PRINT_JOBS_BUCKET).download(job.original_file_path);
   if (downloadError || !fileData) return { error: "The original file for this job is no longer available." };
   const originalBytes = new Uint8Array(await fileData.arrayBuffer());
 
@@ -196,6 +206,7 @@ export async function finishHeldBookletAction(_prev: SubmitJobState, formData: F
     paperSize: job.paper_size,
     punch: false,
     confirmBookletPadding: true,
+    writeClient: service,
     ...(job.source === "ipp" ? { source: "ipp" as const, deviceId: job.device_id ?? undefined } : {}),
   });
   if (!result.ok) {
@@ -203,15 +214,18 @@ export async function finishHeldBookletAction(_prev: SubmitJobState, formData: F
     return { error: result.error, ...(result.fieldErrors ? { fieldErrors: result.fieldErrors } : {}) };
   }
 
-  const { data: closed } = await supabase
+  // Service role (members cannot update print_jobs), so the guards live in the WHERE clause: still held, the
+  // caller's own job, in the caller's own organization. The only value ever written is "cancelled".
+  const { data: closed } = await service
     .from("print_jobs")
     .update({ status: "cancelled" })
     .eq("id", job.id)
     .eq("status", "held")
     .eq("created_by", session.userId)
+    .eq("organization_id", organizationId)
     .select("id");
   if (closed && closed.length > 0) {
-    await supabase.from("print_job_events").insert({
+    await service.from("print_job_events").insert({
       job_id: job.id,
       event_type: "JOB_CANCELLED",
       actor_type: "user",

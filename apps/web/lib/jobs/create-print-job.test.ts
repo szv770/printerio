@@ -357,3 +357,37 @@ describe("createPrintJob: user code stamp", () => {
     expect(Object.keys(uploadsByName())).toEqual(["original"]);
   });
 });
+
+describe("createPrintJob: separate write client (web path: member reads, service-role writes)", () => {
+  const WRITE_OPS = new Set(["insert", "update", "upsert", "delete", "upload", "remove"]);
+  const isWrite = (c: FakeCall) => WRITE_OPS.has(c.op) || (c.op === "rpc" && c.table === "adjust_monthly_usage");
+
+  it("sends every write (reserve, uploads, job insert, events) to writeClient and none to the member client", async () => {
+    const writer = fakeSupabase((c) => defaults()(c));
+    const res = await run(pdf3, baseOpts({ writeClient: writer.client as never }));
+    expect(res.ok).toBe(true);
+    expect(fake.calls.filter(isWrite)).toEqual([]);
+    expect(writer.calls.some((c) => c.table === "print_jobs" && c.op === "insert")).toBe(true);
+    expect(writer.calls.some((c) => c.op === "upload")).toBe(true);
+    expect(writer.calls.some((c) => c.table === "print_job_events" && c.op === "insert")).toBe(true);
+    expect(writer.calls.some((c) => c.op === "rpc" && c.table === "adjust_monthly_usage")).toBe(true);
+    // reads still use the member's own client
+    expect(fake.calls.some((c) => c.table === "printer_profiles")).toBe(true);
+  });
+
+  it("takes created_by and organization_id from the session, whatever else is passed", async () => {
+    const writer = fakeSupabase((c) => defaults()(c));
+    await run(pdf3, { ...baseOpts({ writeClient: writer.client as never }), created_by: "evil", organization_id: "evil-org", status: "approved" } as never);
+    const row = writer.calls.find((c) => c.table === "print_jobs" && c.op === "insert")!.values as Record<string, unknown>;
+    expect(row).toMatchObject({ created_by: USER, organization_id: ORG });
+  });
+
+  it("rolls back (storage remove, quota release) through writeClient too", async () => {
+    const writer = fakeSupabase((c) => defaults({ insert: failure("db down") })(c));
+    const res = await run(pdf3, baseOpts({ writeClient: writer.client as never }));
+    expect(res).toMatchObject({ ok: false, code: "insert_failed" });
+    expect(fake.calls.filter(isWrite)).toEqual([]);
+    expect(writer.calls.some((c) => c.op === "remove")).toBe(true);
+    expect(writer.calls.filter((c) => c.op === "rpc" && c.table === "adjust_monthly_usage").map((c) => (c.values as { p_mode: string }).p_mode)).toEqual(["reserve", "release"]);
+  });
+});

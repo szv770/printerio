@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requireOrgRole } from "@/lib/auth/session";
 import { describeDatabaseError } from "@/lib/action-errors";
 import { routes } from "@/lib/routes";
@@ -542,8 +543,13 @@ export async function sendTestPrintAction(_prev: PrinterActionState, formData: F
     pricing: (profile.pricing as unknown as PricingConfig | null) ?? null,
   });
 
+  // Writes for the job (storage object, print_jobs row, events) use the service role: members, admins included, have
+  // no direct INSERT on print_jobs or the print-jobs bucket (migration 0034). Everything written is built above from
+  // the session (org_admin of THIS organization, created_by = the caller) and the verified profile - the form only
+  // supplied the profile id, which was checked against the caller's organization.
+  const service = createServiceRoleClient();
   const originalPath = jobFilePath(organizationId, jobId, "original");
-  const { error: uploadError } = await supabase.storage
+  const { error: uploadError } = await service.storage
     .from(PRINT_JOBS_BUCKET)
     .upload(originalPath, pdfBytes, { contentType: "application/pdf" });
   if (uploadError) {
@@ -552,7 +558,7 @@ export async function sendTestPrintAction(_prev: PrinterActionState, formData: F
   }
 
   const fileName = `Printio test print - ${profile.label}.pdf`;
-  const { error: insertError } = await supabase.from("print_jobs").insert({
+  const { error: insertError } = await service.from("print_jobs").insert({
     id: jobId,
     organization_id: organizationId,
     created_by: session.userId,
@@ -583,7 +589,7 @@ export async function sendTestPrintAction(_prev: PrinterActionState, formData: F
   if (insertError) {
     // Don't leave the object orphaned in the bucket - the retention sweep
     // walks print_jobs rows, so a file with no row is never reclaimed.
-    const { error: cleanupError } = await supabase.storage.from(PRINT_JOBS_BUCKET).remove([originalPath]);
+    const { error: cleanupError } = await service.storage.from(PRINT_JOBS_BUCKET).remove([originalPath]);
     if (cleanupError) {
       logger.error("failed to clean up an orphaned test print upload", { jobId, organizationId, error: cleanupError.message });
     }
@@ -591,7 +597,7 @@ export async function sendTestPrintAction(_prev: PrinterActionState, formData: F
     return { error: describeDatabaseError(insertError, "Couldn't create the test print job.") };
   }
 
-  await supabase.from("print_job_events").insert(
+  await service.from("print_job_events").insert(
     [
       {
         event_type: "JOB_CREATED" as const,

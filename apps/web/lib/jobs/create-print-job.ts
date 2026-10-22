@@ -44,6 +44,8 @@ export interface JobOptions {
   /** member_devices.id, for source "ipp". */
   deviceId?: string;
   ippUserAgent?: string;
+  /** Client for every write (quota, storage, print_jobs, events). The website passes the service-role client; defaults to the main client (the gateway already is service-role). */
+  writeClient?: SupabaseClient<Database>;
 }
 
 export type CreatePrintJobErrorCode =
@@ -107,6 +109,11 @@ export async function createPrintJob(
   const organizationId = session.membership.organization_id;
   const { printerProfileId, choices, confirmBookletPadding } = opts;
   const source = opts.source ?? "web";
+  // Reads go through `supabase`; every WRITE (quota reserve/release, storage upload/remove, the print_jobs insert,
+  // the event trail) goes through `writer`. The website passes the service-role client here after its own session
+  // checks, so members need no INSERT/UPDATE rights on print_jobs, monthly_usage or the print-jobs bucket
+  // (migration 0034). organization_id and created_by below always come from `session`, never from `opts`.
+  const writer = opts.writeClient ?? supabase;
 
   if (!printerProfileId) return fail("Choose a printer.", "invalid_request");
 
@@ -418,7 +425,7 @@ export async function createPrintJob(
     // recording the usage for reporting, rather than skipping the call
     // entirely and leaving monthly_usage silently unaware of the job.
     const reserved = await adjustMonthlyUsage(
-      supabase,
+      writer,
       { organizationId, userId: session.userId },
       reservedAmounts,
       quotaBasis,
@@ -447,10 +454,10 @@ export async function createPrintJob(
    */
   async function rollback(uploadedPaths: string[]) {
     try {
-      if (uploadedPaths.length > 0) await supabase.storage.from(PRINT_JOBS_BUCKET).remove(uploadedPaths);
+      if (uploadedPaths.length > 0) await writer.storage.from(PRINT_JOBS_BUCKET).remove(uploadedPaths);
       if (reservesQuota) {
         await adjustMonthlyUsage(
-          supabase,
+          writer,
           { organizationId, userId: session.userId },
           reservedAmounts,
           quotaBasis,
@@ -471,9 +478,9 @@ export async function createPrintJob(
   // concurrently rather than one after the other - on a booklet job that
   // halves the storage wait the user sits through after submitting.
   const [originalUpload, derivedUpload] = await Promise.all([
-    supabase.storage.from(PRINT_JOBS_BUCKET).upload(originalPath, originalBytes, { contentType: "application/pdf" }),
+    writer.storage.from(PRINT_JOBS_BUCKET).upload(originalPath, originalBytes, { contentType: "application/pdf" }),
     derivedBytes && derivedPath
-      ? supabase.storage.from(PRINT_JOBS_BUCKET).upload(derivedPath, derivedBytes, { contentType: "application/pdf" })
+      ? writer.storage.from(PRINT_JOBS_BUCKET).upload(derivedPath, derivedBytes, { contentType: "application/pdf" })
       : Promise.resolve({ error: null }),
   ]);
   // A failed derived upload used to be swallowed entirely: the row was still
@@ -494,7 +501,7 @@ export async function createPrintJob(
   }
 
   const now = new Date();
-  const { data: inserted, error: insertError } = await supabase
+  const { data: inserted, error: insertError } = await writer
     .from("print_jobs")
     .insert({
     id: jobId,
@@ -575,7 +582,7 @@ export async function createPrintJob(
           },
         ]),
   ];
-  await supabase.from("print_job_events").insert(
+  await writer.from("print_job_events").insert(
     events.map((e) => ({
       job_id: jobId,
       event_type: e.event_type,

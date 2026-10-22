@@ -19,6 +19,14 @@ const supabase = {
 };
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => supabase }));
 
+const serviceDownload = vi.fn();
+const serviceCalls: string[] = [];
+const serviceClient = {
+  storage: { from: () => ({ download: (p: string) => (serviceCalls.push(`download:${p}`), serviceDownload(p)) }) },
+  from: (t: string) => (serviceCalls.push(`from:${t}`), {}),
+};
+vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: () => serviceClient }));
+
 import { reprintJobAction } from "./actions";
 
 const fd = () => {
@@ -30,6 +38,8 @@ const fd = () => {
 beforeEach(() => {
   download.mockReset().mockResolvedValue({ data: null, error: { message: "Object not found" } });
   createPrintJob.mockReset();
+  serviceDownload.mockReset().mockResolvedValue({ data: new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46])]), error: null });
+  serviceCalls.length = 0;
 });
 
 describe("reprintJobAction on a purged job", () => {
@@ -46,5 +56,34 @@ describe("reprintJobAction on a purged job", () => {
     jobRow = { id: "j1", files_purged_at: null, original_file_path: null };
     const res = await reprintJobAction({}, fd());
     expect(res.error).toMatch(/original document/i);
+  });
+
+  it("refuses another user's job: the owner-scoped read finds nothing, so the service role is never touched", async () => {
+    jobRow = null;
+    const res = await reprintJobAction({}, fd());
+    expect(res).toEqual({ error: "Job not found." });
+    expect(serviceCalls).toEqual([]);
+    expect(createPrintJob).not.toHaveBeenCalled();
+  });
+
+  it("downloads the original with the service-role client (never the member's) once ownership is proven, and writes via it", async () => {
+    jobRow = {
+      id: "j1",
+      files_purged_at: null,
+      original_file_path: "org/org1/jobs/j1/original.pdf",
+      original_file_name: "a.pdf",
+      finishing: { staple: false, booklet: false, punch: false },
+      duplex: false,
+      copies: 1,
+      page_range: null,
+      color_mode: "bw",
+      paper_size: "letter",
+      printer_profile_id: "p1",
+    };
+    createPrintJob.mockResolvedValue({ ok: false, kind: "error", code: "quota_exceeded", error: "quota" });
+    await reprintJobAction({}, fd());
+    expect(download).not.toHaveBeenCalled();
+    expect(serviceCalls).toEqual(["download:org/org1/jobs/j1/original.pdf"]);
+    expect(createPrintJob.mock.calls[0]![4].writeClient).toBe(serviceClient);
   });
 });
