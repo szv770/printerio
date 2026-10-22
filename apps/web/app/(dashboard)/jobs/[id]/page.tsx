@@ -8,6 +8,8 @@ import { canOwnerPurgeFiles } from "@/lib/retention";
 import { JobStatusLive } from "./JobStatusLive";
 import { ReprintButton } from "./ReprintButton";
 import { DeleteFileButton } from "./DeleteFileButton";
+import { CancelJobButton } from "./CancelJobButton";
+import { RetryJobButton } from "./RetryJobButton";
 import { LocalTime } from "../LocalTime";
 
 /** The approver's own words, recorded on the REJECTED event alongside the
@@ -72,6 +74,21 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
          *    pointless for an approver looking at someone else's job. */}
         {!job.is_test_print && isOwner && !job.files_purged_at && <ReprintButton jobId={job.id} />}
       </div>
+
+      {/* Owner-only controls. Cancel is offered only while nothing has been sent to the print agent (the server
+       *  re-checks and says so plainly if the job slipped away); "Try again" re-queues THIS job after a failure
+       *  while tries remain. Once the agent has the job it cannot be recalled, so we say that instead. */}
+      {isOwner && (
+        <div className="mb-4 flex flex-wrap items-start gap-3">
+          {job.status === "failed" && job.attempt_count < job.max_attempts && !job.files_purged_at && (
+            <RetryJobButton jobId={job.id} />
+          )}
+          {["held", "pending_approval", "approved", "failed"].includes(job.status) && <CancelJobButton jobId={job.id} />}
+          {["claimed", "downloading", "downloaded", "printing", "submitted_to_spooler"].includes(job.status) && (
+            <p className="text-sm text-[var(--color-muted)]">This job has already gone to the printer. Clear it at the printer.</p>
+          )}
+        </div>
+      )}
 
       {/* The stage-by-stage answer to "where is this up to right now", live
        *  over Supabase Realtime. It also owns the "why" for a job that

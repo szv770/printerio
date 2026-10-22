@@ -44,7 +44,8 @@ describe("job state machine", () => {
     }
   });
 
-  it("failed is retryable (not terminal) but still bounded to claimed/cancelled", () => {
+  it("failed can be re-queued to approved (retry) but still only to claimed/approved/cancelled", () => {
+    expect(canTransition("failed", "approved")).toBe(true);
     expect(isTerminalState("failed")).toBe(false);
     expect(isDeadEnd("failed")).toBe(false);
     expect(canTransition("failed", "claimed")).toBe(true);

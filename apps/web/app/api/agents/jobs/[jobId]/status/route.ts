@@ -3,6 +3,8 @@ import { authenticateAgentRequest } from "@/lib/agent-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { adjustMonthlyUsage, usageAmountsForJob } from "@/lib/quota";
 import { canTransition, type JobState } from "@printio/shared";
+import { isAutoRetryEnabled, requeueFailedJob } from "@/lib/jobs/lifecycle";
+import { logger } from "@/lib/logger";
 import type { TablesUpdate } from "@/lib/database.types";
 
 const REPORTABLE_STATUSES: JobState[] = ["downloaded", "printing", "submitted_to_spooler", "completed", "failed"];
@@ -52,8 +54,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ job
   if (newStatus === "completed") update.completed_at = new Date().toISOString();
   if (newStatus === "failed") update.attempt_count = job.attempt_count + 1;
 
-  const { error: updateError } = await supabase.from("print_jobs").update(update).eq("id", jobId);
+  // Conditional on the status we just validated: two overlapping reports (an agent retrying after a timeout)
+  // cannot both win, so quota is consumed / released at most once per transition.
+  const { data: updatedRows, error: updateError } = await supabase
+    .from("print_jobs")
+    .update(update)
+    .eq("id", jobId)
+    .eq("status", job.status)
+    .select("id");
   if (updateError) return apiError(500, "internal_error", "Failed to update job status.");
+  if (!updatedRows || updatedRows.length === 0) {
+    return apiError(409, "illegal_transition", `Job is no longer '${job.status}'.`);
+  }
 
   await supabase.from("print_job_events").insert({
     job_id: jobId,
@@ -85,10 +97,35 @@ export async function POST(request: Request, { params }: { params: Promise<{ job
     estimatedPhysicalSheets: job.estimated_physical_sheets,
     colorMode: job.color_mode,
   });
+  const quotaCtx = { organizationId: job.organization_id, userId: job.created_by };
+  // The status change above already committed, so a quota hiccup must not turn into a 500 (the agent would retry
+  // and only get a 409 back): log it loudly instead.
+  const adjustQuota = async (mode: "consume" | "release") => {
+    try {
+      await adjustMonthlyUsage(supabase, quotaCtx, amounts, "physical_sheets", null, mode);
+    } catch (err) {
+      logger.error("quota adjustment failed after a job status change", {
+        jobId,
+        mode,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
+
   if (newStatus === "completed") {
-    await adjustMonthlyUsage(supabase, { organizationId: job.organization_id, userId: job.created_by }, amounts, "physical_sheets", null, "consume");
-  } else if (newStatus === "failed" && job.attempt_count + 1 >= job.max_attempts) {
-    await adjustMonthlyUsage(supabase, { organizationId: job.organization_id, userId: job.created_by }, amounts, "physical_sheets", null, "release");
+    await adjustQuota("consume");
+  } else if (newStatus === "failed") {
+    const attemptsUsed = job.attempt_count + 1;
+    if (attemptsUsed >= job.max_attempts) {
+      // Finally abandoned: release the reservation (exactly once - this branch only runs for the request that won
+      // the conditional update above).
+      await adjustQuota("release");
+    } else if (await isAutoRetryEnabled(supabase, job.organization_id)) {
+      // Keep the reservation and re-queue; the job is claimed again by the normal loop.
+      const queued = await requeueFailedJob(supabase, { ...job, attempt_count: attemptsUsed }, { type: "system" });
+      return Response.json({ ok: true, retryScheduled: queued });
+    }
+    // Otherwise it stays failed with its reservation while it can still be retried (owner "Try again", or cancel).
   }
 
   return Response.json({ ok: true });

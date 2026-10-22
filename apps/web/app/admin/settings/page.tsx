@@ -16,7 +16,8 @@ export default async function SettingsPage() {
       .single(),
     supabase
       .from("organization_settings")
-      .select("default_booklet_binding_side, admins_bypass_restrictions, stamp_enabled, stamp_show, stamp_strength")
+      // select("*"): auto_retry_failed_prints (migration 0035) may not exist yet; naming it would fail the whole read.
+      .select("*")
       .eq("organization_id", session.membership.organization_id)
       .single(),
   ]);
@@ -32,6 +33,7 @@ export default async function SettingsPage() {
         magicLinkRequiresAllowedDomain={org?.magic_link_requires_allowed_domain ?? true}
         defaultBookletBindingSide={settings?.default_booklet_binding_side === "right" ? "right" : "left"}
         adminsBypassRestrictions={settings?.admins_bypass_restrictions ?? true}
+        autoRetryFailedPrints={(settings as Record<string, unknown> | null)?.auto_retry_failed_prints === true}
         stamp={normalizeStampSettings(settings)}
         canManage={session.membership.role === "org_admin"}
       />

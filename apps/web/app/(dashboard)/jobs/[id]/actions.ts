@@ -7,6 +7,7 @@ import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { canOwnerPurgeFiles, purgeJobFiles } from "@/lib/retention";
 import { routes } from "@/lib/routes";
 import { logger } from "@/lib/logger";
+import { cancelOwnJob, retryOwnJob, type JobActionResult } from "@/lib/jobs/lifecycle";
 
 export interface DeleteJobFileState {
   error?: string;
@@ -73,4 +74,48 @@ export async function deleteJobFileAction(
 
   revalidatePath(routes.job(jobId));
   return { success: "Deleted. The job and its history are still here - only the stored file is gone." };
+}
+
+export interface JobActionState {
+  error?: string;
+  success?: string;
+}
+
+/**
+ * Cancel / "Try again" for the person who submitted the job. Thin on purpose: who may do what, and the status/quota
+ * rules, live in lib/jobs/lifecycle.ts (unit-tested). Authorization is re-derived here from the session - the job
+ * id is the only thing taken from the form - and the writes use the SERVICE-ROLE client (members have no UPDATE on
+ * print_jobs, migration 0034), guarded in the WHERE clause on this owner, this organization and the exact status.
+ */
+async function ownerAction(
+  formData: FormData,
+  run: (service: ReturnType<typeof createServiceRoleClient>, ref: { jobId: string; userId: string; organizationId: string }) => Promise<JobActionResult>,
+  what: string,
+): Promise<JobActionState> {
+  const session = await requireSessionOrRedirect();
+  if (!session.membership) return { error: "You are not a member of any organization yet." };
+  const jobId = String(formData.get("jobId") ?? "");
+  if (!jobId) return { error: "Missing job." };
+
+  try {
+    const result = await run(createServiceRoleClient(), {
+      jobId,
+      userId: session.userId,
+      organizationId: session.membership.organization_id,
+    });
+    revalidatePath(routes.job(jobId));
+    revalidatePath(routes.jobs);
+    return result.ok ? { success: result.message } : { error: result.error };
+  } catch (err) {
+    logger.error(`${what} failed unexpectedly`, { jobId, error: err instanceof Error ? err.message : String(err) });
+    return { error: `Could not ${what} right now. Try again in a moment.` };
+  }
+}
+
+export async function cancelJobAction(_prev: JobActionState, formData: FormData): Promise<JobActionState> {
+  return ownerAction(formData, cancelOwnJob, "cancel this job");
+}
+
+export async function retryJobAction(_prev: JobActionState, formData: FormData): Promise<JobActionState> {
+  return ownerAction(formData, retryOwnJob, "try this job again");
 }
