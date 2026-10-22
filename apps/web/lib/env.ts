@@ -16,7 +16,11 @@ import { z } from "zod";
  */
 
 function parseOrThrow<T extends z.ZodTypeAny>(schema: T, groupName: string): z.infer<T> {
-  const result = schema.safeParse(process.env);
+  return parseOrThrowFrom(schema, process.env, groupName);
+}
+
+function parseOrThrowFrom<T extends z.ZodTypeAny>(schema: T, source: unknown, groupName: string): z.infer<T> {
+  const result = schema.safeParse(source);
   if (!result.success) {
     const issues = result.error.issues.map((issue) => `  - ${issue.path.join(".")}: ${issue.message}`).join("\n");
     throw new Error(
@@ -77,4 +81,27 @@ export function getBootstrapEnv() {
   // surfacing loudly) - unset entirely is always fine and safe to call
   // unconditionally.
   return parseOrThrow(bootstrapEnvSchema, "organization bootstrap");
+}
+
+/**
+ * IPP gateway settings (docs/superpowers/specs/2026-10-22-gateway-contract.md). Both are optional so the build and
+ * deployments that do not run the gateway keep working: the /api/gateway routes answer 503 until the secret is set,
+ * and the "add a device" helpers refuse until the base domain is set.
+ */
+const gatewayEnvSchema = z.object({
+  GATEWAY_SHARED_SECRET: z.string().min(32, "must be at least 32 characters").optional(),
+  GATEWAY_BASE_DOMAIN: z
+    .string()
+    .regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i, "must be a bare domain such as szvtech.org")
+    .optional(),
+});
+
+export function getGatewayEnv(): { sharedSecret: string | null; baseDomain: string | null } {
+  // Empty strings (an env var declared but left blank) count as unset.
+  const raw = {
+    GATEWAY_SHARED_SECRET: process.env.GATEWAY_SHARED_SECRET || undefined,
+    GATEWAY_BASE_DOMAIN: process.env.GATEWAY_BASE_DOMAIN || undefined,
+  };
+  const parsed = parseOrThrowFrom(gatewayEnvSchema, raw, "the IPP gateway");
+  return { sharedSecret: parsed.GATEWAY_SHARED_SECRET ?? null, baseDomain: parsed.GATEWAY_BASE_DOMAIN?.toLowerCase() ?? null };
 }

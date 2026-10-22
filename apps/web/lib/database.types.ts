@@ -182,6 +182,92 @@ export type Database = {
           },
         ]
       }
+      device_events: {
+        Row: {
+          created_at: string
+          detail: Json
+          device_id: string
+          id: string
+          type: string
+          user_agent: string | null
+        }
+        Insert: {
+          created_at?: string
+          detail?: Json
+          device_id: string
+          id?: string
+          type: string
+          user_agent?: string | null
+        }
+        Update: {
+          created_at?: string
+          detail?: Json
+          device_id?: string
+          id?: string
+          type?: string
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_events_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "member_devices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      device_issues: {
+        Row: {
+          created_at: string
+          device_id: string
+          id: string
+          kind: string
+          note: string
+          resolved_at: string | null
+          resolved_by: string | null
+          resolved_note: string | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          device_id: string
+          id?: string
+          kind: string
+          note?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          resolved_note?: string | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          device_id?: string
+          id?: string
+          kind?: string
+          note?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          resolved_note?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_issues_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "member_devices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "device_issues_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       group_members: {
         Row: {
           created_at: string
@@ -246,6 +332,54 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      member_devices: {
+        Row: {
+          created_at: string
+          device_type: string
+          first_job_at: string | null
+          first_printed_at: string | null
+          first_seen_at: string | null
+          id: string
+          last_seen_at: string | null
+          last_user_agent: string | null
+          name: string
+          organization_id: string
+          revoked_at: string | null
+          token_hash: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          device_type?: string
+          first_job_at?: string | null
+          first_printed_at?: string | null
+          first_seen_at?: string | null
+          id?: string
+          last_seen_at?: string | null
+          last_user_agent?: string | null
+          name: string
+          organization_id: string
+          revoked_at?: string | null
+          token_hash: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          device_type?: string
+          first_job_at?: string | null
+          first_printed_at?: string | null
+          first_seen_at?: string | null
+          id?: string
+          last_seen_at?: string | null
+          last_user_agent?: string | null
+          name?: string
+          organization_id?: string
+          revoked_at?: string | null
+          token_hash?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       monthly_usage: {
         Row: {
@@ -581,6 +715,7 @@ export type Database = {
           created_at: string
           created_by: string
           derived_file_path: string | null
+          device_id: string | null
           duplex: boolean
           error_message: string | null
           estimated_cost_cents: number | null
@@ -592,6 +727,7 @@ export type Database = {
           finishing: Json
           held_reason: string | null
           id: string
+          ipp_user_agent: string | null
           is_test_print: boolean
           job_number: string
           lease_expires_at: string | null
@@ -607,6 +743,7 @@ export type Database = {
           policy_reasons: string[]
           printer_id: string | null
           printer_profile_id: string | null
+          source: string
           source_pdf_pages: number
           staple_position: string | null
           status: string
@@ -624,6 +761,7 @@ export type Database = {
           created_at?: string
           created_by: string
           derived_file_path?: string | null
+          device_id?: string | null
           duplex?: boolean
           error_message?: string | null
           estimated_cost_cents?: number | null
@@ -635,6 +773,7 @@ export type Database = {
           finishing?: Json
           held_reason?: string | null
           id?: string
+          ipp_user_agent?: string | null
           is_test_print?: boolean
           job_number?: string
           lease_expires_at?: string | null
@@ -650,6 +789,7 @@ export type Database = {
           policy_reasons?: string[]
           printer_id?: string | null
           printer_profile_id?: string | null
+          source?: string
           source_pdf_pages: number
           staple_position?: string | null
           status?: string
@@ -667,6 +807,7 @@ export type Database = {
           created_at?: string
           created_by?: string
           derived_file_path?: string | null
+          device_id?: string | null
           duplex?: boolean
           error_message?: string | null
           estimated_cost_cents?: number | null
@@ -678,6 +819,7 @@ export type Database = {
           finishing?: Json
           held_reason?: string | null
           id?: string
+          ipp_user_agent?: string | null
           is_test_print?: boolean
           job_number?: string
           lease_expires_at?: string | null
@@ -693,6 +835,7 @@ export type Database = {
           policy_reasons?: string[]
           printer_id?: string | null
           printer_profile_id?: string | null
+          source?: string
           source_pdf_pages?: number
           staple_position?: string | null
           status?: string

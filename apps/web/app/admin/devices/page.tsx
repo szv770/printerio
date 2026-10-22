@@ -1,0 +1,65 @@
+import { createClient } from "@/lib/supabase/server";
+import { requireOrgRole } from "@/lib/auth/session";
+import { listDevicesForAdmin, listIssuesForDevices } from "@/lib/devices/devices";
+import { sortStuckFirst, stuckReason } from "@/lib/devices/admin";
+import { PageHeader } from "@/components/ui";
+import { DevicesAdmin, type AdminDevice } from "./DevicesAdmin";
+
+export default async function AdminDevicesPage() {
+  const session = await requireOrgRole(["org_admin"]);
+  const supabase = await createClient();
+  const orgId = session.membership.organization_id;
+
+  const devices = await listDevicesForAdmin(supabase, { organizationId: orgId });
+  const issues = await listIssuesForDevices(
+    supabase,
+    devices.map((d) => d.id),
+  );
+
+  const userIds = [...new Set(devices.map((d) => d.user_id))];
+  const { data: profiles } =
+    userIds.length > 0
+      ? await supabase.from("profiles").select("id, display_name, email").in("id", userIds)
+      : { data: [] as { id: string; display_name: string | null; email: string }[] };
+  const names = Object.fromEntries((profiles ?? []).map((p) => [p.id, p.display_name?.trim() || p.email]));
+
+  const openCounts: Record<string, number> = {};
+  for (const i of issues) if (i.status === "open") openCounts[i.device_id] = (openCounts[i.device_id] ?? 0) + 1;
+
+  const now = new Date();
+  const sorted = sortStuckFirst(devices, openCounts, now);
+  const items: AdminDevice[] = sorted.map((d) => ({
+    id: d.id,
+    userName: names[d.user_id] ?? "Unknown user",
+    name: d.name,
+    device_type: d.device_type,
+    created_at: d.created_at,
+    revoked_at: d.revoked_at,
+    last_seen_at: d.last_seen_at,
+    first_job_at: d.first_job_at,
+    first_printed_at: d.first_printed_at,
+    last_user_agent: d.last_user_agent,
+    stuck: stuckReason(d, openCounts[d.id] ?? 0, now),
+    issues: issues
+      .filter((i) => i.device_id === d.id)
+      .map((i) => ({
+        id: i.id,
+        kind: i.kind,
+        note: i.note,
+        status: i.status,
+        created_at: i.created_at,
+        resolved_note: i.resolved_note,
+        resolved_at: i.resolved_at,
+      })),
+  }));
+
+  return (
+    <div>
+      <PageHeader title="Devices" />
+      <p className="mb-4 text-sm text-[var(--color-muted)]">
+        Devices people use to print from their phone or laptop. Ones that need a look are at the top.
+      </p>
+      <DevicesAdmin devices={items} />
+    </div>
+  );
+}

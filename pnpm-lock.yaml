@@ -44,6 +44,44 @@ importers:
         specifier: ^1.0.0-beta.8
         version: 1.0.0-beta.8
 
+  apps/gateway:
+    dependencies:
+      '@printio/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@supabase/supabase-js':
+        specifier: ^2.48.1
+        version: 2.115.0
+      dotenv:
+        specifier: ^17.4.2
+        version: 17.4.2
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.13
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.1
+      eslint:
+        specifier: ^9.18.0
+        version: 9.39.5(jiti@2.7.0)
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+      typescript-eslint:
+        specifier: ^8.19.1
+        version: 8.69.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13)
+    optionalDependencies:
+      node-windows:
+        specifier: ^1.0.0-beta.8
+        version: 1.0.0-beta.8
+
   apps/web:
     dependencies:
       '@printio/shared':

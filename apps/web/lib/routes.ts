@@ -18,6 +18,7 @@ export const routes = {
   jobs: "/jobs",
   job: (jobId: string) => `/jobs/${jobId}`,
   profile: "/profile",
+  devices: "/devices",
   usage: "/usage",
 
   admin: "/admin",
@@ -34,6 +35,7 @@ export const routes = {
   adminAgents: "/admin/agents",
   adminAgentDetail: (agentId: string) => `/admin/agents/${agentId}`,
   adminAudit: "/admin/audit",
+  adminDevices: "/admin/devices",
   adminReports: "/admin/reports",
 
   // Platform-level super-admin console (docs/architecture.md sec 2.1/2.2) -

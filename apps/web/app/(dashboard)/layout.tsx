@@ -37,7 +37,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
             <Link href={routes.usage} className="text-[var(--color-muted)] hover:text-[var(--color-text)]">
               Usage
             </Link>
-            <Link href={routes.profile} className="text-[var(--color-muted)] hover:text-[var(--color-text)]">
+            <Link href={routes.devices} className="text-[var(--color-muted)] hover:text-[var(--color-text)]">
+              My devices
+            </Link>
+            <Link href={routes.profile}className="text-[var(--color-muted)] hover:text-[var(--color-text)]">
               Profile
             </Link>
             {isAdmin && (
