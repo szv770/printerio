@@ -20,16 +20,21 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 let baseDomain: string | null = "szvtech.org";
 vi.mock("@/lib/env", () => ({ getGatewayEnv: () => ({ sharedSecret: null, baseDomain }) }));
 
+const serviceClient = { marker: "service-client" };
+vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: () => serviceClient }));
+
 const createDevice = vi.fn();
+const deleteDevice = vi.fn();
 const revokeDevice = vi.fn();
 const reportIssue = vi.fn();
 vi.mock("@/lib/devices/devices", () => ({
   createDevice: (...a: unknown[]) => createDevice(...a),
   revokeDevice: (...a: unknown[]) => revokeDevice(...a),
+  deleteDevice: (...a: unknown[]) => deleteDevice(...a),
   reportIssue: (...a: unknown[]) => reportIssue(...a),
 }));
 
-import { addDeviceAction, reportIssueAction, revokeDeviceAction } from "./actions";
+import { addDeviceAction, deleteDeviceAction, reportIssueAction, revokeDeviceAction } from "./actions";
 
 const fd = (o: Record<string, string>) => {
   const f = new FormData();
@@ -40,6 +45,7 @@ const fd = (o: Record<string, string>) => {
 beforeEach(() => {
   createDevice.mockReset();
   revokeDevice.mockReset();
+  deleteDevice.mockReset();
   reportIssue.mockReset();
   authed = true;
   baseDomain = "szvtech.org";
@@ -139,5 +145,32 @@ describe("reportIssueAction", () => {
     session.membership = null;
     expect((await reportIssueAction({}, fd({ deviceId: "d1", kind: "other" }))).error).toBeTruthy();
     expect(reportIssue).not.toHaveBeenCalled();
+  });
+});
+
+describe("deleteDeviceAction", () => {
+  it("rejects unauthenticated callers", async () => {
+    authed = false;
+    await expect(deleteDeviceAction({}, fd({ deviceId: "d1" }))).rejects.toMatchObject({ to: "/login" });
+    expect(deleteDevice).not.toHaveBeenCalled();
+  });
+
+  it("deletes through the service-role client, scoped to the signed-in member (never asAdmin)", async () => {
+    deleteDevice.mockResolvedValue({ ok: true });
+    const res = await deleteDeviceAction({}, fd({ deviceId: "d1" }));
+    expect(deleteDevice).toHaveBeenCalledWith(serviceClient, { deviceId: "d1", organizationId: "org1", userId: "u1" });
+    expect(res).toEqual({ deletedId: "d1" });
+  });
+
+  it("returns an error when the device is not theirs", async () => {
+    deleteDevice.mockResolvedValue({ ok: false, error: "Device not found." });
+    expect(await deleteDeviceAction({}, fd({ deviceId: "other" }))).toEqual({ error: "Device not found." });
+  });
+
+  it("requires a device id and an organization", async () => {
+    expect((await deleteDeviceAction({}, fd({}))).error).toBeTruthy();
+    session.membership = null;
+    expect((await deleteDeviceAction({}, fd({ deviceId: "d1" }))).error).toBeTruthy();
+    expect(deleteDevice).not.toHaveBeenCalled();
   });
 });

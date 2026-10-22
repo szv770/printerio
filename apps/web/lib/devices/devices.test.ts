@@ -3,6 +3,7 @@ import { hashDeviceToken, tokenFromHost } from "@printio/shared/device-token";
 import { fakeSupabase, failure, ok } from "@/test/fake-supabase";
 import {
   createDevice,
+  deleteDevice,
   DEVICE_COLUMNS,
   listDevicesForAdmin,
   listDevicesForMember,
@@ -106,6 +107,42 @@ describe("revokeDevice", () => {
       ok: false,
       error: "Device not found.",
     });
+  });
+});
+
+describe("deleteDevice", () => {
+  it("deletes only the member's own device within their organization", async () => {
+    const fake = fakeSupabase(() => ok([{ id: "d1" }]));
+    const res = await deleteDevice(fake.client as never, { deviceId: "d1", organizationId: "org1", userId: "u1" });
+    expect(res).toEqual({ ok: true });
+    const del = fake.calls.find((c) => c.op === "delete")!;
+    expect(del.table).toBe("member_devices");
+    expect(del.filters).toEqual(
+      expect.arrayContaining([
+        ["eq", "id", "d1"],
+        ["eq", "organization_id", "org1"],
+        ["eq", "user_id", "u1"],
+      ]),
+    );
+  });
+
+  it("lets an admin delete any device of the organization (no owner filter, still org scoped)", async () => {
+    const fake = fakeSupabase(() => ok([{ id: "d1" }]));
+    await deleteDevice(fake.client as never, { deviceId: "d1", organizationId: "org1", userId: "admin", asAdmin: true });
+    const del = fake.calls.find((c) => c.op === "delete")!;
+    expect(del.filters.some((f) => f[0] === "eq" && f[1] === "user_id")).toBe(false);
+    expect(del.filters).toContainEqual(["eq", "organization_id", "org1"]);
+  });
+
+  it("says Device not found when nothing was deleted (not theirs, other org, or already gone)", async () => {
+    const fake = fakeSupabase(() => ok([]));
+    expect(await deleteDevice(fake.client as never, { deviceId: "d1", organizationId: "o", userId: "u" })).toEqual({ ok: false, error: "Device not found." });
+  });
+
+  it("returns a friendly error when the delete fails", async () => {
+    const fake = fakeSupabase(() => failure("boom"));
+    const res = await deleteDevice(fake.client as never, { deviceId: "d1", organizationId: "o", userId: "u" });
+    expect(res).toEqual({ ok: false, error: "Could not delete this device. Try again." });
   });
 });
 
