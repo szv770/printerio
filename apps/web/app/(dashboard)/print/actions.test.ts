@@ -20,6 +20,8 @@ const session = { userId: "u1", membership: { organization_id: "org1", role: "st
 vi.mock("@/lib/auth/session", () => ({ requireSessionOrRedirect: async () => session }));
 const supabase = { marker: "user-client" };
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => supabase }));
+const serviceClient = { marker: "service-role-client" };
+vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: () => serviceClient }));
 
 import { submitPrintJobAction } from "./actions";
 
@@ -49,7 +51,24 @@ describe("submitPrintJobAction", () => {
       paperSize: "letter",
       punch: false,
       confirmBookletPadding: false,
+      writeClient: serviceClient,
     });
+  });
+
+  it("does every write with the service-role client (writeClient), never the member's", async () => {
+    createPrintJob.mockResolvedValue({ ok: true, jobId: "job-9", jobNumber: "JOB-1", status: "approved", heldReason: null, policyReasons: [] });
+    await expect(submitPrintJobAction({}, form())).rejects.toBeInstanceOf(RedirectSignal);
+    expect(createPrintJob.mock.calls[0]![4].writeClient).toBe(serviceClient);
+    expect(createPrintJob.mock.calls[0]![4].writeClient).not.toBe(supabase);
+  });
+
+  it("ignores status / approval / ownership fields smuggled into the form", async () => {
+    createPrintJob.mockResolvedValue({ ok: true, jobId: "job-9", jobNumber: "JOB-1", status: "approved", heldReason: null, policyReasons: [] });
+    const fd = form({ status: "approved", approved_by: "u1", approved_at: "2026-01-01", created_by: "other", organization_id: "other-org", policy_action: "allow", estimated_physical_sheets: "0" });
+    await expect(submitPrintJobAction({}, fd)).rejects.toBeInstanceOf(RedirectSignal);
+    const [, sess, , , opts] = createPrintJob.mock.calls[0]!;
+    expect(sess).toBe(session); // identity and organization come from the session only
+    expect(Object.keys(opts).sort()).toEqual(["choices", "colorMode", "confirmBookletPadding", "paperSize", "printerProfileId", "punch", "writeClient"]);
   });
 
   it("returns an error as form state, with its field error", async () => {

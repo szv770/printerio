@@ -21,7 +21,24 @@ let job: Record<string, unknown> | null;
 let cancelResult: Array<{ id: string }>;
 const updates: Array<{ patch: unknown; filters: Record<string, unknown> }> = [];
 const events: unknown[] = [];
+const memberWrites: string[] = [];
+const downloads: Array<{ by: string; path: string }> = [];
+// The member's client may only READ; any write attempt is recorded so a test can prove there were none.
 const supabase = {
+  from() {
+    const q: Record<string, unknown> = {
+      select: () => q,
+      update: () => (memberWrites.push("update"), q),
+      insert: async () => (memberWrites.push("insert"), { error: null }),
+      eq: () => q,
+      maybeSingle: async () => ({ data: job, error: null }),
+    };
+    return q;
+  },
+  storage: { from: () => ({ download: async (p: string) => (downloads.push({ by: "member", path: p }), { data: null, error: { message: "denied" } }) }) },
+};
+vi.mock("@/lib/supabase/server", () => ({ createClient: async () => supabase }));
+const serviceClient = {
   from(table: string) {
     if (table === "print_job_events") return { insert: async (row: unknown) => (events.push(row), { error: null }) };
     const filters: Record<string, unknown> = {};
@@ -30,7 +47,6 @@ const supabase = {
       select: () => q,
       update: (p: unknown) => ((patch = p), q),
       eq: (k: string, v: unknown) => ((filters[k] = v), q),
-      maybeSingle: async () => ({ data: job, error: null }),
       then: (resolve: (v: unknown) => void) => {
         updates.push({ patch, filters });
         resolve({ data: cancelResult, error: null });
@@ -38,9 +54,9 @@ const supabase = {
     };
     return q;
   },
-  storage: { from: () => ({ download: async () => ({ data: new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46])]), error: null }) }) },
+  storage: { from: () => ({ download: async (p: string) => (downloads.push({ by: "service", path: p }), { data: new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46])]), error: null }) }) },
 };
-vi.mock("@/lib/supabase/server", () => ({ createClient: async () => supabase }));
+vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: () => serviceClient }));
 
 import { finishHeldBookletAction } from "./actions";
 
@@ -71,6 +87,8 @@ beforeEach(() => {
   createPrintJob.mockReset();
   updates.length = 0;
   events.length = 0;
+  memberWrites.length = 0;
+  downloads.length = 0;
   job = heldBooklet();
   cancelResult = [{ id: "job-1" }];
 });
@@ -91,7 +109,7 @@ describe("finishHeldBookletAction (member picks left or right on a held booklet)
     });
     expect(opts.forcedHeldReason).toBeUndefined();
     // the held original is closed so the member does not see two jobs; guarded on it still being held
-    expect(updates[0]).toEqual({ patch: { status: "cancelled" }, filters: { id: "job-1", status: "held", created_by: "u1" } });
+    expect(updates[0]).toEqual({ patch: { status: "cancelled" }, filters: { id: "job-1", status: "held", created_by: "u1", organization_id: "org1" } });
     expect(events[0]).toMatchObject({ job_id: "job-1", event_type: "JOB_CANCELLED" });
   });
 
@@ -124,5 +142,30 @@ describe("finishHeldBookletAction (member picks left or right on a held booklet)
     createPrintJob.mockResolvedValue({ ok: false, kind: "error", code: "quota_exceeded", error: "quota" });
     expect(await finishHeldBookletAction({}, form())).toEqual({ error: "quota" });
     expect(updates).toHaveLength(0);
+  });
+
+  it("never writes or downloads with the member client: download, new job and close all use the service role", async () => {
+    createPrintJob.mockResolvedValue({ ok: true, jobId: "job-2", jobNumber: "J2", status: "approved", heldReason: null, policyReasons: [] });
+    await expect(finishHeldBookletAction({}, form())).rejects.toBeInstanceOf(RedirectSignal);
+    expect(memberWrites).toEqual([]);
+    expect(downloads).toEqual([{ by: "service", path: "org1/job-1/orig.pdf" }]);
+    expect(createPrintJob.mock.calls[0]![4].writeClient).toBe(serviceClient);
+  });
+
+  it("refuses someone else's job id without touching the service role", async () => {
+    job = null; // the member read is scoped to created_by + organization, so another user's job is not found
+    expect(await finishHeldBookletAction({}, form({ jobId: "someone-elses" }))).toEqual({ error: "Job not found." });
+    expect(downloads).toEqual([]);
+    expect(updates).toEqual([]);
+    expect(events).toEqual([]);
+    expect(createPrintJob).not.toHaveBeenCalled();
+  });
+
+  it("the close can only set status to cancelled, whatever the form carries", async () => {
+    createPrintJob.mockResolvedValue({ ok: true, jobId: "job-2", jobNumber: "J2", status: "approved", heldReason: null, policyReasons: [] });
+    await expect(finishHeldBookletAction({}, form({ status: "approved", approved_by: "u1", organization_id: "other" }))).rejects.toBeInstanceOf(RedirectSignal);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.patch).toEqual({ status: "cancelled" });
+    expect(updates[0]!.filters).toMatchObject({ created_by: "u1", organization_id: "org1", status: "held" });
   });
 });
