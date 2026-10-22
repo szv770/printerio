@@ -40,11 +40,11 @@ describe("stampFirstPage", () => {
     }
   });
 
-  it("puts the stamp in the top-right corner, small, light grey, outside typical margins (portrait)", async () => {
+  it("puts the stamp in the bottom-right corner (clear of top staples), small, light grey, outside typical margins (portrait)", async () => {
     const s = readStamp(await load(await stampFirstPage(await makePdf([{ size: [612, 792] }]), { text: "SV42" })), 0)!;
     expect(s.angle).toBe(0);
-    expect(s.y).toBeGreaterThan(792 - 36); // inside the top 0.5in band: above any normal margin
-    expect(s.y).toBeLessThan(792 - STAMP_INSET_PT + 1);
+    expect(s.y).toBeLessThan(36); // inside the bottom 0.5in band: below any normal margin
+    expect(s.y).toBeGreaterThan(STAMP_INSET_PT - 1);
     expect(s.x).toBeGreaterThan(612 - 36 - 30);
     expect(s.x).toBeLessThan(612 - STAMP_INSET_PT); // text starts left of the inset line, so it ends on it
     expect(STAMP_FONT_SIZE_PT).toBeGreaterThanOrEqual(6);
@@ -58,8 +58,8 @@ describe("stampFirstPage", () => {
       const doc = await load(await stampFirstPage(await makePdf([{ size: [600, 800], rotate }]), { text: "SV42" }));
       const s = readStamp(doc, 0)!;
       expect(s.angle).toBe(rotate);
-      // The text start must sit near the corner that is visually top-right for that rotation.
-      const corner = { 0: [600, 800], 90: [0, 800], 180: [0, 0], 270: [600, 0] }[rotate];
+      // The text start must sit near the corner that is visually bottom-right for that rotation.
+      const corner = { 0: [600, 0], 90: [600, 800], 180: [0, 800], 270: [0, 0] }[rotate];
       expect(Math.abs(s.x - corner[0]!)).toBeLessThan(60);
       expect(Math.abs(s.y - corner[1]!)).toBeLessThan(60);
     }
@@ -67,15 +67,15 @@ describe("stampFirstPage", () => {
 
   it("handles landscape pages", async () => {
     const s = readStamp(await load(await stampFirstPage(await makePdf([{ size: [792, 612] }]), { text: "SV42" })), 0)!;
-    expect(s.y).toBeGreaterThan(612 - 36);
+    expect(s.y).toBeLessThan(36);
     expect(s.x).toBeGreaterThan(792 - 100);
   });
 
   it("uses the CropBox (the visible region) when it differs from the MediaBox", async () => {
     const src = await makePdf([{ size: [612, 792], media: [0, 0, 700, 900], crop: [50, 60, 600, 800] }]);
     const s = readStamp(await load(await stampFirstPage(src, { text: "SV42" })), 0)!;
-    expect(s.y).toBeGreaterThan(860 - 36);
-    expect(s.y).toBeLessThan(860);
+    expect(s.y).toBeGreaterThan(60);
+    expect(s.y).toBeLessThan(60 + 36);
     expect(s.x).toBeLessThan(650 - STAMP_INSET_PT);
     expect(s.x).toBeGreaterThan(650 - 100);
   });
@@ -83,7 +83,8 @@ describe("stampFirstPage", () => {
   it("handles a MediaBox whose origin is not 0,0", async () => {
     const src = await makePdf([{ size: [612, 792], media: [-100, -200, 612, 792] }]);
     const s = readStamp(await load(await stampFirstPage(src, { text: "SV42" })), 0)!;
-    expect(s.y).toBeGreaterThan(592 - 36);
+    expect(s.y).toBeGreaterThan(-200);
+    expect(s.y).toBeLessThan(-200 + 36);
     expect(s.x).toBeGreaterThan(512 - 100);
     expect(s.x).toBeLessThan(512);
   });
@@ -118,7 +119,8 @@ describe("stampFirstPage", () => {
     const { width, height } = stamped.getPage(0).getSize();
     expect(s.text).toBe("SV42");
     expect(s.x).toBeGreaterThan(width - 100);
-    expect(s.y).toBeGreaterThan(height - 36);
+    expect(s.y).toBeLessThan(36); // bottom-right, clear of top staples
+    expect(height).toBeGreaterThan(36);
     expect(readStamp(stamped, 1)).toBeNull();
   });
 

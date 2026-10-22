@@ -4,7 +4,7 @@ import type { StampStrength } from "@/lib/jobs/user-code";
 
 /** Small, so it never competes with content; 6-7 pt reads fine on a 600 dpi laser print. */
 export const STAMP_FONT_SIZE_PT = 6.5;
-/** Distance from the visible top and right edges. Outside any normal document margin (>= 0.5in) and the printer's unprintable edge. */
+/** Distance from the visible bottom and right edges (bottom-right is clear of top-left / top-right staples). Outside any normal document margin (>= 0.5in) and the printer's unprintable edge. */
 export const STAMP_INSET_PT = 20;
 /** Fill grey levels (0 black .. 1 white). */
 export const STAMP_GREY: Record<StampStrength, number> = { light: 0.6, medium: 0.4, strong: 0.2 };
@@ -27,7 +27,7 @@ function visibleBox(page: PDFPage) {
 }
 
 /**
- * Stamps `text` small and grey in the visually top-right corner of page 1 only. Everything else is untouched:
+ * Stamps `text` small and grey in the visually bottom-right corner of page 1 only. Everything else is untouched:
  * page count, page sizes, boxes and /Rotate stay as they were (the text is just appended to page 1's content,
  * which pdf-lib wraps in q/Q so a content stream with a leftover transform cannot misplace it).
  *
@@ -58,7 +58,7 @@ export async function stampFirstPage(
   const textWidth = font.widthOfTextAtSize(text, STAMP_FONT_SIZE_PT);
   // Baseline-left of the text in DISPLAY space (origin bottom-left, y up), so its right edge sits on the inset line.
   const dx = Math.max(STAMP_INSET_PT / 2, W - STAMP_INSET_PT - textWidth);
-  const dy = H - STAMP_INSET_PT - STAMP_FONT_SIZE_PT;
+  const dy = STAMP_INSET_PT;
 
   // Display space -> unrotated user space. /Rotate turns the page clockwise when shown.
   let x: number;

@@ -230,7 +230,7 @@ export function SettingsPanel({
           <h2 className="text-sm font-semibold">Print stamp (user code)</h2>
         </div>
         <p className="mb-3 text-sm text-[var(--color-muted)]">
-          Stamps a small, faint code in the top-right corner of page 1 of each printout, so you can walk to the
+          Stamps a small, faint code in the bottom-right corner of page 1 of each printout, so you can walk to the
           printer and tell whose pile is whose. Every copy carries it, and so does a booklet&apos;s cover. Each
           person&apos;s code is set on the Users page. Applies to jobs created from now on.
         </p>
