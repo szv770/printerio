@@ -332,6 +332,22 @@ describe("negative paths", () => {
     expect(h.registry.list("dev-1")).toHaveLength(0);
   });
 
+  it("quota refusal -> permanent client error with the readable message, job_rejected event, nothing remembered", async () => {
+    h.web.finalizeResult = { kind: "refused", reason: "quota_exceeded", message: "Monthly quota used up." };
+    const r = await h.ipp(androidPrint(), PDF);
+    expect(r.ipp.code).toBe(STATUS.notPossible);
+    expect(flatGroup(r.ipp, TAG.operation)["status-message"]).toBe("Monthly quota used up.");
+    expect(h.web.events.map((e) => e.type)).toEqual(["job_received", "job_rejected"]);
+    expect(h.registry.list("dev-1")).toHaveLength(0);
+  });
+
+  it("rate limit refusal -> client error (not 0x0506) with a default message", async () => {
+    h.web.finalizeResult = { kind: "refused", reason: "rate_limited" };
+    const r = await h.ipp(androidPrint(), PDF);
+    expect(r.ipp.code).toBe(STATUS.notPossible);
+    expect(String(flatGroup(r.ipp, TAG.operation)["status-message"])).toMatch(/too many|wait/i);
+  });
+
   it("oversized body -> clean IPP 0x0408, nothing stored, server keeps serving", async () => {
     await h.close();
     h = await startHarness({ maxBodyBytes: 4096 });

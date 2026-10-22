@@ -37,7 +37,13 @@ export interface JobInfo {
   message?: string;
 }
 
-export type FinalizeResult = { kind: "ok"; job: JobInfo & { jobNumber: number } } | { kind: "bad_pdf"; message: string };
+/** Permanent refusals from finalize: retrying will not help, so the client is told to stop (not 0x0506). */
+export type RefusalReason = "quota_exceeded" | "rate_limited" | "invalid_request" | "intake_not_found" | "revoked" | "inactive_member";
+
+export type FinalizeResult =
+  | { kind: "ok"; job: JobInfo & { jobNumber: number } }
+  | { kind: "bad_pdf"; message: string }
+  | { kind: "refused"; reason: RefusalReason; message?: string };
 
 export type CancelResult = { kind: "ok"; status: JobState } | { kind: "not_found" } | { kind: "not_cancellable"; message?: string };
 
@@ -155,6 +161,13 @@ export function createWebClient(opts: WebClientOptions): WebApi {
         return { kind: "ok", job: { jobId, jobNumber, status: state as JobState, message: str(json.message) } };
       }
       if (status === 422) return { kind: "bad_pdf", message: str(json.message) ?? "The file could not be read as a PDF." };
+      const code = str(json.error);
+      if (status === 403 && (code === "quota_exceeded" || code === "revoked" || code === "inactive_member")) {
+        return { kind: "refused", reason: code, message: str(json.message) };
+      }
+      if (status === 429) return { kind: "refused", reason: "rate_limited", message: str(json.message) };
+      if (status === 400) return { kind: "refused", reason: "invalid_request", message: str(json.message) };
+      if (status === 404) return { kind: "refused", reason: "intake_not_found", message: str(json.message) };
       throw new WebUnavailableError(`finalize answered ${status}`);
     },
 

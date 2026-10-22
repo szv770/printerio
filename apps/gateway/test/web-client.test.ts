@@ -47,6 +47,26 @@ describe("web client", () => {
     }
   });
 
+  it("finalize: permanent refusals map to refused; 503/500 stay retryable", async () => {
+    const answers = [
+      json(403, { error: "quota_exceeded", message: "Monthly quota used up." }),
+      json(429, { error: "rate_limited" }),
+      json(400, { error: "invalid_request" }),
+      json(404, { error: "intake_not_found" }),
+      json(403, { error: "revoked" }),
+      json(503, { error: "no_printer" }),
+      json(500, { error: "internal_error" }),
+    ];
+    const c = client((async () => answers.shift() as Response) as unknown as typeof fetch);
+    expect(await c.finalize({} as never)).toEqual({ kind: "refused", reason: "quota_exceeded", message: "Monthly quota used up." });
+    expect(await c.finalize({} as never)).toMatchObject({ kind: "refused", reason: "rate_limited" });
+    expect(await c.finalize({} as never)).toMatchObject({ kind: "refused", reason: "invalid_request" });
+    expect(await c.finalize({} as never)).toMatchObject({ kind: "refused", reason: "intake_not_found" });
+    expect(await c.finalize({} as never)).toMatchObject({ kind: "refused", reason: "revoked" });
+    await expect(c.finalize({} as never)).rejects.toThrow(WebUnavailableError);
+    await expect(c.finalize({} as never)).rejects.toThrow(WebUnavailableError);
+  });
+
   it("postEvent never throws", async () => {
     const warn = vi.fn();
     const c = createWebClient({ baseUrl: "https://web.test", secret: "x", onWarn: warn, fetchImpl: (async () => { throw new Error("down"); }) as unknown as typeof fetch });

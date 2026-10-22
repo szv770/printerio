@@ -270,6 +270,23 @@ async function submitDocument(
     return { ok: false, reply: { status: STATUS.documentFormatError, message: result.message } };
   }
 
+  if (result.kind === "refused") {
+    await deps.web.postEvent({
+      deviceId: device.deviceId,
+      type: "job_rejected",
+      userAgent: ctx.userAgent,
+      detail: { reason: result.reason, message: result.message ?? null },
+    });
+    const notAuthorized = result.reason === "revoked" || result.reason === "inactive_member";
+    return {
+      ok: false,
+      reply: {
+        status: notAuthorized ? STATUS.notAuthorized : STATUS.notPossible,
+        message: result.message ?? REFUSAL_MESSAGES[result.reason],
+      },
+    };
+  }
+
   const j = result.job;
   const name = p.jobName ?? "untitled";
   const entry = deps.registry.markSubmitted(
@@ -280,6 +297,15 @@ async function submitDocument(
   );
   return { ok: true, entry };
 }
+
+const REFUSAL_MESSAGES = {
+  quota_exceeded: "You have used your print quota. Ask your administrator.",
+  rate_limited: "Too many print jobs in a short time. Wait a few minutes and try again.",
+  invalid_request: "Printio could not accept this job. Try printing again.",
+  intake_not_found: "The document did not arrive at Printio. Try printing again.",
+  revoked: "This device was removed in Printio. Add it again from Printio.",
+  inactive_member: "This device's owner is no longer active.",
+} as const;
 
 // ---------- dispatch ----------
 
