@@ -11,8 +11,8 @@ must deviate, change this file in the same commit and say so loudly.
 - Devices: Windows 11 (Create-Job + Send-Document) and Android (Print-Job). Both send **PDF**. Apple/iOS later.
 - Accept everything at the IPP layer, decide server-side with a readable reason (see design doc). Never guess finishing.
 - Printer advertised to the OS: monochrome, Letter default, `sides` one-sided / two-sided-long-edge / two-sided-short-edge,
-  copies 1-99, page-ranges, **`finishings` none only** (staple from the dialog is Phase 4; until then staple/booklet are chosen on
-  the website). Start from `tools/ipp-spike/server.mjs` `printerAttrs` (it is proven to be accepted by Windows and Android) and
+  copies 1-99, page-ranges, **`finishings`**: none, staple-top-left, staple-top-right, saddle-stitch, booklet-maker (see the mapping table; booklet is held
+  for a left/right binding choice). Start from `tools/ipp-spike/server.mjs` `printerAttrs` (it is proven to be accepted by Windows and Android) and
   keep `document-format-supported` the same list; clients chose PDF every time.
 - Out of scope here: stamp (Phase 3), finishings advertising (Phase 4), Apple profile, Admin cleanup (Phase 6), the My devices /
   Admin > Devices pages (a later PR, built against the tables this PR creates).
@@ -86,7 +86,7 @@ Output: `{ choices: PrintChoices, heldReason: string | null }`. Anything not lis
 | `sides` | `one-sided` -> single; `two-sided-long-edge` -> double (proven long edge); `two-sided-short-edge` -> **hold** ("flip on the short edge is not available from the print dialog yet; choose double-sided or use the website"); absent -> single |
 | `page-ranges` | pairs -> text like `1-5, 8` (empty = whole document); invalid -> hold |
 | `media`, `media-col` | Letter only (`na_letter_8.5x11in`, or media-size 21590x27940 within 100); anything else -> hold ("paper size X is not available yet") |
-| `finishings` | absent or `3` (none) OK; anything else -> hold ("staple from the print dialog is not available yet; choose it on the website") |
+| `finishings` | absent or `3` none OK. `4` staple and `20` staple-top-left -> staple top-left; `22` staple-top-right -> top-right (staple needs portrait and no short-edge flip, else hold). `13` booklet-maker and `8` saddle-stitch -> **hold** with "Booklet: choose left or right binding." and booklet kept (sides forced double-sided); the member picks Left or Right on the job page (`finishHeldBookletAction`) and the job is re-created from the original and the held one cancelled. A booklet plus a staple, several staple corners, or any other value (e.g. `28`) -> hold, nothing promised |
 | `orientation-requested`, `print-quality`, `print-color-mode`, `printer-resolution`, `print-scaling` | ignored (printer defaults; PDF carries orientation) |
 | `document-format` | gateway rejects anything but `application/pdf` (see below); web re-checks `%PDF-` via preflight |
 | `job-name` | file name `<name>.pdf` (sanitized: letters, digits, space, `._-`, max 60) |

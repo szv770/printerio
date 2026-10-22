@@ -110,7 +110,7 @@ Settings section controls the stamp (on/off, what it shows, strength).
 
 From the dialog we reliably get copies, sides (one/two long/short edge), page ranges, paper size, orientation.
 **Finishing is the unknown:** IPP carries it as `finishings` (e.g. 20 staple-top-left, 22 staple-top-right,
-28 booklet-maker) but an OS dialog only shows staple/booklet if the printer advertises `finishings-supported`,
+13 booklet-maker, 8 saddle-stitch; 28 is staple-dual-left) but an OS dialog only shows staple/booklet if the printer advertises `finishings-supported`,
 and we do not yet know which of Windows / Android / ChromeOS / Apple expose it or send it. Plan: advertise
 none / staple-top-left / staple-top-right (booklet only if a platform surfaces it) and run a labelled spike per
 platform before building the mapping. Fallbacks, in order: (a) per-member default finishing set on the website

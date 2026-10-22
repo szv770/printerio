@@ -192,6 +192,9 @@ function NavItems({
         <NavLink href={routes.usage} icon={PieChart} pathname={pathname}>
           Usage
         </NavLink>
+        <NavLink href={routes.devices} icon={Smartphone} pathname={pathname}>
+          My devices
+        </NavLink>
         <NavLink href={routes.profile} icon={UserRound} pathname={pathname}>
           Profile
         </NavLink>

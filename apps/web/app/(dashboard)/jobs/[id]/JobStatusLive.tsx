@@ -11,6 +11,8 @@ import { Card } from "@/components/ui";
 import type { Tables } from "@/lib/database.types";
 import { LocalTime } from "../LocalTime";
 import { JobProgressStepper } from "./JobProgressStepper";
+import { HeldBookletCard } from "./HeldBookletCard";
+import { BOOKLET_BINDING_REASON } from "@/lib/gateway/ipp-choices";
 
 type PrintJob = Tables<"print_jobs">;
 
@@ -114,6 +116,8 @@ export function JobStatusLive({
   }, [liveJob, serverJob]);
 
   const display = jobStatusDisplay(job.status);
+  const isBindingQuestion =
+    job.status === "held" && !!(job.finishing as { booklet?: boolean } | null)?.booklet && job.held_reason === BOOKLET_BINDING_REASON;
   const progress = useMemo(
     () =>
       buildJobProgress({
@@ -223,7 +227,10 @@ export function JobStatusLive({
         </div>
       )}
 
-      {job.status === "held" && (
+      {/* Held ONLY to ask left or right binding: one tap finishes it. A booklet held for any other reason too
+       *  (e.g. an A4 page size) keeps the ordinary "choose again" route, so nothing else is silently dropped. */}
+      {isBindingQuestion && <HeldBookletCard jobId={job.id} reason={job.held_reason} />}
+      {job.status === "held" && !isBindingQuestion && (
         <p className="mt-3 text-sm">
           <Link href={routes.print} className="font-medium text-[var(--color-primary)] underline">
             Choose your options again
