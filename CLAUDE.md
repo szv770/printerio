@@ -31,8 +31,8 @@ Read `docs/HANDOFF.md` first: what is built, what is untested, the follow-ups, a
   table's migration so the access decision stays reviewable (and revoke from `authenticated` when a
   table is service-role-only). Mirror each migration into `schema.sql` as before.
 - PRs: the repo's default branch is `claude/upcoming-large-project-3d2j9p` (there is no `main`).
-- `apps/web/lib/pdf/imposition.test.ts` "byte-identical" test is timing-flaky (pdf-lib stamps the
-  current time; fails across a clock-second boundary). A re-run passes; the proper fix is fixed dates.
+- pdf-lib stamps the current time into every PDF it writes: tests that compare PDF bytes must freeze Date
+  (see the "byte-identical" test in `apps/web/lib/pdf/imposition.test.ts`).
 - Vercel bot comments on PRs are noise. Docs/tools-only PRs do not affect the web build.
 - Never commit secrets, tunnel tokens, or the spike's `spike-data/` (gitignored).
 

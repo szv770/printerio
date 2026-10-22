@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   PDFDocument,
   PDFArray,
@@ -379,9 +379,18 @@ describe("imposeBookletPdf bindingSide", () => {
   });
 
   it('bindingSide "left" passed explicitly produces byte-identical output to the default (no third argument)', async () => {
-    const bytes = await makeIdentifiable8PagePdf();
-    const implicit = await imposeBookletPdf(bytes, { width: 612, height: 792 });
-    const explicit = await imposeBookletPdf(bytes, { width: 612, height: 792 }, "left");
-    expect(Buffer.from(explicit)).toEqual(Buffer.from(implicit));
+    // pdf-lib stamps the current time (CreationDate / ModDate) into every file it writes, so two runs a clock-second
+    // apart differed. Freeze Date for the whole comparison so the test is deterministic.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    try {
+      const bytes = await makeIdentifiable8PagePdf();
+      const implicit = await imposeBookletPdf(bytes, { width: 612, height: 792 });
+      vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+      const explicit = await imposeBookletPdf(bytes, { width: 612, height: 792 }, "left");
+      expect(Buffer.from(explicit)).toEqual(Buffer.from(implicit));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
