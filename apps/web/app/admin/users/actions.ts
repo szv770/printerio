@@ -111,7 +111,7 @@ export interface UserCodeChangeState {
 }
 
 /** Sets organization_members.user_code - the short code stamped on page 1 of this member's printouts. Blank
- *  clears it (the app then generates initials + two digits). Letters and digits only, unique per organization. */
+ *  clears it (a new unique code is generated and saved the next time one is needed). Letters and digits only, unique per organization. */
 export async function changeMemberUserCodeAction(
   _prev: UserCodeChangeState,
   formData: FormData,

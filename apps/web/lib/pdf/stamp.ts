@@ -2,8 +2,8 @@ import "server-only";
 import { PDFDocument, StandardFonts, degrees, grayscale, type PDFPage } from "pdf-lib";
 import type { StampStrength } from "@/lib/jobs/user-code";
 
-/** Small, so it never competes with content; 6-7 pt reads fine on a 600 dpi laser print. */
-export const STAMP_FONT_SIZE_PT = 6.5;
+/** Large enough to read at a glance (the owner found 6.5 pt too small), still faint and in the corner so it does not compete with content. */
+export const STAMP_FONT_SIZE_PT = 9;
 /** Distance from the visible bottom and right edges (bottom-right is clear of top-left / top-right staples). Outside any normal document margin (>= 0.5in) and the printer's unprintable edge. */
 export const STAMP_INSET_PT = 20;
 /** Fill grey levels (0 black .. 1 white). */

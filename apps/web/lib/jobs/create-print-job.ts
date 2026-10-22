@@ -6,7 +6,8 @@ import { imposeBookletPdf, resolvePaperSizePoints } from "@/lib/pdf/imposition";
 import { computePrintMath, computeCostCents, computeBookletPadding, type PolicyAction, type PricingConfig, type OrgRole } from "@printio/shared";
 import { createPageSubsetPdf } from "@/lib/pdf/page-subset";
 import { stampFirstPage } from "@/lib/pdf/stamp";
-import { buildStampText, effectiveUserCode, normalizeStampSettings } from "@/lib/jobs/user-code";
+import { buildStampText, normalizeStampSettings } from "@/lib/jobs/user-code";
+import { ensureMemberUserCode } from "@/lib/jobs/ensure-user-code";
 import { checkQueueCapabilities, mapQueueChoices, mapRawChoices, planPageSubset, type BindingSide, type PrintChoices } from "@/lib/print-choices";
 import { evaluateJobPolicy } from "@/lib/policy/build-facts";
 import { didBypassChangeOutcome, isAdminExemptFromRestrictions } from "@/lib/policy/admin-bypass";
@@ -140,7 +141,7 @@ export async function createPrintJob(
     supabase.from("printer_profiles").select("*, printers!inner(id, organization_id)").eq("id", printerProfileId).single(),
     supabase.from("organization_settings").select("*").eq("organization_id", organizationId).single(),
     // The sender's user code (and the name/email its fallback is built from) for the page-1 stamp. A failed or
-    // empty read is not an error: the stamp falls back to a generated code instead of failing the job.
+    // empty read is not an error: the code is then generated and saved (ensureMemberUserCode) instead of failing the job.
     supabase
       .from("organization_members")
       .select("user_code, profiles(display_name, email)")
@@ -329,11 +330,15 @@ export async function createPrintJob(
   if (stamp.enabled && !held) {
     try {
       const profile = (memberRow as { user_code?: string | null; profiles?: { display_name?: string | null; email?: string | null } | null } | null) ?? null;
-      const { code } = effectiveUserCode({
-        stored: profile?.user_code ?? null,
+      // The member's PERSISTENT, org-unique code: the stored one, or (first stamp ever) a freshly generated one that is
+      // saved with the write client (service role; the sender is already authorized above). If it cannot be saved the
+      // stamp is skipped (caught below) rather than printing a code that is not reserved for this person.
+      const code = await ensureMemberUserCode(writer, {
+        organizationId,
+        userId: session.userId,
         displayName: profile?.profiles?.display_name ?? null,
         email: profile?.profiles?.email ?? null,
-        userId: session.userId,
+        stored: profile?.user_code ?? null,
       });
       derivedBytes = await stampFirstPage(derivedBytes ?? sourceBytes, {
         text: buildStampText({ code, show: stamp.show, now: new Date() }),

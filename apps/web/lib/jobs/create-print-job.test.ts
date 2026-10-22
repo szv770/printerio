@@ -269,10 +269,16 @@ describe("createPrintJob: user code stamp", () => {
   const withStamp = (settings: Record<string, unknown>, member: unknown = { user_code: "SV42", profiles: { display_name: "Sam Vogel", email: "sam@x.org" } }) => {
     respond = (c) => {
       if (c.table === "organization_settings") return ok({ ...SETTINGS, ...settings });
-      if (c.table === "organization_members") return ok(member);
+      if (c.table === "organization_members") return membersResponse(c, member);
       return defaults()(c);
     };
     fake = fakeSupabase((c) => respond(c));
+  };
+  // The member read (single row with the profile join), the org's used codes (list) and the code write (update).
+  const membersResponse = (c: FakeCall, member: unknown, usedCodes: string[] = []): FakeResult => {
+    if (c.op === "update") return ok([{ user_code: (c.values as { user_code: string }).user_code }]);
+    if (c.single) return ok(member);
+    return ok(usedCodes.map((user_code) => ({ user_code })));
   };
   const uploadsByName = () => {
     const out: Record<string, Uint8Array> = {};
@@ -304,16 +310,43 @@ describe("createPrintJob: user code stamp", () => {
     expect(insertedJob().derived_file_path).toBeNull();
   });
 
-  it("a member with no stored code gets initials + two digits from their name (fallback), and the job still stamps", async () => {
-    withStamp({}, { user_code: null, profiles: { display_name: "Rivka Cohen", email: "r@x.org" } });
+  it("a member with no stored code gets a unique persistent code from their initials, saved to organization_members", async () => {
+    respond = (c) => {
+      if (c.table === "organization_settings") return ok({ ...SETTINGS });
+      if (c.table === "organization_members") return membersResponse(c, { user_code: null, profiles: { display_name: "Rivka Cohen", email: "r@x.org" } }, ["RC"]);
+      return defaults()(c);
+    };
+    fake = fakeSupabase((c) => respond(c));
     expect((await run()).ok).toBe(true);
-    expect(readStamp(await PDFDocument.load(uploadsByName().derived!), 0)?.text).toMatch(/^RC\d\d$/);
+    expect(readStamp(await PDFDocument.load(uploadsByName().derived!), 0)?.text).toBe("RCI");
+    const saved = fake.calls.filter((c) => c.table === "organization_members" && c.op === "update");
+    expect(saved.map((c) => (c.values as { user_code: string }).user_code)).toEqual(["RCI"]);
   });
 
-  it("no member row at all still stamps (generic fallback) rather than failing the job", async () => {
+  it("uses the write client (service role) to save the code, never the member client", async () => {
+    const member = fakeSupabase((c) => (c.table === "organization_settings" ? ok({ ...SETTINGS }) : c.table === "organization_members" ? ok({ user_code: null, profiles: { display_name: "Rivka Cohen", email: "r@x.org" } }) : defaults()(c)));
+    const writer = fakeSupabase((c) => (c.table === "organization_members" ? membersResponse(c, null) : defaults()(c)));
+    const res = await createPrintJob(member.client as never, session, pdf3, "report.pdf", baseOpts({ writeClient: writer.client as never }));
+    expect(res.ok).toBe(true);
+    expect(member.calls.some((c) => c.op === "update")).toBe(false);
+    expect(writer.calls.some((c) => c.table === "organization_members" && c.op === "update")).toBe(true);
+  });
+
+  it("if a code cannot be saved the job still prints, unstamped (never with a guessed or duplicate code)", async () => {
+    respond = (c) => {
+      if (c.table === "organization_settings") return ok({ ...SETTINGS });
+      if (c.table === "organization_members") return c.op === "update" ? failure("down") : membersResponse(c, { user_code: null, profiles: { display_name: "Rivka Cohen", email: "r@x.org" } });
+      return defaults()(c);
+    };
+    fake = fakeSupabase((c) => respond(c));
+    expect((await run()).ok).toBe(true);
+    expect(Object.keys(uploadsByName())).toEqual(["original"]);
+  });
+
+  it("no member row at all still stamps: nameless -> U + number, saved", async () => {
     withStamp({}, null);
     expect((await run()).ok).toBe(true);
-    expect(readStamp(await PDFDocument.load(uploadsByName().derived!), 0)?.text).toMatch(/^U\d\d$/);
+    expect(readStamp(await PDFDocument.load(uploadsByName().derived!), 0)?.text).toBe("U1");
   });
 
   it("'code and date' shows the code plus today's date", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildStampText, effectiveUserCode, fallbackUserCode, normalizeStampSettings, normalizeUserCode } from "./user-code";
+import { buildStampText, generateUserCode, normalizeStampSettings, normalizeUserCode, userCodeCandidates } from "./user-code";
 
 describe("normalizeUserCode", () => {
   it("accepts initials + digits, uppercases and trims", () => {
@@ -13,26 +13,103 @@ describe("normalizeUserCode", () => {
   });
 });
 
-describe("fallbackUserCode / effectiveUserCode", () => {
-  const userId = "8f14e45f-ceea-467a-9f2c-1b2c3d4e5f60";
-  it("uses initials of the display name plus two stable digits", () => {
-    const a = fallbackUserCode({ displayName: "Sam Vogel", email: "x@y.z", userId });
-    expect(a).toMatch(/^SV\d\d$/);
-    expect(fallbackUserCode({ displayName: "Sam Vogel", email: "x@y.z", userId })).toBe(a);
+const DB_RE = /^[A-Z0-9]{1,12}$/;
+const gen = (displayName: string | null, used: string[] = [], email: string | null = null) => generateUserCode({ displayName, email }, used);
+
+describe("generateUserCode", () => {
+  it("uses first + last initials when free", () => {
+    expect(gen("Sam Vogel")).toBe("SV");
+    expect(gen("sam vogel")).toBe("SV");
   });
-  it("falls back to the email local part when there is no name", () => {
-    expect(fallbackUserCode({ displayName: null, email: "rivka.cohen@school.org", userId })).toMatch(/^RC\d\d$/);
+  it("uses first and last word only (middle names ignored)", () => {
+    expect(gen("Sam Michael Vogel")).toBe("SV");
   });
-  it("falls back to U when there is nothing at all", () => {
-    expect(fallbackUserCode({ displayName: null, email: null, userId })).toMatch(/^U\d\d$/);
+  it("single names use their first two letters", () => {
+    expect(gen("Moshe")).toBe("MO");
+    expect(gen("X")).toBe("X");
   });
-  it("prefers the stored code and reports when it generated one", () => {
-    expect(effectiveUserCode({ stored: "sv07", displayName: "A B", email: null, userId })).toEqual({ code: "SV07", generated: false });
-    const g = effectiveUserCode({ stored: null, displayName: "A B", email: null, userId });
-    expect(g.generated).toBe(true);
-    expect(g.code).toMatch(/^AB\d\d$/);
+  it("on a collision adds one more letter: remaining letters of the first name, then of the last, in order", () => {
+    expect(gen("Sam Vogel", ["SV"])).toBe("SVA");
+    expect(gen("Sam Vogel", ["SV", "SVA"])).toBe("SVM");
+    expect(gen("Sam Vogel", ["SV", "SVA", "SVM"])).toBe("SVO");
+    expect(gen("Sam Vogel", ["SV", "SVA", "SVM", "SVO", "SVG", "SVE"])).toBe("SVL");
+  });
+  it("single names extend with their remaining letters", () => {
+    expect(gen("Moshe", ["MO"])).toBe("MOS");
+    expect(gen("Moshe", ["MO", "MOS", "MOH"])).toBe("MOE");
+  });
+  it("when every letter option is taken it appends 1, 2, 3...", () => {
+    const used = ["SV", "SVA", "SVM", "SVO", "SVG", "SVE", "SVL"];
+    expect(gen("Sam Vogel", used)).toBe("SV1");
+    expect(gen("Sam Vogel", [...used, "SV1", "SV2"])).toBe("SV3");
+  });
+  it("skips repeated letters instead of proposing a candidate twice", () => {
+    // Anna Aaron: initials AA, extra letters n,n,a (Anna) then a,r,o,n (Aaron) -> AAN, AAA, AAR, AAO
+    expect(gen("Anna Aaron", ["AA"])).toBe("AAN");
+    expect(gen("Anna Aaron", ["AA", "AAN"])).toBe("AAA");
+  });
+  it("is case-insensitive about used codes", () => {
+    expect(gen("Sam Vogel", ["sv"])).toBe("SVA");
+    expect(gen("Sam Vogel", ["Sv", "sva"])).toBe("SVM");
+  });
+  it("strips non-letters, accents and digits from names", () => {
+    expect(gen("Zoë O'Brien-Smith")).toBe("ZS");
+    expect(gen("  José  Álvarez ")).toBe("JA");
+    expect(gen("R2-D2")).toBe("RD");
+  });
+  it("falls back to the email local part when the name has no Latin letters", () => {
+    expect(gen(null, [], "rivka.cohen@school.org")).toBe("RC");
+    expect(gen("", [], "moshe@school.org")).toBe("MO");
+    expect(gen("שרה כהן", [], "dana.levi@x.org")).toBe("DL");
+  });
+  it("no usable Latin letters at all (Hebrew name, no email) -> U + number, skipping used ones", () => {
+    expect(gen("שרה כהן")).toBe("U1");
+    expect(gen("שרה כהן", ["U1", "U2"])).toBe("U3");
+    expect(gen(null, ["u1"], null)).toBe("U2");
+    expect(gen("123", [], "456@x.org")).toBe("U1");
+  });
+  it("never repeats a code across many people with the same initials", () => {
+    const used = new Set<string>();
+    for (let i = 0; i < 600; i++) {
+      const code = generateUserCode({ displayName: "Sam Vogel", email: null }, used);
+      expect(DB_RE.test(code)).toBe(true);
+      expect(used.has(code)).toBe(false);
+      used.add(code);
+    }
+    expect(used.size).toBe(600);
+  });
+  it("never repeats a code across many nameless people", () => {
+    const used = new Set<string>();
+    for (let i = 0; i < 300; i++) {
+      const code = generateUserCode({ displayName: "שרה", email: null }, used);
+      expect(used.has(code)).toBe(false);
+      used.add(code);
+    }
+  });
+  it("always fits the DB check ^[A-Z0-9]{1,12}$, even for very long names", () => {
+    const long = "Abcdefghijklmnopqrstuvwxyz Zyxwvutsrqponmlkjihgfedcba";
+    const used = new Set<string>();
+    for (let i = 0; i < 200; i++) {
+      const code = generateUserCode({ displayName: long, email: null }, used);
+      expect(DB_RE.test(code)).toBe(true);
+      used.add(code);
+    }
+  });
+  it("candidates are lazy, unique and all valid", () => {
+    const first = [...take(userCodeCandidates({ displayName: "Sam Vogel", email: null }), 40)];
+    expect(new Set(first).size).toBe(first.length);
+    expect(first.every((c) => DB_RE.test(c))).toBe(true);
+    expect(first.slice(0, 3)).toEqual(["SV", "SVA", "SVM"]);
   });
 });
+
+function* take<T>(it: Iterable<T>, n: number): Generator<T> {
+  let i = 0;
+  for (const v of it) {
+    if (i++ >= n) return;
+    yield v;
+  }
+}
 
 describe("buildStampText", () => {
   it("is the code alone by default", () => {

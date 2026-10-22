@@ -32,34 +32,51 @@ export function normalizeUserCode(input: string | null | undefined): string | nu
 }
 
 function words(text: string | null | undefined): string[] {
-  return (text ?? "").normalize("NFKD").replace(/[^A-Za-z]+/g, " ").trim().split(/\s+/).filter(Boolean);
+  return (text ?? "").normalize("NFKD").replace(/\p{M}+/gu, "").replace(/[^A-Za-z]+/g, " ").trim().split(/\s+/).filter(Boolean);
 }
 
-function initialsOf(name: string | null | undefined, email: string | null | undefined): string {
-  let w = words(name);
-  if (w.length === 0) w = words((email ?? "").split("@")[0]);
-  if (w.length === 0) return "U";
-  const letters = w.length === 1 ? w[0]!.slice(0, 2) : w[0]![0]! + w[w.length - 1]![0]!;
-  return letters.toUpperCase();
+/** Largest numeric suffix tried; with a 1-2 letter prefix this stays well inside the 12 character limit. */
+const MAX_SUFFIX = 9_999_999_999;
+
+/**
+ * Every code a member could get, best first (lazy, no repeats, all matching ^[A-Z0-9]{1,12}$):
+ *  1. initials: first letter of the first and of the last name (a single name: its first two letters);
+ *  2. initials + one more letter: the remaining letters of the first name, then of the last name, in order;
+ *  3. initials + 1, 2, 3...
+ * Only A-Z letters count (accents are folded, digits and non-Latin scripts are dropped); the display name is used
+ * first, the email's local part when the name has no Latin letters. With no Latin letters at all: U1, U2, U3...
+ */
+export function* userCodeCandidates(m: { displayName: string | null; email: string | null }): Generator<string> {
+  let w = words(m.displayName);
+  if (w.length === 0) w = words((m.email ?? "").split("@")[0]);
+  const seen = new Set<string>();
+  const fresh = (c: string) => (seen.has(c) ? false : (seen.add(c), true));
+
+  let prefix = "U";
+  if (w.length > 0) {
+    const first = w[0]!.toUpperCase();
+    const last = w[w.length - 1]!.toUpperCase();
+    const single = w.length === 1;
+    prefix = single ? first.slice(0, 2) : first[0]! + last[0]!;
+    if (fresh(prefix)) yield prefix;
+    const extras = single ? first.slice(2) : first.slice(1) + last.slice(1);
+    for (const ch of extras) {
+      const c = prefix + ch;
+      if (fresh(c)) yield c;
+    }
+  }
+  for (let n = 1; n <= MAX_SUFFIX; n++) yield prefix + n;
 }
 
-/** Initials + two digits derived from the user id, so it is stable without being stored. */
-export function fallbackUserCode(m: { displayName: string | null; email: string | null; userId: string }): string {
-  let h = 0;
-  for (let i = 0; i < m.userId.length; i++) h = (h * 31 + m.userId.charCodeAt(i)) >>> 0;
-  return `${initialsOf(m.displayName, m.email)}${String(h % 100).padStart(2, "0")}`;
-}
-
-/** The code to show and stamp: the stored one if valid, else the generated fallback (generated: true). */
-export function effectiveUserCode(m: {
-  stored: string | null | undefined;
-  displayName: string | null;
-  email: string | null;
-  userId: string;
-}): { code: string; generated: boolean } {
-  const stored = normalizeUserCode(m.stored);
-  if (stored) return { code: stored, generated: false };
-  return { code: fallbackUserCode(m), generated: true };
+/** The first candidate (see userCodeCandidates) not in `used`. `used` is compared case-insensitively. */
+export function generateUserCode(
+  m: { displayName: string | null; email: string | null },
+  used: Iterable<string>,
+): string {
+  const taken = new Set<string>();
+  for (const u of used) taken.add(String(u).trim().toUpperCase());
+  for (const c of userCodeCandidates(m)) if (!taken.has(c)) return c;
+  throw new Error("No free user code");
 }
 
 export function buildStampText(o: { code: string; show: StampShow; now: Date }): string {
