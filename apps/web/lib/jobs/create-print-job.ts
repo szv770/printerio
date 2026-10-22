@@ -5,6 +5,8 @@ import { createBookletPaddedPdf } from "@/lib/pdf/booklet";
 import { imposeBookletPdf, resolvePaperSizePoints } from "@/lib/pdf/imposition";
 import { computePrintMath, computeCostCents, computeBookletPadding, type PolicyAction, type PricingConfig, type OrgRole } from "@printio/shared";
 import { createPageSubsetPdf } from "@/lib/pdf/page-subset";
+import { stampFirstPage } from "@/lib/pdf/stamp";
+import { buildStampText, effectiveUserCode, normalizeStampSettings } from "@/lib/jobs/user-code";
 import { checkQueueCapabilities, mapQueueChoices, mapRawChoices, planPageSubset, type BindingSide, type PrintChoices } from "@/lib/print-choices";
 import { evaluateJobPolicy } from "@/lib/policy/build-facts";
 import { didBypassChangeOutcome, isAdminExemptFromRestrictions } from "@/lib/policy/admin-bypass";
@@ -127,9 +129,17 @@ export async function createPrintJob(
   // Independent lookups - the profile doesn't gate the settings read or vice
   // versa - so they overlap instead of costing two sequential round trips
   // while the user waits with their file already uploaded.
-  const [{ data: printerProfile, error: profileError }, { data: settings }] = await Promise.all([
+  const [{ data: printerProfile, error: profileError }, { data: settings }, { data: memberRow }] = await Promise.all([
     supabase.from("printer_profiles").select("*, printers!inner(id, organization_id)").eq("id", printerProfileId).single(),
     supabase.from("organization_settings").select("*").eq("organization_id", organizationId).single(),
+    // The sender's user code (and the name/email its fallback is built from) for the page-1 stamp. A failed or
+    // empty read is not an error: the stamp falls back to a generated code instead of failing the job.
+    supabase
+      .from("organization_members")
+      .select("user_code, profiles(display_name, email)")
+      .eq("user_id", session.userId)
+      .eq("organization_id", organizationId)
+      .maybeSingle(),
   ]);
   if (profileError || !printerProfile || printerProfile.printers.organization_id !== organizationId) {
     return fail("Selected printer is not available.", "printer_unavailable");
@@ -292,6 +302,35 @@ export async function createPrintJob(
         "This PDF couldn't be laid out as a booklet. Try printing it without the Booklet option, or re-export it (Print → Save as PDF) and submit again.",
         "booklet_failed",
       );
+    }
+  }
+
+  // The user code stamp (docs/superpowers/specs/2026-10-20-printio-setup-design.md, Phase 3). Applied LAST, to the
+  // final file that will print (after page range, padding and booklet imposition), so it lands on page 1 of the
+  // first sheet side - the booklet's cover sheet included - and it is the same for website and IPP jobs. Copies
+  // are made by the printer from this one file, so every copy carries it. A held job prints nothing yet and is
+  // stamped when it is released (that re-runs this pipeline). The stored original is never stamped. If stamping
+  // fails the job still goes through unstamped: losing a print is worse than losing a label.
+  const stamp = normalizeStampSettings(settings as Record<string, unknown> | null);
+  if (stamp.enabled && !held) {
+    try {
+      const profile = (memberRow as { user_code?: string | null; profiles?: { display_name?: string | null; email?: string | null } | null } | null) ?? null;
+      const { code } = effectiveUserCode({
+        stored: profile?.user_code ?? null,
+        displayName: profile?.profiles?.display_name ?? null,
+        email: profile?.profiles?.email ?? null,
+        userId: session.userId,
+      });
+      derivedBytes = await stampFirstPage(derivedBytes ?? originalBytes, {
+        text: buildStampText({ code, show: stamp.show, now: new Date() }),
+        strength: stamp.strength,
+      });
+    } catch (err) {
+      logger.error("user code stamp failed; printing without it", {
+        organizationId,
+        userId: session.userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

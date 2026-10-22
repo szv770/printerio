@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
 import { PageHeader } from "@/components/ui";
 import { SettingsPanel } from "./SettingsPanel";
+import { normalizeStampSettings } from "@/lib/jobs/user-code";
 
 export default async function SettingsPage() {
   const session = await requireOrgRole(["org_admin", "approver"]);
@@ -15,7 +16,7 @@ export default async function SettingsPage() {
       .single(),
     supabase
       .from("organization_settings")
-      .select("default_booklet_binding_side, admins_bypass_restrictions")
+      .select("default_booklet_binding_side, admins_bypass_restrictions, stamp_enabled, stamp_show, stamp_strength")
       .eq("organization_id", session.membership.organization_id)
       .single(),
   ]);
@@ -31,6 +32,7 @@ export default async function SettingsPage() {
         magicLinkRequiresAllowedDomain={org?.magic_link_requires_allowed_domain ?? true}
         defaultBookletBindingSide={settings?.default_booklet_binding_side === "right" ? "right" : "left"}
         adminsBypassRestrictions={settings?.admins_bypass_restrictions ?? true}
+        stamp={normalizeStampSettings(settings)}
         canManage={session.membership.role === "org_admin"}
       />
     </div>

@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
+import { readStamp } from "@/test/read-stamp";
 import { fakeSupabase, failure, ok, type FakeCall, type FakeResult } from "@/test/fake-supabase";
 
 const evaluateJobPolicy = vi.fn();
@@ -47,7 +48,7 @@ function defaults(over: Partial<{ profile: unknown; usage: boolean; rate: boolea
     if (call.op === "rpc" && call.table === "check_rate_limit") return ok(over.rate ?? true);
     if (call.op === "rpc" && call.table === "adjust_monthly_usage") return ok(over.usage ?? true);
     if (call.table === "printer_profiles") return ok("profile" in over ? over.profile : profileRow());
-    if (call.table === "organization_settings") return ok({ max_upload_size_bytes: 52428800, quota_basis: "physical_sheets", job_approval_expiry_hours: 72 });
+    if (call.table === "organization_settings") return ok({ max_upload_size_bytes: 52428800, quota_basis: "physical_sheets", job_approval_expiry_hours: 72, stamp_enabled: false });
     if (call.table === "storage:print-jobs" && call.op === "upload") return over.upload ?? ok({ path: "x" });
     if (call.table === "print_jobs" && call.op === "insert") return over.insert ?? ok({ job_number: "JOB-2026-000007" });
     return ok();
@@ -259,5 +260,100 @@ describe("createPrintJob: error path", () => {
     expect(res).toMatchObject({ ok: true, status: "approved" });
     expect(insertedJob()).toMatchObject({ booklet_binding_side: "left", booklet_padding_added: 1, finishing: { staple: false, booklet: true, punch: false } });
     expect(insertedJob().derived_file_path).toEqual(expect.stringMatching(/derived\.pdf$/));
+  });
+});
+
+describe("createPrintJob: user code stamp", () => {
+  const SETTINGS = { max_upload_size_bytes: 52428800, quota_basis: "physical_sheets", job_approval_expiry_hours: 72 };
+  const withStamp = (settings: Record<string, unknown>, member: unknown = { user_code: "SV42", profiles: { display_name: "Sam Vogel", email: "sam@x.org" } }) => {
+    respond = (c) => {
+      if (c.table === "organization_settings") return ok({ ...SETTINGS, ...settings });
+      if (c.table === "organization_members") return ok(member);
+      return defaults()(c);
+    };
+    fake = fakeSupabase((c) => respond(c));
+  };
+  const uploadsByName = () => {
+    const out: Record<string, Uint8Array> = {};
+    for (const c of fake.calls.filter((c) => c.op === "upload")) {
+      const v = c.values as { path: string; bytes: Uint8Array };
+      out[v.path.endsWith("derived.pdf") ? "derived" : "original"] = v.bytes;
+    }
+    return out;
+  };
+
+  it("on (the default when the columns are absent): stamps page 1 of the derived file with the member's code, original untouched", async () => {
+    withStamp({});
+    const res = await run();
+    expect(res.ok).toBe(true);
+    const up = uploadsByName();
+    expect(Buffer.from(up.original!).equals(Buffer.from(pdf3))).toBe(true);
+    expect(insertedJob().derived_file_path).toEqual(expect.stringMatching(/derived\.pdf$/));
+    const out = await PDFDocument.load(up.derived!);
+    expect(out.getPageCount()).toBe(3);
+    expect(readStamp(out, 0)?.text).toBe("SV42");
+    expect(readStamp(out, 1)).toBeNull();
+    expect(insertedJob().source_pdf_pages).toBe(3);
+  });
+
+  it("off: nothing is stamped and no derived file is made", async () => {
+    withStamp({ stamp_enabled: false });
+    expect((await run()).ok).toBe(true);
+    expect(Object.keys(uploadsByName())).toEqual(["original"]);
+    expect(insertedJob().derived_file_path).toBeNull();
+  });
+
+  it("a member with no stored code gets initials + two digits from their name (fallback), and the job still stamps", async () => {
+    withStamp({}, { user_code: null, profiles: { display_name: "Rivka Cohen", email: "r@x.org" } });
+    expect((await run()).ok).toBe(true);
+    expect(readStamp(await PDFDocument.load(uploadsByName().derived!), 0)?.text).toMatch(/^RC\d\d$/);
+  });
+
+  it("no member row at all still stamps (generic fallback) rather than failing the job", async () => {
+    withStamp({}, null);
+    expect((await run()).ok).toBe(true);
+    expect(readStamp(await PDFDocument.load(uploadsByName().derived!), 0)?.text).toMatch(/^U\d\d$/);
+  });
+
+  it("'code and date' shows the code plus today's date", async () => {
+    withStamp({ stamp_show: "code_date" });
+    expect((await run()).ok).toBe(true);
+    expect(readStamp(await PDFDocument.load(uploadsByName().derived!), 0)?.text).toMatch(/^SV42 \d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("a booklet is stamped AFTER imposition: page 1 of the imposed file, page count = sheet sides", async () => {
+    withStamp({});
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 4; i++) doc.addPage([612, 792]);
+    const res = await run(await doc.save(), baseOpts({ choices: { sides: "two", staple: "none", booklet: "left", copies: 1, pageRange: "" }, confirmBookletPadding: true }));
+    expect(res.ok).toBe(true);
+    const out = await PDFDocument.load(uploadsByName().derived!);
+    expect(out.getPageCount()).toBe(2); // 4 pages -> 2 landscape sheet sides
+    const { width } = out.getPage(0).getSize();
+    expect(width).toBeGreaterThan(out.getPage(0).getSize().height);
+    expect(readStamp(out, 0)?.text).toBe("SV42");
+    expect(readStamp(out, 1)).toBeNull();
+  });
+
+  it("with a page range, the first page of the chosen pages carries the stamp", async () => {
+    withStamp({});
+    const res = await run(pdf3, baseOpts({ choices: { sides: "one", staple: "none", booklet: "none", copies: 1, pageRange: "2-3" } }));
+    expect(res.ok).toBe(true);
+    const out = await PDFDocument.load(uploadsByName().derived!);
+    expect(out.getPageCount()).toBe(2);
+    expect(readStamp(out, 0)?.text).toBe("SV42");
+    expect(readStamp(out, 1)).toBeNull();
+  });
+
+  it("an IPP job (same pipeline) is stamped too", async () => {
+    withStamp({});
+    expect((await run(pdf3, baseOpts({ source: "ipp", deviceId: "d1" }))).ok).toBe(true);
+    expect(readStamp(await PDFDocument.load(uploadsByName().derived!), 0)?.text).toBe("SV42");
+  });
+
+  it("a held job prints nothing yet, so it is not stamped (it is stamped when released through the same pipeline)", async () => {
+    withStamp({});
+    expect((await run(pdf3, baseOpts({ forcedHeldReason: "Pick options" }))).ok).toBe(true);
+    expect(Object.keys(uploadsByName())).toEqual(["original"]);
   });
 });

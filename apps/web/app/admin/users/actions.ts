@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
 import { describeDatabaseError } from "@/lib/action-errors";
 import { routes } from "@/lib/routes";
+import { normalizeUserCode } from "@/lib/jobs/user-code";
 import { assertCanDisableSelf, assertCanRemoveMember } from "@/lib/member-safety";
 import type { OrgRole } from "@printio/shared";
 
@@ -99,6 +100,38 @@ export async function changeMemberDepartmentAction(
     .eq("organization_id", session.membership.organization_id)
     .eq("user_id", userId);
   if (error) return { error: describeDatabaseError(error, "Couldn't change that member's department.") };
+
+  revalidatePath(routes.adminUsers);
+  revalidatePath(routes.adminUserDetail(userId));
+  return {};
+}
+
+export interface UserCodeChangeState {
+  error?: string;
+}
+
+/** Sets organization_members.user_code - the short code stamped on page 1 of this member's printouts. Blank
+ *  clears it (the app then generates initials + two digits). Letters and digits only, unique per organization. */
+export async function changeMemberUserCodeAction(
+  _prev: UserCodeChangeState,
+  formData: FormData,
+): Promise<UserCodeChangeState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const userId = String(formData.get("userId") ?? "");
+  const raw = String(formData.get("userCode") ?? "").trim();
+  const code = raw === "" ? null : normalizeUserCode(raw);
+  if (raw !== "" && !code) return { error: "Use 1-12 letters or digits, no spaces." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("organization_members")
+    .update({ user_code: code })
+    .eq("organization_id", session.membership.organization_id)
+    .eq("user_id", userId);
+  if (error) {
+    if ((error as { code?: string }).code === "23505") return { error: "Someone else already has that code." };
+    return { error: describeDatabaseError(error, "Couldn't change that member's code.") };
+  }
 
   revalidatePath(routes.adminUsers);
   revalidatePath(routes.adminUserDetail(userId));

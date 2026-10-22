@@ -8,10 +8,12 @@ import { routes } from "@/lib/routes";
 import {
   changeMemberRoleAction,
   changeMemberDepartmentAction,
+  changeMemberUserCodeAction,
   toggleMemberStatusAction,
   removeMemberAction,
   type RoleChangeState,
   type DepartmentChangeState,
+  type UserCodeChangeState,
   type StatusChangeState,
   type RemoveMemberState,
 } from "./actions";
@@ -24,10 +26,15 @@ interface Member {
   role: string;
   status: string;
   department: string | null;
+  /** Stored organization_members.user_code (null = not set). */
+  userCode: string | null;
+  /** The code that is actually stamped (stored, or generated while none is set). */
+  effectiveCode: string;
 }
 
 const initialRoleState: RoleChangeState = {};
 const initialDeptState: DepartmentChangeState = {};
+const initialCodeState: UserCodeChangeState = {};
 const initialStatusState: StatusChangeState = {};
 const initialRemoveState: RemoveMemberState = {};
 
@@ -36,13 +43,14 @@ export function MembersTable({ members, canEdit }: { members: Member[]; canEdit:
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[48rem] text-sm">
+      <table className="w-full min-w-[56rem] text-sm">
         <thead>
           <tr className="border-b border-[var(--color-border)] text-left text-[var(--color-muted)]">
             <th className="py-2 pr-4">Name</th>
             <th className="py-2 pr-4">Email</th>
             <th className="py-2 pr-4">Role</th>
             <th className="py-2 pr-4">Department</th>
+            <th className="py-2 pr-4">Print code</th>
             <th className="py-2 pr-4">Status</th>
             {canEdit && <th className="py-2 pr-4">Actions</th>}
           </tr>
@@ -60,6 +68,7 @@ export function MembersTable({ members, canEdit }: { members: Member[]; canEdit:
 function MemberRow({ member, canEdit }: { member: Member; canEdit: boolean }) {
   const [roleState, roleAction] = useActionState(changeMemberRoleAction, initialRoleState);
   const [deptState, deptAction] = useActionState(changeMemberDepartmentAction, initialDeptState);
+  const [codeState, codeAction] = useActionState(changeMemberUserCodeAction, initialCodeState);
   const [statusState, statusAction] = useActionState(toggleMemberStatusAction, initialStatusState);
   const [removeState, removeAction] = useActionState(removeMemberAction, initialRemoveState);
 
@@ -109,6 +118,30 @@ function MemberRow({ member, canEdit }: { member: Member; canEdit: boolean }) {
           (member.department ?? "—")
         )}
         <FormError message={deptState.error} />
+      </td>
+      <td className="py-2 pr-4">
+        {canEdit ? (
+          <form action={codeAction} className="inline-flex items-center gap-2">
+            <input type="hidden" name="userId" value={member.userId} />
+            <Input
+              name="userCode"
+              defaultValue={member.userCode ?? ""}
+              placeholder={member.effectiveCode}
+              maxLength={12}
+              aria-label={`Print code for ${member.displayName ?? member.email}`}
+              className="w-24 py-1 font-mono text-xs uppercase"
+            />
+            <button type="submit" className="text-xs text-[var(--color-primary)]">
+              Save
+            </button>
+          </form>
+        ) : (
+          <code className="font-mono text-xs">{member.effectiveCode}</code>
+        )}
+        {canEdit && !member.userCode && (
+          <p className="text-xs text-[var(--color-muted)]">Auto: {member.effectiveCode}</p>
+        )}
+        <FormError message={codeState.error} />
       </td>
       <td className="py-2 pr-4">
         {canEdit ? (

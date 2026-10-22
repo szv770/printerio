@@ -1,18 +1,21 @@
 "use client";
 
 import { useActionState } from "react";
-import { Globe, Mail, BookOpen, ShieldAlert } from "lucide-react";
+import { Globe, Mail, BookOpen, ShieldAlert, Stamp } from "lucide-react";
 import { Button, Textarea, FieldLabel, FormError, FormSuccess, Card, Badge, Select } from "@/components/ui";
 import {
   updateAllowedDomainsAction,
   updateMagicLinkDomainToggleAction,
   updateDefaultBookletBindingSideAction,
   updateAdminsBypassRestrictionsAction,
+  updateStampSettingsAction,
   type SettingsActionState,
 } from "./actions";
 
 // A "use server" file may only export async functions, so this trivial seed
 // value for useActionState lives here instead of alongside the action.
+import { STAMP_SHOW_OPTIONS, STAMP_STRENGTH_OPTIONS, type StampSettings } from "@/lib/jobs/user-code";
+
 const initialSettingsActionState: SettingsActionState = {};
 
 export function SettingsPanel({
@@ -20,12 +23,14 @@ export function SettingsPanel({
   magicLinkRequiresAllowedDomain,
   defaultBookletBindingSide,
   adminsBypassRestrictions,
+  stamp,
   canManage,
 }: {
   allowedDomains: string[];
   magicLinkRequiresAllowedDomain: boolean;
   defaultBookletBindingSide: "left" | "right";
   adminsBypassRestrictions: boolean;
+  stamp: StampSettings;
   canManage: boolean;
 }) {
   const [domainsState, domainsFormAction, domainsPending] = useActionState(
@@ -44,6 +49,8 @@ export function SettingsPanel({
     updateAdminsBypassRestrictionsAction,
     initialSettingsActionState,
   );
+
+  const [stampState, stampFormAction, stampPending] = useActionState(updateStampSettingsAction, initialSettingsActionState);
 
   return (
     <div className="flex flex-col gap-6">
@@ -211,6 +218,63 @@ export function SettingsPanel({
             <FormSuccess message={adminBypassState.success} />
             <div>
               <Button type="submit" size="sm" pending={adminBypassPending} pendingLabel="Saving...">
+                Save
+              </Button>
+            </div>
+          </form>
+        )}
+      </Card>
+      <Card>
+        <div className="mb-3 flex items-center gap-2">
+          <Stamp className="h-4 w-4 text-[var(--color-muted)]" />
+          <h2 className="text-sm font-semibold">Print stamp (user code)</h2>
+        </div>
+        <p className="mb-3 text-sm text-[var(--color-muted)]">
+          Stamps a small, faint code in the bottom-right corner of page 1 of each printout, so you can walk to the
+          printer and tell whose pile is whose. Every copy carries it, and so does a booklet&apos;s cover. Each
+          person&apos;s code is set on the Users page. Applies to jobs created from now on.
+        </p>
+
+        {!canManage && (
+          <p className="text-sm text-[var(--color-muted)]">
+            {stamp.enabled
+              ? `On: ${STAMP_SHOW_OPTIONS.find((o) => o.value === stamp.show)?.label.toLowerCase()}, ${stamp.strength}.`
+              : "Off: print jobs are not stamped."}
+          </p>
+        )}
+
+        {canManage && (
+          <form action={stampFormAction} className="flex flex-col gap-3">
+            <label className="flex items-start gap-2 text-sm text-[var(--color-text)]">
+              <input type="checkbox" name="stampEnabled" defaultChecked={stamp.enabled} className="mt-0.5" />
+              Stamp the user code on page 1 of every print job
+            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <FieldLabel htmlFor="stampShow">Shows</FieldLabel>
+                <Select id="stampShow" name="stampShow" defaultValue={stamp.show}>
+                  {STAMP_SHOW_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <FieldLabel htmlFor="stampStrength">Strength</FieldLabel>
+                <Select id="stampStrength" name="stampStrength" defaultValue={stamp.strength}>
+                  {STAMP_STRENGTH_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+            <FormError message={stampState.error} />
+            <FormSuccess message={stampState.success} />
+            <div>
+              <Button type="submit" size="sm" pending={stampPending} pendingLabel="Saving...">
                 Save
               </Button>
             </div>
