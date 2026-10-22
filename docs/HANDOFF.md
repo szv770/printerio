@@ -64,6 +64,13 @@ Verified locally on the merged tree: `pnpm -r typecheck`, `lint`, `test`, `build
    - Pixel 8: Settings > Connected devices > Connection preferences > Printing > Default Print Service > menu > Add printer > Add by IP/hostname
      (bare `u-<token>.szvtech.org`, no path).
    - Then check the job appears in Printio (source = ipp) and prints.
+9. **Magic-link email template (required for phone sign-in).** Tapping the email link in the Gmail app opens an in-app browser with a different
+   cookie jar, so the default PKCE link (`{{ .ConfirmationURL }}`) loops back to the login page. The callback now also accepts a server-verified
+   `token_hash` link. In Supabase: Authentication > Emails > Templates > Magic Link, set the link href to exactly:
+   `{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=email`
+   and do NOT use `{{ .ConfirmationURL }}` anywhere in the template. Also set Authentication > URL Configuration > **Site URL** to
+   `https://printio.szvtech.org` (the template builds the link from it). Google OAuth is unaffected. A bad/expired link lands on
+   `/login?reason=link_invalid` with a "request a new one" message.
 
 ## Facts already proven (do not re-derive)
 - Windows 11 sends PDF via Create-Job + Send-Document; Android via Validate-Job + Print-Job; ChromeOS/CUPS sends PDF (client probably the Chromebook, unconfirmed).
