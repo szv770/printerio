@@ -5,7 +5,6 @@ import { AlertTriangle, Minus, Plus, Printer } from "lucide-react";
 import { parsePageRange } from "@printio/shared";
 import { Button, Input, Select, FieldLabel, FormError, Card, Segmented } from "@/components/ui";
 import { formatFileSize, precheckPdfHeader, precheckSelectedFile, shouldPreviewInBrowser } from "@/lib/pdf/client-precheck";
-import { activeContentRejectionMessage, findActiveContent } from "@/lib/pdf/active-content";
 import { renderPdfPageToCanvas } from "@/lib/pdf/render-page";
 import {
   MAX_COPIES,
@@ -262,13 +261,7 @@ export function PrintForm({
       const { PDFDocument } = await import("pdf-lib");
       const doc = await PDFDocument.load(bytes, { updateMetadata: false });
       setEstimatedPages(doc.getPageCount());
-
-      // Advisory, like every other check here: the server re-runs findActiveContent in lib/pdf/preflight.ts.
-      const activeContent = findActiveContent(doc);
-      if (activeContent.length > 0) {
-        rejectSelectedFile(input, activeContentRejectionMessage(activeContent));
-        return;
-      }
+      // Attachments/JavaScript are not rejected: the server strips them (lib/pdf/sanitize.ts) before printing.
     } catch {
       setEstimatedPages(null); // not a fatal UI error - server preflight is authoritative anyway
     }

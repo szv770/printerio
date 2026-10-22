@@ -119,7 +119,7 @@ function classify(key: PDFName, value: PDFObject, found: Set<ActiveContentKind>)
       }
       return;
     case "/Subtype":
-      if (value instanceof PDFName && value.asString() === "/EmbeddedFile") found.add("embedded_file");
+      if (value instanceof PDFName && (value.asString() === "/EmbeddedFile" || value.asString() === "/FileAttachment")) found.add("embedded_file");
       return;
     default:
       return;

@@ -215,6 +215,13 @@ export async function createPrintJob(
   const preflight = await preflightPdf(originalBytes, { maxSizeBytes: maxUploadBytes });
   if (!preflight.ok) return fail(preflight.reason, "bad_pdf");
 
+  // Attachments, JavaScript and launch actions are stripped rather than refused (a teacher cannot fix them, and
+  // the Android print service adds one). The upload is still stored untouched as the original; everything that
+  // prints is built from the sanitized copy, so a sanitized job always gets a derived file (the Agent prints the
+  // derived file whenever there is one).
+  const sanitized = preflight.sanitizedBytes ?? null;
+  const sourceBytes = sanitized ?? originalBytes;
+
   // The page range is applied FIRST, so booklet padding, imposition, print math, policy and quota all work
   // on the pages that will actually print. The original upload is stored untouched; the subset is derived.
   // The held decision is already made above, so a held job never builds a subset PDF (planPageSubset only
@@ -230,11 +237,11 @@ export async function createPrintJob(
   }
   if (!plan.ok) return fail(plan.reason, "invalid_page_range", { pageRange: plan.reason });
   const sourcePages = plan.sourcePages;
-  let workingBytes = originalBytes;
+  let workingBytes = sourceBytes;
   let subsetBytes: Uint8Array | null = null;
   if (plan.subsetPages) {
     try {
-      subsetBytes = await createPageSubsetPdf(originalBytes, plan.subsetPages);
+      subsetBytes = await createPageSubsetPdf(sourceBytes, plan.subsetPages);
     } catch (err) {
       logger.error("page range subset failed", {
         organizationId,
@@ -250,7 +257,7 @@ export async function createPrintJob(
     workingBytes = subsetBytes;
   }
 
-  let derivedBytes: Uint8Array | null = subsetBytes;
+  let derivedBytes: Uint8Array | null = subsetBytes ?? sanitized;
   let effectivePageCount = sourcePages;
   let blankPagesAdded = 0;
 
@@ -328,7 +335,7 @@ export async function createPrintJob(
         email: profile?.profiles?.email ?? null,
         userId: session.userId,
       });
-      derivedBytes = await stampFirstPage(derivedBytes ?? originalBytes, {
+      derivedBytes = await stampFirstPage(derivedBytes ?? sourceBytes, {
         text: buildStampText({ code, show: stamp.show, now: new Date() }),
         strength: stamp.strength,
       });
