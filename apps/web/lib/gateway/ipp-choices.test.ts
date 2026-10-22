@@ -77,9 +77,17 @@ describe("mapIppChoices: what is held, with a reason", () => {
     ["legal keyword", { media: "na_legal_8.5x14in" }, /only Letter/i],
     ["letter keyword but A4 media-col", { media: "na_letter_8.5x11in", "media-col": { "media-size": { "x-dimension": 21000, "y-dimension": 29700 } } }, /not available yet/i],
     ["media of the wrong type", { media: 7 }, /not available yet/i],
-    ["staple", { finishings: 4 }, /staple .* not available yet; choose it on the website/i],
-    ["none plus staple", { finishings: [3, 4] }, /choose it on the website/i],
-    ["booklet", { finishings: 100 }, /choose it on the website/i],
+    ["unknown finishing 100", { finishings: 100 }, /finishing option \(100\) .* choose it on the website/i],
+    ["staple bottom-left (21)", { finishings: 21 }, /finishing option \(21\)/i],
+    ["dual staple left (28)", { finishings: 28 }, /finishing option \(28\)/i],
+    ["punch (5)", { finishings: 5 }, /finishing option \(5\)/i],
+    ["fold (10)", { finishings: 10 }, /finishing option \(10\)/i],
+    ["finishings of the wrong type", { finishings: "staple" }, /finishing option/i],
+    ["two different staples", { finishings: [20, 22] }, /more than one staple/i],
+    ["staple and booklet", { finishings: [20, 13] }, /booklet .* cannot also be stapled/i],
+    ["staple on a short-edge flip", { finishings: 20, sides: "two-sided-short-edge" }, /short edge/i],
+    ["staple on a landscape page", { finishings: 20, "orientation-requested": 4 }, /only checked on portrait/i],
+    ["staple on a reverse-portrait page", { finishings: 22, "orientation-requested": 6 }, /only checked on portrait/i],
   ];
 
   it.each(cases)("%s", (_name, attrs, reason) => {
@@ -102,6 +110,37 @@ describe("mapIppChoices: what is held, with a reason", () => {
   it("never echoes markup or control characters from the client into a reason", () => {
     const { heldReason } = mapIppChoices({ media: "<script>alert(1)</script>\u0000" });
     expect(heldReason).not.toMatch(/[<>\u0000]/);
+  });
+});
+
+describe("mapIppChoices: finishings from the print dialog", () => {
+  // [finishings value(s), sides, expected staple, expected booklet, expected sides]
+  const ok: Array<[string, Record<string, unknown>, { sides: "one" | "two"; staple: string; booklet: string }]> = [
+    ["none", { finishings: 3 }, { sides: "one", staple: "none", booklet: "none" }],
+    ["staple (4) = top-left", { finishings: 4 }, { sides: "one", staple: "top-left", booklet: "none" }],
+    ["staple-top-left (20)", { finishings: 20 }, { sides: "one", staple: "top-left", booklet: "none" }],
+    ["staple-top-right (22)", { finishings: 22 }, { sides: "one", staple: "top-right", booklet: "none" }],
+    ["none in a list with staple-top-left", { finishings: [3, 20] }, { sides: "one", staple: "top-left", booklet: "none" }],
+    ["same staple twice", { finishings: [20, 20] }, { sides: "one", staple: "top-left", booklet: "none" }],
+    ["staple + long edge", { finishings: 20, sides: "two-sided-long-edge" }, { sides: "two", staple: "top-left", booklet: "none" }],
+    ["staple + portrait", { finishings: 22, "orientation-requested": 3 }, { sides: "one", staple: "top-right", booklet: "none" }],
+    ["booklet-maker (13)", { finishings: 13 }, { sides: "two", staple: "none", booklet: "profile" }],
+    ["saddle-stitch (8)", { finishings: 8 }, { sides: "two", staple: "none", booklet: "profile" }],
+    ["booklet-maker + short edge", { finishings: 13, sides: "two-sided-short-edge" }, { sides: "two", staple: "none", booklet: "profile" }],
+    ["booklet-maker + long edge", { finishings: 13, sides: "two-sided-long-edge" }, { sides: "two", staple: "none", booklet: "profile" }],
+    ["booklet-maker + one-sided (a booklet is always double-sided)", { finishings: 13, sides: "one-sided" }, { sides: "two", staple: "none", booklet: "profile" }],
+    ["booklet-maker and saddle-stitch together", { finishings: [13, 8] }, { sides: "two", staple: "none", booklet: "profile" }],
+    ["booklet on a landscape page (imposition handles the layout)", { finishings: 13, "orientation-requested": 4 }, { sides: "two", staple: "none", booklet: "profile" }],
+  ];
+  it.each(ok)("%s is delivered, not held", (_n, attrs, want) => {
+    const { choices, heldReason } = mapIppChoices(attrs);
+    expect(heldReason).toBeNull();
+    expect(choices).toMatchObject(want);
+  });
+
+  it("short edge on its own is still held (not deliverable yet)", () => {
+    const { heldReason } = mapIppChoices({ sides: "two-sided-short-edge" });
+    expect(heldReason).toMatch(/short edge/i);
   });
 });
 

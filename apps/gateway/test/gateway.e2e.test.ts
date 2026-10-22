@@ -84,7 +84,7 @@ describe("Windows 11 flow", () => {
     expect(r.ipp.code).toBe(STATUS.ok);
     const p = flatGroup(r.ipp, TAG.printer);
     expect(Object.keys(p).sort()).toEqual(["document-format-supported", "finishings-supported", "printer-name"]);
-    expect(p["finishings-supported"]).toBe(3);
+    expect(p["finishings-supported"]).toEqual([3, 4, 20, 22, 8, 13]);
     expect(flatGroup(r.ipp, TAG.operation)["attributes-charset"]).toBe("utf-8");
     // advertised URI follows Host (+ X-Forwarded-Proto, default http)
     const all = await h.ipp({ code: OP.getPrinterAttributes, groups: [operationGroup(printerUri())] }, Buffer.alloc(0), {

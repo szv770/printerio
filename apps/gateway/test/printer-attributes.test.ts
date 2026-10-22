@@ -6,7 +6,7 @@ const build = () =>
   buildPrinterAttributes({ baseUrl: "https://u-x.example.test", printerName: "Printio", uuidSeed: "seed", startedAt: Date.now() });
 
 describe("printer attributes", () => {
-  it("lists PDF first, keeps the spike's format list, monochrome, Letter default, finishings none only", () => {
+  it("lists PDF first, keeps the spike's format list, monochrome, Letter default, default no finishing", () => {
     const m = decodeIpp(encodeIpp({ code: 0, requestId: 1, groups: [{ tag: TAG.printer, attrs: build() }] }));
     const p = flatten(m.groups[0]);
     expect(p["document-format-supported"]).toEqual(DOCUMENT_FORMATS);
@@ -16,7 +16,6 @@ describe("printer attributes", () => {
     expect(p["print-color-mode-default"]).toBe("monochrome");
     expect(p["media-default"]).toBe("na_letter_8.5x11in");
     expect(p["media-col-default"]).toEqual({ "media-size": { "x-dimension": 21590, "y-dimension": 27940 } });
-    expect(p["finishings-supported"]).toBe(3);
     expect(p["finishings-default"]).toBe(3);
     expect(p["copies-supported"]).toEqual([1, 99]);
     expect(p["sides-supported"]).toEqual(["one-sided", "two-sided-long-edge", "two-sided-short-edge"]);
@@ -24,6 +23,20 @@ describe("printer attributes", () => {
     expect(p["uri-security-supported"]).toBe("tls");
     expect(p["printer-name"]).toBe("Printio");
     expect(p["page-ranges-supported"]).toBe(true);
+  });
+
+  it("advertises exactly the finishings the website can deliver: none, staple, top-left, top-right, saddle-stitch, booklet-maker", () => {
+    const p = flatten({ tag: TAG.printer, attrs: build() });
+    expect(p["finishings-supported"]).toEqual([3, 4, 20, 22, 8, 13]);
+    // Never advertise what cannot be delivered (bottom-left 21, dual staples 28-31, punch 5/70+, fold 10).
+    for (const v of [5, 10, 21, 23, 28, 29, 30, 31, 70]) expect(p["finishings-supported"]).not.toContain(v);
+  });
+
+  it("keeps the sides and orientation options the dialog needs", () => {
+    const p = flatten({ tag: TAG.printer, attrs: build() });
+    expect(p["sides-supported"]).toEqual(["one-sided", "two-sided-long-edge", "two-sided-short-edge"]);
+    expect(p["orientation-requested-supported"]).toEqual([3, 4, 5, 6]);
+    expect(p["job-creation-attributes-supported"]).toContain("finishings");
   });
 
   it("uses the same operations the handlers implement", () => {

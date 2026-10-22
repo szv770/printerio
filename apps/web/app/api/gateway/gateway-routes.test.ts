@@ -283,7 +283,7 @@ describe("POST /api/gateway/jobs/finalize", () => {
     createPrintJob.mockImplementation(async (_c, _s, _b, _n, opts) =>
       created("held", { heldReason: opts.forcedHeldReason }),
     );
-    const res = await finalizePOST(req("/api/gateway/jobs/finalize", goodBody({ sides: "two-sided-short-edge", media: "iso_a4_210x297mm", finishings: 4 })));
+    const res = await finalizePOST(req("/api/gateway/jobs/finalize", goodBody({ sides: "two-sided-short-edge", media: "iso_a4_210x297mm", finishings: 21 })));
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.status).toBe("held");

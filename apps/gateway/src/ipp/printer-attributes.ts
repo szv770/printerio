@@ -13,6 +13,9 @@ export const MEDIA_SIZES = [
   { key: "iso_a3_297x420mm", x: 29700, y: 42000 },
 ] as const;
 
+/** none, staple, staple-top-left, staple-top-right, saddle-stitch, booklet-maker. */
+export const FINISHINGS_SUPPORTED = [3, 4, 20, 22, 8, 13] as const;
+
 type MediaSize = (typeof MEDIA_SIZES)[number];
 
 function mediaCol(s: MediaSize): IppAttr[] {
@@ -94,9 +97,14 @@ export function buildPrinterAttributes(input: PrinterAttrsInput): IppAttr[] {
     attr(TAG.boolean, "page-ranges-supported", true),
     attr(TAG.integer, "number-up-default", 1),
     attr(TAG.integer, "number-up-supported", 1),
-    // Contract: finishings "none" (3) only. Staple/booklet are chosen on the website until Phase 4.
+    // Only finishings the website maps AND the printer is proven to deliver (apps/web/lib/gateway/ipp-choices.ts,
+    // docs/kyocera-raw-print.md). RFC 8011 / PWG 5100.1 values: 3 none, 4 staple, 20 staple-top-left,
+    // 22 staple-top-right, 8 saddle-stitch, 13 booklet-maker. NOT advertised on purpose: 21 bottom-left (no
+    // storage for it yet), 28-31 dual staples, punch, fold - the dialog must not offer what cannot be delivered.
+    // UNVERIFIED: which of these Windows 11 / Android actually draw in their dialog (nothing is captured yet; the
+    // OS may show only some, or only the generic "staple"). Whatever arrives that is not listed is held, never guessed.
     attr(TAG.enum, "finishings-default", 3),
-    attr(TAG.enum, "finishings-supported", 3),
+    attr(TAG.enum, "finishings-supported", ...FINISHINGS_SUPPORTED),
     attr(TAG.resolution, "printer-resolution-default", dpi600),
     attr(TAG.resolution, "printer-resolution-supported", dpi600),
     attr(TAG.keyword, "media-default", letter.key),

@@ -4,7 +4,9 @@
  *
  * Pure and total: it never throws, whatever the print dialog sent. Anything it cannot honour is not guessed at;
  * it comes back as `heldReason`, a plain sentence the member can act on, and the caller creates the job as held.
- * Booklet and staple are never produced here (Phase 4); they are chosen on the website.
+ * Staple (top-left / top-right) and booklet come from the `finishings` enum, see mapFinishings. A staple with a
+ * short-edge flip or a non-portrait page, several staples, or an unlisted finishing is held. A held job always
+ * carries staple "none" / booklet "none", so a held request never promises finishing it did not check.
  *
  * `attributes` is the flattened IPP job-template object exactly as tools/ipp-spike/ipp.mjs `flatten()` makes it:
  * integers/enums are numbers, keywords/names are strings, a single value is unwrapped (several stay an array),
@@ -55,12 +57,14 @@ function mapCopies(raw: unknown, reasons: string[]): number {
   return 1;
 }
 
-function mapSides(raw: unknown, reasons: string[]): "one" | "two" {
+function mapSides(raw: unknown, reasons: string[], booklet: boolean): "one" | "two" {
   if (raw === undefined) return "one";
   const v = asList(raw)[0];
   if (v === "one-sided") return "one";
   if (v === "two-sided-long-edge") return "two";
   if (v === "two-sided-short-edge") {
+    // A booklet is always printed short-edge (part of the proven booklet settings), so asking for it is fine.
+    if (booklet) return "two";
     reasons.push("Flip on the short edge is not available from the print dialog yet; choose double-sided or use the website.");
     return "two";
   }
@@ -130,11 +134,64 @@ function mapMedia(attrs: IppAttributes, reasons: string[]): void {
   }
 }
 
-function mapFinishings(raw: unknown, reasons: string[]): void {
-  if (raw === undefined) return;
+/**
+ * IPP `finishings` enum values (RFC 8011 section 5.2.6 / PWG 5100.1). Values are numbers, NOT the ones the setup
+ * design doc once listed (booklet-maker is 13, not 28; 28 is staple-dual-left).
+ * Delivered: 3 none, 4 staple (printer's choice of corner -> top-left, the printer's own default), 20 top-left,
+ * 22 top-right, 8 saddle-stitch and 13 booklet-maker (both -> a booklet; the binding edge is not in the print
+ * dialog, so the printer profile's default edge applies, the same rule as a re-print). Everything else is held.
+ */
+const FIN_NONE = 3;
+const FIN_STAPLE = 4;
+const FIN_SADDLE_STITCH = 8;
+const FIN_BOOKLET_MAKER = 13;
+const FIN_STAPLE_TOP_LEFT = 20;
+const FIN_STAPLE_TOP_RIGHT = 22;
+/** orientation-requested: 3 portrait, 4 landscape, 5 reverse-landscape, 6 reverse-portrait. */
+const NON_PORTRAIT = new Set([4, 5, 6]);
+
+interface Finishing {
+  staple: "none" | "top-left" | "top-right";
+  booklet: boolean;
+}
+
+function mapFinishings(raw: unknown, orientation: unknown, sidesRaw: unknown, reasons: string[]): Finishing {
+  const none: Finishing = { staple: "none", booklet: false };
+  if (raw === undefined) return none;
   const values = asList(raw).map(toInt);
-  if (values.every((v) => v === 3)) return; // 3 = none
-  reasons.push("Staple and other finishing from the print dialog is not available yet; choose it on the website.");
+  const unknown = values.filter((v) => v === null || ![FIN_NONE, FIN_STAPLE, FIN_STAPLE_TOP_LEFT, FIN_STAPLE_TOP_RIGHT, FIN_SADDLE_STITCH, FIN_BOOKLET_MAKER].includes(v));
+  if (unknown.length > 0) {
+    const first = unknown[0];
+    reasons.push(
+      `The finishing option (${first === null || first === undefined ? "unknown" : describe(first)}) from the print dialog is not available yet, so nothing was printed. Only staple and booklet can be chosen; choose it on the website.`,
+    );
+    return none;
+  }
+  const staples = new Set<"top-left" | "top-right">();
+  let booklet = false;
+  for (const v of values) {
+    if (v === FIN_STAPLE || v === FIN_STAPLE_TOP_LEFT) staples.add("top-left");
+    else if (v === FIN_STAPLE_TOP_RIGHT) staples.add("top-right");
+    else if (v === FIN_SADDLE_STITCH || v === FIN_BOOKLET_MAKER) booklet = true;
+  }
+  if (staples.size > 1) {
+    reasons.push("The print dialog asked for more than one staple position, so nothing was printed. Choose one corner on the website.");
+    return none;
+  }
+  const staple = staples.size === 1 ? ([...staples][0] as "top-left" | "top-right") : "none";
+  if (booklet && staple !== "none") {
+    reasons.push("A booklet is stapled for you, so it cannot also be stapled in a corner. Choose either a booklet or a staple.");
+    return none;
+  }
+  if (staple !== "none") {
+    if (asList(sidesRaw)[0] === "two-sided-short-edge") return none; // the short-edge reason is already given by mapSides
+    const o = toInt(asList(orientation)[0]);
+    if (o !== null && NON_PORTRAIT.has(o)) {
+      reasons.push("The staple corner is only checked on portrait pages, so nothing was printed. Choose the staple on the website.");
+      return none;
+    }
+  }
+  return { staple, booklet };
 }
 
 /** "Quarterly report.docx" style job names -> a safe `<name>.pdf`: letters, digits, space and . _ - only, max 60. */
@@ -157,15 +214,22 @@ export function mapIppChoices(attributes: IppAttributes | null | undefined): Ipp
   const reasons: string[] = [];
 
   const copies = mapCopies(attrs["copies"], reasons);
-  const sides = mapSides(attrs["sides"], reasons);
   const pageRange = mapPageRanges(attrs["page-ranges"], reasons);
   mapMedia(attrs, reasons);
-  mapFinishings(attrs["finishings"], reasons);
+  const fin = mapFinishings(attrs["finishings"], attrs["orientation-requested"], attrs["sides"], reasons);
+  const sides = mapSides(attrs["sides"], reasons, fin.booklet);
   // orientation-requested, print-quality, print-color-mode, printer-resolution, print-scaling, document-format,
   // job-name and everything else: deliberately ignored here (printer defaults; the PDF carries its orientation).
 
   return {
-    choices: { sides, staple: "none", booklet: "none", copies, pageRange },
+    choices: {
+      // A booklet is always double-sided whatever flip the dialog asked for (the short-edge flip is part of it).
+      sides: fin.booklet ? "two" : sides,
+      staple: fin.staple,
+      booklet: fin.booklet ? "profile" : "none",
+      copies,
+      pageRange,
+    },
     heldReason: reasons.length > 0 ? reasons.join(" ") : null,
   };
 }
