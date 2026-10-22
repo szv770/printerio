@@ -124,13 +124,6 @@ describe("mapIppChoices: finishings from the print dialog", () => {
     ["same staple twice", { finishings: [20, 20] }, { sides: "one", staple: "top-left", booklet: "none" }],
     ["staple + long edge", { finishings: 20, sides: "two-sided-long-edge" }, { sides: "two", staple: "top-left", booklet: "none" }],
     ["staple + portrait", { finishings: 22, "orientation-requested": 3 }, { sides: "one", staple: "top-right", booklet: "none" }],
-    ["booklet-maker (13)", { finishings: 13 }, { sides: "two", staple: "none", booklet: "profile" }],
-    ["saddle-stitch (8)", { finishings: 8 }, { sides: "two", staple: "none", booklet: "profile" }],
-    ["booklet-maker + short edge", { finishings: 13, sides: "two-sided-short-edge" }, { sides: "two", staple: "none", booklet: "profile" }],
-    ["booklet-maker + long edge", { finishings: 13, sides: "two-sided-long-edge" }, { sides: "two", staple: "none", booklet: "profile" }],
-    ["booklet-maker + one-sided (a booklet is always double-sided)", { finishings: 13, sides: "one-sided" }, { sides: "two", staple: "none", booklet: "profile" }],
-    ["booklet-maker and saddle-stitch together", { finishings: [13, 8] }, { sides: "two", staple: "none", booklet: "profile" }],
-    ["booklet on a landscape page (imposition handles the layout)", { finishings: 13, "orientation-requested": 4 }, { sides: "two", staple: "none", booklet: "profile" }],
   ];
   it.each(ok)("%s is delivered, not held", (_n, attrs, want) => {
     const { choices, heldReason } = mapIppChoices(attrs);
@@ -180,5 +173,38 @@ describe("ippFileName", () => {
 
   it("only ever produces letters, digits, space, dot, underscore and hyphen", () => {
     expect(ippFileName("日本語 😀 report #1 (final) [v2]")).toMatch(/^[A-Za-z0-9 ._-]+$/);
+  });
+});
+
+describe("mapIppChoices: booklet from the print dialog is held for a binding choice", () => {
+  // The dialog can only say booklet-maker (13) or saddle-stitch (8), never left or right, so the member picks the
+  // edge in one tap on the website. The job still carries booklet=true so that card opens with Booklet chosen.
+  const cases: Array<[string, Record<string, unknown>]> = [
+    ["booklet-maker (13)", { finishings: 13 }],
+    ["saddle-stitch (8)", { finishings: 8 }],
+    ["booklet-maker + short edge", { finishings: 13, sides: "two-sided-short-edge" }],
+    ["booklet-maker + long edge", { finishings: 13, sides: "two-sided-long-edge" }],
+    ["booklet-maker + one-sided", { finishings: 13, sides: "one-sided" }],
+    ["booklet-maker and saddle-stitch together", { finishings: [13, 8] }],
+    ["booklet on a landscape page", { finishings: 13, "orientation-requested": 4 }],
+  ];
+  it.each(cases)("%s is held with a friendly reason and booklet kept", (_n, attrs) => {
+    const { choices, heldReason } = mapIppChoices(attrs);
+    expect(heldReason).toBe("Booklet: choose left or right binding.");
+    expect(choices.booklet).not.toBe("none");
+    expect(choices).toMatchObject({ sides: "two", staple: "none" });
+  });
+
+  it("keeps the booklet when another reason also holds the job, and joins the reasons", () => {
+    const { choices, heldReason } = mapIppChoices({ finishings: 13, media: "iso_a4_210x297mm" });
+    expect(choices.booklet).not.toBe("none");
+    expect(heldReason).toMatch(/choose left or right binding/i);
+    expect(heldReason).toMatch(/iso_a4_210x297mm/);
+  });
+
+  it("a booklet plus a staple is still held with booklet none (nothing is promised)", () => {
+    const { choices, heldReason } = mapIppChoices({ finishings: [22, 13] });
+    expect(heldReason).toMatch(/cannot also be stapled/i);
+    expect(choices.booklet).toBe("none");
   });
 });

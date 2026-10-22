@@ -109,9 +109,12 @@ PCL XL page attribute, booklet is driver-side imposition; replay experiment pend
 - Members of the org only, invited one by one; no need for hard security, but each member has their
   own identity (own hostname) so the dashboard shows who printed what. Cover page with name/time
   can come later (the gateway holds each PDF, so it is easy).
-- Scope from the print dialog: copies, single/double-sided, page range, paper size. No booklet or
-  finishing from the dialog for now (booklet stays in the web form; "booklet-maker" via IPP
-  `finishings` is a nice later feature that would reuse `lib/pdf/imposition.ts`).
+- Scope from the print dialog: copies, single/double-sided, page range, paper size. Finishing from
+  the dialog (`finishings`): none (3), staple 4 / 20 = top-left, 22 = top-right print as asked. Booklet-maker (13)
+  and saddle-stitch (8) cannot say left or right binding, and a booklet must not depend on a printer-profile
+  binding edge or on separate Windows queues, so the job is held ("Booklet: choose left or right binding.") with
+  booklet already set. The member opens the job, taps Left or Right binding, then Print booklet; the website
+  imposes it (left, or the mirrored right layout) on the raw path. Anything else is held as not available.
 - Domain: `szvtech.org` on Cloudflare. Gateway `printerio.szvtech.org`. Per-member address must be a
   single DNS label under the zone (`u-<code>.szvtech.org`): Cloudflare's free certificate covers
   `*.szvtech.org` but not `*.printerio.szvtech.org`. Create one DNS record per invited member

@@ -5,8 +5,9 @@
  * Pure and total: it never throws, whatever the print dialog sent. Anything it cannot honour is not guessed at;
  * it comes back as `heldReason`, a plain sentence the member can act on, and the caller creates the job as held.
  * Staple (top-left / top-right) and booklet come from the `finishings` enum, see mapFinishings. A staple with a
- * short-edge flip or a non-portrait page, several staples, or an unlisted finishing is held. A held job always
- * carries staple "none" / booklet "none", so a held request never promises finishing it did not check.
+ * short-edge flip or a non-portrait page, several staples, or an unlisted finishing is held, and then carries
+ * staple "none" / booklet "none" so a held request never promises finishing it did not check. The one exception
+ * is a plain booklet request (8 / 13): it is held only to ask left or right binding and keeps booklet set.
  *
  * `attributes` is the flattened IPP job-template object exactly as tools/ipp-spike/ipp.mjs `flatten()` makes it:
  * integers/enums are numbers, keywords/names are strings, a single value is unwrapped (several stay an array),
@@ -138,9 +139,15 @@ function mapMedia(attrs: IppAttributes, reasons: string[]): void {
  * IPP `finishings` enum values (RFC 8011 section 5.2.6 / PWG 5100.1). Values are numbers, NOT the ones the setup
  * design doc once listed (booklet-maker is 13, not 28; 28 is staple-dual-left).
  * Delivered: 3 none, 4 staple (printer's choice of corner -> top-left, the printer's own default), 20 top-left,
- * 22 top-right, 8 saddle-stitch and 13 booklet-maker (both -> a booklet; the binding edge is not in the print
- * dialog, so the printer profile's default edge applies, the same rule as a re-print). Everything else is held.
+ * 22 top-right.
+ * Held for one tap: 8 saddle-stitch and 13 booklet-maker. A print dialog can only say "booklet", never left or
+ * right binding, and a booklet must not depend on a printer-profile binding edge or on separate Windows queues.
+ * So the job is held with "Booklet: choose left or right binding." and still carries booklet (the "profile" value
+ * is only a placeholder; the member's choice on the job page replaces it, see finishHeldBookletAction), so the
+ * card opens with Booklet already chosen. Everything else is held as unavailable.
  */
+/** Shown to the member as the held reason; the job page recognises a held booklet by its finishing, not this text. */
+export const BOOKLET_BINDING_REASON = "Booklet: choose left or right binding.";
 const FIN_NONE = 3;
 const FIN_STAPLE = 4;
 const FIN_SADDLE_STITCH = 8;
@@ -183,6 +190,7 @@ function mapFinishings(raw: unknown, orientation: unknown, sidesRaw: unknown, re
     reasons.push("A booklet is stapled for you, so it cannot also be stapled in a corner. Choose either a booklet or a staple.");
     return none;
   }
+  if (booklet) reasons.push(BOOKLET_BINDING_REASON);
   if (staple !== "none") {
     if (asList(sidesRaw)[0] === "two-sided-short-edge") return none; // the short-edge reason is already given by mapSides
     const o = toInt(asList(orientation)[0]);

@@ -7,6 +7,7 @@ import { routes } from "@/lib/routes";
 import { parseChoices, type PrintChoices } from "@/lib/print-choices";
 import { PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { logger } from "@/lib/logger";
+import { BOOKLET_BINDING_REASON } from "@/lib/gateway/ipp-choices";
 import { createPrintJob, type JobOptions } from "@/lib/jobs/create-print-job";
 
 export interface SubmitJobState {
@@ -139,4 +140,74 @@ export async function reprintJobAction(_prev: SubmitJobState, formData: FormData
     punch: finishing.punch,
     confirmBookletPadding: true,
   });
+}
+
+/**
+ * "Finish this booklet" - the one-tap card on a held booklet job (the print dialog can ask for a booklet but not
+ * for left or right binding, so the IPP gateway holds it with that question). The member's choice goes through the
+ * same pipeline as every other job, applied to the untouched original, so imposition (left, or the mirrored right
+ * layout) and the raw-path PJL come out exactly as for a web upload with that side. Only after the new job exists
+ * is the held one closed (guarded on it still being held; a held job reserves no quota), so a failure leaves the
+ * held job and the question where they were. Everything is read server-side from a row scoped to the caller.
+ */
+export async function finishHeldBookletAction(_prev: SubmitJobState, formData: FormData): Promise<SubmitJobState> {
+  const session = await requireSessionOrRedirect();
+  if (!session.membership) return { error: "You are not a member of any organization yet." };
+  const organizationId = session.membership.organization_id;
+
+  const jobId = String(formData.get("jobId") ?? "");
+  if (!jobId) return { error: "Missing job." };
+  const side = String(formData.get("bindingSide") ?? "");
+  if (side !== "left" && side !== "right") return { error: "Choose left or right binding." };
+
+  const supabase = await createClient();
+  const { data: job, error: jobError } = await supabase
+    .from("print_jobs")
+    .select("*")
+    .eq("id", jobId)
+    .eq("created_by", session.userId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (jobError || !job) return { error: "Job not found." };
+
+  const finishing = job.finishing as { booklet?: boolean; punch?: boolean } | null;
+  if (job.status !== "held" || !finishing?.booklet || job.held_reason !== BOOKLET_BINDING_REASON) {
+    return { error: "This job is no longer waiting for your choice." };
+  }
+
+  const { data: fileData, error: downloadError } = await supabase.storage.from(PRINT_JOBS_BUCKET).download(job.original_file_path);
+  if (downloadError || !fileData) return { error: "The original file for this job is no longer available." };
+  const originalBytes = new Uint8Array(await fileData.arrayBuffer());
+
+  const result = await createPrintJob(supabase, session as SessionWithMembership, originalBytes, job.original_file_name, {
+    printerProfileId: job.printer_profile_id ?? "",
+    choices: { sides: "two", staple: "none", booklet: side, copies: job.copies, pageRange: job.page_range ?? "" },
+    colorMode: job.color_mode as "bw" | "color",
+    paperSize: job.paper_size,
+    punch: false,
+    confirmBookletPadding: true,
+    ...(job.source === "ipp" ? { source: "ipp" as const, deviceId: job.device_id ?? undefined } : {}),
+  });
+  if (!result.ok) {
+    if (result.kind === "needs_booklet_confirm") return { needsBookletConfirm: result.needsBookletConfirm };
+    return { error: result.error, ...(result.fieldErrors ? { fieldErrors: result.fieldErrors } : {}) };
+  }
+
+  const { data: closed } = await supabase
+    .from("print_jobs")
+    .update({ status: "cancelled" })
+    .eq("id", job.id)
+    .eq("status", "held")
+    .eq("created_by", session.userId)
+    .select("id");
+  if (closed && closed.length > 0) {
+    await supabase.from("print_job_events").insert({
+      job_id: job.id,
+      event_type: "JOB_CANCELLED",
+      actor_type: "user",
+      actor_id: session.userId,
+      metadata: { reason: "binding chosen", replacedBy: result.jobId },
+    });
+  }
+  redirect(routes.job(result.jobId));
 }
