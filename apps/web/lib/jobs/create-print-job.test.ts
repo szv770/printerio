@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { readStamp } from "@/test/read-stamp";
+import { findActiveContent } from "@/lib/pdf/active-content";
 import { fakeSupabase, failure, ok, type FakeCall, type FakeResult } from "@/test/fake-supabase";
 
 const evaluateJobPolicy = vi.fn();
@@ -389,5 +390,66 @@ describe("createPrintJob: separate write client (web path: member reads, service
     expect(fake.calls.filter(isWrite)).toEqual([]);
     expect(writer.calls.some((c) => c.op === "remove")).toBe(true);
     expect(writer.calls.filter((c) => c.op === "rpc" && c.table === "adjust_monthly_usage").map((c) => (c.values as { p_mode: string }).p_mode)).toEqual(["reserve", "release"]);
+  });
+});
+
+describe("createPrintJob: PDFs with embedded attachments are sanitized, not rejected", () => {
+  let withAttachment: Uint8Array;
+  beforeAll(async () => {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 3; i++) doc.addPage([612, 792]);
+    await doc.attach(new Uint8Array([7, 7, 7, 7]), "x.bin", { mimeType: "application/octet-stream" });
+    withAttachment = await doc.save();
+  });
+  const uploads = () => {
+    const out: Record<string, Uint8Array> = {};
+    for (const c of fake.calls.filter((c) => c.op === "upload")) {
+      const v = c.values as { path: string; bytes: Uint8Array };
+      out[v.path.endsWith("derived.pdf") ? "derived" : "original"] = v.bytes;
+    }
+    return out;
+  };
+
+  it("stores the upload as-is as the original, and a clean derived copy that the Agent will print", async () => {
+    const res = await run(withAttachment);
+    expect(res).toMatchObject({ ok: true, status: "approved" });
+    const up = uploads();
+    expect(Buffer.from(up.original!).equals(Buffer.from(withAttachment))).toBe(true);
+    expect(insertedJob().derived_file_path).toEqual(expect.stringMatching(/derived\.pdf$/));
+    expect(insertedJob().source_pdf_pages).toBe(3);
+    expect(findActiveContent(await PDFDocument.load(up.derived!))).toEqual([]);
+  });
+
+  it("the sanitized file is what gets imposed (booklet)", async () => {
+    const res = await run(withAttachment, baseOpts({ choices: { sides: "two", staple: "none", booklet: "left", copies: 1, pageRange: "" }, confirmBookletPadding: true }));
+    expect(res.ok).toBe(true);
+    expect(findActiveContent(await PDFDocument.load(uploads().derived!))).toEqual([]);
+  });
+
+  it("the sanitized file is what gets a page-range subset", async () => {
+    const res = await run(withAttachment, baseOpts({ choices: { sides: "one", staple: "none", booklet: "none", copies: 1, pageRange: "1-2" } }));
+    expect(res.ok).toBe(true);
+    const out = await PDFDocument.load(uploads().derived!);
+    expect(out.getPageCount()).toBe(2);
+    expect(findActiveContent(out)).toEqual([]);
+  });
+
+  it("the stamp is applied to the sanitized file", async () => {
+    respond = (c) => {
+      if (c.table === "organization_settings") return ok({ max_upload_size_bytes: 52428800, quota_basis: "physical_sheets", job_approval_expiry_hours: 72, stamp_enabled: true });
+      if (c.table === "organization_members") return ok({ user_code: "SV42", profiles: { display_name: "S", email: "s@x.org" } });
+      return defaults()(c);
+    };
+    fake = fakeSupabase((c) => respond(c));
+    const res = await run(withAttachment);
+    expect(res.ok).toBe(true);
+    const out = await PDFDocument.load(uploads().derived!);
+    expect(readStamp(out, 0)?.text).toBe("SV42");
+    expect(findActiveContent(out)).toEqual([]);
+  });
+
+  it("still fails a corrupt PDF as bad_pdf with a plain message", async () => {
+    const res = await run(new TextEncoder().encode("%PDF-1.4\nnope"));
+    expect(res).toMatchObject({ ok: false, code: "bad_pdf", error: expect.stringMatching(/couldn.t read/i) });
   });
 });

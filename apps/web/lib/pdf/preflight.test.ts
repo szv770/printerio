@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PDFDocument, PDFName, PDFString } from "pdf-lib";
+import { findActiveContent } from "./active-content";
 import { preflightPdf } from "./preflight";
 
 async function makeValidPdf(pageCount: number): Promise<Uint8Array> {
@@ -28,7 +29,7 @@ describe("preflightPdf", () => {
     const notAPdf = new TextEncoder().encode("this is definitely not a pdf file, just plain text");
     const result = await preflightPdf(notAPdf, { maxSizeBytes: 1024 });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toMatch(/does not look like a pdf/i);
+    if (!result.ok) expect(result.reason).toMatch(/doesn.t look like a pdf/i);
   });
 
   it("rejects a file that has the PDF header but is otherwise malformed/truncated", async () => {
@@ -37,7 +38,7 @@ describe("preflightPdf", () => {
     const truncated = new TextEncoder().encode("%PDF-1.4\n%garbage garbage garbage, not a real xref table");
     const result = await preflightPdf(truncated, { maxSizeBytes: 1024 });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toMatch(/malformed/i);
+    if (!result.ok) expect(result.reason).toMatch(/couldn.t read this pdf/i);
   });
 
   it("rejects a file exceeding the configured maximum size, never attempting to parse it", async () => {
@@ -47,9 +48,7 @@ describe("preflightPdf", () => {
     if (!result.ok) expect(result.reason).toMatch(/exceeds/i);
   });
 
-  it("rejects a structurally valid PDF that declares embedded JavaScript", async () => {
-    // Valid PDF, real page - the only thing wrong with it is the active
-    // content, which is exactly the case a structure-only check would pass.
+  it("accepts a PDF that declares embedded JavaScript, handing back a sanitized copy without it", async () => {
     const doc = await PDFDocument.create();
     doc.addPage([612, 792]);
     doc.catalog.set(
@@ -57,17 +56,38 @@ describe("preflightPdf", () => {
       doc.context.obj({ Type: "Action", S: "JavaScript", JS: PDFString.of("app.alert('x')") }),
     );
     const result = await preflightPdf(await doc.save(), { maxSizeBytes: 10 * 1024 * 1024 });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toMatch(/embedded JavaScript/);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.sanitizedBytes).toBeInstanceOf(Uint8Array);
+    expect(findActiveContent(await PDFDocument.load(result.sanitizedBytes!))).toEqual([]);
   });
 
-  it("rejects a valid PDF carrying a file attachment", async () => {
+  it("accepts a valid PDF carrying a file attachment, handing back a sanitized copy without it", async () => {
     const doc = await PDFDocument.create();
     doc.addPage([612, 792]);
     await doc.attach(new Uint8Array([1, 2, 3]), "payload.bin", { mimeType: "application/octet-stream" });
     const result = await preflightPdf(await doc.save(), { maxSizeBytes: 10 * 1024 * 1024 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.pageCount).toBe(1);
+    expect(findActiveContent(await PDFDocument.load(result.sanitizedBytes!))).toEqual([]);
+  });
+
+  it("gives no sanitizedBytes for a clean PDF", async () => {
+    const result = await preflightPdf(await makeValidPdf(2), { maxSizeBytes: 10 * 1024 * 1024 });
+    expect(result.ok && result.sanitizedBytes).toBeFalsy();
+  });
+
+  it("still rejects an encrypted PDF, in plain words", async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage([612, 792]);
+    // pdf-lib cannot write encrypted files, so mark a plain one as encrypted in its trailer.
+    const plain = Buffer.from(await doc.save({ useObjectStreams: false })).toString("latin1");
+    const marked = plain.replace(/trailer\s*<</, "trailer << /Encrypt << /Filter /Standard /V 1 /R 2 >>");
+    expect(marked).not.toBe(plain);
+    const result = await preflightPdf(new Uint8Array(Buffer.from(marked, "latin1")), { maxSizeBytes: 10 * 1024 * 1024 });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toMatch(/embedded file attachment/);
+    if (!result.ok) expect(result.reason).toBe("This PDF is password-protected. Remove the password, or print it to a new PDF, and try again.");
   });
 
   it("never trusts a client-supplied page count - the returned count is always derived from the bytes", async () => {
