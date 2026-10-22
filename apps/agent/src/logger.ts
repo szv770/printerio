@@ -12,7 +12,7 @@
  * inlining ad-hoc masking.
  */
 
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
@@ -73,8 +73,16 @@ export function redactBearerHeader(header: string | undefined): string {
   return `Bearer ${match[1]}.***redacted***`;
 }
 
+/** One day's log file stops growing at this size (console output is unaffected). */
+export const MAX_LOG_FILE_BYTES = 10 * 1024 * 1024;
+
+/** Bytes written so far per log file, seeded from disk once, so child loggers share one count. */
+const logFileBytes = new Map<string, number>();
+
 export interface LoggerOptions {
   level: LogLevel;
+  /** Per-file size cap in bytes (default MAX_LOG_FILE_BYTES). */
+  maxFileBytes?: number;
   /** Directory to write `agent.log` into. If omitted, file logging is skipped (console only). */
   logDir?: string;
 }
@@ -112,6 +120,16 @@ export function createLogger(options: LoggerOptions, baseFields: Record<string, 
 
     if (logFilePath) {
       try {
+        let used = logFileBytes.get(logFilePath);
+        if (used === undefined) {
+          try {
+            used = statSync(logFilePath).size;
+          } catch {
+            used = 0;
+          }
+        }
+        if (used >= (options.maxFileBytes ?? MAX_LOG_FILE_BYTES)) return;
+        logFileBytes.set(logFilePath, used + Buffer.byteLength(line) + 1);
         appendFileSync(logFilePath, line + "\n", "utf8");
       } catch {
         // Never let a logging failure (e.g. disk full) crash the process.

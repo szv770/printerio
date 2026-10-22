@@ -17,7 +17,7 @@ export default async function JobsPage() {
     // it stopped without the user opening it (JobsList's attentionLine), and
     // updated_at is what orders "when did this last move".
     .select(
-      "id, job_number, original_file_name, status, source_pdf_pages, color_mode, duplex, copies, policy_action, policy_reasons, error_message, held_reason, is_test_print, created_at, updated_at",
+      "id, job_number, original_file_name, status, source_pdf_pages, color_mode, duplex, copies, policy_action, policy_reasons, error_message, held_reason, is_test_print, files_purged_at, created_at, updated_at",
     )
     .eq("created_by", session.userId)
     .order("created_at", { ascending: false })

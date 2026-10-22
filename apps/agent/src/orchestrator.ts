@@ -11,7 +11,7 @@
  * independent connections.
  */
 
-import { createWriteStream, mkdirSync, readFileSync, statSync, unlinkSync } from "node:fs";
+import { createWriteStream, mkdirSync, readFileSync, rmSync, statSync, unlinkSync } from "node:fs";
 import { Readable } from "node:stream";
 import path from "node:path";
 import type { AgentConfig } from "./config.js";
@@ -219,6 +219,9 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       attemptCount: (existing?.attemptCount ?? 0) + 1,
     });
 
+    // The downloaded PDF is only needed until the job leaves this machine (SumatraPDF has read it / the raw
+    // socket has flushed it); a retry downloads a fresh copy, so it is always removed when this job is done.
+    let downloadedPath: string | undefined;
     try {
       // --- Download ---
       const dl = await cloudClient.getDownloadUrl(claimable.jobId);
@@ -229,6 +232,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
 
       const localFileName = `${claimable.jobId}-${sanitizeFileName(dl.fileName)}`;
       const localFilePath = path.join(config.localStoragePath, "downloads", localFileName);
+      downloadedPath = localFilePath;
       await downloadJobFile(dl.downloadUrl, localFilePath, jobLogger);
       jobQueue.upsertJob(claimable.jobId, { state: "downloaded", localFilePath });
       await safeReportStatus(claimable.jobId, "downloaded");
@@ -355,6 +359,16 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       jobLogger.error("job failed", { error: message, details });
       jobQueue.upsertJob(claimable.jobId, { state: "failed", lastError: message });
       await safeReportStatus(claimable.jobId, "failed", message, details);
+    } finally {
+      if (downloadedPath) {
+        for (const p of [downloadedPath, `${downloadedPath}.partial`]) {
+          try {
+            rmSync(p, { force: true });
+          } catch (err) {
+            jobLogger.warn("could not delete the downloaded job file", { error: err instanceof Error ? err.message : String(err) });
+          }
+        }
+      }
     }
   }
 

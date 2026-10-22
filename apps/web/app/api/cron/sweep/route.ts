@@ -1,26 +1,9 @@
-import { timingSafeEqual } from "node:crypto";
-import { apiError } from "@/lib/api-errors";
+import { rejectUnlessCronAuthorized } from "@/lib/cron-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { adjustMonthlyUsage } from "@/lib/quota";
 import { sweepRetention } from "@/lib/retention";
-import { getCronSecret } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { filterAffectedRows, groupJobsByAttemptCount, groupQuotaReleases, jobsHoldingQuota } from "@/lib/cron-sweep";
-
-/** Constant-time compare of two equal-or-different-length strings - avoids
- *  the length/content timing signal a plain `!==` would leak (consistent
- *  with lib/agent-auth.ts's device-secret comparison). */
-function safeCompare(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) {
-    // Still run a comparison of equal length so the "wrong length" case
-    // doesn't return measurably faster than a "right length, wrong content" one.
-    timingSafeEqual(bufA, bufA);
-    return false;
-  }
-  return timingSafeEqual(bufA, bufB);
-}
 
 /**
  * Cap on every main selection query below (~200-500 is the reasonable band
@@ -52,21 +35,8 @@ export const maxDuration = 60;
  * docs/architecture.md sec 13 (lease expiry) and sec 16 (retention).
  */
 export async function GET(request: Request) {
-  let expected: string;
-  try {
-    expected = getCronSecret();
-  } catch (err) {
-    // Distinct from a bad caller-supplied secret (401 below): this is an
-    // operator misconfiguration (PRINTIO_CRON_SECRET was never set), and
-    // should surface as a clear 500 rather than silently 401ing every call
-    // forever with no clue why.
-    return apiError(500, "misconfigured", err instanceof Error ? err.message : "Cron secret not configured.");
-  }
-
-  const authHeader = request.headers.get("authorization") ?? "";
-  if (!safeCompare(authHeader, `Bearer ${expected}`)) {
-    return apiError(401, "unauthenticated", "Invalid cron secret.");
-  }
+  const rejected = rejectUnlessCronAuthorized(request);
+  if (rejected) return rejected;
 
   const supabase = createServiceRoleClient();
   const nowIso = new Date().toISOString();
@@ -300,3 +270,6 @@ export async function GET(request: Request) {
 
   return Response.json({ ok: true, ranAt: nowIso, results });
 }
+
+/** GitHub Actions' cron-sweep workflow calls this with POST (curl -X POST); Vercel Cron uses GET. */
+export const POST = GET;

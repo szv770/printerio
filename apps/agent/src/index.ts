@@ -11,6 +11,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config as loadDotEnv } from "dotenv";
 import { loadConfig } from "./config.js";
+import { runStartupHousekeeping } from "./housekeeping.js";
 import { createLogger } from "./logger.js";
 import { CloudClient } from "./cloud-client.js";
 import { saveCredentials, loadCredentials } from "./secure-storage.js";
@@ -131,6 +132,7 @@ async function runStart(): Promise<void> {
     return;
   }
 
+  runStartupHousekeeping(config.localStoragePath, logger);
   const cloudClient = new CloudClient({ apiUrl: config.apiUrl, agentId, deviceSecret, logger });
   const jobQueue = createJobQueue(config.localStoragePath, logger);
   const printerManager = createPrinterManager(config.localStoragePath, logger);
