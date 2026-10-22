@@ -49,3 +49,6 @@ coverage/
 # ...except the shared session-start hook that installs dependencies in cloud sessions.
 !.claude/settings.json
 !.claude/hooks/
+
+# Gateway build output
+apps/gateway/dist/

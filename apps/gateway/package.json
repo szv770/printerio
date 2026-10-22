@@ -1,0 +1,39 @@
+{
+  "name": "@printio/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Printio IPP gateway - lets Windows/Android print dialogs send PDFs to Printio over IPP (one hostname per member device).",
+  "main": "./dist/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts start",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "tsx src/index.ts start",
+    "install-service": "tsx src/index.ts install-service",
+    "uninstall-service": "tsx src/index.ts uninstall-service",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint src test"
+  },
+  "dependencies": {
+    "@printio/shared": "workspace:*",
+    "@supabase/supabase-js": "^2.48.1",
+    "dotenv": "^17.4.2",
+    "tsx": "^4.19.2",
+    "zod": "^3.24.1"
+  },
+  "optionalDependencies": {
+    "node-windows": "^1.0.0-beta.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "eslint": "^9.18.0",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.19.1",
+    "vitest": "^3.0.5"
+  }
+}
