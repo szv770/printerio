@@ -12,14 +12,18 @@ vi.mock("@/lib/auth/session", () => ({
 const supabase = { marker: "admin-client" };
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => supabase }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+const serviceClient = { marker: "service-client" };
+vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: () => serviceClient }));
 const revokeDevice = vi.fn();
+const deleteDevice = vi.fn();
 const resolveIssue = vi.fn();
 vi.mock("@/lib/devices/devices", () => ({
   revokeDevice: (...a: unknown[]) => revokeDevice(...a),
+  deleteDevice: (...a: unknown[]) => deleteDevice(...a),
   resolveIssue: (...a: unknown[]) => resolveIssue(...a),
 }));
 
-import { adminRevokeDeviceAction, resolveIssueAction } from "./actions";
+import { adminDeleteDeviceAction, adminRevokeDeviceAction, resolveIssueAction } from "./actions";
 
 const fd = (o: Record<string, string>) => {
   const f = new FormData();
@@ -29,6 +33,7 @@ const fd = (o: Record<string, string>) => {
 
 beforeEach(() => {
   revokeDevice.mockReset();
+  deleteDevice.mockReset();
   resolveIssue.mockReset();
   role = "org_admin";
 });
@@ -68,5 +73,24 @@ describe("resolveIssueAction", () => {
     expect((await resolveIssueAction({}, fd({ note: "x" }))).error).toBeTruthy();
     resolveIssue.mockResolvedValue({ ok: false, error: "Too long." });
     expect(await resolveIssueAction({}, fd({ issueId: "i1", note: "x" }))).toEqual({ error: "Too long." });
+  });
+});
+
+describe("adminDeleteDeviceAction", () => {
+  it.each(["approver", "staff", null] as const)("is admin only (%s is refused)", async (r) => {
+    role = r;
+    await expect(adminDeleteDeviceAction({}, fd({ deviceId: "d1" }))).rejects.toThrow();
+    expect(deleteDevice).not.toHaveBeenCalled();
+  });
+  it("deletes asAdmin within the admin's organization through the service-role client", async () => {
+    deleteDevice.mockResolvedValue({ ok: true });
+    const res = await adminDeleteDeviceAction({}, fd({ deviceId: "d1" }));
+    expect(deleteDevice).toHaveBeenCalledWith(serviceClient, { deviceId: "d1", organizationId: "org1", userId: "a1", asAdmin: true });
+    expect(res).toEqual({ deletedId: "d1" });
+  });
+  it("requires a device id and returns errors inline", async () => {
+    expect((await adminDeleteDeviceAction({}, fd({}))).error).toBeTruthy();
+    deleteDevice.mockResolvedValue({ ok: false, error: "Device not found." });
+    expect(await adminDeleteDeviceAction({}, fd({ deviceId: "d1" }))).toEqual({ error: "Device not found." });
   });
 });

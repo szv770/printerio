@@ -3,12 +3,17 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
-import { resolveIssue, revokeDevice } from "@/lib/devices/devices";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { deleteDevice, resolveIssue, revokeDevice } from "@/lib/devices/devices";
 import { routes } from "@/lib/routes";
 
 export interface AdminRevokeState {
   error?: string;
   revokedId?: string;
+}
+export interface AdminDeleteState {
+  error?: string;
+  deletedId?: string;
 }
 export interface ResolveIssueState {
   error?: string;
@@ -25,6 +30,25 @@ export async function adminRevokeDeviceAction(_prev: AdminRevokeState, formData:
   if (!res.ok) return { error: res.error };
   revalidatePath(routes.adminDevices);
   return { revokedId: deviceId };
+}
+
+/**
+ * Permanently delete any device of the admin's organization. Admin only: requireOrgRole runs first, and the delete
+ * (service-role, since browser roles cannot delete) is scoped to the admin's own organization.
+ */
+export async function adminDeleteDeviceAction(_prev: AdminDeleteState, formData: FormData): Promise<AdminDeleteState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const deviceId = String(formData.get("deviceId") ?? "");
+  if (!deviceId) return { error: "Device not found." };
+  const res = await deleteDevice(createServiceRoleClient(), {
+    deviceId,
+    organizationId: session.membership.organization_id,
+    userId: session.userId,
+    asAdmin: true,
+  });
+  if (!res.ok) return { error: res.error };
+  revalidatePath(routes.adminDevices);
+  return { deletedId: deviceId };
 }
 
 export async function resolveIssueAction(_prev: ResolveIssueState, formData: FormData): Promise<ResolveIssueState> {

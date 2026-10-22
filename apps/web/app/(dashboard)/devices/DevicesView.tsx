@@ -5,7 +5,7 @@ import { Check, Copy, Monitor, Smartphone } from "lucide-react";
 import { Badge, Button, Card, EmptyState, FieldLabel, FormError, Input, Select, Textarea } from "@/components/ui";
 import { ISSUE_KINDS, issueKindLabel, MAX_ISSUE_NOTE } from "@/lib/devices/admin";
 import { deviceAddress, deviceStatus, deviceTypeLabel, setupSteps } from "@/lib/devices/present";
-import { addDeviceAction, reportIssueAction, revokeDeviceAction, type AddDeviceState, type ReportIssueState, type RevokeDeviceState } from "./actions";
+import { addDeviceAction, deleteDeviceAction, reportIssueAction, revokeDeviceAction, type AddDeviceState, type DeleteDeviceState, type ReportIssueState, type RevokeDeviceState } from "./actions";
 
 export interface DeviceItem {
   id: string;
@@ -31,6 +31,7 @@ const TYPE_OPTIONS = [
 
 const addInitial: AddDeviceState = {};
 const revokeInitial: RevokeDeviceState = {};
+const deleteInitial: DeleteDeviceState = {};
 const reportInitial: ReportIssueState = {};
 
 export function DevicesView({ devices }: { devices: DeviceItem[] }) {
@@ -216,6 +217,7 @@ function DeviceRowItem({ device }: { device: DeviceItem }) {
   const revoked = status.key === "revoked";
   const [confirming, setConfirming] = useState(false);
   const [reporting, setReporting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [state, formAction, pending] = useActionState(revokeDeviceAction, revokeInitial);
   const Icon = device.device_type === "android" || device.device_type === "iphone" ? Smartphone : Monitor;
   const added = new Date(device.created_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
@@ -237,7 +239,15 @@ function DeviceRowItem({ device }: { device: DeviceItem }) {
           <p className="rounded-lg bg-yellow-50 p-2 text-sm text-yellow-900">You told us about a problem with this device. Your administrator will look at it.</p>
         )}
         {!revoked && reporting && <ReportIssueForm deviceId={device.id} onClose={() => setReporting(false)} />}
-        {!revoked && !reporting && (
+        {deleting && <DeleteDeviceForm deviceId={device.id} onClose={() => setDeleting(false)} />}
+        {revoked && !deleting && (
+          <div className="min-h-9">
+            <Button type="button" size="sm" variant="outline-danger" onClick={() => setDeleting(true)}>
+              Delete
+            </Button>
+          </div>
+        )}
+        {!revoked && !reporting && !deleting && (
           <div className="min-h-9">
             {confirming ? (
               <form
@@ -267,12 +277,44 @@ function DeviceRowItem({ device }: { device: DeviceItem }) {
                 <Button type="button" size="sm" variant="outline-danger" onClick={() => setConfirming(true)}>
                   Turn off
                 </Button>
+                <Button type="button" size="sm" variant="outline-danger" onClick={() => setDeleting(true)}>
+                  Delete
+                </Button>
               </div>
             )}
           </div>
         )}
       </Card>
     </li>
+  );
+}
+
+/** Inline confirm for a permanent delete. Escape cancels; the row disappears when the page data refreshes. */
+function DeleteDeviceForm({ deviceId, onClose }: { deviceId: string; onClose: () => void }) {
+  const [state, formAction, pending] = useActionState(deleteDeviceAction, deleteInitial);
+  return (
+    <form
+      action={formAction}
+      aria-busy={pending}
+      className="flex flex-col gap-2"
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && !pending) onClose();
+      }}
+    >
+      <input type="hidden" name="deviceId" value={deviceId} />
+      <p className="text-sm">Delete this device? This removes the device and its address stops working. Your print history stays.</p>
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" size="sm" variant="danger" autoFocus pending={pending} pendingLabel="Deleting...">
+          Yes, delete
+        </Button>
+        <Button type="button" size="sm" variant="outline" disabled={pending} onClick={onClose}>
+          Keep it
+        </Button>
+      </div>
+      <div className="min-h-5">
+        <FormError message={state.error} />
+      </div>
+    </form>
   );
 }
 

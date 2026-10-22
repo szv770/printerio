@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { getGatewayEnv } from "@/lib/env";
-import { createDevice, reportIssue, revokeDevice } from "@/lib/devices/devices";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { createDevice, deleteDevice, reportIssue, revokeDevice } from "@/lib/devices/devices";
 import { deviceAddress } from "@/lib/devices/present";
 import { routes } from "@/lib/routes";
 
@@ -57,6 +58,32 @@ export async function revokeDeviceAction(_prev: RevokeDeviceState, formData: For
   if (!res.ok) return { error: res.error };
   revalidatePath(routes.devices);
   return { revokedId: deviceId };
+}
+
+export interface DeleteDeviceState {
+  error?: string;
+  deletedId?: string;
+}
+
+/**
+ * Permanently deletes one of the signed-in member's own devices. The delete runs through the service-role client
+ * (browser roles cannot delete), so identity comes from the verified session and the query is scoped to that
+ * user AND organization; the device id from the form is never trusted on its own.
+ */
+export async function deleteDeviceAction(_prev: DeleteDeviceState, formData: FormData): Promise<DeleteDeviceState> {
+  const session = await requireSessionOrRedirect();
+  if (!session.membership) return { error: "Your account is not part of an organization yet." };
+  const deviceId = String(formData.get("deviceId") ?? "");
+  if (!deviceId) return { error: "Device not found." };
+
+  const res = await deleteDevice(createServiceRoleClient(), {
+    deviceId,
+    organizationId: session.membership.organization_id,
+    userId: session.userId,
+  });
+  if (!res.ok) return { error: res.error };
+  revalidatePath(routes.devices);
+  return { deletedId: deviceId };
 }
 
 export interface ReportIssueState {

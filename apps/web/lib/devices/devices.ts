@@ -104,6 +104,24 @@ export async function revokeDevice(
   return { ok: true };
 }
 
+/**
+ * Permanently deletes a device. Needs the service-role client (the browser roles have no DELETE grant on
+ * member_devices), so the caller MUST have verified the signed-in user first. Scoped to the owner AND organization;
+ * an admin passes `asAdmin: true` to delete any device of their own organization. device_events and device_issues
+ * cascade; print_jobs.device_id is set null, so print history stays.
+ */
+export async function deleteDevice(
+  supabase: Client,
+  input: { deviceId: string; organizationId: string; userId: string; asAdmin?: boolean },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  let query = supabase.from("member_devices").delete().eq("id", input.deviceId).eq("organization_id", input.organizationId);
+  if (!input.asAdmin) query = query.eq("user_id", input.userId);
+  const { data, error } = await query.select("id");
+  if (error) return { ok: false, error: "Could not delete this device. Try again." };
+  if (!data || data.length === 0) return { ok: false, error: "Device not found." };
+  return { ok: true };
+}
+
 /** A member's own devices, newest first. */
 export async function listDevicesForMember(supabase: Client, input: { userId: string; organizationId: string }): Promise<DeviceRow[]> {
   const { data, error } = await supabase

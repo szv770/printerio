@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight, Smartphone } from "lucide-react";
 import { Badge, Button, Card, EmptyState, FieldLabel, FormError, Textarea } from "@/components/ui";
 import { deviceStatus, deviceTypeLabel } from "@/lib/devices/present";
 import { issueKindLabel, MAX_ISSUE_NOTE, STUCK_LABELS, type StuckReason } from "@/lib/devices/admin";
-import { adminRevokeDeviceAction, resolveIssueAction, type AdminRevokeState, type ResolveIssueState } from "./actions";
+import { adminDeleteDeviceAction, adminRevokeDeviceAction, resolveIssueAction, type AdminDeleteState, type AdminRevokeState, type ResolveIssueState } from "./actions";
 import { loadDeviceEventsAction, type DeviceEventItem } from "./events";
 
 export interface AdminIssue {
@@ -85,7 +85,10 @@ function DeviceItem({ device }: { device: AdminDevice }) {
           <div id={panelId} className="flex flex-col gap-4 border-t border-[var(--color-border)] pt-3">
             <IssuesList issues={device.issues} />
             <EventsLog deviceId={device.id} lastUserAgent={device.last_user_agent} />
-            {!revoked && <RevokeControl deviceId={device.id} />}
+            <div className="flex flex-col gap-3">
+              {!revoked && <RevokeControl deviceId={device.id} />}
+              <DeleteControl deviceId={device.id} />
+            </div>
           </div>
         )}
       </Card>
@@ -268,6 +271,47 @@ function RevokeControl({ deviceId }: { deviceId: string }) {
         </Button>
       </div>
       <FormError message={state.error} />
+    </form>
+  );
+}
+
+const deleteInitial: AdminDeleteState = {};
+
+function DeleteControl({ deviceId }: { deviceId: string }) {
+  const [confirming, setConfirming] = useState(false);
+  const [state, formAction, pending] = useActionState(adminDeleteDeviceAction, deleteInitial);
+
+  if (!confirming) {
+    return (
+      <div>
+        <Button type="button" size="sm" variant="outline-danger" onClick={() => setConfirming(true)}>
+          Delete device
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <form
+      action={formAction}
+      aria-busy={pending}
+      className="flex flex-col gap-2"
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && !pending) setConfirming(false);
+      }}
+    >
+      <input type="hidden" name="deviceId" value={deviceId} />
+      <p className="text-sm">Delete this device? This removes the device and its address stops working. Print history stays.</p>
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" size="sm" variant="danger" autoFocus pending={pending} pendingLabel="Deleting...">
+          Yes, delete
+        </Button>
+        <Button type="button" size="sm" variant="outline" disabled={pending} onClick={() => setConfirming(false)}>
+          Keep it
+        </Button>
+      </div>
+      <div className="min-h-5">
+        <FormError message={state.error} />
+      </div>
     </form>
   );
 }
