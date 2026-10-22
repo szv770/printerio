@@ -1,6 +1,6 @@
 import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
-import { listDevicesForMember } from "@/lib/devices/devices";
+import { listDevicesForMember, listIssuesForDevices } from "@/lib/devices/devices";
 import { PageHeader } from "@/components/ui";
 import { DevicesView } from "./DevicesView";
 
@@ -9,6 +9,10 @@ export default async function DevicesPage() {
   if (!session.membership) return null; // the dashboard layout already redirects members without an organization
   const supabase = await createClient();
   const devices = await listDevicesForMember(supabase, { userId: session.userId, organizationId: session.membership.organization_id });
+
+  const issues = await listIssuesForDevices(supabase, devices.map((d) => d.id));
+  const openByDevice = new Map<string, number>();
+  for (const i of issues) if (i.status === "open") openByDevice.set(i.device_id, (openByDevice.get(i.device_id) ?? 0) + 1);
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-10">
@@ -26,6 +30,7 @@ export default async function DevicesPage() {
           last_seen_at: d.last_seen_at,
           first_job_at: d.first_job_at,
           first_printed_at: d.first_printed_at,
+          open_issues: openByDevice.get(d.id) ?? 0,
         }))}
       />
     </main>

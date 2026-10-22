@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { deviceHostname, generateDeviceToken, hashDeviceToken } from "@printio/shared/device-token";
 import type { Database, Tables } from "@/lib/database.types";
+import { validateIssueInput, validateResolveNote } from "./admin";
 
 /**
  * Server-side helpers for member devices (the IPP gateway's "My devices"; pages come later).
@@ -177,4 +178,72 @@ export async function recordDeviceEvent(
   } catch {
     return false;
   }
+}
+
+export type IssueRow = Tables<"device_issues">;
+export type EventRow = Tables<"device_events">;
+
+/**
+ * A member reports a problem with one of their own devices. Ownership is checked here (and again by RLS), and only
+ * the columns the browser role may insert (device_id, kind, note) are sent.
+ */
+export async function reportIssue(
+  supabase: Client,
+  input: { deviceId: string; userId: string; organizationId: string; kind: string; note: string },
+): Promise<{ ok: true } | { ok: false; error: string; field?: "kind" | "note" }> {
+  const v = validateIssueInput({ kind: input.kind, note: input.note });
+  if (!v.ok) return v;
+  const { data: device } = await supabase
+    .from("member_devices")
+    .select("id")
+    .eq("id", input.deviceId)
+    .eq("user_id", input.userId)
+    .eq("organization_id", input.organizationId)
+    .maybeSingle();
+  if (!device) return { ok: false, error: "Device not found." };
+  const { error } = await supabase.from("device_issues").insert({ device_id: input.deviceId, kind: v.kind, note: v.note });
+  if (error) return { ok: false, error: "Could not send your report. Try again." };
+  return { ok: true };
+}
+
+/** An org admin marks an open issue resolved. RLS limits the update to devices of the admin's organization. */
+export async function resolveIssue(
+  supabase: Client,
+  input: { issueId: string; adminId: string; organizationId: string; note: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const v = validateResolveNote(input.note);
+  if (!v.ok) return v;
+  const { data, error } = await supabase
+    .from("device_issues")
+    .update({ status: "resolved", resolved_by: input.adminId, resolved_note: v.note, resolved_at: new Date().toISOString() })
+    .eq("id", input.issueId)
+    .eq("status", "open")
+    .select("id");
+  if (error) return { ok: false, error: "Could not save this. Try again." };
+  if (!data || data.length === 0) return { ok: false, error: "This item is already resolved or no longer exists." };
+  return { ok: true };
+}
+
+/** All issues (open and resolved) for the given devices, newest first. */
+export async function listIssuesForDevices(supabase: Client, deviceIds: string[]): Promise<IssueRow[]> {
+  if (deviceIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from("device_issues")
+    .select("*")
+    .in("device_id", deviceIds)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(`Could not load device issues: ${error.message}`);
+  return (data ?? []) as IssueRow[];
+}
+
+/** The newest gateway events of one device (admin detail). */
+export async function listEventsForDevice(supabase: Client, deviceId: string, limit = 30): Promise<EventRow[]> {
+  const { data, error } = await supabase
+    .from("device_events")
+    .select("*")
+    .eq("device_id", deviceId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`Could not load device events: ${error.message}`);
+  return (data ?? []) as EventRow[];
 }

@@ -22,12 +22,14 @@ vi.mock("@/lib/env", () => ({ getGatewayEnv: () => ({ sharedSecret: null, baseDo
 
 const createDevice = vi.fn();
 const revokeDevice = vi.fn();
+const reportIssue = vi.fn();
 vi.mock("@/lib/devices/devices", () => ({
   createDevice: (...a: unknown[]) => createDevice(...a),
   revokeDevice: (...a: unknown[]) => revokeDevice(...a),
+  reportIssue: (...a: unknown[]) => reportIssue(...a),
 }));
 
-import { addDeviceAction, revokeDeviceAction } from "./actions";
+import { addDeviceAction, reportIssueAction, revokeDeviceAction } from "./actions";
 
 const fd = (o: Record<string, string>) => {
   const f = new FormData();
@@ -38,6 +40,7 @@ const fd = (o: Record<string, string>) => {
 beforeEach(() => {
   createDevice.mockReset();
   revokeDevice.mockReset();
+  reportIssue.mockReset();
   authed = true;
   baseDomain = "szvtech.org";
   session.membership = { organization_id: "org1", role: "staff", department: null };
@@ -112,5 +115,29 @@ describe("revokeDeviceAction", () => {
     const res = await revokeDeviceAction({}, fd({}));
     expect(res.error).toBeTruthy();
     expect(revokeDevice).not.toHaveBeenCalled();
+  });
+});
+
+describe("reportIssueAction", () => {
+  it("rejects unauthenticated callers", async () => {
+    authed = false;
+    await expect(reportIssueAction({}, fd({ deviceId: "d1", kind: "other" }))).rejects.toMatchObject({ to: "/login" });
+    expect(reportIssue).not.toHaveBeenCalled();
+  });
+  it("reports with the member's own client, id and org", async () => {
+    reportIssue.mockResolvedValue({ ok: true });
+    const res = await reportIssueAction({}, fd({ deviceId: "d1", kind: "nothing_prints", note: "hm" }));
+    expect(reportIssue).toHaveBeenCalledWith(supabase, { deviceId: "d1", userId: "u1", organizationId: "org1", kind: "nothing_prints", note: "hm" });
+    expect(res).toEqual({ reportedId: "d1" });
+  });
+  it("returns inline errors and field errors", async () => {
+    reportIssue.mockResolvedValue({ ok: false, error: "Choose what went wrong.", field: "kind" });
+    expect(await reportIssueAction({}, fd({ deviceId: "d1", kind: "" }))).toEqual({ error: "Choose what went wrong.", fieldErrors: { kind: "Choose what went wrong." } });
+  });
+  it("requires a device id and an organization", async () => {
+    expect((await reportIssueAction({}, fd({ kind: "other" }))).error).toBeTruthy();
+    session.membership = null;
+    expect((await reportIssueAction({}, fd({ deviceId: "d1", kind: "other" }))).error).toBeTruthy();
+    expect(reportIssue).not.toHaveBeenCalled();
   });
 });

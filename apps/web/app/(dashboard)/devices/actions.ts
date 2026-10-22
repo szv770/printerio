@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { getGatewayEnv } from "@/lib/env";
-import { createDevice, revokeDevice } from "@/lib/devices/devices";
+import { createDevice, reportIssue, revokeDevice } from "@/lib/devices/devices";
 import { deviceAddress } from "@/lib/devices/present";
 import { routes } from "@/lib/routes";
 
@@ -57,4 +57,29 @@ export async function revokeDeviceAction(_prev: RevokeDeviceState, formData: For
   if (!res.ok) return { error: res.error };
   revalidatePath(routes.devices);
   return { revokedId: deviceId };
+}
+
+export interface ReportIssueState {
+  error?: string;
+  fieldErrors?: { kind?: string; note?: string };
+  reportedId?: string;
+}
+
+export async function reportIssueAction(_prev: ReportIssueState, formData: FormData): Promise<ReportIssueState> {
+  const session = await requireSessionOrRedirect();
+  if (!session.membership) return { error: "Your account is not part of an organization yet." };
+  const deviceId = String(formData.get("deviceId") ?? "");
+  if (!deviceId) return { error: "Device not found." };
+
+  const supabase = await createClient();
+  const res = await reportIssue(supabase, {
+    deviceId,
+    userId: session.userId,
+    organizationId: session.membership.organization_id,
+    kind: String(formData.get("kind") ?? ""),
+    note: String(formData.get("note") ?? ""),
+  });
+  if (!res.ok) return res.field ? { error: res.error, fieldErrors: { [res.field]: res.error } } : { error: res.error };
+  revalidatePath(routes.devices);
+  return { reportedId: deviceId };
 }

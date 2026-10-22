@@ -2,9 +2,10 @@
 
 import { useActionState, useEffect, useRef, useState } from "react";
 import { Check, Copy, Monitor, Smartphone } from "lucide-react";
-import { Badge, Button, Card, EmptyState, FieldLabel, FormError, Input, Select } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, FieldLabel, FormError, Input, Select, Textarea } from "@/components/ui";
+import { ISSUE_KINDS, issueKindLabel, MAX_ISSUE_NOTE } from "@/lib/devices/admin";
 import { deviceAddress, deviceStatus, deviceTypeLabel, setupSteps } from "@/lib/devices/present";
-import { addDeviceAction, revokeDeviceAction, type AddDeviceState, type RevokeDeviceState } from "./actions";
+import { addDeviceAction, reportIssueAction, revokeDeviceAction, type AddDeviceState, type ReportIssueState, type RevokeDeviceState } from "./actions";
 
 export interface DeviceItem {
   id: string;
@@ -15,6 +16,8 @@ export interface DeviceItem {
   last_seen_at: string | null;
   first_job_at: string | null;
   first_printed_at: string | null;
+  /** Problems this member reported that nobody has resolved yet. */
+  open_issues?: number;
 }
 
 const TYPE_OPTIONS = [
@@ -28,6 +31,7 @@ const TYPE_OPTIONS = [
 
 const addInitial: AddDeviceState = {};
 const revokeInitial: RevokeDeviceState = {};
+const reportInitial: ReportIssueState = {};
 
 export function DevicesView({ devices }: { devices: DeviceItem[] }) {
   const [adding, setAdding] = useState(false);
@@ -211,6 +215,7 @@ function DeviceRowItem({ device }: { device: DeviceItem }) {
   const status = deviceStatus(device);
   const revoked = status.key === "revoked";
   const [confirming, setConfirming] = useState(false);
+  const [reporting, setReporting] = useState(false);
   const [state, formAction, pending] = useActionState(revokeDeviceAction, revokeInitial);
   const Icon = device.device_type === "android" || device.device_type === "iphone" ? Smartphone : Monitor;
   const added = new Date(device.created_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
@@ -228,7 +233,11 @@ function DeviceRowItem({ device }: { device: DeviceItem }) {
           </div>
           <Badge tone={status.tone}>{status.label}</Badge>
         </div>
-        {!revoked && (
+        {!revoked && (device.open_issues ?? 0) > 0 && !reporting && (
+          <p className="rounded-lg bg-yellow-50 p-2 text-sm text-yellow-900">You told us about a problem with this device. Your administrator will look at it.</p>
+        )}
+        {!revoked && reporting && <ReportIssueForm deviceId={device.id} onClose={() => setReporting(false)} />}
+        {!revoked && !reporting && (
           <div className="min-h-9">
             {confirming ? (
               <form
@@ -251,13 +260,86 @@ function DeviceRowItem({ device }: { device: DeviceItem }) {
                 <FormError message={state.error} />
               </form>
             ) : (
-              <Button type="button" size="sm" variant="outline-danger" onClick={() => setConfirming(true)}>
-                Turn off
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" size="sm" variant="outline" onClick={() => setReporting(true)}>
+                  I&apos;m having trouble
+                </Button>
+                <Button type="button" size="sm" variant="outline-danger" onClick={() => setConfirming(true)}>
+                  Turn off
+                </Button>
+              </div>
             )}
           </div>
         )}
       </Card>
     </li>
+  );
+}
+
+/** Pick what went wrong, add an optional note. On success shows a plain confirmation until closed. */
+function ReportIssueForm({ deviceId, onClose }: { deviceId: string; onClose: () => void }) {
+  const [state, formAction, pending] = useActionState(reportIssueAction, reportInitial);
+  const doneRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (state.reportedId) doneRef.current?.focus();
+  }, [state.reportedId]);
+
+  if (state.reportedId) {
+    return (
+      <div className="flex flex-col gap-2">
+        <p ref={doneRef} tabIndex={-1} role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-900 outline-none">
+          Thanks, we got it. Your administrator will take a look.
+        </p>
+        <div>
+          <Button type="button" size="sm" variant="outline" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const fieldId = `issue-${deviceId}`;
+  return (
+    <form
+      action={formAction}
+      aria-busy={pending}
+      className="flex flex-col gap-3"
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && !pending) onClose();
+      }}
+    >
+      <input type="hidden" name="deviceId" value={deviceId} />
+      <fieldset disabled={pending} className="flex flex-col gap-2">
+        <legend className="mb-1 text-sm font-medium">What went wrong?</legend>
+        {ISSUE_KINDS.map((k, i) => (
+          <label key={k} className="flex items-start gap-2 text-sm">
+            <input type="radio" name="kind" value={k} autoFocus={i === 0} className="mt-1" />
+            <span>{issueKindLabel(k)}</span>
+          </label>
+        ))}
+        <div className="min-h-5">
+          <FormError message={state.fieldErrors?.kind} />
+        </div>
+      </fieldset>
+      <div>
+        <FieldLabel htmlFor={fieldId} hint="(optional)">
+          Anything else we should know?
+        </FieldLabel>
+        <Textarea id={fieldId} name="note" rows={3} maxLength={MAX_ISSUE_NOTE} disabled={pending} className="font-sans" aria-invalid={!!state.fieldErrors?.note} />
+        <div className="min-h-5">
+          <FormError message={state.fieldErrors?.note} />
+        </div>
+      </div>
+      <div className="min-h-5">{!state.fieldErrors && <FormError message={state.error} />}</div>
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" size="sm" pending={pending} pendingLabel="Sending...">
+          Send
+        </Button>
+        <Button type="button" size="sm" variant="outline" disabled={pending} onClick={onClose}>
+          Cancel
+        </Button>
+      </div>
+    </form>
   );
 }

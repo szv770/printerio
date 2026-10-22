@@ -10,6 +10,7 @@ import {
   FolderKanban,
   Printer,
   Cpu,
+  Smartphone,
   ShieldCheck,
   Gauge,
   Globe,
@@ -218,6 +219,12 @@ function NavItems({
         <NavLink href={routes.adminAgents} icon={Cpu} pathname={pathname}>
           Agents
         </NavLink>
+        {/* Devices requires org_admin (app/admin/devices/page.tsx). */}
+        {isOrgAdmin && (
+          <NavLink href={routes.adminDevices} icon={Smartphone} pathname={pathname}>
+            Devices
+          </NavLink>
+        )}
       </NavGroup>
 
       <NavGroup title="Rules">
