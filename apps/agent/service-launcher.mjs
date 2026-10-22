@@ -32,9 +32,10 @@
 import { register } from "tsx/esm/api";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { entryUrl } from "./service-entry.mjs";
 
 register();
 
 process.argv[2] = "start";
 const here = path.dirname(fileURLToPath(import.meta.url));
-await import(path.join(here, "src", "index.ts"));
+await import(entryUrl(here));
