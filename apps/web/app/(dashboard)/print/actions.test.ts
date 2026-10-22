@@ -92,4 +92,21 @@ describe("submitPrintJobAction", () => {
     expect(await submitPrintJobAction({}, form({ sides: "" }))).toMatchObject({ error: expect.stringMatching(/single-sided or double-sided/) });
     expect(createPrintJob).not.toHaveBeenCalled();
   });
+
+  it("answers the blank-pages question the same however long the member waited (the server keeps no state between the two submits)", async () => {
+    vi.useFakeTimers();
+    try {
+      const needs = { sourcePages: 10, paddedPages: 12, blankPagesAdded: 2 };
+      createPrintJob.mockResolvedValueOnce({ ok: false, kind: "needs_booklet_confirm", needsBookletConfirm: needs });
+      expect(await submitPrintJobAction({}, form({ booklet: "left" }))).toEqual({ needsBookletConfirm: needs });
+
+      await vi.advanceTimersByTimeAsync(2 * 60 * 60 * 1000); // two hours later
+
+      createPrintJob.mockResolvedValueOnce({ ok: true, jobId: "job-7", jobNumber: "JOB-7", status: "approved", heldReason: null, policyReasons: [] });
+      await expect(submitPrintJobAction({ needsBookletConfirm: needs }, form({ booklet: "left", confirmBookletPadding: "true" }))).rejects.toMatchObject({ to: "/jobs/job-7" });
+      expect(createPrintJob.mock.calls[1]![4]).toMatchObject({ confirmBookletPadding: true, writeClient: serviceClient });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

@@ -15,10 +15,13 @@ import {
   type StapleChoice,
 } from "@/lib/print-choices";
 import { submitPrintJobAction, type SubmitJobState } from "./actions";
+import { createFileSnapshotCache, wrapSubmitAction } from "@/lib/print-submit";
 
 // A "use server" file may only export async functions, so this trivial seed
 // value for useActionState lives here instead of alongside the action.
 const initialSubmitJobState: SubmitJobState = {};
+// A failed call becomes a plain message (and keeps the blank-pages question open) instead of a silent failure.
+const safeSubmitPrintJobAction = wrapSubmitAction(submitPrintJobAction);
 
 interface PrinterOption {
   id: string;
@@ -97,7 +100,7 @@ export function PrintForm({
    *  instantly. Advisory: print/actions.ts re-reads the same setting server-side and is the real gate. */
   maxUploadBytes: number;
 }) {
-  const [state, formAction, pending] = useActionState(submitPrintJobAction, initialSubmitJobState);
+  const [state, formAction, pending] = useActionState(safeSubmitPrintJobAction, initialSubmitJobState);
 
   const [profileId, setProfileId] = useState(printerProfiles[0]?.id ?? "");
   const [estimatedPages, setEstimatedPages] = useState<number | null>(null);
@@ -113,6 +116,9 @@ export function PrintForm({
   const formRef = useRef<HTMLFormElement>(null);
   /** True only while the member's explicit click on "Add blank pages & print" is submitting the form. */
   const confirmingRef = useRef(false);
+  /** In-memory copy of the picked file, taken on the first Print press so the answer to the blank-pages question
+   *  re-sends it however long the member waits (the browser's handle on the disk file can go stale; lib/print-submit.ts). */
+  const fileSnapshots = useRef(createFileSnapshotCache());
   /** Bumped whenever a different file is picked, so the booklet prompt below cannot outlive the file it asked about. */
   const [fileVersion, setFileVersion] = useState(0);
   /** What the form looked like when the server last asked the padding question (null = not asked / cleared). */
@@ -202,7 +208,10 @@ export function PrintForm({
   // The booklet padding question replaces the Submit button. On a phone the button the user just tapped is at
   // the bottom of the viewport and the question appears above it, so without this it reads as "nothing happened".
   useEffect(() => {
-    if (needsBookletConfirm) bookletConfirmRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+    if (!needsBookletConfirm) return;
+    const card = bookletConfirmRef.current;
+    card?.scrollIntoView({ block: "start", behavior: "smooth" });
+    card?.focus({ preventScroll: true });
   }, [needsBookletConfirm]);
 
   /** Clears the picked file and explains why, so the user can't sit through a slow upload of something the server was always going to reject. */
@@ -220,6 +229,7 @@ export function PrintForm({
     const input = e.target;
     const file = input.files?.[0];
     setFileVersion((v) => v + 1);
+    fileSnapshots.current.clear();
     setEstimatedPages(null);
     setFileError(null);
     setFileName(file?.name ?? null);
@@ -283,7 +293,7 @@ export function PrintForm({
    * only when the member explicitly clicked the confirm button (confirmingRef), never because Enter in a text
    * field happened to activate some submit button.
    */
-  function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (pending) return;
     if (!canSubmit) {
@@ -300,8 +310,19 @@ export function PrintForm({
       return;
     }
     setClientError(null);
+    const confirming = confirmingRef.current && !!needsBookletConfirm;
     const data = new FormData(e.currentTarget);
-    if (confirmingRef.current && needsBookletConfirm) data.set("confirmBookletPadding", "true");
+    if (confirming) data.set("confirmBookletPadding", "true");
+    const picked = data.get("file");
+    if (picked instanceof File && picked.size > 0) {
+      try {
+        data.set("file", await fileSnapshots.current.get(picked));
+      } catch (err) {
+        // Nothing was sent; the choices and the question stay exactly as they are.
+        setClientError(err instanceof Error ? err.message : "Choose the file again, then press Print.");
+        return;
+      }
+    }
     setAskedSignature(formSignature);
     startTransition(() => formAction(data));
   }
@@ -317,6 +338,60 @@ export function PrintForm({
 
   return (
     <form ref={formRef} onSubmit={onSubmit} className="flex flex-col gap-5">
+      {needsBookletConfirm && (
+        <div
+          ref={bookletConfirmRef}
+          tabIndex={-1}
+          role="alertdialog"
+          aria-labelledby="booklet-confirm-title"
+          aria-describedby="booklet-confirm-body"
+          className="scroll-mt-4 rounded-2xl border-2 border-[var(--color-warning)] bg-yellow-50 p-4 text-sm shadow-md outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-warning)]"
+        >
+          <p id="booklet-confirm-title" className="text-base font-semibold">
+            Question before printing: your booklet needs blank pages
+          </p>
+          <p id="booklet-confirm-body" className="mt-1">
+            Your document has {needsBookletConfirm.sourcePages} {needsBookletConfirm.sourcePages === 1 ? "page" : "pages"}, and a booklet needs a multiple
+            of 4. Add {needsBookletConfirm.blankPagesAdded} blank {needsBookletConfirm.blankPagesAdded === 1 ? "page" : "pages"} at the end to make{" "}
+            {needsBookletConfirm.paddedPages}?
+          </p>
+          <ul className="mt-2 list-disc pl-5 text-[var(--color-muted)]">
+            <li>
+              <strong className="text-[var(--color-text)]">Add blank pages and print</strong> - sends the job now with the blank{" "}
+              {needsBookletConfirm.blankPagesAdded === 1 ? "page" : "pages"} at the back.
+            </li>
+            <li>
+              <strong className="text-[var(--color-text)]">Cancel booklet</strong> - prints nothing and switches the booklet option off, so you can change
+              your choices.
+            </li>
+          </ul>
+          <FormError message={clientError ?? serverError} />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setBooklet("none");
+                setDismissedState(state);
+              }}
+            >
+              Cancel booklet
+            </Button>
+            {/* type="button": only this click (via confirmBookletPadding) ever sends confirmBookletPadding=true.
+                Enter in Copies/Pages submits nothing while this question is open (no submit button exists).
+                `pending` matters because this re-uploads the whole file: a double-tap would otherwise print the
+                booklet twice. */}
+            <Button type="button" pending={pending} pendingLabel="Submitting..." onClick={confirmBookletPadding}>
+              Add blank pages &amp; print
+            </Button>
+          </div>
+          <p className="mt-2 text-xs text-[var(--color-muted)]">
+            Your file and choices are kept. Take as long as you need - answering re-sends the file, and if that does not go through you can press the button
+            again.
+          </p>
+        </div>
+      )}
+
       <Card className="flex flex-col gap-3">
         <FieldLabel htmlFor="file">Document</FieldLabel>
         <div className="flex items-start gap-4" data-tour="print-file-picker">
@@ -601,34 +676,8 @@ export function PrintForm({
           )}
         </div>
 
-        {needsBookletConfirm && (
-          <div ref={bookletConfirmRef} className="rounded-lg border border-[var(--color-warning)] bg-yellow-50 p-3 text-sm">
-            <p className="font-medium">
-              {needsBookletConfirm.sourcePages} {needsBookletConfirm.sourcePages === 1 ? "page" : "pages"} to print. A booklet needs a multiple of 4.
-            </p>
-            <p className="mt-1">
-              Add {needsBookletConfirm.blankPagesAdded} blank {needsBookletConfirm.blankPagesAdded === 1 ? "page" : "pages"} to make {needsBookletConfirm.paddedPages}?
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => {
-                  setBooklet("none");
-                  setDismissedState(state);
-                }}>
-                Cancel booklet
-              </Button>
-              {/* type="button": only this click (via confirmBookletPadding) ever sends confirmBookletPadding=true.
-                  Enter in Copies/Pages submits nothing while this question is open (no submit button exists).
-                  `pending` matters because this re-uploads the whole file: a double-tap would otherwise print the
-                  booklet twice. */}
-              <Button type="button" size="sm" pending={pending} pendingLabel="Submitting..." onClick={confirmBookletPadding}>
-                Add blank pages &amp; print
-              </Button>
-            </div>
-            <p className="mt-2 text-xs text-[var(--color-muted)]">Your file is still selected - confirming re-sends it with the blank pages added.</p>
-          </div>
-        )}
-
-        <FormError message={clientError ?? serverError} />
+        {!needsBookletConfirm && <FormError message={clientError ?? serverError} />}
+        {needsBookletConfirm && <p className="text-sm font-medium">Answer the question at the top of the form to continue.</p>}
 
         {!needsBookletConfirm && (
           <Button
