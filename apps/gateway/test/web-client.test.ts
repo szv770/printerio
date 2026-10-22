@@ -76,7 +76,7 @@ describe("web client", () => {
 
   it("finalize: 200 -> job, 422 -> bad_pdf; getJob 404 -> null; cancel mapping", async () => {
     const answers = [
-      json(200, { jobId: "j", jobNumber: 7, status: "held", message: "m" }),
+      json(200, { jobId: "j", jobNumber: "JOB-2026-000007", status: "held", message: "m" }),
       json(422, { error: "bad_pdf", message: "bad" }),
       json(404, {}),
       json(200, { jobId: "j", status: "printing" }),
@@ -90,7 +90,7 @@ describe("web client", () => {
       return answers.shift() as Response;
     });
     const c = client(f as unknown as typeof fetch);
-    expect(await c.finalize({} as never)).toEqual({ kind: "ok", job: { jobId: "j", jobNumber: 7, status: "held", message: "m" } });
+    expect(await c.finalize({} as never)).toEqual({ kind: "ok", job: { jobId: "j", jobNumber: "JOB-2026-000007", status: "held", message: "m" } });
     expect(await c.finalize({} as never)).toEqual({ kind: "bad_pdf", message: "bad" });
     expect(await c.getJob("j", "d")).toBeNull();
     expect(await c.getJob("j", "d")).toMatchObject({ status: "printing" });

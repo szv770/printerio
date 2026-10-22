@@ -32,7 +32,8 @@ export interface FinalizeRequest {
 
 export interface JobInfo {
   jobId: string;
-  jobNumber?: number;
+  /** The web app's text job number (print_jobs.job_number, e.g. "JOB-2026-000002"). Display only: IPP job ids are integers. */
+  jobNumber?: string;
   status: JobState;
   message?: string;
 }
@@ -41,7 +42,7 @@ export interface JobInfo {
 export type RefusalReason = "quota_exceeded" | "rate_limited" | "invalid_request" | "intake_not_found" | "revoked" | "inactive_member";
 
 export type FinalizeResult =
-  | { kind: "ok"; job: JobInfo & { jobNumber: number } }
+  | { kind: "ok"; job: JobInfo & { jobNumber: string } }
   | { kind: "bad_pdf"; message: string }
   | { kind: "refused"; reason: RefusalReason; message?: string };
 
@@ -155,9 +156,11 @@ export function createWebClient(opts: WebClientOptions): WebApi {
       const { status, json } = await call("POST", "/api/gateway/jobs/finalize", req, opts.finalizeTimeoutMs ?? DEFAULT_FINALIZE_TIMEOUT);
       if (status === 200) {
         const jobId = str(json.jobId);
-        const jobNumber = json.jobNumber;
+        // The web app sends its text job number; a plain number is accepted too (older contract wording).
+        const rawNumber = json.jobNumber;
+        const jobNumber = typeof rawNumber === "string" && rawNumber ? rawNumber : typeof rawNumber === "number" ? String(rawNumber) : undefined;
         const state = str(json.status);
-        if (!jobId || typeof jobNumber !== "number" || !state) throw new WebUnavailableError("finalize returned an unexpected body");
+        if (!jobId || !jobNumber || !state) throw new WebUnavailableError("finalize returned an unexpected body");
         return { kind: "ok", job: { jobId, jobNumber, status: state as JobState, message: str(json.message) } };
       }
       if (status === 422) return { kind: "bad_pdf", message: str(json.message) ?? "The file could not be read as a PDF." };

@@ -63,6 +63,11 @@ export class JobRegistry {
     return entry;
   }
 
+  /** A fresh IPP job id (an integer, unique across devices) for jobs that arrive without a Create-Job first. */
+  allocateId(): number {
+    return this.nextPendingId++;
+  }
+
   /** Records a job the web app created for this device (Print-Job, or a Create-Job entry after Send-Document). */
   markSubmitted(
     deviceId: string,

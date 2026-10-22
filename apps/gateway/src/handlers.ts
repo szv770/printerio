@@ -292,7 +292,7 @@ async function submitDocument(
   const entry = deps.registry.markSubmitted(
     device.deviceId,
     p.pending,
-    { ippId: j.jobNumber, webJobId: j.jobId, state: j.status, message: j.message, bytes: p.doc.length },
+    { ippId: deps.registry.allocateId(), webJobId: j.jobId, state: j.status, message: j.message, bytes: p.doc.length },
     { name, userName: p.userName, attributes },
   );
   return { ok: true, entry };

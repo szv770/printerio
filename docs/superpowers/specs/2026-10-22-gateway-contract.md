@@ -133,7 +133,7 @@ this job as held with this reason" (`forcedHeldReason`), reusing its existing he
 - `deviceId` endpoints answer `403 revoked` / `403 inactive_member` / `404 unknown_device` like `device/resolve`. `GET jobs/<id>` does not
   check revocation (a revoked device can still read what it already sent); `404 unknown_job` for a job that is not that device's.
   `cancel` answers `409 not_cancellable` outside held / pending_approval / approved.
-- `finalize` 200 body also carries `jobNumber`; `message` is the held reason, the first policy reason (denied), or a short note.
+- `finalize` 200 body also carries `jobNumber`, which is the web app's TEXT job number (e.g. `JOB-2026-000002`), display only. IPP job ids are integers, so the gateway issues its own id for jobs that arrive without a Create-Job; Create-Job jobs keep the id handed out at Create-Job time; `message` is the held reason, the first policy reason (denied), or a short note.
 - `storagePath` must match `gateway-intake/<deviceId>/<file>` where `<file>` is letters, digits, `.`, `_`, `-` (the contract's `<uuid>.pdf` fits).
 - `page-ranges` with an upper bound of 2147483647 ("to the end") becomes `N-`. A range the document does not have holds the job.
 - Job names: `ipp.jobName` (else `fileName`) becomes the stored file name.
