@@ -3,6 +3,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { adjustMonthlyUsage } from "@/lib/quota";
 import { sweepRetention } from "@/lib/retention";
 import { logger } from "@/lib/logger";
+import { isAutoRetryEnabled, requeueFailedJob } from "@/lib/jobs/lifecycle";
 import { filterAffectedRows, groupJobsByAttemptCount, groupQuotaReleases, jobsHoldingQuota } from "@/lib/cron-sweep";
 
 /**
@@ -18,6 +19,9 @@ import { filterAffectedRows, groupJobsByAttemptCount, groupQuotaReleases, jobsHo
  * than skipping or double-processing anything.
  */
 const SELECTION_LIMIT = 500;
+
+/** A failed job that still has retries left keeps its quota reservation this long, then is cancelled (and released). */
+const FAILED_RETRY_WINDOW_DAYS = 7;
 
 /** Vercel Functions default/allow a wide range of duration limits depending
  *  on plan tier; this repo's docs don't pin one, so 60s is chosen as a value
@@ -40,7 +44,14 @@ export async function GET(request: Request) {
 
   const supabase = createServiceRoleClient();
   const nowIso = new Date().toISOString();
-  const results = { expiredApprovals: 0, releasedLeases: 0, failedFromStaleLease: 0, filesDeleted: 0 };
+  const results = {
+    expiredApprovals: 0,
+    releasedLeases: 0,
+    failedFromStaleLease: 0,
+    autoRetried: 0,
+    abandonedFailed: 0,
+    filesDeleted: 0,
+  };
 
   // 1. Expire pending_approval AND held jobs past their deadline (held -> expired is legal; a held job waits
   //    for its sender). Only pending_approval jobs reserved quota, so only those are released below. Batched:
@@ -248,6 +259,65 @@ export async function GET(request: Request) {
           ),
         ),
       );
+      // Automatic retry (organization setting, default OFF): a job that is not out of attempts goes straight back to
+      // the claim pool, keeping its reservation. Test prints are never auto-retried (an admin re-sends them).
+      const retryable = affected.filter((job) => !job.is_test_print && job.attempt_count + 1 < job.max_attempts);
+      if (retryable.length > 0) {
+        const enabledByOrg = new Map<string, boolean>();
+        for (const orgId of new Set(retryable.map((j) => j.organization_id))) {
+          enabledByOrg.set(orgId, await isAutoRetryEnabled(supabase, orgId));
+        }
+        for (const job of retryable) {
+          if (!enabledByOrg.get(job.organization_id)) continue;
+          if (await requeueFailedJob(supabase, { ...job, attempt_count: job.attempt_count + 1 }, { type: "system" })) {
+            results.autoRetried += 1;
+          }
+        }
+      }
+    }
+  }
+
+  // 3b. Abandon failed jobs nobody retried. A failed job with attempts left keeps its quota reservation so the owner
+  //     can press Try again; after this long we treat it as given up: cancel it and release exactly once.
+  const abandonBefore = new Date(Date.parse(nowIso) - FAILED_RETRY_WINDOW_DAYS * 86_400_000).toISOString();
+  const { data: staleFailed } = await supabase
+    .from("print_jobs")
+    .select("id, organization_id, created_by, attempt_count, max_attempts, is_test_print, source_pdf_pages, copies, estimated_printed_sides, estimated_physical_sheets, color_mode")
+    .eq("status", "failed")
+    .lt("updated_at", abandonBefore)
+    .order("updated_at", { ascending: true })
+    .limit(SELECTION_LIMIT);
+  for (const job of (staleFailed ?? []).filter((j) => j.attempt_count < j.max_attempts)) {
+    const { data: cancelled } = await supabase
+      .from("print_jobs")
+      .update({ status: "cancelled" })
+      .eq("id", job.id)
+      .eq("status", "failed")
+      .eq("attempt_count", job.attempt_count)
+      .select("id");
+    if (!cancelled || cancelled.length === 0) continue;
+    results.abandonedFailed += 1;
+    await supabase.from("print_job_events").insert({
+      job_id: job.id,
+      event_type: "JOB_CANCELLED" as const,
+      actor_type: "system" as const,
+      metadata: { reason: "failed_and_not_retried" },
+    });
+    if (!job.is_test_print) {
+      const [group] = groupQuotaReleases([
+        {
+          organizationId: job.organization_id,
+          userId: job.created_by,
+          sourcePdfPages: job.source_pdf_pages,
+          copies: job.copies,
+          estimatedPrintedSides: job.estimated_printed_sides,
+          estimatedPhysicalSheets: job.estimated_physical_sheets,
+          colorMode: job.color_mode,
+        },
+      ]);
+      if (group) {
+        await adjustMonthlyUsage(supabase, { organizationId: group.organizationId, userId: group.userId }, group.amounts, "physical_sheets", null, "release");
+      }
     }
   }
 

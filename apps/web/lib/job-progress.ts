@@ -1,5 +1,6 @@
 import { JOB_STATES, type JobState } from "@printio/shared";
 import type { JobEventType } from "./job-event-labels";
+import { friendlyFailureMessage } from "./job-failure";
 
 /**
  * "Where is my job up to right now?", answered as an ordered set of stages
@@ -246,7 +247,7 @@ function buildExplanation(input: JobProgressInput, retryable: boolean): JobProgr
   const reasons = (input.policyReasons ?? []).filter((r) => r.trim().length > 0);
   const attempt =
     typeof input.attemptCount === "number" && typeof input.maxAttempts === "number" && input.maxAttempts > 0
-      ? `Attempt ${Math.min(input.attemptCount, input.maxAttempts)} of ${input.maxAttempts}.`
+      ? `Tried ${Math.min(input.attemptCount, input.maxAttempts)} of ${input.maxAttempts} times.`
       : null;
 
   switch (input.status) {
@@ -281,15 +282,13 @@ function buildExplanation(input: JobProgressInput, retryable: boolean): JobProgr
     case "cancelled":
       return { title: "Cancelled", lines: ["This job was cancelled and never printed. Your quota was released."] };
     case "failed": {
-      const lines = [
-        input.errorMessage?.trim() ||
-          "The print agent reported a failure but sent no detail. Ask an administrator to check the agent's log for this job number.",
-      ];
+      // What failed, in plain words - never the agent's raw text (stack traces, spooler codes, database errors).
+      const lines = [friendlyFailureMessage(input.errorMessage)];
       if (attempt) lines.push(attempt);
       lines.push(
         retryable
-          ? "This job can still be retried automatically by a print agent."
-          : "Every allowed attempt has been used, so this job will not be retried on its own. Use “Print again” to submit a fresh copy.",
+          ? "Press “Try again” to send it to the printer again, or cancel it."
+          : "Every allowed try has been used, so this job will not be retried. Use “Print again” to send a fresh copy.",
       );
       return { title: "This job did not print", lines };
     }
@@ -382,7 +381,7 @@ export function jobAttentionLine(input: {
     case "held":
       return input.heldReason?.trim() || "Waiting for you to choose your print options.";
     case "failed":
-      return input.errorMessage?.trim() || "The print agent reported a failure with no detail.";
+      return friendlyFailureMessage(input.errorMessage);
     case "denied":
       return input.policyReasons?.[0] ?? "Blocked by your organization's print rules.";
     case "rejected":

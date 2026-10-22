@@ -546,6 +546,7 @@ export type Database = {
       organization_settings: {
         Row: {
           admins_bypass_restrictions: boolean
+          auto_retry_failed_prints: boolean
           default_booklet_binding_side: string
           default_policy_action: string
           job_approval_expiry_hours: number
@@ -564,6 +565,7 @@ export type Database = {
         }
         Insert: {
           admins_bypass_restrictions?: boolean
+          auto_retry_failed_prints?: boolean
           default_booklet_binding_side?: string
           default_policy_action?: string
           job_approval_expiry_hours?: number
@@ -582,6 +584,7 @@ export type Database = {
         }
         Update: {
           admins_bypass_restrictions?: boolean
+          auto_retry_failed_prints?: boolean
           default_booklet_binding_side?: string
           default_policy_action?: string
           job_approval_expiry_hours?: number

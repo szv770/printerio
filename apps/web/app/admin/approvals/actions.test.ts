@@ -95,6 +95,14 @@ describe("approveJobAction", () => {
     expect(memberWrites).toEqual([]);
   });
 
+  it("lets an approver approve their OWN job (no self-approval block)", async () => {
+    job = pending({ created_by: "approver-1" });
+    expect(await approveJobAction({}, fd())).toEqual({});
+    const upd = writes.find((w) => w.table === "print_jobs" && w.op === "update")!;
+    expect(upd.values).toMatchObject({ status: "approved", approved_by: "approver-1" });
+    expect(memberWrites).toEqual([]);
+  });
+
   it("is approver/admin only: a plain member is refused and nothing is written", async () => {
     roleAllowed = false;
     await expect(approveJobAction({}, fd())).rejects.toThrow(/Requires one of roles: org_admin, approver/);

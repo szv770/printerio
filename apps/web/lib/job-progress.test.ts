@@ -50,6 +50,7 @@ describe("stage maps stay pinned to the real state machine", () => {
   const DOCUMENTED_REWINDS: ReadonlyArray<readonly [JobState, JobState]> = [
     ["claimed", "approved"], // lease expired, released back to the pool
     ["failed", "claimed"], // retry
+    ["failed", "approved"], // retry: re-queued to the claim pool
   ];
 
   /**
@@ -199,6 +200,21 @@ describe("buildJobProgress - an admin test print", () => {
     expect(progress.explanation?.lines[0]).toContain("Kyocera_Main");
   });
 
+  it("explains a failure in plain words, never raw agent/database text, and points at Try again while retryable", () => {
+    const retryable = buildJobProgress({
+      status: "failed",
+      errorMessage: ["Error: ECONNREFUSED", "    at connect (C:\\agent\\net.js:10:5)"].join("\n"),
+      attemptCount: 1,
+      maxAttempts: 3,
+      eventTypes: ["AGENT_CLAIMED", "PRINT_FAILED"],
+    });
+    const text = retryable.explanation!.lines.join(" ");
+    expect(text).not.toMatch(/at connect|net\.js|ECONNREFUSED/);
+    expect(text).toMatch(/Try again/);
+    const exhausted = buildJobProgress({ status: "failed", errorMessage: "x", attemptCount: 3, maxAttempts: 3, eventTypes: [] });
+    expect(exhausted.explanation!.lines.join(" ")).not.toMatch(/Try again/);
+  });
+
   it("leaves every other job untouched - the flag defaults off", () => {
     expect(stageState({ status: "approved", policyAction: "allow" }, "policy")).toBe("done");
   });
@@ -268,15 +284,16 @@ describe("buildJobProgress - stopped jobs say where and why", () => {
     expect(failedAtSpooler.currentStageId).toBe("printing");
   });
 
-  it("surfaces the agent's own error message rather than a generic failure", () => {
+  it("explains what failed in plain words rather than echoing the agent's raw message", () => {
     const progress = buildJobProgress({
       status: "failed",
       errorMessage: "printer is offline (JOB_STATUS_OFFLINE)",
       attemptCount: 3,
       maxAttempts: 3,
     });
-    expect(progress.explanation?.lines[0]).toBe("printer is offline (JOB_STATUS_OFFLINE)");
-    expect(progress.explanation?.lines).toContain("Attempt 3 of 3.");
+    expect(progress.explanation?.lines[0]).toMatch(/printer reported a problem/i);
+    expect(progress.explanation?.lines[0]).not.toMatch(/JOB_STATUS/);
+    expect(progress.explanation?.lines).toContain("Tried 3 of 3 times.");
     expect(progress.retryable).toBe(false);
   });
 
@@ -284,7 +301,7 @@ describe("buildJobProgress - stopped jobs say where and why", () => {
     const progress = buildJobProgress({ status: "failed", errorMessage: "spooler timeout", attemptCount: 1, maxAttempts: 3 });
     expect(progress.retryable).toBe(true);
     expect(progress.stages.find((s) => s.id === "done")?.state).toBe("upcoming");
-    expect(progress.explanation?.lines.some((l) => /retried/i.test(l))).toBe(true);
+    expect(progress.explanation?.lines.some((l) => /try again/i.test(l))).toBe(true);
   });
 
   it("marks stages after an unrecoverable stop as unreachable, not merely upcoming", () => {
@@ -352,9 +369,9 @@ describe("jobListBucket", () => {
 });
 
 describe("jobAttentionLine", () => {
-  it("prefers the agent's own error message over any generic wording", () => {
+  it("gives a plain-words reason (never the raw agent text)", () => {
     expect(jobAttentionLine({ status: "failed", errorMessage: "Windows queue 'Kyocera_Main' not found" })).toBe(
-      "Windows queue 'Kyocera_Main' not found",
+      'The printer queue "Kyocera_Main" was not found on the print computer. Ask an administrator to check the printer setup.',
     );
   });
 

@@ -9,6 +9,7 @@ import { routes } from "@/lib/routes";
 import { Badge, EmptyState } from "@/components/ui";
 import { jobAttentionLine, jobListBucket } from "@/lib/job-progress";
 import { ReprintButton } from "./[id]/ReprintButton";
+import { CancelJobButton } from "./[id]/CancelJobButton";
 import { JobStatusBadge } from "./JobStatusBadge";
 import { JobProgressBar } from "./JobProgressBar";
 import { LocalTime } from "./LocalTime";
@@ -246,6 +247,7 @@ export function JobsList({
                 {/* Reprinting re-runs the ordinary pipeline (policy + quota),
                  *  so it is not offered for a test print - see the job detail
                  *  page for the same reasoning. */}
+                {["held", "pending_approval", "approved", "failed"].includes(job.status) && <CancelJobButton jobId={job.id} compact />}
                 {!job.is_test_print &&
                   (job.files_purged_at ? (
                     <p className="mt-1 text-xs text-[var(--color-muted)]">

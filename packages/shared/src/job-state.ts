@@ -62,9 +62,11 @@ export function isTerminalState(state: JobState): boolean {
  * never silently allowed (e.g. "approved -> completed" skipping every
  * intermediate step is explicitly forbidden by the spec).
  *
- * Retry note: on failure, the job service may transition failed -> claimed
- * again (a fresh lease) if attempt_count < max_attempts; that retry edge is
- * included below rather than treated as a special case.
+ * Retry note: on failure, the job service may transition failed -> approved
+ * (re-queued, lease cleared, quota reservation kept) if attempt_count <
+ * max_attempts - by the owner's "Try again" or automatically when the
+ * organization enables it; failed -> claimed (a fresh lease) is also legal.
+ * Those retry edges are included below rather than treated as special cases.
  */
 export const ALLOWED_TRANSITIONS: Record<JobState, readonly JobState[]> = {
   draft: ["held", "pending_approval", "approved", "denied", "cancelled"],
@@ -83,7 +85,7 @@ export const ALLOWED_TRANSITIONS: Record<JobState, readonly JobState[]> = {
   printing: ["submitted_to_spooler", "failed"],
   submitted_to_spooler: ["completed", "failed"],
   completed: [],
-  failed: ["claimed", "cancelled"], // retry re-enters the lease flow; exhausted retries stay failed
+  failed: ["claimed", "approved", "cancelled"], // retry: re-queued to the claim pool (approved) or re-leased; exhausted retries stay failed
 };
 
 export function canTransition(from: JobState, to: JobState): boolean {

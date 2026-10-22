@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { Globe, Mail, BookOpen, ShieldAlert, Stamp } from "lucide-react";
+import { Globe, Mail, BookOpen, ShieldAlert, Stamp, RotateCw } from "lucide-react";
 import { Button, Textarea, FieldLabel, FormError, FormSuccess, Card, Badge, Select } from "@/components/ui";
 import {
   updateAllowedDomainsAction,
@@ -9,6 +9,7 @@ import {
   updateDefaultBookletBindingSideAction,
   updateAdminsBypassRestrictionsAction,
   updateStampSettingsAction,
+  updateAutoRetryFailedPrintsAction,
   type SettingsActionState,
 } from "./actions";
 
@@ -23,6 +24,7 @@ export function SettingsPanel({
   magicLinkRequiresAllowedDomain,
   defaultBookletBindingSide,
   adminsBypassRestrictions,
+  autoRetryFailedPrints,
   stamp,
   canManage,
 }: {
@@ -30,6 +32,7 @@ export function SettingsPanel({
   magicLinkRequiresAllowedDomain: boolean;
   defaultBookletBindingSide: "left" | "right";
   adminsBypassRestrictions: boolean;
+  autoRetryFailedPrints: boolean;
   stamp: StampSettings;
   canManage: boolean;
 }) {
@@ -47,6 +50,11 @@ export function SettingsPanel({
   );
   const [adminBypassState, adminBypassFormAction, adminBypassPending] = useActionState(
     updateAdminsBypassRestrictionsAction,
+    initialSettingsActionState,
+  );
+
+  const [autoRetryState, autoRetryFormAction, autoRetryPending] = useActionState(
+    updateAutoRetryFailedPrintsAction,
     initialSettingsActionState,
   );
 
@@ -218,6 +226,39 @@ export function SettingsPanel({
             <FormSuccess message={adminBypassState.success} />
             <div>
               <Button type="submit" size="sm" pending={adminBypassPending} pendingLabel="Saving...">
+                Save
+              </Button>
+            </div>
+          </form>
+        )}
+      </Card>
+      <Card>
+        <div className="mb-3 flex items-center gap-2">
+          <RotateCw className="h-4 w-4 text-[var(--color-muted)]" />
+          <h2 className="text-sm font-semibold">Retry failed prints automatically</h2>
+        </div>
+        <p className="mb-3 text-sm text-[var(--color-muted)]">
+          When a print fails (printer offline, jam, print computer restarted), send it again on its own, up to the
+          job&apos;s limit of tries, then leave it failed with a plain explanation. Off by default: the teacher sees
+          what went wrong and presses Try again. A job that is waiting to be retried keeps its quota reserved.
+        </p>
+
+        {!canManage && (
+          <p className="text-sm text-[var(--color-muted)]">
+            {autoRetryFailedPrints ? "Failed prints are retried automatically." : "Failed prints wait for their sender to press Try again."}
+          </p>
+        )}
+
+        {canManage && (
+          <form action={autoRetryFormAction} className="flex flex-col gap-3">
+            <label className="flex items-start gap-2 text-sm text-[var(--color-text)]">
+              <input type="checkbox" name="autoRetryFailedPrints" defaultChecked={autoRetryFailedPrints} className="mt-0.5" />
+              Retry failed prints automatically
+            </label>
+            <FormError message={autoRetryState.error} />
+            <FormSuccess message={autoRetryState.success} />
+            <div>
+              <Button type="submit" size="sm" pending={autoRetryPending} pendingLabel="Saving...">
                 Save
               </Button>
             </div>

@@ -166,3 +166,30 @@ export async function updateStampSettingsAction(
       : "Saved. New print jobs will not be stamped.",
   };
 }
+
+/** Updates organization_settings.auto_retry_failed_prints (supabase/migrations/0035_retry_failed_prints.sql): when
+ *  on, a failed print is re-queued automatically until the job's max_attempts is reached, then stays failed with its
+ *  message. Off by default - then the teacher presses "Try again". A checked checkbox submits "on"; an unchecked one
+ *  submits nothing. If the migration has not been applied the column does not exist and the save fails with a plain
+ *  message instead of silently doing nothing. */
+export async function updateAutoRetryFailedPrintsAction(
+  _prev: SettingsActionState,
+  formData: FormData,
+): Promise<SettingsActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const enabled = formData.get("autoRetryFailedPrints") === "on";
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("organization_settings")
+    .update({ auto_retry_failed_prints: enabled })
+    .eq("organization_id", session.membership.organization_id);
+  if (error) return { error: describeDatabaseError(error, "Couldn't save this setting.") };
+
+  revalidatePath(routes.adminSettings);
+  return {
+    success: enabled
+      ? "Saved. A print that fails will now be retried automatically until its tries run out."
+      : "Saved. A failed print now waits for its sender to press Try again.",
+  };
+}
