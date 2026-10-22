@@ -64,7 +64,8 @@ export class FakeWeb implements WebApi {
     this.finalizeCalls.push(req);
     if (this.finalizeResult) return this.finalizeResult;
     this.n++;
-    const job = { jobId: `web-job-${this.n}`, jobNumber: 40 + this.n, status: this.nextStatus, message: this.nextMessage };
+    // The real web app answers with its text job number (print_jobs.job_number), not an integer.
+    const job = { jobId: `web-job-${this.n}`, jobNumber: `JOB-2026-${String(40 + this.n).padStart(6, "0")}`, status: this.nextStatus, message: this.nextMessage };
     this.jobs.set(job.jobId, job);
     return { kind: "ok", job };
   }

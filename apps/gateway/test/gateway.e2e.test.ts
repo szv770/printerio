@@ -193,7 +193,7 @@ describe("Windows 11 flow", () => {
 });
 
 describe("Android flow", () => {
-  it("Validate-Job then Print-Job (single request, flattened attributes, id = web job number)", async () => {
+  it("Validate-Job then Print-Job (single request, flattened attributes, id = a whole number the gateway hands out)", async () => {
     const v = await h.ipp({
       code: OP.validateJob,
       groups: [operationGroup(printerUri(), user("pixel"), attr(TAG.mime, "document-format", "application/pdf"))],
@@ -204,7 +204,15 @@ describe("Android flow", () => {
     const r = await h.ipp(androidPrint(), PDF);
     expect(r.ipp.code).toBe(STATUS.ok);
     const j = flatGroup(r.ipp, TAG.job);
-    expect(j["job-id"]).toBe(41);
+    // The web job number is text ("JOB-2026-000041"); IPP job ids are integers, so the gateway issues its own.
+    expect(Number.isInteger(j["job-id"])).toBe(true);
+    expect(j["job-id"] as number).toBeGreaterThan(0);
+    const polled = await h.ipp({
+      code: OP.getJobAttributes,
+      groups: [operationGroup(printerUri(), attr(TAG.integer, "job-id", j["job-id"] as number))],
+    });
+    expect(polled.ipp.code).toBe(STATUS.ok);
+    expect(flatGroup(polled.ipp, TAG.job)["job-id"]).toBe(j["job-id"]);
     expect(j["job-state"]).toBe(3);
     expect(j["job-state-reasons"]).toBe("job-queued");
     expect(j["job-name"]).toBe("boarding pass.pdf");
