@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { adminMenu, isActiveHref, memberMenu, resolveShell, activeItemHref, TOUR_ANCHORS } from "./nav";
+import { adminMenu, avatarInitial, roleLabel, openGroupIds, isActiveHref, memberMenu, resolveShell, activeItemHref, TOUR_ANCHORS } from "./nav";
 import { routes } from "./routes";
 
 const flat = (groups: ReturnType<typeof adminMenu>) => groups.flatMap((g) => g.items);
@@ -98,5 +98,46 @@ describe("activeItemHref", () => {
   });
   it("is null where no item applies", () => {
     expect(activeItemHref(adminMenu(true), "/home")).toBeNull();
+  });
+});
+
+describe("openGroupIds", () => {
+  const groups = adminMenu(true);
+  it("always opens the untitled top block and keeps the My jobs anchor in it", () => {
+    const ids = openGroupIds(groups, "/admin/reports");
+    expect(ids).toContain("main");
+    expect(groups.find((g) => g.id === "main")?.items.some((i) => i.tourAnchor === "nav-my-jobs")).toBe(true);
+  });
+  it("opens only the group that holds the current page", () => {
+    expect(openGroupIds(groups, "/admin/users/u1").sort()).toEqual(["main", "people"]);
+    expect(openGroupIds(groups, "/profile").sort()).toEqual(["account", "main"]);
+    expect(openGroupIds(groups, "/admin/printers/setup")).toContain("printers");
+  });
+  it("opens just the top block when no item applies", () => {
+    expect(openGroupIds(groups, "/home")).toEqual(["main"]);
+  });
+  it("keeps group ids unique and shows at most 10 rows while everything is folded", () => {
+    const ids = groups.map((g) => g.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    const visible = groups.filter((g) => g.alwaysOpen).flatMap((g) => g.items).length + groups.filter((g) => !g.alwaysOpen).length;
+    expect(visible).toBeLessThanOrEqual(10);
+  });
+  it("hides admin-only pages from approvers in every group", () => {
+    const hrefs = adminMenu(false).flatMap((g) => g.items.map((i) => i.href));
+    for (const h of [routes.adminDevices, routes.adminAudit, routes.adminStorage]) expect(hrefs).not.toContain(h);
+  });
+});
+
+describe("user chip helpers", () => {
+  it("labels roles plainly", () => {
+    expect(roleLabel("org_admin")).toBe("Admin");
+    expect(roleLabel("approver")).toBe("Approver");
+    expect(roleLabel("weird")).toBe("Member");
+    expect(roleLabel(null)).toBe("Member");
+  });
+  it("picks an avatar initial from name, then email", () => {
+    expect(avatarInitial("  dana k", "x@y.z")).toBe("D");
+    expect(avatarInitial("", "sam@y.z")).toBe("S");
+    expect(avatarInitial(null, null)).toBe("?");
   });
 });

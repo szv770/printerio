@@ -1,4 +1,4 @@
-export { Button, type ButtonProps } from "./Button";
+export { Button, ButtonLink, buttonClass, type ButtonProps } from "./Button";
 export {
   Input,
   Select,
@@ -12,6 +12,7 @@ export {
   FormSuccess,
 } from "./Field";
 export { Card, CardHeader, CardBody, CardFooter } from "./Card";
+export { StatusDot, type StatusTone } from "./StatusDot";
 export { Badge } from "./Badge";
 export { PageHeader } from "./PageHeader";
 export { EmptyState } from "./EmptyState";
@@ -22,3 +23,4 @@ export { Tabs, type TabItem } from "./Tabs";
 export { Collapsible, type CollapsibleProps } from "./Collapsible";
 export { SaveBar, SAVE_BAR_CLEARANCE } from "./SaveBar";
 export { useDirtyForm, useBeforeUnload } from "./useDirtyForm";
+export { ResponsiveTable, type TableColumn } from "./Table";

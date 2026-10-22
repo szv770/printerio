@@ -1,33 +1,22 @@
 import { ImageResponse } from "next/og";
 
-// Generated favicon/app icon (no external asset needed) - a simple printer
-// glyph on the app's primary brand color. Next.js App Router serves this
-// automatically wherever a favicon/icon is requested.
+// Generated favicon/app icon (no external asset needed): the Printio mark, a
+// sheet of paper with a folded corner and three ink dots (C, M, Y) on the
+// accent tile. Same shapes as components/shell/Logo.tsx.
 export const size = { width: 32, height: 32 };
 export const contentType = "image/png";
 
 export default function Icon() {
   return new ImageResponse(
     (
-      <div
-        style={{
-          width: "100%",
-          height: "100%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "#2563eb",
-          borderRadius: 6,
-        }}
-      >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
-          <path d="M6 9V3h12v6" strokeLinecap="round" strokeLinejoin="round" />
-          <path
-            d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <rect x="6" y="14" width="12" height="8" />
+      <div style={{ width: "100%", height: "100%", display: "flex" }}>
+        <svg width="32" height="32" viewBox="0 0 28 28">
+          <rect width="28" height="28" rx="8.5" fill="#0a64d8" />
+          <path d="M8.5 5.5h8.2l4.8 4.8V22a1.5 1.5 0 0 1-1.5 1.5H8.5A1.5 1.5 0 0 1 7 22V7a1.5 1.5 0 0 1 1.5-1.5Z" fill="#fffefc" />
+          <path d="M16.7 5.5v3.3a1.5 1.5 0 0 0 1.5 1.5h3.3Z" fill="#b9d3f5" />
+          <circle cx="11" cy="18.3" r="1.7" fill="#0ea5d9" />
+          <circle cx="14.3" cy="18.3" r="1.7" fill="#e03a86" />
+          <circle cx="17.6" cy="18.3" r="1.7" fill="#f4b400" />
         </svg>
       </div>
     ),

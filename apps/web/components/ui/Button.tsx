@@ -1,4 +1,5 @@
-import type { ButtonHTMLAttributes } from "react";
+import Link from "next/link";
+import type { ComponentProps, ButtonHTMLAttributes } from "react";
 import { Spinner } from "./Spinner";
 
 const VARIANT_CLASSES = {
@@ -22,6 +23,24 @@ const SIZE_CLASSES = {
   sm: "min-h-11 px-3 text-[13px] rounded-[var(--radius-control)] [@media(pointer:fine)]:min-h-9",
   lg: "min-h-12 px-5 text-base rounded-[var(--radius-control)]",
 } as const;
+
+const BASE_CLASSES =
+  "inline-flex items-center justify-center gap-2 font-medium whitespace-nowrap transition-[background-color,box-shadow,filter,opacity] duration-150 focus-visible:outline-none focus-visible:shadow-[var(--ring)] active:brightness-95 disabled:cursor-not-allowed disabled:opacity-55 disabled:shadow-none";
+
+/** Class string for anything that should look like a Button (e.g. a Link). */
+export function buttonClass(variant: keyof typeof VARIANT_CLASSES = "primary", size: keyof typeof SIZE_CLASSES = "default", extra = "") {
+  return `${BASE_CLASSES} ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]} ${extra}`;
+}
+
+/** A navigation link styled as a Button. */
+export function ButtonLink({
+  variant = "primary",
+  size = "default",
+  className = "",
+  ...props
+}: ComponentProps<typeof Link> & { variant?: keyof typeof VARIANT_CLASSES; size?: keyof typeof SIZE_CLASSES }) {
+  return <Link {...props} className={buttonClass(variant, size, className)} />;
+}
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: keyof typeof VARIANT_CLASSES;
@@ -47,7 +66,7 @@ export function Button({
       {...props}
       disabled={disabled || pending}
       aria-busy={pending || undefined}
-      className={`inline-flex items-center justify-center gap-2 font-medium whitespace-nowrap transition-[background-color,box-shadow,filter,opacity] duration-150 focus-visible:outline-none focus-visible:shadow-[var(--ring)] active:brightness-95 disabled:cursor-not-allowed disabled:opacity-55 disabled:shadow-none ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]} ${className}`}
+      className={buttonClass(variant, size, className)}
     >
       {pending && <Spinner />}
       {pending ? (pendingLabel ?? "Working...") : children}

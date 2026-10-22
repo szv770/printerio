@@ -1,21 +1,13 @@
-import { Badge } from "@/components/ui";
+import { StatusDot, type StatusTone } from "@/components/ui";
 import { jobStatusDisplay } from "@/lib/job-status-labels";
 
 /**
- * One job's status as a tone-coloured pill. The jobs list previously rendered
- * a plain icon + grey label, which meant "Completed", "Awaiting approval" and
- * "Failed" all had the same visual weight - you had to read every row to find
- * the one that went wrong. Colour does that work at a glance; the icon and
- * the word are still there for anyone who can't rely on colour alone.
+ * One job's status as a colored dot plus its word. Ink colors do the work at a
+ * glance (cyan moving, yellow waiting on someone, green done, magenta a
+ * problem); the word is always there too, so color is never the only signal.
  */
 export function JobStatusBadge({ status }: { status: string }) {
-  const { Icon, label, tone } = jobStatusDisplay(status);
-  return (
-    <Badge tone={tone}>
-      <span className="flex items-center gap-1">
-        <Icon className="h-3.5 w-3.5" aria-hidden />
-        {label}
-      </span>
-    </Badge>
-  );
+  const { label, tone, spinning } = jobStatusDisplay(status);
+  const dot: StatusTone = spinning ? "live" : tone;
+  return <StatusDot tone={dot}>{label}</StatusDot>;
 }

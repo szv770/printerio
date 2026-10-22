@@ -11,22 +11,28 @@
 :root {
   color-scheme: light;
 
-  /* neutrals */
-  --color-bg: #f6f7f9;
-  --color-surface: #ffffff;
-  --color-surface-2: #f1f3f6; /* wells, hovered rows, segmented tracks */
-  --color-border: #e2e6ec;
-  --color-border-strong: #cdd3dc;
-  --color-text: #0f1729;
-  --color-text-2: #3b4559;
-  --color-muted: #5f6b7e; /* 5.1:1 on white */
-  --color-faint: #8b95a5;
+  /* neutrals: paper-white sheets on a very light warm-grey page, ink-black text */
+  --color-bg: #f5f3ef;
+  --color-surface: #fffefc;
+  --color-surface-2: #efece6; /* wells, hovered rows, tracks */
+  --color-border: #e7e3da;
+  --color-border-strong: #d3cec2;
+  --color-text: #17150f;
+  --color-text-2: #403c33;
+  --color-muted: #6a655a; /* 5.3:1 on paper */
+  --color-faint: #8f897c;
 
-  /* the one accent */
-  --color-primary: #3a56d4;
-  --color-primary-hover: #2f46b3;
-  --color-primary-soft: #eceffc;
+  /* the one confident primary: a cyan-leaning cobalt */
+  --color-primary: #0a64d8;
+  --color-primary-hover: #0752b3;
+  --color-primary-soft: #e4effc;
   --color-primary-fg: #ffffff;
+
+  /* CMYK ink accents: status dots, category chips, progress. Never body text. */
+  --ink-c: #0ea5d9;
+  --ink-m: #e03a86;
+  --ink-y: #f4b400;
+  --ink-k: #17150f;
 
   /* semantic */
   --color-success: #15803d;
@@ -40,14 +46,14 @@
   --color-danger-ink: #7f1d1d;
 
   /* radii: controls < cards < overlays */
-  --radius-control: 0.625rem;
-  --radius-card: 0.875rem;
+  --radius-control: 0.875rem;
+  --radius-card: 1.25rem;
   --radius-pill: 999px;
 
   /* soft layered shadows */
-  --shadow-xs: 0 1px 2px rgb(15 23 41 / 0.05);
-  --shadow-card: 0 1px 2px rgb(15 23 41 / 0.04), 0 1px 3px rgb(15 23 41 / 0.04);
-  --shadow-pop: 0 1px 2px rgb(15 23 41 / 0.06), 0 8px 24px -4px rgb(15 23 41 / 0.14), 0 24px 48px -12px rgb(15 23 41 / 0.16);
+  --shadow-xs: 0 1px 2px rgb(40 30 10 / 0.06);
+  --shadow-card: 0 1px 2px rgb(40 30 10 / 0.04), 0 4px 14px -6px rgb(40 30 10 / 0.10);
+  --shadow-pop: 0 1px 2px rgb(40 30 10 / 0.06), 0 8px 24px -4px rgb(40 30 10 / 0.16), 0 24px 48px -12px rgb(40 30 10 / 0.18);
 
   /* focus ring: 2px gap + 2px accent, visible on any surface */
   --ring: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-primary);
@@ -89,19 +95,22 @@ h1, h2, h3 {
 }
 p { text-wrap: pretty; }
 
-/* Form controls stay at 16px on phones so iOS Safari does not zoom on focus. */
-button,
-input,
-select,
-textarea {
-  font-size: 1rem;
-  font-family: inherit;
-}
-@media (min-width: 768px) {
+/* Form controls stay at 16px on phones so iOS Safari does not zoom on focus.
+ * In @layer base so Tailwind utilities (text-sm on a button) can still override it. */
+@layer base {
+  button,
   input,
   select,
   textarea {
-    font-size: 0.9375rem;
+    font-size: 1rem;
+    font-family: inherit;
+  }
+  @media (min-width: 768px) {
+    input,
+    select,
+    textarea {
+      font-size: 0.9375rem;
+    }
   }
 }
 
