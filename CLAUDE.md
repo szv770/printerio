@@ -19,6 +19,9 @@ experiment: `docs/kyocera-raw-print.md`. Throwaway IPP test server: `tools/ipp-s
 Next steps are listed at the bottom of `docs/ipp-printing.md` (Apple tests, Chromebook check, raw-print
 replay, then Phase 1 gateway).
 
+## Where things stand (gateway build)
+Read `docs/HANDOFF.md` first: what is built, what is untested, the follow-ups, and the owner's remaining steps.
+
 ## Gotchas
 - Supabase Data API grants (Supabase's Oct 30, 2026 change): new tables in `public` no longer get
   automatic Data API grants. Every migration that creates a table must include an explicit
