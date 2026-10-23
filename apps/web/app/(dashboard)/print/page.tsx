@@ -4,6 +4,7 @@ import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
 import { PageHeader } from "@/components/ui";
 import { DEFAULT_MAX_UPLOAD_BYTES } from "@/lib/pdf/client-precheck";
+import { SharedFileHandoff } from "@/components/pwa/SharedFileHandoff";
 import { PrintForm } from "./PrintForm";
 
 export default async function PrintPage() {
@@ -48,6 +49,8 @@ export default async function PrintPage() {
     printerOnline: p.printers.status === "online",
   }));
 
+  const maxUploadBytes = settings?.max_upload_size_bytes ?? DEFAULT_MAX_UPLOAD_BYTES;
+
   return (
     <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
       <PageHeader title="Print a document" description="Choose a PDF, check the basics, press Print." />
@@ -55,10 +58,8 @@ export default async function PrintPage() {
        *  its own inline notice and disables Submit in that case, rather than
        *  blocking the user from picking a file and preparing everything
        *  else just because a printer isn't connected yet. */}
-      <PrintForm
-        printerProfiles={printerProfiles}
-        maxUploadBytes={settings?.max_upload_size_bytes ?? DEFAULT_MAX_UPLOAD_BYTES}
-      />
+      <SharedFileHandoff maxUploadBytes={maxUploadBytes} />
+      <PrintForm printerProfiles={printerProfiles} maxUploadBytes={maxUploadBytes} />
     </main>
   );
 }

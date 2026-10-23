@@ -7,6 +7,7 @@ vi.mock("./admin-b", () => ({}));
 vi.mock("./booklet", () => ({}));
 vi.mock("./homes", () => ({}));
 vi.mock("./sections", () => ({}));
+vi.mock("./pwa", () => ({}));
 
 import PreviewPage from "./page";
 

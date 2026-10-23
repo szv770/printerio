@@ -12,6 +12,6 @@ export const config = {
   matcher: [
     // Skip static assets and image optimization; every route that could read
     // the session runs through here so it always sees a fresh token.
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sw\\.js$|manifest\\.webmanifest$|share-target$|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
