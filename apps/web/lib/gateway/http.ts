@@ -5,6 +5,8 @@ import type { ZodType } from "zod";
 import type { Database } from "@/lib/database.types";
 import { getGatewayEnv } from "@/lib/env";
 import { DEVICE_COLUMNS, type DeviceRow } from "@/lib/devices/devices";
+import { friendlyFailureMessage } from "@/lib/job-failure";
+import { jobWaiting } from "@/lib/job-waiting";
 
 /** Shared plumbing for the /api/gateway/* route handlers (docs/superpowers/specs/2026-10-22-gateway-contract.md). */
 
@@ -130,8 +132,14 @@ export function jobMessage(input: {
     case "expired":
       return "This job waited too long and was cancelled.";
     case "failed":
-      return input.errorMessage || "The printer could not print this job.";
+      return friendlyFailureMessage(input.errorMessage);
     default:
-      return undefined;
+      // Queued but the printer could not take it yet: say why (plain words). Otherwise a queued job has no message.
+      return jobWaiting(input.status, input.errorMessage)?.text;
   }
+}
+
+/** "unavailable" | "unknown" while a queued job is waiting for the printer (see lib/job-waiting.ts), else undefined. */
+export function jobWaitingKind(input: { status: string; errorMessage?: string | null }): "unavailable" | "unknown" | undefined {
+  return jobWaiting(input.status, input.errorMessage)?.kind;
 }

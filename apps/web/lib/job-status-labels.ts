@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import { FileEdit, Clock, CheckCircle2, Ban, Slash, Loader2, Printer, CheckCircle, AlertTriangle } from "lucide-react";
 import type { JobState } from "@printio/shared";
+import { jobWaiting } from "./job-waiting";
 
 export interface JobStatusDisplay {
   Icon: LucideIcon;
@@ -42,6 +43,8 @@ export const JOB_STATUS_DISPLAY: Record<JobState, JobStatusDisplay> = {
   failed: { Icon: AlertTriangle, label: "Failed", tone: "danger" },
 };
 
-export function jobStatusDisplay(status: string): JobStatusDisplay {
+export function jobStatusDisplay(status: string, errorMessage?: string | null): JobStatusDisplay {
+  // Waiting for the printer (see lib/job-waiting.ts) is shown as such, never as plain "Approved" and never as failed.
+  if (jobWaiting(status, errorMessage)) return { Icon: Clock, label: "Waiting for the printer", tone: "warning" };
   return (JOB_STATUS_DISPLAY as Record<string, JobStatusDisplay>)[status] ?? { Icon: FileEdit, label: status, tone: "neutral" };
 }

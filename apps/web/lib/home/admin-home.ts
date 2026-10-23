@@ -10,7 +10,7 @@ import { isStale, jobSizeText, oldestWaitedText, timeAgo } from "./format";
 export type Severity = "danger" | "warning";
 
 export interface AttentionItem {
-  id: "agents" | "printers" | "failed" | "approvals" | "held" | "devices";
+  id: "agents" | "printers" | "failed" | "approvals" | "held" | "waiting" | "devices";
   severity: Severity;
   title: string;
   note: string;
@@ -37,6 +37,8 @@ export interface AttentionInput {
   agents: AgentRow[];
   printers: PrinterRow[];
   heldCount: number;
+  /** Queued jobs the printer could not take yet ("waiting for the printer"). They are NOT failures. */
+  waitingForPrinter?: { count: number };
   /** null when the viewer cannot see devices (approvers). */
   stuckDevices: number | null;
 }
@@ -109,6 +111,18 @@ export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
       note,
       href: `${routes.adminJobs}?status=failed`,
       action: "See why",
+    });
+  }
+
+  const waitingCount = input.waitingForPrinter?.count ?? 0;
+  if (waitingCount > 0) {
+    items.push({
+      id: "waiting",
+      severity: "warning",
+      title: waitingCount === 1 ? "1 job is waiting for the printer" : `${waitingCount} jobs are waiting for the printer`,
+      note: "The printer is off, offline or not reachable. They print by themselves when it is back.",
+      href: `${routes.adminJobs}?status=waiting`,
+      action: "Look",
     });
   }
 

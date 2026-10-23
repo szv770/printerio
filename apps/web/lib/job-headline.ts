@@ -1,4 +1,5 @@
 import type { JobState } from "@printio/shared";
+import { jobWaiting } from "./job-waiting";
 
 export type HeadlineTone = "neutral" | "live" | "success" | "warning" | "danger";
 
@@ -21,6 +22,9 @@ const HEADLINES: Record<JobState, { sentence: string; tone: HeadlineTone }> = {
 };
 
 /** The one big plain sentence at the top of a job's page. Display only: status itself is decided elsewhere. */
-export function jobHeadline(status: string): { sentence: string; tone: HeadlineTone } {
+export function jobHeadline(status: string, errorMessage?: string | null): { sentence: string; tone: HeadlineTone; detail?: string } {
+  // A job the printer could not take right now is waiting, not failed: same headline, plus the plain reason.
+  const waiting = jobWaiting(status, errorMessage);
+  if (waiting) return { sentence: "Waiting for the printer", tone: "warning", detail: waiting.text };
   return (HEADLINES as Record<string, { sentence: string; tone: HeadlineTone }>)[status] ?? { sentence: "Status unknown", tone: "neutral" };
 }

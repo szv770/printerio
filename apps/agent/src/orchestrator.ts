@@ -22,10 +22,11 @@ import type { SpoolerMonitor } from "./spooler-monitor.js";
 import { findNewJobId } from "./spooler-monitor.js";
 import type { HealthMonitor } from "./health-monitor.js";
 import { buildPrintSettingsString, executePrint } from "./print-executor.js";
-import { RAW_SUCCESS_STATUSES, executeRawPrint } from "./raw-print-executor.js";
+import { RAW_DEFERRED_STATUSES, RAW_SUCCESS_STATUSES, executeRawPrint, type RawTimeouts } from "./raw-print-executor.js";
+import { PROFILE_COOLDOWN_MS, decideDownloadFailure, decideRawFailure, type WaitKind } from "./retry-policy.js";
 import { handleCommand } from "./commands.js";
 import { createSelfUpdateDeps, performSelfUpdate } from "./self-update.js";
-import { DownloadValidationError, PrintExecutionError, SpoolerError } from "./errors.js";
+import { CloudApiError, DownloadValidationError, PrintExecutionError, SpoolerError, TransientDownloadError } from "./errors.js";
 import type { Logger } from "./logger.js";
 
 export interface OrchestratorDeps {
@@ -36,6 +37,20 @@ export interface OrchestratorDeps {
   spoolerMonitor: SpoolerMonitor;
   healthMonitor: HealthMonitor;
   logger: Logger;
+  /** Clock, injectable for tests (the per-printer cooldown). */
+  now?: () => number;
+  /** Raw sender, injectable for tests; defaults to the real TCP sender. */
+  rawPrint?: typeof executeRawPrint;
+  /** Raw connect/write timeouts, injectable for tests. */
+  rawTimeouts?: RawTimeouts;
+}
+
+/** What one processJob() call tells its caller (the poll loop). */
+export interface ProcessOutcome {
+  /** The job could not be handed to the printer, so this printer profile gets a short cooldown. */
+  printerNotAvailable?: boolean;
+  /** The raw bytes reached the printer: the printer is there, so any cooldown is cleared. */
+  sent?: boolean;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -125,7 +140,16 @@ async function downloadJobFile(
   destPath: string,
   logger: Logger,
 ): Promise<{ bytesWritten: number }> {
-  const res = await fetch(downloadUrl);
+  let res: Response;
+  try {
+    res = await fetch(downloadUrl);
+  } catch (err) {
+    // Says nothing about the job: the network or the storage service is down. The job waits instead of failing.
+    throw new TransientDownloadError(`download request could not be made: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (res.status >= 500 || res.status === 429 || res.status === 408) {
+    throw new TransientDownloadError(`download request failed with status ${res.status}`);
+  }
   if (!res.ok || !res.body) {
     throw new DownloadValidationError(`download request failed with status ${res.status}`);
   }
@@ -172,8 +196,12 @@ async function downloadJobFile(
 
 export function createOrchestrator(deps: OrchestratorDeps) {
   const { config, cloudClient, jobQueue, printerManager, spoolerMonitor, healthMonitor, logger } = deps;
+  const now = deps.now ?? Date.now;
+  const rawPrint = deps.rawPrint ?? executeRawPrint;
   let stopped = false;
   let restartRequested = false;
+  /** printerProfileId -> epoch ms until which its queued jobs are left alone (see PROFILE_COOLDOWN_MS). */
+  const profileCooldownUntil = new Map<string, number>();
 
   async function safeReportStatus(jobId: string, status: Parameters<CloudClient["reportStatus"]>[1], message?: string, metadata?: Record<string, unknown>) {
     try {
@@ -191,7 +219,43 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     }
   }
 
-  async function processJob(claimable: ClaimableJob): Promise<void> {
+  /**
+   * Hands a still-`claimed` job back to the queue ("waiting for the printer") instead of failing it. The web app
+   * applies the backoff and, once the job has been unprintable for the whole window, fails it itself. Never
+   * throws. 409 (no longer ours / already released) means there is nothing left to do; 404 is an older web app
+   * without the endpoint, so the job is reported failed exactly as it always was.
+   */
+  async function releaseJobToQueue(jobId: string, kind: WaitKind, reason: string, jobLogger: Logger): Promise<void> {
+    try {
+      const r = await cloudClient.releaseJob(jobId, kind, reason);
+      jobQueue.removeJob(jobId);
+      if (r.outcome === "waiting") {
+        jobLogger.warn("printer not available - job released back to the queue to wait", { kind, tries: r.tries, retryAt: r.retryAt, reason });
+      } else {
+        jobLogger.error("job has been waiting for the printer too long - the web app marked it failed (owner can Try again)", { kind, reason });
+      }
+    } catch (err) {
+      if (err instanceof CloudApiError && err.status === 409) {
+        jobQueue.removeJob(jobId);
+        jobLogger.info("job could not be released because it is no longer ours - nothing more to do", { code: err.code });
+        return;
+      }
+      if (err instanceof CloudApiError && err.status === 404) {
+        jobLogger.warn("web app has no release endpoint (older version) - reporting the job failed as before", { reason });
+        jobQueue.upsertJob(jobId, { state: "failed", lastError: reason });
+        await safeReportStatus(jobId, "failed", reason);
+        return;
+      }
+      // Cannot tell the web app: the lease will simply expire and the sweep returns the job to the queue.
+      jobQueue.removeJob(jobId);
+      jobLogger.error("could not release the job back to the queue - its lease will expire naturally", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  async function processJob(claimable: ClaimableJob): Promise<ProcessOutcome> {
+    const procOutcome: ProcessOutcome = {};
     const jobLogger = logger.child({ jobId: claimable.jobId, printerProfileId: claimable.printerProfileId });
 
     // --- Claim ---
@@ -200,14 +264,14 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       const claimResult = await cloudClient.claimJob(claimable.jobId);
       if (!claimResult.ok) {
         jobLogger.info("job already claimed elsewhere - skipping", { reason: claimResult.reason });
-        return;
+        return procOutcome;
       }
       leaseExpiresAt = claimResult.leaseExpiresAt;
     } catch (err) {
       jobLogger.warn("claim failed (network/API) - will retry on a future poll", {
         error: err instanceof Error ? err.message : String(err),
       });
-      return;
+      return procOutcome;
     }
 
     const existing = jobQueue.getJob(claimable.jobId);
@@ -222,46 +286,82 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     // The downloaded PDF is only needed until the job leaves this machine (SumatraPDF has read it / the raw
     // socket has flushed it); a retry downloads a fresh copy, so it is always removed when this job is done.
     let downloadedPath: string | undefined;
+    // True while the web app still has this job as `claimed`: the only state it can be released from. We ask for
+    // that (keepClaimed); an older web app ignores the request and has already moved the job to `downloading`.
+    let holdsClaim = false;
     try {
       // --- Download ---
-      const dl = await cloudClient.getDownloadUrl(claimable.jobId);
+      const dl = await cloudClient.getDownloadUrl(claimable.jobId, { keepClaimed: true });
+      holdsClaim = dl.jobStatus === "claimed";
       if (!dl.printRequest.raw) {
         jobQueue.rememberQueueForProfile(dl.printRequest.printerProfileId, dl.printRequest.windowsQueueName);
       }
-      jobQueue.upsertJob(claimable.jobId, { state: "downloading", windowsQueueName: dl.printRequest.windowsQueueName });
+      // A raw job stays `claimed` (locally and in the cloud) until its bytes have really been sent; everything
+      // else moves on as it always did.
+      const deferRawReports = holdsClaim && !!dl.printRequest.raw;
+      if (!deferRawReports) {
+        jobQueue.upsertJob(claimable.jobId, { state: "downloading", windowsQueueName: dl.printRequest.windowsQueueName });
+        if (holdsClaim) await safeReportStatus(claimable.jobId, "downloading");
+      } else {
+        jobQueue.upsertJob(claimable.jobId, { windowsQueueName: dl.printRequest.windowsQueueName });
+      }
 
       const localFileName = `${claimable.jobId}-${sanitizeFileName(dl.fileName)}`;
       const localFilePath = path.join(config.localStoragePath, "downloads", localFileName);
       downloadedPath = localFilePath;
       await downloadJobFile(dl.downloadUrl, localFilePath, jobLogger);
-      jobQueue.upsertJob(claimable.jobId, { state: "downloaded", localFilePath });
-      await safeReportStatus(claimable.jobId, "downloaded");
+      if (!deferRawReports) {
+        jobQueue.upsertJob(claimable.jobId, { state: "downloaded", localFilePath });
+        await safeReportStatus(claimable.jobId, "downloaded");
 
-      // --- Print ---
-      jobQueue.upsertJob(claimable.jobId, { state: "printing" });
-      await safeReportStatus(claimable.jobId, "printing");
+        // --- Print ---
+        jobQueue.upsertJob(claimable.jobId, { state: "printing" });
+        await safeReportStatus(claimable.jobId, "printing");
+      } else {
+        jobQueue.upsertJob(claimable.jobId, { localFilePath });
+      }
 
       if (dl.printRequest.raw) {
         // Raw-port path: no SumatraPDF, no spooler, nothing to identify or
-        // monitor. Flushed + closed socket == completed. Failure is terminal
-        // (reported once, never retried by the agent).
-        const result = await executeRawPrint({
+        // monitor. Flushed + closed socket == completed.
+        //
+        // A printer that is off, offline, busy or jammed is NOT a failed job (the raw port buffers data and
+        // prints when ready), so while the job is still `claimed` a send that cannot complete is released back
+        // to the queue to wait (retry-policy.ts has the decision table). Only a job that can never print fails.
+        const result = await rawPrint({
           raw: dl.printRequest.raw,
           request: dl.printRequest,
           pdf: readFileSync(localFilePath),
+          timeouts: deps.rawTimeouts,
         });
         if (!result.ok) {
+          const decision = holdsClaim ? decideRawFailure(result.failure) : ({ action: "fail" } as const);
+          if (decision.action === "release") {
+            jobLogger.warn("raw print could not reach the printer", { reason: result.reason, failure: result.failure });
+            procOutcome.printerNotAvailable = true;
+            await releaseJobToQueue(claimable.jobId, decision.kind, result.reason, jobLogger);
+            return procOutcome;
+          }
           jobLogger.error("raw print failed", { reason: result.reason });
           jobQueue.upsertJob(claimable.jobId, { state: "failed", lastError: result.reason });
           await safeReportStatus(claimable.jobId, "failed", `raw print: ${result.reason}`);
-          return;
+          return procOutcome;
         }
+        procOutcome.sent = true;
         jobQueue.upsertJob(claimable.jobId, { state: "completed" });
-        for (const status of RAW_SUCCESS_STATUSES) {
-          await safeReportStatus(claimable.jobId, status, "sent to printer raw port", { bytesSent: result.bytesSent });
+        // Kept-claimed jobs report the whole chain now that the bytes are out; legacy jobs already reported
+        // downloaded + printing before the send.
+        for (const status of holdsClaim ? RAW_DEFERRED_STATUSES : RAW_SUCCESS_STATUSES) {
+          const sentChain = status === "submitted_to_spooler" || status === "completed";
+          await safeReportStatus(
+            claimable.jobId,
+            status,
+            sentChain ? "sent to printer raw port" : undefined,
+            sentChain ? { bytesSent: result.bytesSent } : undefined,
+          );
         }
         jobLogger.info("job completed (raw port)", { bytesSent: result.bytesSent });
-        return;
+        return procOutcome;
       }
 
       const settingsString = buildPrintSettingsString({
@@ -335,7 +435,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           "print was submitted to SumatraPDF (exit 0) but the agent could not identify the resulting Windows spooler job for monitoring",
         );
         jobQueue.upsertJob(claimable.jobId, { state: "failed", lastError: "could_not_identify_spooler_job" });
-        return;
+        return procOutcome;
       }
 
       jobQueue.upsertJob(claimable.jobId, { spoolerJobId });
@@ -350,6 +450,16 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       await safeReportStatus(claimable.jobId, outcome.outcome, outcome.reason, { rawSpoolerStatus: outcome.rawStatus });
       jobLogger.info(`job ${outcome.outcome}`, { reason: outcome.reason });
     } catch (err) {
+      // A document that could not be fetched because the network/storage is down says nothing about the job:
+      // while it is still `claimed` it waits instead of failing.
+      if (err instanceof TransientDownloadError && holdsClaim) {
+        const decision = decideDownloadFailure({ kind: "transient" });
+        if (decision.action === "release") {
+          jobLogger.warn("could not fetch the document - releasing the job to wait", { error: err.message });
+          await releaseJobToQueue(claimable.jobId, decision.kind, err.message, jobLogger);
+          return procOutcome;
+        }
+      }
       // Catch-all: ANY failure anywhere in claim->download->print->monitor
       // becomes a reported `failed` status, never an uncaught exception
       // (docs/architecture.md sec 17).
@@ -370,6 +480,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
         }
       }
     }
+    return procOutcome;
   }
 
   async function recoverInFlightJobs(): Promise<void> {
@@ -400,7 +511,16 @@ export function createOrchestrator(deps: OrchestratorDeps) {
         continue;
       }
 
-      // Any earlier state (claimed/downloading/downloaded): we can't safely
+      // Still `claimed` (a raw job being sent when we died): nothing is known to have reached the printer, and
+      // `claimed` is the one state a job can be released from, so it goes back to the queue to wait rather than
+      // failing. (If the crash came mid-send the printer may have part of it; the owner decided waiting wins.)
+      if (record.state === "claimed") {
+        jobLogger.info("releasing a claimed job found on restart back to the queue", { state: record.state });
+        await releaseJobToQueue(record.jobId, "unknown", "agent restarted before the job was sent", jobLogger);
+        continue;
+      }
+
+      // Any later pre-print state (downloading/downloaded): we can't safely
       // assume the local file/lease is still good. Report failed and let
       // the cloud's retry/lease-expiry mechanism (docs/architecture.md sec
       // 13/17) pick it back up rather than risk a double-submission.
@@ -441,8 +561,19 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       });
       return false;
     }
+    // The cloud lists jobs oldest first and we keep that order, one at a time.
     for (const job of jobs) {
-      await processJob(job);
+      const until = profileCooldownUntil.get(job.printerProfileId);
+      if (until !== undefined) {
+        if (now() < until) {
+          logger.debug("printer was not available a moment ago - leaving its queued jobs alone for now", { jobId: job.jobId, printerProfileId: job.printerProfileId });
+          continue;
+        }
+        profileCooldownUntil.delete(job.printerProfileId);
+      }
+      const outcome = await processJob(job);
+      if (outcome.printerNotAvailable) profileCooldownUntil.set(job.printerProfileId, now() + PROFILE_COOLDOWN_MS);
+      else if (outcome.sent) profileCooldownUntil.delete(job.printerProfileId);
     }
     return true;
   }
@@ -593,5 +724,9 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     stop(): void {
       stopped = true;
     },
+    // Exposed so the release/cooldown behaviour can be tested without the sleeping poll loop.
+    processJob,
+    pollClaimableJobs,
+    recoverInFlightJobs,
   };
 }

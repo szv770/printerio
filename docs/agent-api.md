@@ -90,6 +90,9 @@ an Agent that ignores this field still gets no work.
 Returns jobs in `approved` status whose `printer_profiles.agent_id` is this agent, that are
 unclaimed or whose lease has expired.
 Response: `{ "jobs": [{ "jobId": "...", "printerProfileId": "...", "jobNumber": "JOB-2026-000184" }] }`.
+**Oldest first** (`ORDER BY created_at, id`), at most **50** jobs; the Agent works through the list in that order, one job at a
+time, so a school of teachers sending at once is served in the order they sent. A job that is *waiting for the printer* (see
+`release` below) has `lease_expires_at` in the future and is therefore not listed until its next attempt is due.
 While `agents.paused` is set, this returns `{ "jobs": [] }` unconditionally - being paused
 is a normal administrative state, not a fault, so it is an empty list rather than an error
 the Agent would back off from.
@@ -136,7 +139,11 @@ source page count (N) - see `docs/architecture.md` sec 8. `fitMode` is present O
 booklet job (always `"noscale"`, since Printio has already imposed and independently scaled
 every page - asking the driver to `fit`/`shrink` further would undo that); it is absent for
 every other job, and the Agent falls back to its own `PRINTIO_PRINT_FIT_MODE` default.
-Also transitions `claimed -> downloading` and records `DOWNLOAD_STARTED`.
+Without a query parameter it also transitions `claimed -> downloading` and records `DOWNLOAD_STARTED` (older Agents).
+With **`?keepClaimed=1`** (current Agents) the job stays `claimed` - the only state it can be released back to the queue from -
+and the response says so: `"jobStatus": "claimed"` (an older server ignores the parameter and answers `"downloading"`, or omits the
+field; the Agent then falls back to the old behaviour). The Agent reports `downloading`, `downloaded`, `printing`,
+`submitted_to_spooler`, `completed` itself after the document has really been sent (raw path), see `status`.
 
 ### `POST /api/agents/jobs/:jobId/status`
 Body: `{ "status": JobState, "message"?: string, "metadata"?: object }`. Requires the lease.
@@ -147,7 +154,35 @@ sequence from the Agent: `downloaded` (after saving the file locally) -> `printi
 invoking SumatraPDF) -> `submitted_to_spooler` (exit code 0) -> `completed` (spooler job left
 the queue cleanly) or `failed` (any error, with `message`/`metadata` populated - see
 `docs/known-limitations.md` for what `completed` does and doesn't guarantee).
+`downloading` is also reportable (`claimed -> downloading`, event `DOWNLOAD_STARTED`) for Agents that used `keepClaimed`.
 Response: `{ "ok": true }`.
+
+### `POST /api/agents/jobs/:jobId/release`
+Body `{ "kind": "unavailable" | "unknown", "detail"?: string }`. Requires the lease, and the job must still be **`claimed`**
+(`409 wrong_state` otherwise: once downloading/printing some bytes may be at the printer and the DB transition rule does not allow
+going back). Called when the Agent could not hand the document to the printer: raw connect timed out / refused / unreachable, a
+write stalled (`unavailable`), another socket error or an unclassified failure, or the document could not be fetched because the
+network/storage was down (`unknown`). **That is not a failed print**: the raw port buffers data and prints when the printer is ready.
+
+The job goes back to `approved` (`claimed -> approved`, an existing legal transition), `lease_owner_agent_id = null`, and
+`lease_expires_at = now + backoff` - the claimable/claim filter (`lease_expires_at is null or < now`) hides it until then.
+Backoff by number of releases: **30 s, 1 min, 2 min, then 5 min** (capped). `attempt_count` is **not** touched and the quota
+reservation is **not** released. The reason lives in `print_jobs.error_message` behind a stable marker (no migration):
+
+    [printio:waiting v1 since=<ISO time> tries=<n> kind=<unavailable|unknown>] <plain sentence>
+
+`since` is the first time the job could not be sent (kept across retries and Agent restarts), the sentence is "The printer is not
+available right now (off, offline or network). It will print when it is back." or "Waiting for the printer - status unknown".
+Display code treats a job as *waiting* only when `status` is `approved` (or briefly `claimed` while being retried) AND the marker
+is present (`apps/web/lib/job-waiting.ts`); it is a queued job, never counted as failed. One `RETRY_SCHEDULED` event (metadata
+`{ waiting: true, kind, retryAt }`) is recorded when the job first starts waiting.
+
+When `since + window` has passed (default **2 hours**, `PRINTIO_WAITING_WINDOW_MINUTES` on the web app, 1 min - 7 days) the same call
+fails the job instead: `claimed -> failed` with `error_message = "[printio:gave-up] The printer was not available for 2 hours ..."`,
+`attempt_count` unchanged and the reservation kept, so the owner's **Try again** works; it is never auto-requeued.
+Response: `200 { "ok": true, "outcome": "waiting", "tries": n, "retryAt": "<ISO>" }` or `200 { "ok": true, "outcome": "failed" }`.
+`404` = an older web app without this endpoint: the Agent then reports `failed` exactly as before. Truly permanent problems (the
+job cannot be built, the document is missing or not a PDF) are still reported with `status: failed` at once.
 
 ### `GET /api/agents/commands`
 Returns this agent's `pending` `remote_commands` rows: `{ "commands": [{ "id", "command",

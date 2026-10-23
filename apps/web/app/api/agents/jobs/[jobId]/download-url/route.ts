@@ -42,14 +42,22 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
     .createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
   if (signError || !signed) return apiError(500, "internal_error", "Failed to create a download URL.");
 
-  await supabase.from("print_jobs").update({ status: "downloading" }).eq("id", jobId);
-  await supabase.from("print_job_events").insert({
-    job_id: jobId,
-    event_type: "DOWNLOAD_STARTED",
-    actor_type: "agent",
-    actor_id: agent.id,
-    metadata: {},
-  });
+  // `keepClaimed=1` (current Agents): the job stays `claimed` - the only state from which it can be released back
+  // to the queue when the printer is not available (claimed -> approved; see the release route). The Agent then
+  // reports downloading/downloaded/printing itself, after the document has really been sent. Without the
+  // parameter (older Agents) nothing changes: the job moves to `downloading` here. `jobStatus` tells the Agent
+  // which of the two it got, so a new Agent talking to an older server (which ignores the parameter) still knows.
+  const keepClaimed = new URL(request.url).searchParams.get("keepClaimed") === "1";
+  if (!keepClaimed) {
+    await supabase.from("print_jobs").update({ status: "downloading" }).eq("id", jobId);
+    await supabase.from("print_job_events").insert({
+      job_id: jobId,
+      event_type: "DOWNLOAD_STARTED",
+      actor_type: "agent",
+      actor_id: agent.id,
+      metadata: {},
+    });
+  }
 
   const finishing = job.finishing as { staple: boolean; booklet: boolean; punch: boolean };
 
@@ -98,6 +106,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
     downloadUrl: signed.signedUrl,
     expiresInSeconds: SIGNED_URL_TTL_SECONDS,
     fileName: job.original_file_name,
+    jobStatus: keepClaimed ? "claimed" : "downloading",
     printRequest,
   });
 }

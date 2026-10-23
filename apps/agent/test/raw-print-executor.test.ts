@@ -128,3 +128,48 @@ describe("RAW_SUCCESS_STATUSES", () => {
     expect(current).toBe("completed");
   });
 });
+
+describe("typed failures (what the orchestrator uses to decide wait vs fail)", () => {
+  it("connection refused -> kind connect_refused, code ECONNREFUSED, never a bare string", async () => {
+    const { port } = await listen(() => {});
+    await new Promise((r) => servers.pop()!.close(() => r(undefined)));
+    const res = await executeRawPrint({ raw: raw(port), request: req, pdf });
+    expect(res).toMatchObject({ ok: false, failure: { kind: "connect_refused", code: "ECONNREFUSED" } });
+  });
+
+  it("peer that stops reading -> write_timeout, with how many bytes left this machine", async () => {
+    const { port } = await listen((s) => s.pause());
+    const res = await executeRawPrint({ raw: raw(port), request: req, pdf: new Uint8Array(64 * 1024 * 1024), timeouts: { writeTimeoutMs: 200 } });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.failure.kind).toBe("write_timeout");
+      expect(typeof res.failure.bytesWritten).toBe("number");
+      expect(res.reason).toMatch(/timed out/);
+    }
+  });
+
+  it("buildRawJob refusing -> invalid_job (permanent) and no connection", async () => {
+    const { port } = await listen(() => {});
+    const res = await executeRawPrint({ raw: raw(port), request: { ...req, finishing: { staple: true, booklet: true, punch: false } }, pdf });
+    expect(res).toMatchObject({ ok: false, failure: { kind: "invalid_job" } });
+  });
+
+  it("success carries no failure", async () => {
+    const { port, closed } = await listen(() => {});
+    const res = await executeRawPrint({ raw: raw(port), request: req, pdf });
+    await closed;
+    expect(res.ok).toBe(true);
+  });
+});
+
+describe("RAW_DEFERRED_STATUSES", () => {
+  it("is the legal chain from 'claimed' to 'completed' (the job stays claimed while it is being sent so it can still be released)", async () => {
+    const { RAW_DEFERRED_STATUSES } = await import("../src/raw-print-executor.js");
+    let current: JobState = "claimed";
+    for (const next of RAW_DEFERRED_STATUSES) {
+      expect(canTransition(current, next), `${current} -> ${next}`).toBe(true);
+      current = next;
+    }
+    expect(current).toBe("completed");
+  });
+});

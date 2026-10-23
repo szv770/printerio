@@ -14,6 +14,7 @@ import { JobRegistry } from "./job-registry.js";
 import { createGatewayServer } from "./server.js";
 import { createSupabaseStorage } from "./storage.js";
 import { createWebClient } from "./web-client.js";
+import { UploadGuard } from "./upload-guard.js";
 import { installService, uninstallService } from "./windows-service.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -35,6 +36,7 @@ async function start(): Promise<void> {
     deps: { web, storage, logger, printerName: config.printerName, registry, startedAt: Date.now() },
     baseDomain: config.baseDomain,
     maxBodyBytes: config.maxBodyBytes,
+    guard: new UploadGuard({ maxInflightBytes: config.maxInflightUploadBytes, maxPerKey: config.maxUploadsPerDevice }),
   });
 
   // The process must not die on a stray error: log it and keep serving (the service wrapper also restarts us if we do exit).

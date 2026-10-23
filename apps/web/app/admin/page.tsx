@@ -38,7 +38,7 @@ export default async function AdminOverviewPage() {
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 24 * 3600_000).toISOString();
 
-  const [pending, failed, held, active, recent, agentsRes, printersRes, devicesRes, membersRes, policiesRes, quotasRes] =
+  const [pending, failed, held, waiting, active, recent, agentsRes, printersRes, devicesRes, membersRes, policiesRes, quotasRes] =
     await Promise.all([
       supabase
         .from("print_jobs")
@@ -56,6 +56,14 @@ export default async function AdminOverviewPage() {
         .order("updated_at", { ascending: false })
         .limit(3),
       supabase.from("print_jobs").select("id", { count: "exact", head: true }).eq("organization_id", orgId).eq("status", "held"),
+      // Queued jobs the printer could not take yet (marker in error_message, see lib/job-waiting.ts): shown as
+      // "waiting for the printer", never counted as failed.
+      supabase
+        .from("print_jobs")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", orgId)
+        .eq("status", "approved")
+        .like("error_message", "[printio:waiting%"),
       supabase
         .from("print_jobs")
         .select("id, job_number, printer_id, status, source_pdf_pages, copies")
@@ -137,6 +145,7 @@ export default async function AdminOverviewPage() {
     agents,
     printers,
     heldCount: held.count ?? 0,
+    waitingForPrinter: { count: waiting.count ?? 0 },
     stuckDevices,
   });
 

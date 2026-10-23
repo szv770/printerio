@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { logger } from "@/lib/logger";
-import { authenticateGateway, gatewayError, jobMessage } from "@/lib/gateway/http";
+import { authenticateGateway, gatewayError, jobMessage, jobWaitingKind } from "@/lib/gateway/http";
 
 const idSchema = z.string().uuid();
 
@@ -37,7 +37,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
       policyReasons: job.policy_reasons,
       errorMessage: job.error_message,
     });
-    return Response.json({ jobId: job.id, status: job.status, ...(message ? { message } : {}) });
+    // `waiting` is set only while a queued job is waiting for the printer (the phone then says so in plain words).
+    const waiting = jobWaitingKind({ status: job.status, errorMessage: job.error_message });
+    return Response.json({ jobId: job.id, status: job.status, ...(message ? { message } : {}), ...(waiting ? { waiting } : {}) });
   } catch (err) {
     logger.error("gateway job status failed", { jobId, error: err instanceof Error ? err.message : String(err) });
     return gatewayError(500, "internal_error", "Something went wrong on our side. Try again.");

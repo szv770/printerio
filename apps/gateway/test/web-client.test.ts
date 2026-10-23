@@ -100,3 +100,17 @@ describe("web client", () => {
     expect(await c.cancelJob("j", "d")).toEqual({ kind: "not_found" });
   });
 });
+
+describe("web client: waiting for the printer", () => {
+  it("getJob passes the web app's 'waiting' kind through, and ignores anything else", async () => {
+    const answers = [
+      json(200, { jobId: "j", status: "approved", message: "The printer is not available", waiting: "unavailable" }),
+      json(200, { jobId: "j", status: "approved", waiting: "unknown" }),
+      json(200, { jobId: "j", status: "approved", waiting: "banana" }),
+    ];
+    const c = client((async () => answers.shift() as Response) as unknown as typeof fetch);
+    expect(await c.getJob("j", "d")).toMatchObject({ status: "approved", waiting: "unavailable" });
+    expect(await c.getJob("j", "d")).toMatchObject({ waiting: "unknown" });
+    expect((await c.getJob("j", "d"))?.waiting).toBeUndefined();
+  });
+});

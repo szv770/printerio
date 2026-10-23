@@ -36,6 +36,8 @@ export interface JobInfo {
   jobNumber?: string;
   status: JobState;
   message?: string;
+  /** Set by the web app while a queued job is waiting for the printer (off, offline, unknown cause). */
+  waiting?: "unavailable" | "unknown";
 }
 
 /** Permanent refusals from finalize: retrying will not help, so the client is told to stop (not 0x0506). */
@@ -179,7 +181,8 @@ export function createWebClient(opts: WebClientOptions): WebApi {
       if (status === 404) return null;
       const state = str(json.status);
       if (status !== 200 || !state) throw new WebUnavailableError(`job lookup answered ${status}`);
-      return { jobId: str(json.jobId) ?? jobId, status: state as JobState, message: str(json.message) };
+      const waiting = json.waiting === "unavailable" || json.waiting === "unknown" ? json.waiting : undefined;
+      return { jobId: str(json.jobId) ?? jobId, status: state as JobState, message: str(json.message), ...(waiting ? { waiting } : {}) };
     },
 
     async cancelJob(jobId, deviceId) {

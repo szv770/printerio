@@ -92,6 +92,12 @@ export interface DownloadUrlResponse {
   downloadUrl: string;
   expiresInSeconds: number;
   fileName: string;
+  /**
+   * Which state the web app left the job in: "claimed" when this Agent asked for `keepClaimed` and the server
+   * honoured it (the job can still be released back to the queue), "downloading" for an older server that moved
+   * it already. Absent = older server = treat as "downloading".
+   */
+  jobStatus?: "claimed" | "downloading";
   printRequest: {
     jobId: string;
     printerProfileId: string;
@@ -108,6 +114,10 @@ export interface DownloadUrlResponse {
     raw?: RawTarget;
   };
 }
+
+export type ReleaseResponse =
+  | { ok: true; outcome: "waiting"; tries: number; retryAt: string }
+  | { ok: true; outcome: "failed" };
 
 export interface RemoteCommandEnvelope {
   id: string;
@@ -329,10 +339,10 @@ export class CloudClient {
   }
 
   /** GET /api/agents/jobs/:jobId/download-url */
-  async getDownloadUrl(jobId: string): Promise<DownloadUrlResponse> {
+  async getDownloadUrl(jobId: string, opts: { keepClaimed?: boolean } = {}): Promise<DownloadUrlResponse> {
     return this.request<DownloadUrlResponse>(
       "GET",
-      `/api/agents/jobs/${encodeURIComponent(jobId)}/download-url`,
+      `/api/agents/jobs/${encodeURIComponent(jobId)}/download-url${opts.keepClaimed ? "?keepClaimed=1" : ""}`,
       undefined,
       { auth: true, retry: true },
     );
@@ -349,6 +359,21 @@ export class CloudClient {
       "POST",
       `/api/agents/jobs/${encodeURIComponent(jobId)}/status`,
       { status, message, metadata },
+      { auth: true, retry: true },
+    );
+  }
+
+  /**
+   * POST /api/agents/jobs/:jobId/release - hand a claimed job back to the queue because the printer could not take
+   * it right now (docs/agent-api.md). The web app decides: `waiting` (retry later, with the time) or `failed`
+   * (the job has been unprintable for the whole waiting window). Throws CloudApiError: 409 = the job is no longer
+   * claimed by us, 404 = an older web app without this endpoint.
+   */
+  async releaseJob(jobId: string, kind: "unavailable" | "unknown", detail?: string): Promise<ReleaseResponse> {
+    return this.request<ReleaseResponse>(
+      "POST",
+      `/api/agents/jobs/${encodeURIComponent(jobId)}/release`,
+      { kind, ...(detail ? { detail: detail.slice(0, 300) } : {}) },
       { auth: true, retry: true },
     );
   }

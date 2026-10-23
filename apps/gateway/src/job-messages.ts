@@ -46,7 +46,7 @@ function describeHeld(webMessage: string | undefined): string {
 }
 
 /** `state` is undefined while a Create-Job is still waiting for its document. Never throws. */
-export function describeJob(state: JobState | undefined, webMessage?: string): JobDescription {
+export function describeJob(state: JobState | undefined, webMessage?: string, waiting?: "unavailable" | "unknown"): JobDescription {
   if (state === undefined) {
     return { state: IPP_JOB_STATE.pendingHeld, reasons: ["job-incoming"], message: "Waiting for the document to arrive" };
   }
@@ -59,6 +59,15 @@ export function describeJob(state: JobState | undefined, webMessage?: string): J
       return { state: IPP_JOB_STATE.pendingHeld, reasons: [HOLD], message: "Waiting for approval in Printio" };
     case "approved":
     case "claimed":
+      // The printer could not take the job yet (off, offline, cause unknown): still queued, not failed. The web app
+      // says which; the phone gets a short plain sentence either way.
+      if (waiting === "unavailable") {
+        return { state: IPP_JOB_STATE.pending, reasons: ["job-queued"], message: "Waiting for the printer - it is off or offline" };
+      }
+      if (waiting === "unknown") {
+        return { state: IPP_JOB_STATE.pending, reasons: ["job-queued"], message: "Waiting for the printer - status unknown" };
+      }
+      return { state: IPP_JOB_STATE.pending, reasons: ["job-queued"], message: "Waiting for the printer" };
     case "downloading":
     case "downloaded":
       return { state: IPP_JOB_STATE.pending, reasons: ["job-queued"], message: "Waiting for the printer" };

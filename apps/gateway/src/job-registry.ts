@@ -23,6 +23,8 @@ export interface JobEntry {
   /** Last state seen from the web app; undefined while awaiting the document. */
   state?: JobState;
   message?: string;
+  /** Last "waiting for the printer" kind seen from the web app (queued jobs only). */
+  waiting?: "unavailable" | "unknown";
   bytes: number;
 }
 
@@ -72,7 +74,7 @@ export class JobRegistry {
   markSubmitted(
     deviceId: string,
     entry: JobEntry | null,
-    web: { ippId: number; webJobId: string; state: JobState; message?: string; bytes: number },
+    web: { ippId: number; webJobId: string; state: JobState; message?: string; waiting?: "unavailable" | "unknown"; bytes: number },
     init: { name: string; userName: string; attributes: FlatObject },
   ): JobEntry {
     const m = this.devMap(deviceId);
@@ -89,6 +91,7 @@ export class JobRegistry {
     e.webJobId = web.webJobId;
     e.state = web.state;
     e.message = web.message;
+    e.waiting = web.waiting;
     e.bytes = web.bytes;
     e.expiresAt = t + SUBMITTED_TTL_MS;
     m.set(e.ippId, e);
@@ -104,6 +107,14 @@ export class JobRegistry {
       return undefined;
     }
     return e;
+  }
+
+  /** The submitted entry of this device for a web job (a retry of the same document points at the same web job). */
+  findByWebJobId(deviceId: string, webJobId: string): JobEntry | undefined {
+    for (const e of this.byDevice.get(deviceId)?.values() ?? []) {
+      if (e.webJobId === webJobId && e.expiresAt > this.now()) return e;
+    }
+    return undefined;
   }
 
   remove(deviceId: string, ippId: number): void {

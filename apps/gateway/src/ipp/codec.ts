@@ -56,6 +56,8 @@ export const STATUS = {
   internalError: 0x0500,
   operationNotSupported: 0x0501,
   temporaryError: 0x0506,
+  /** server-error-busy: the server cannot take this right now; the client should try again shortly. */
+  serverBusy: 0x0507,
 } as const;
 
 export interface IppResolution {

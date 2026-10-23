@@ -88,3 +88,22 @@ describe("describeJob: state -> (job-state, reasons, message)", () => {
     expect(d.message.length).toBeLessThan(100);
   });
 });
+
+describe("describeJob: waiting for the printer (queued, not failed)", () => {
+  it("tells the phone why when the web app knows: still 'pending', never aborted, under 100 characters", () => {
+    const off = describeJob("approved", "ignored", "unavailable");
+    expect(off).toMatchObject({ state: 3, reasons: ["job-queued"], message: "Waiting for the printer - it is off or offline" });
+    const unknown = describeJob("approved", "ignored", "unknown");
+    expect(unknown).toMatchObject({ state: 3, reasons: ["job-queued"], message: "Waiting for the printer - status unknown" });
+    expect(describeJob("claimed", undefined, "unavailable").state).toBe(3);
+    for (const d of [off, unknown]) expect(d.message.length).toBeLessThan(100);
+  });
+  it("without a waiting kind it is exactly the old wording", () => {
+    expect(describeJob("approved").message).toBe("Waiting for the printer");
+    expect(describeJob("approved", "some text").message).toBe("Waiting for the printer");
+  });
+  it("the waiting kind is ignored for any other state", () => {
+    expect(describeJob("printing", undefined, "unavailable").message).toBe("Printing");
+    expect(describeJob("failed", undefined, "unavailable").state).toBe(8);
+  });
+});

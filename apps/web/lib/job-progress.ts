@@ -1,6 +1,7 @@
 import { JOB_STATES, type JobState } from "@printio/shared";
 import type { JobEventType } from "./job-event-labels";
 import { friendlyFailureMessage } from "./job-failure";
+import { jobWaiting } from "./job-waiting";
 
 /**
  * "Where is my job up to right now?", answered as an ordered set of stages
@@ -211,7 +212,11 @@ function noteForStage(stage: JobStageId, state: JobStageState, input: JobProgres
       if (state === "done") return "An approver released this job for printing.";
       return null;
     case "queued":
-      if (state === "current") return "Approved, and waiting for a print agent to collect it.";
+      if (state === "current") {
+        const waiting = jobWaiting(input.status, input.errorMessage);
+        if (waiting) return waiting.text;
+        return "Approved, and waiting for a print agent to collect it.";
+      }
       if (state === "failed") {
         if (status === "expired") return "No print agent picked this job up before it expired.";
         return "This job stopped while it was waiting for a printer.";
@@ -249,6 +254,16 @@ function buildExplanation(input: JobProgressInput, retryable: boolean): JobProgr
     typeof input.attemptCount === "number" && typeof input.maxAttempts === "number" && input.maxAttempts > 0
       ? `Tried ${Math.min(input.attemptCount, input.maxAttempts)} of ${input.maxAttempts} times.`
       : null;
+
+  // The printer could not take the job right now (off, offline, jam being cleared...). It is NOT failed: it is
+  // queued, will be tried again by itself, and nothing has been used up. See lib/job-waiting.ts.
+  const waiting = jobWaiting(input.status, input.errorMessage);
+  if (waiting) {
+    return {
+      title: "Waiting for the printer",
+      lines: [waiting.text, "Nothing is lost and your quota is kept. You can also cancel this job."],
+    };
+  }
 
   switch (input.status) {
     case "held":
