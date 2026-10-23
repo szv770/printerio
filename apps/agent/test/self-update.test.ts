@@ -24,7 +24,7 @@ const GATEWAY_ARGS = [
   "-NoProfile",
   "-NonInteractive",
   "-Command",
-  "Restart-Service -Name printioippgateway.exe -ErrorAction Stop",
+  'Restart-Service -DisplayName "Printio IPP Gateway" -ErrorAction Stop',
 ];
 
 /** Dispatches by argv, like the real world: rev-parse reports a hash, pull/install/powershell as configured. */
@@ -151,7 +151,7 @@ describe("performSelfUpdate", () => {
       gateway: {
         exitCode: 1,
         stdout: "",
-        stderr: "Restart-Service : Cannot find any service with service name 'printioippgateway.exe'.",
+        stderr: "Restart-Service : Cannot find any service with display name 'Printio IPP Gateway'.",
       },
     });
     const result = await performSelfUpdate(makeDeps({ run }));

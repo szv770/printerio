@@ -34,9 +34,9 @@
  *   IPP gateway is a second Windows service run from the SAME checkout, so
  *   after a successful update it would keep running old code. On win32 only,
  *   and only after pull AND install both succeeded, this runs exactly
- *   `powershell.exe -NoProfile -NonInteractive -Command "Restart-Service -Name
- *   printioippgateway.exe -ErrorAction Stop"` (the node-windows service id for
- *   "Printio IPP Gateway"): a hardcoded argv, `shell: false`, a timeout, no
+ *   `powershell.exe -NoProfile -NonInteractive -Command "Restart-Service
+ *   -DisplayName 'Printio IPP Gateway' -ErrorAction Stop"` (the service's display
+ *   name): a hardcoded argv, `shell: false`, a timeout, no
  *   interpolation, nothing from the payload. A missing or failing gateway
  *   service never fails the update; it becomes a plain note in the message.
  *   The Agent's own restart is scheduled by the caller only after this
@@ -56,13 +56,13 @@ const GIT_TIMEOUT_MS = 120_000;
 const INSTALL_TIMEOUT_MS = 600_000;
 const GATEWAY_RESTART_TIMEOUT_MS = 60_000;
 
-/** node-windows service id for "Printio IPP Gateway" (apps/gateway/src/windows-service.ts): lower-cased name, spaces removed, ".exe" appended. */
-const GATEWAY_SERVICE_ID = "printioippgateway.exe";
+/** Display name of the gateway service (apps/gateway/src/windows-service.ts); proven on the real server with `Start-Service -DisplayName`. */
+const GATEWAY_SERVICE_DISPLAY_NAME = "Printio IPP Gateway";
 const GATEWAY_RESTART_ARGS: readonly string[] = [
   "-NoProfile",
   "-NonInteractive",
   "-Command",
-  `Restart-Service -Name ${GATEWAY_SERVICE_ID} -ErrorAction Stop`,
+  `Restart-Service -DisplayName "${GATEWAY_SERVICE_DISPLAY_NAME}" -ErrorAction Stop`,
 ];
 
 export interface CommandOutcome {
