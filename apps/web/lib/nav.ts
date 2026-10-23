@@ -50,8 +50,12 @@ export interface NavItem {
 }
 
 export interface NavGroup {
+  /** Stable key (state, DOM ids). */
+  id: string;
   /** null = untitled block at the top of the menu. */
   title: string | null;
+  /** Always-visible groups cannot be folded away (the ones holding daily actions and tour anchors). */
+  alwaysOpen?: boolean;
   items: NavItem[];
 }
 
@@ -60,20 +64,26 @@ const MY_JOBS: NavItem = { href: routes.jobs, label: "My jobs", icon: "jobs", to
 /** The prominent "+ Print a document" entry (a button, not a list row). */
 export const PRINT_ITEM: NavItem = { href: routes.print, label: "Print a document", icon: "print" };
 
-/** Menu for org admins (isOrgAdmin) and approvers. Print is the header button. */
+/**
+ * Menu for org admins (isOrgAdmin) and approvers. Print is the header button.
+ * Overview, My jobs and Approvals are always visible (daily use + the My jobs
+ * tour anchor must exist while folded); the other groups fold, and the one
+ * holding the current page opens itself (see openGroupIds).
+ */
 export function adminMenu(isOrgAdmin: boolean): NavGroup[] {
   return [
     {
+      id: "main",
       title: null,
+      alwaysOpen: true,
       items: [
+        { href: routes.admin, label: "Overview", icon: "overview", exact: true },
         MY_JOBS,
-        { href: routes.usage, label: "Usage", icon: "usage" },
-        { href: routes.devices, label: "My devices", icon: "devices" },
-        { href: routes.profile, label: "Profile", icon: "profile" },
+        { href: routes.adminApprovals, label: "Approvals", icon: "approvals", badge: "pendingApprovals" },
       ],
     },
-    { title: "Admin", items: [{ href: routes.admin, label: "Overview", icon: "overview", exact: true }] },
     {
+      id: "people",
       title: "People",
       items: [
         { href: routes.adminUsers, label: "Users", icon: "users" },
@@ -81,36 +91,57 @@ export function adminMenu(isOrgAdmin: boolean): NavGroup[] {
       ],
     },
     {
-      title: "Printers",
+      id: "printers",
+      title: "Printers & devices",
       items: [
         { href: routes.adminPrinters, label: "Printers", icon: "printers" },
-        { href: routes.adminAgents, label: "Agents", icon: "agents" },
+        { href: routes.adminAgents, label: "Print servers", icon: "agents" },
         // Devices / Audit log / Storage require org_admin on their own pages.
-        ...(isOrgAdmin ? [{ href: routes.adminDevices, label: "Devices", icon: "devices" as const }] : []),
+        ...(isOrgAdmin ? [{ href: routes.adminDevices, label: "User devices", icon: "devices" as const }] : []),
       ],
     },
     {
-      title: "Rules",
+      id: "rules",
+      title: "Rules & limits",
       items: [
-        { href: routes.adminApprovals, label: "Approvals", icon: "approvals", badge: "pendingApprovals" },
-        { href: routes.adminPolicies, label: "Policies", icon: "policies" },
-        { href: routes.adminQuotas, label: "Quotas", icon: "quotas" },
+        { href: routes.adminPolicies, label: "Print rules", icon: "policies" },
+        { href: routes.adminQuotas, label: "Monthly limits", icon: "quotas" },
       ],
     },
     {
-      title: "Reports & settings",
+      id: "reports",
+      title: "Reports",
       items: [
-        { href: routes.adminReports, label: "Reports", icon: "reports" },
-        ...(isOrgAdmin
-          ? [
-              { href: routes.adminAudit, label: "Audit log", icon: "audit" as const },
-              { href: routes.adminStorage, label: "Storage", icon: "storage" as const },
-            ]
-          : []),
-        { href: routes.adminSettings, label: "Settings", icon: "settings" },
+        { href: routes.adminReports, label: "Usage reports", icon: "reports" },
+        ...(isOrgAdmin ? [{ href: routes.adminAudit, label: "Audit log", icon: "audit" as const }] : []),
+      ],
+    },
+    {
+      id: "settings",
+      title: "Settings",
+      items: [
+        { href: routes.adminSettings, label: "General", icon: "settings" },
+        ...(isOrgAdmin ? [{ href: routes.adminStorage, label: "Files & storage", icon: "storage" as const }] : []),
+      ],
+    },
+    {
+      id: "account",
+      title: "My account",
+      items: [
+        { href: routes.usage, label: "My usage", icon: "usage" },
+        { href: routes.devices, label: "My devices", icon: "devices" },
+        { href: routes.profile, label: "Profile", icon: "profile" },
       ],
     },
   ];
+}
+
+/** Ids of the groups that should render open: always-open ones plus the one holding the current page. */
+export function openGroupIds(groups: NavGroup[], pathname: string): string[] {
+  const active = activeItemHref(groups, pathname);
+  return groups
+    .filter((g) => g.alwaysOpen || g.title === null || (active !== null && g.items.some((i) => i.href === active)))
+    .map((g) => g.id);
 }
 
 /** The simple member header, in order. */
@@ -139,4 +170,26 @@ export function activeItemHref(groups: NavGroup[], pathname: string): string | n
     if (!best || item.href.length > best.href.length) best = item;
   }
   return best ? best.href : null;
+}
+
+/** Friendly role name for the user chip. */
+export function roleLabel(role: string | null | undefined): string {
+  switch (role) {
+    case "org_admin":
+      return "Admin";
+    case "approver":
+      return "Approver";
+    case "staff":
+      return "Staff";
+    case "student":
+      return "Student";
+    default:
+      return "Member";
+  }
+}
+
+/** One uppercase letter for the avatar: first letter of the name, else the email, else "?". */
+export function avatarInitial(name: string | null | undefined, email?: string | null): string {
+  const src = (name ?? "").trim() || (email ?? "").trim();
+  return src ? src.charAt(0).toUpperCase() : "?";
 }

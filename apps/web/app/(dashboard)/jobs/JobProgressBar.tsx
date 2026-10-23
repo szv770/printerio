@@ -1,9 +1,9 @@
 import { JOB_STAGE_LABELS, buildJobProgress, jobProgressPosition, type JobStageState } from "@/lib/job-progress";
 
 const SEGMENT: Record<JobStageState, string> = {
-  done: "bg-[var(--color-success)]",
-  current: "bg-[var(--color-primary)]",
-  failed: "bg-[var(--color-danger)]",
+  done: "bg-[var(--ink-c)]",
+  current: "bg-[var(--ink-c)] opacity-45",
+  failed: "bg-[var(--ink-m)]",
   skipped: "bg-[var(--color-border)]",
   upcoming: "bg-[var(--color-border)]",
   unreachable: "bg-[var(--color-border)] opacity-50",
@@ -40,10 +40,10 @@ export function JobProgressBar({
       : `Step ${step} of ${total}: ${stageLabel}`;
 
   return (
-    <span className="flex items-center gap-2" title={label}>
-      <span className="flex gap-0.5" aria-hidden>
+    <span className="flex flex-col gap-1.5" title={label}>
+      <span className="flex flex-1 gap-1 sm:max-w-56" aria-hidden>
         {progress.stages.map((stage) => (
-          <span key={stage.id} className={`h-1 w-3.5 rounded-full ${SEGMENT[stage.state]}`} />
+          <span key={stage.id} className={`h-1.5 flex-1 rounded-full ${SEGMENT[stage.state]}`} />
         ))}
       </span>
       <span className="text-xs text-[var(--color-muted)]">{label}</span>

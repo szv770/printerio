@@ -1,8 +1,18 @@
 "use client";
 
-import { useActionState } from "react";
-import { Globe, Mail, BookOpen, ShieldAlert, Stamp, RotateCw } from "lucide-react";
-import { Button, Textarea, FieldLabel, FormError, FormSuccess, Card, Badge, Select } from "@/components/ui";
+import { useState } from "react";
+import { BookOpen, LogIn, ShieldCheck, Stamp } from "lucide-react";
+import {
+  Collapsible,
+  Field,
+  FieldError,
+  SAVE_BAR_CLEARANCE,
+  SaveBar,
+  Select,
+  Switch,
+  Textarea,
+  useDirtyForm,
+} from "@/components/ui";
 import {
   updateAllowedDomainsAction,
   updateMagicLinkDomainToggleAction,
@@ -12,12 +22,42 @@ import {
   updateAutoRetryFailedPrintsAction,
   type SettingsActionState,
 } from "./actions";
-
-// A "use server" file may only export async functions, so this trivial seed
-// value for useActionState lives here instead of alongside the action.
 import { STAMP_SHOW_OPTIONS, STAMP_STRENGTH_OPTIONS, type StampSettings } from "@/lib/jobs/user-code";
+import {
+  ACTION_FIELDS,
+  ACTION_SECTION,
+  actionFormFields,
+  adminsSummary,
+  dirtyActions,
+  printingSummary,
+  sectionsWithErrors,
+  signInSummary,
+  stampSummary,
+  type SettingsActionId,
+  type SettingsValues,
+} from "@/lib/settings-form";
 
-const initialSettingsActionState: SettingsActionState = {};
+// The existing server actions are unchanged; the unified Save calls each one
+// that has changes, in this order, with exactly the form fields it always read.
+const ACTIONS: Record<SettingsActionId, (prev: SettingsActionState, fd: FormData) => Promise<SettingsActionState>> = {
+  domains: updateAllowedDomainsAction,
+  magicLink: updateMagicLinkDomainToggleAction,
+  bindingSide: updateDefaultBookletBindingSideAction,
+  adminBypass: updateAdminsBypassRestrictionsAction,
+  autoRetry: updateAutoRetryFailedPrintsAction,
+  stamp: updateStampSettingsAction,
+};
+
+const ACTION_LABEL: Record<SettingsActionId, string> = {
+  domains: "Allowed email domains",
+  magicLink: "Email sign-in links",
+  bindingSide: "Booklet binding side",
+  adminBypass: "Admin exceptions",
+  autoRetry: "Automatic retry",
+  stamp: "Print stamp",
+};
+
+type Errors = Partial<Record<SettingsActionId, string>>;
 
 export function SettingsPanel({
   allowedDomains,
@@ -36,292 +76,252 @@ export function SettingsPanel({
   stamp: StampSettings;
   canManage: boolean;
 }) {
-  const [domainsState, domainsFormAction, domainsPending] = useActionState(
-    updateAllowedDomainsAction,
-    initialSettingsActionState,
-  );
-  const [magicLinkState, magicLinkFormAction, magicLinkPending] = useActionState(
-    updateMagicLinkDomainToggleAction,
-    initialSettingsActionState,
-  );
-  const [bindingSideState, bindingSideFormAction, bindingSidePending] = useActionState(
-    updateDefaultBookletBindingSideAction,
-    initialSettingsActionState,
-  );
-  const [adminBypassState, adminBypassFormAction, adminBypassPending] = useActionState(
-    updateAdminsBypassRestrictionsAction,
-    initialSettingsActionState,
-  );
+  const form = useDirtyForm<SettingsValues>({
+    domains: allowedDomains.join("\n"),
+    magicLinkRequiresAllowedDomain,
+    bindingSide: defaultBookletBindingSide,
+    adminsBypass: adminsBypassRestrictions,
+    autoRetry: autoRetryFailedPrints,
+    stampEnabled: stamp.enabled,
+    stampShow: stamp.show,
+    stampStrength: stamp.strength,
+  });
+  const v = form.values;
 
-  const [autoRetryState, autoRetryFormAction, autoRetryPending] = useActionState(
-    updateAutoRetryFailedPrintsAction,
-    initialSettingsActionState,
-  );
+  const [errors, setErrors] = useState<Errors>({});
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
 
-  const [stampState, stampFormAction, stampPending] = useActionState(updateStampSettingsAction, initialSettingsActionState);
+  const pendingActions = dirtyActions(form.baseline, v);
+  const sectionErrors = sectionsWithErrors(errors);
+  const failedCount = Object.values(errors).filter(Boolean).length;
+
+  function change<K extends keyof SettingsValues>(key: K, value: SettingsValues[K]) {
+    form.set(key, value);
+    // Editing a field with a server error clears that error.
+    setErrors((prev) => {
+      const next = { ...prev };
+      for (const a of Object.keys(ACTION_FIELDS) as SettingsActionId[]) {
+        if (ACTION_FIELDS[a].includes(key)) delete next[a];
+      }
+      return next;
+    });
+  }
+
+  async function save() {
+    if (saving || pendingActions.length === 0) return;
+    setSaving(true);
+    setErrors({});
+    const nextErrors: Errors = {};
+    const savedKeys: Array<keyof SettingsValues> = [];
+    for (const action of pendingActions) {
+      const fd = new FormData();
+      for (const [k, val] of Object.entries(actionFormFields(action, v))) fd.set(k, val);
+      try {
+        const res = await ACTIONS[action]({}, fd);
+        if (res.error) nextErrors[action] = res.error;
+        else savedKeys.push(...ACTION_FIELDS[action]);
+      } catch {
+        nextErrors[action] = `Couldn't save "${ACTION_LABEL[action]}". Check your connection and try again.`;
+      }
+    }
+    if (savedKeys.length > 0) form.commit(savedKeys);
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length === 0) setSavedAt((n) => (n ?? 0) + 1);
+    setSaving(false);
+  }
+
+  function discard() {
+    form.reset();
+    setErrors({});
+  }
+
+  const dis = !canManage;
+  const barError =
+    failedCount > 0
+      ? failedCount === 1
+        ? "One change couldn't be saved. The other changes were saved."
+        : `${failedCount} changes couldn't be saved. Any others were saved.`
+      : null;
 
   return (
-    <div className="flex flex-col gap-6">
-      <Card>
-        <div className="mb-3 flex items-center gap-2">
-          <Globe className="h-4 w-4 text-[var(--color-muted)]" />
-          <h2 className="text-sm font-semibold">Allowed sign-in domains</h2>
-        </div>
-        <p className="mb-3 text-sm text-[var(--color-muted)]">
-          Only email addresses on these domains may sign in as a brand-new user (an existing member can always
-          sign in, regardless of this list). Leave empty to allow any domain to attempt to join - actual
-          membership still requires an enrollment code either way.
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+      noValidate
+      className={`flex flex-col gap-4 ${canManage ? SAVE_BAR_CLEARANCE : ""}`}
+    >
+      {!canManage && (
+        <p className="rounded-[var(--radius-control)] bg-[var(--color-surface-2)] px-4 py-3 text-sm text-[var(--color-text-2)]">
+          You can look at these settings, but only an admin can change them.
         </p>
+      )}
 
-        {!canManage && (
-          <div className="mb-3 flex flex-wrap gap-2">
-            {allowedDomains.length === 0 ? (
-              <span className="text-sm text-[var(--color-muted)]">No restriction configured (any domain).</span>
-            ) : (
-              allowedDomains.map((d) => <Badge key={d}>{d}</Badge>)
-            )}
+      <Collapsible
+        id="signin"
+        title="Who can sign in"
+        icon={<LogIn className="h-4 w-4" />}
+        summary={signInSummary(v)}
+        forceOpen={sectionErrors.has("signin")}
+      >
+        <div className="flex flex-col gap-5">
+          <Field
+            label="Allowed email domains"
+            hint="one per line"
+            htmlFor="domains"
+            help="Only people with an email on one of these domains can sign in for the first time. People who already belong can always sign in. Leave this empty to allow any domain; a person still needs an invitation or code to join."
+            error={errors.domains}
+          >
+            <Textarea
+              id="domains"
+              name="domains"
+              rows={4}
+              value={v.domains}
+              onChange={(e) => change("domains", e.target.value)}
+              placeholder={"lecfl.com\nstaff.lecfl.com"}
+              disabled={dis}
+              invalid={!!errors.domains}
+              aria-describedby="domains-desc"
+            />
+          </Field>
+          <div>
+            <Switch
+              label="Email sign-in links use the same list"
+              description="Turn this off to let anyone request an email sign-in link. They still need an invitation or code to join."
+              checked={v.magicLinkRequiresAllowedDomain}
+              onChange={(e) => change("magicLinkRequiresAllowedDomain", e.target.checked)}
+              disabled={dis}
+            />
+            <FieldError message={errors.magicLink} />
           </div>
-        )}
-
-        {canManage && (
-          <form action={domainsFormAction} className="flex flex-col gap-3">
-            <div>
-              <FieldLabel htmlFor="domains" hint="one per line, or comma-separated">
-                Domains
-              </FieldLabel>
-              <Textarea
-                id="domains"
-                name="domains"
-                rows={4}
-                defaultValue={allowedDomains.join("\n")}
-                placeholder={"lecfl.com\nstaff.lecfl.com"}
-              />
-            </div>
-            <FormError message={domainsState.error} />
-            <FormSuccess message={domainsState.success} />
-            <div>
-              <Button type="submit" size="sm" pending={domainsPending} pendingLabel="Saving...">
-                Save
-              </Button>
-            </div>
-          </form>
-        )}
-      </Card>
-
-      <Card>
-        <div className="mb-3 flex items-center gap-2">
-          <Mail className="h-4 w-4 text-[var(--color-muted)]" />
-          <h2 className="text-sm font-semibold">Magic-link sign-in</h2>
         </div>
-        <p className="mb-3 text-sm text-[var(--color-muted)]">
-          Email sign-in links (app/login) are a second way to sign in, alongside Google. By default a
-          brand-new user requesting one is checked against the allowed domains above, the same as Google
-          sign-in always is. Turning this off lets anyone with any email address request a magic link - though,
-          same as Google, they still need an invitation or enrollment code to actually join the organization.
-        </p>
+      </Collapsible>
 
-        {!canManage && (
-          <p className="text-sm text-[var(--color-muted)]">
-            {magicLinkRequiresAllowedDomain
-              ? "Magic-link sign-in is restricted to the allowed domains above."
-              : "Magic-link sign-in is open to any email domain."}
-          </p>
-        )}
-
-        {canManage && (
-          <form action={magicLinkFormAction} className="flex flex-col gap-3">
-            <label className="flex items-start gap-2 text-sm text-[var(--color-text)]">
-              <input
-                type="checkbox"
-                name="magicLinkRequiresAllowedDomain"
-                defaultChecked={magicLinkRequiresAllowedDomain}
-                className="mt-0.5"
-              />
-              Require magic-link sign-in to match the allowed domains above
-            </label>
-            <FormError message={magicLinkState.error} />
-            <FormSuccess message={magicLinkState.success} />
-            <div>
-              <Button type="submit" size="sm" pending={magicLinkPending} pendingLabel="Saving...">
-                Save
-              </Button>
-            </div>
-          </form>
-        )}
-      </Card>
-
-      <Card>
-        <div className="mb-3 flex items-center gap-2">
-          <BookOpen className="h-4 w-4 text-[var(--color-muted)]" />
-          <h2 className="text-sm font-semibold">Default booklet binding side</h2>
+      <Collapsible
+        id="printing"
+        title="Printing defaults"
+        icon={<BookOpen className="h-4 w-4" />}
+        summary={printingSummary(v)}
+        forceOpen={sectionErrors.has("printing")}
+      >
+        <div className="flex flex-col gap-5">
+          <Field
+            label="Booklet binding side"
+            htmlFor="bindingSide"
+            help="Which edge new booklet printer setups start with. Right edge is for right-to-left reading such as Hebrew. Printers and jobs that already exist are not changed."
+            error={errors.bindingSide}
+          >
+            <Select
+              id="bindingSide"
+              name="defaultBookletBindingSide"
+              value={v.bindingSide}
+              onChange={(e) => change("bindingSide", e.target.value === "right" ? "right" : "left")}
+              disabled={dis}
+              invalid={!!errors.bindingSide}
+              aria-describedby="bindingSide-desc"
+            >
+              <option value="left">Left edge (left-to-right reading)</option>
+              <option value="right">Right edge (right-to-left reading, such as Hebrew)</option>
+            </Select>
+          </Field>
+          <div>
+            <Switch
+              label="Try failed prints again automatically"
+              description="If a print fails (printer offline, paper jam, print computer restarted), Printio sends it again by itself a few times, then leaves it failed with a plain explanation. When this is off, the teacher sees what went wrong and presses Try again."
+              checked={v.autoRetry}
+              onChange={(e) => change("autoRetry", e.target.checked)}
+              disabled={dis}
+            />
+            <FieldError message={errors.autoRetry} />
+          </div>
         </div>
-        <p className="mb-3 text-sm text-[var(--color-muted)]">
-          Which edge a new booklet-capable printer profile defaults to binding on - &quot;left edge binding&quot; for
-          LTR reading, &quot;right edge binding&quot; for RTL (e.g. Hebrew) reading, matching the Kyocera KX
-          driver&apos;s own booklet Layout-tab terminology. Only prefills profiles created from now on (Admin →
-          Printers) - it does not change any existing profile or in-flight job, and can always be overridden per
-          profile or per job.
-        </p>
+      </Collapsible>
 
-        {!canManage && (
-          <p className="text-sm text-[var(--color-muted)]">
-            New booklet profiles default to{" "}
-            {defaultBookletBindingSide === "right" ? "right edge binding (RTL)" : "left edge binding (LTR)"}.
-          </p>
-        )}
-
-        {canManage && (
-          <form action={bindingSideFormAction} className="flex flex-col gap-3">
-            <div>
-              <FieldLabel htmlFor="defaultBookletBindingSide">Binding side</FieldLabel>
-              <Select id="defaultBookletBindingSide" name="defaultBookletBindingSide" defaultValue={defaultBookletBindingSide}>
-                <option value="left">Left edge binding (LTR reading)</option>
-                <option value="right">Right edge binding (RTL reading, e.g. Hebrew)</option>
+      <Collapsible
+        id="stamp"
+        title="Print stamp"
+        icon={<Stamp className="h-4 w-4" />}
+        summary={stampSummary(v)}
+        forceOpen={sectionErrors.has("stamp")}
+      >
+        <div className="flex flex-col gap-5">
+          <Switch
+            label="Stamp a code on page 1 of every print"
+            description="A small, faint code in the bottom-right corner, so you can tell at the printer whose pile is whose. Booklet covers and every copy carry it. Each person's code is set on the Users page. Applies to new jobs only."
+            checked={v.stampEnabled}
+            onChange={(e) => change("stampEnabled", e.target.checked)}
+            disabled={dis}
+          />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="What it shows" htmlFor="stampShow">
+              <Select
+                id="stampShow"
+                name="stampShow"
+                value={v.stampShow}
+                onChange={(e) => change("stampShow", e.target.value)}
+                disabled={dis}
+                invalid={!!errors.stamp}
+              >
+                {STAMP_SHOW_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
               </Select>
-            </div>
-            <FormError message={bindingSideState.error} />
-            <FormSuccess message={bindingSideState.success} />
-            <div>
-              <Button type="submit" size="sm" pending={bindingSidePending} pendingLabel="Saving...">
-                Save
-              </Button>
-            </div>
-          </form>
-        )}
-      </Card>
-
-      <Card>
-        <div className="mb-3 flex items-center gap-2">
-          <ShieldAlert className="h-4 w-4 text-[var(--color-muted)]" />
-          <h2 className="text-sm font-semibold">Admins bypass approval &amp; quota</h2>
+            </Field>
+            <Field label="How dark" htmlFor="stampStrength">
+              <Select
+                id="stampStrength"
+                name="stampStrength"
+                value={v.stampStrength}
+                onChange={(e) => change("stampStrength", e.target.value)}
+                disabled={dis}
+                invalid={!!errors.stamp}
+              >
+                {STAMP_STRENGTH_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <FieldError message={errors.stamp} />
         </div>
-        <p className="mb-3 text-sm text-[var(--color-muted)]">
-          By default, an org_admin&apos;s own print jobs are never held up by a &quot;requires approval&quot; or
-          &quot;denied&quot; policy outcome, or by a quota limit - there&apos;s often no one else around to approve
-          an admin&apos;s own job. The job still records exactly what the rule/quota would have done, and shows it
-          as a warning, rather than hiding it. Turn this off if you want your own admins held to the same rules as
-          everyone else.
-        </p>
+      </Collapsible>
 
-        {!canManage && (
-          <p className="text-sm text-[var(--color-muted)]">
-            {adminsBypassRestrictions
-              ? "Admins' own print jobs bypass approval and quota rules (shown as a warning when one would apply)."
-              : "Admins are subject to the same approval and quota rules as everyone else."}
-          </p>
-        )}
-
-        {canManage && (
-          <form action={adminBypassFormAction} className="flex flex-col gap-3">
-            <label className="flex items-start gap-2 text-sm text-[var(--color-text)]">
-              <input
-                type="checkbox"
-                name="adminsBypassRestrictions"
-                defaultChecked={adminsBypassRestrictions}
-                className="mt-0.5"
-              />
-              Admin print jobs bypass approval/deny and quota blocking
-            </label>
-            <FormError message={adminBypassState.error} />
-            <FormSuccess message={adminBypassState.success} />
-            <div>
-              <Button type="submit" size="sm" pending={adminBypassPending} pendingLabel="Saving...">
-                Save
-              </Button>
-            </div>
-          </form>
-        )}
-      </Card>
-      <Card>
-        <div className="mb-3 flex items-center gap-2">
-          <RotateCw className="h-4 w-4 text-[var(--color-muted)]" />
-          <h2 className="text-sm font-semibold">Retry failed prints automatically</h2>
+      <Collapsible
+        id="admins"
+        title="Admin exceptions"
+        icon={<ShieldCheck className="h-4 w-4" />}
+        summary={adminsSummary(v)}
+        forceOpen={sectionErrors.has("admins")}
+      >
+        <div>
+          <Switch
+            label="Admins skip approval and limits for their own prints"
+            description="There is often nobody else around to approve an admin's own print. Their jobs still show a warning when a rule or limit would have applied. Turn this off to hold admins to the same rules as everyone else."
+            checked={v.adminsBypass}
+            onChange={(e) => change("adminsBypass", e.target.checked)}
+            disabled={dis}
+          />
+          <FieldError message={errors.adminBypass} />
         </div>
-        <p className="mb-3 text-sm text-[var(--color-muted)]">
-          When a print fails (printer offline, jam, print computer restarted), send it again on its own, up to the
-          job&apos;s limit of tries, then leave it failed with a plain explanation. Off by default: the teacher sees
-          what went wrong and presses Try again. A job that is waiting to be retried keeps its quota reserved.
-        </p>
+      </Collapsible>
 
-        {!canManage && (
-          <p className="text-sm text-[var(--color-muted)]">
-            {autoRetryFailedPrints ? "Failed prints are retried automatically." : "Failed prints wait for their sender to press Try again."}
-          </p>
-        )}
-
-        {canManage && (
-          <form action={autoRetryFormAction} className="flex flex-col gap-3">
-            <label className="flex items-start gap-2 text-sm text-[var(--color-text)]">
-              <input type="checkbox" name="autoRetryFailedPrints" defaultChecked={autoRetryFailedPrints} className="mt-0.5" />
-              Retry failed prints automatically
-            </label>
-            <FormError message={autoRetryState.error} />
-            <FormSuccess message={autoRetryState.success} />
-            <div>
-              <Button type="submit" size="sm" pending={autoRetryPending} pendingLabel="Saving...">
-                Save
-              </Button>
-            </div>
-          </form>
-        )}
-      </Card>
-      <Card>
-        <div className="mb-3 flex items-center gap-2">
-          <Stamp className="h-4 w-4 text-[var(--color-muted)]" />
-          <h2 className="text-sm font-semibold">Print stamp (user code)</h2>
-        </div>
-        <p className="mb-3 text-sm text-[var(--color-muted)]">
-          Stamps a small, faint code in the bottom-right corner of page 1 of each printout, so you can walk to the
-          printer and tell whose pile is whose. Every copy carries it, and so does a booklet&apos;s cover. Each
-          person&apos;s code is set on the Users page. Applies to jobs created from now on.
-        </p>
-
-        {!canManage && (
-          <p className="text-sm text-[var(--color-muted)]">
-            {stamp.enabled
-              ? `On: ${STAMP_SHOW_OPTIONS.find((o) => o.value === stamp.show)?.label.toLowerCase()}, ${stamp.strength}.`
-              : "Off: print jobs are not stamped."}
-          </p>
-        )}
-
-        {canManage && (
-          <form action={stampFormAction} className="flex flex-col gap-3">
-            <label className="flex items-start gap-2 text-sm text-[var(--color-text)]">
-              <input type="checkbox" name="stampEnabled" defaultChecked={stamp.enabled} className="mt-0.5" />
-              Stamp the user code on page 1 of every print job
-            </label>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <FieldLabel htmlFor="stampShow">Shows</FieldLabel>
-                <Select id="stampShow" name="stampShow" defaultValue={stamp.show}>
-                  {STAMP_SHOW_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div>
-                <FieldLabel htmlFor="stampStrength">Strength</FieldLabel>
-                <Select id="stampStrength" name="stampStrength" defaultValue={stamp.strength}>
-                  {STAMP_STRENGTH_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            </div>
-            <FormError message={stampState.error} />
-            <FormSuccess message={stampState.success} />
-            <div>
-              <Button type="submit" size="sm" pending={stampPending} pendingLabel="Saving...">
-                Save
-              </Button>
-            </div>
-          </form>
-        )}
-      </Card>
-    </div>
+      {canManage && (
+        <SaveBar
+          dirty={pendingActions.length > 0}
+          saving={saving}
+          savedAt={savedAt}
+          error={barError}
+          changeCount={new Set(pendingActions.map((a) => ACTION_SECTION[a])).size}
+          onSave={() => void save()}
+          onDiscard={discard}
+        />
+      )}
+    </form>
   );
 }

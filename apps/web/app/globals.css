@@ -1,27 +1,141 @@
 @import "tailwindcss";
 
+/*
+ * Design tokens. Light theme only (as before). Names that existed before this
+ * file was refined (--color-bg, -surface, -border, -text, -muted, -primary,
+ * -primary-fg, -success, -warning, -danger) are kept so every page keeps working.
+ *
+ * Neutrals are a cool slate scale; ONE accent (indigo-blue); semantic colors each
+ * come with a soft tint (-soft) for badges and banners and a strong text color (-ink).
+ */
 :root {
-  --color-bg: #f8fafc;
-  --color-surface: #ffffff;
-  --color-border: #e2e8f0;
-  --color-text: #0f172a;
-  --color-muted: #64748b;
-  --color-primary: #2563eb;
+  color-scheme: light;
+
+  /* neutrals: paper-white sheets on a very light warm-grey page, ink-black text */
+  --color-bg: #f5f3ef;
+  --color-surface: #fffefc;
+  --color-surface-2: #efece6; /* wells, hovered rows, tracks */
+  --color-border: #e7e3da;
+  --color-border-strong: #d3cec2;
+  --color-text: #17150f;
+  --color-text-2: #403c33;
+  --color-muted: #6a655a; /* 5.3:1 on paper */
+  --color-faint: #8f897c;
+
+  /* the one confident primary: a cyan-leaning cobalt */
+  --color-primary: #0a64d8;
+  --color-primary-hover: #0752b3;
+  --color-primary-soft: #e4effc;
   --color-primary-fg: #ffffff;
-  --color-success: #16a34a;
-  --color-warning: #d97706;
-  --color-danger: #dc2626;
+
+  /* CMYK ink accents: status dots, category chips, progress. Never body text. */
+  --ink-c: #0ea5d9;
+  --ink-m: #e03a86;
+  --ink-y: #f4b400;
+  --ink-k: #17150f;
+
+  /* semantic */
+  --color-success: #15803d;
+  --color-success-soft: #e7f6ec;
+  --color-success-ink: #14532d;
+  --color-warning: #b45309;
+  --color-warning-soft: #fdf3e1;
+  --color-warning-ink: #78350f;
+  --color-danger: #c62828;
+  --color-danger-soft: #fdecec;
+  --color-danger-ink: #7f1d1d;
+
+  /* radii: controls < cards < overlays */
+  --radius-control: 0.875rem;
+  --radius-card: 1.25rem;
+  --radius-pill: 999px;
+
+  /* soft layered shadows */
+  --shadow-xs: 0 1px 2px rgb(40 30 10 / 0.06);
+  --shadow-card: 0 1px 2px rgb(40 30 10 / 0.04), 0 4px 14px -6px rgb(40 30 10 / 0.10);
+  --shadow-pop: 0 1px 2px rgb(40 30 10 / 0.06), 0 8px 24px -4px rgb(40 30 10 / 0.16), 0 24px 48px -12px rgb(40 30 10 / 0.18);
+
+  /* focus ring: 2px gap + 2px accent, visible on any surface */
+  --ring: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-primary);
+
+  /* spacing rhythm for page sections (use with gap-/space-y-) */
+  --space-section: 1.5rem;
+  --space-card: 1.25rem;
+
+  --tap: 2.75rem; /* 44px minimum touch target */
+}
+
+@theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
   background: var(--color-bg);
   color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 0.9375rem; /* 15px body */
+  line-height: 1.55;
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  overflow-wrap: break-word;
 }
 
-/* Large, touch-friendly controls by default - see docs/architecture.md sec 43. */
-button,
-input,
-select,
-textarea {
-  font-size: 1rem;
+/*
+ * Type scale (line-height in brackets): 12/16 caption, 13/20 small, 15/24 body,
+ * 17/26 lead, 20/28 h3, 24/30 h2, 30/36 h1 (tracking tightens as size grows).
+ */
+h1, h2, h3 {
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+p { text-wrap: pretty; }
+
+/* Form controls stay at 16px on phones so iOS Safari does not zoom on focus.
+ * In @layer base so Tailwind utilities (text-sm on a button) can still override it. */
+@layer base {
+  button,
+  input,
+  select,
+  textarea {
+    font-size: 1rem;
+    font-family: inherit;
+  }
+  @media (min-width: 768px) {
+    input,
+    select,
+    textarea {
+      font-size: 0.9375rem;
+    }
+  }
+}
+
+/* One consistent keyboard focus ring for anything without its own. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--color-primary-soft);
+}
+
+/* Entrance for the unsaved-changes bar (answers a user action, so it is allowed to move). */
+@keyframes printio-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.printio-rise { animation: printio-rise 180ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@keyframes printio-spin { to { transform: rotate(360deg); } }
+.printio-spin { animation: printio-spin 700ms linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .printio-rise { animation: none; }
+  .printio-spin { animation-duration: 1.6s; }
+  html { scroll-behavior: auto; }
 }

@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
-import { resolveShell } from "@/lib/nav";
+import { resolveShell, roleLabel } from "@/lib/nav";
 import type { SessionWithMembership } from "@/lib/auth/session";
-import { AdminNav } from "./AdminNav";
+import { AdminFrame } from "./AdminFrame";
 import { MemberHeader } from "./MemberHeader";
 
 /**
@@ -19,10 +19,16 @@ export async function AppShell({
 }) {
   const isSuperAdmin = session.profile.platform_role === "super_admin";
 
+  const user = {
+    name: session.profile.display_name,
+    email: session.email,
+    roleLabel: roleLabel(session.membership.role),
+  };
+
   if (resolveShell(session.membership.role) === "member") {
     return (
-      <div className="min-h-screen">
-        <MemberHeader userId={session.userId} isSuperAdmin={isSuperAdmin} />
+      <div className="min-h-screen pb-[calc(4.5rem+env(safe-area-inset-bottom))] sm:pb-0">
+        <MemberHeader userId={session.userId} isSuperAdmin={isSuperAdmin} user={user} />
         {children}
       </div>
     );
@@ -38,18 +44,14 @@ export async function AppShell({
     .eq("status", "pending_approval");
 
   return (
-    // Stacks the nav above the content on a phone and only becomes a
-    // sidebar+body row once there is width for one. The `[&>main]` resets
-    // neutralize the member pages' own `<main mx-auto max-w-2xl px-4 py-10>`
-    // wrapper so they do not double the shell's padding or float centered.
-    <div className="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-4 md:flex-row md:gap-8 md:py-8">
-      <AdminNav
-        isOrgAdmin={session.membership.role === "org_admin"}
-        isSuperAdmin={isSuperAdmin}
-        userId={session.userId}
-        pendingApprovals={pendingApprovals ?? 0}
-      />
-      <div className="min-w-0 flex-1 [&>main]:mx-0 [&>main]:px-0 [&>main]:py-0">{children}</div>
-    </div>
+    <AdminFrame
+      isOrgAdmin={session.membership.role === "org_admin"}
+      isSuperAdmin={isSuperAdmin}
+      userId={session.userId}
+      pendingApprovals={pendingApprovals ?? 0}
+      user={user}
+    >
+      {children}
+    </AdminFrame>
   );
 }

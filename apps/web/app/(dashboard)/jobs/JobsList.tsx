@@ -3,16 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FileCheck2, FileText } from "lucide-react";
+import { FileText } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { routes } from "@/lib/routes";
-import { Badge, EmptyState } from "@/components/ui";
-import { jobAttentionLine, jobListBucket } from "@/lib/job-progress";
-import { ReprintButton } from "./[id]/ReprintButton";
-import { CancelJobButton } from "./[id]/CancelJobButton";
-import { JobStatusBadge } from "./JobStatusBadge";
-import { JobProgressBar } from "./JobProgressBar";
-import { LocalTime } from "./LocalTime";
+import { EmptyState } from "@/components/ui";
+import { jobListBucket } from "@/lib/job-progress";
+import { JobListItem } from "./JobListItem";
 
 export interface JobRow {
   id: string;
@@ -176,20 +172,27 @@ export function JobsList({
 
   return (
     <>
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div
+        role="group"
+        aria-label="Filter jobs"
+        className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden"
+      >
         {filters.map((f) => (
           <button
             key={f.id}
             type="button"
             onClick={() => setFilter(f.id)}
             aria-pressed={filter === f.id}
-            className={`rounded-full border px-3 py-1 text-sm ${
+            className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full border px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:shadow-[var(--ring)] sm:min-h-9 sm:px-3.5 ${
               filter === f.id
-                ? "border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-fg)]"
-                : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-muted)] hover:border-[var(--color-primary)]"
-            } ${f.count === 0 && f.id !== "all" ? "opacity-50" : ""}`}
+                ? "border-[var(--color-text)] bg-[var(--color-text)] text-white"
+                : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-2)] hover:border-[var(--color-border-strong)]"
+            } ${f.count === 0 && f.id !== "all" ? "opacity-55" : ""}`}
           >
-            {f.label} ({f.count})
+            {f.label}
+            <span className={`text-xs tabular-nums ${filter === f.id ? "text-white/70" : "text-[var(--color-faint)]"}`}>
+              {f.count}
+            </span>
           </button>
         ))}
       </div>
@@ -198,67 +201,9 @@ export function JobsList({
         <EmptyState message="No jobs in this view." icon={FileText} />
       ) : (
         <ul className="flex flex-col gap-3" data-tour="jobs-list-container">
-          {visible.map((job) => {
-            const attention = jobAttentionLine({
-              status: job.status,
-              errorMessage: job.error_message,
-              policyReasons: job.policy_reasons,
-              heldReason: job.held_reason,
-            });
-            return (
-              <li
-                key={job.id}
-                className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 hover:border-[var(--color-primary)]"
-              >
-                <Link href={routes.job(job.id)} className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span className="truncate font-medium">{job.original_file_name}</span>
-                      {job.is_test_print && (
-                        <Badge tone="neutral">
-                          <span className="flex items-center gap-1">
-                            <FileCheck2 className="h-3 w-3" /> Test print
-                          </span>
-                        </Badge>
-                      )}
-                    </span>
-                    <JobStatusBadge status={job.status} />
-                  </div>
-                  <p className="mt-1 text-xs text-[var(--color-muted)]">
-                    {job.job_number} • {job.source_pdf_pages} pages • {job.color_mode === "color" ? "Color" : "B&W"} •{" "}
-                    {job.duplex ? "Duplex" : "Simplex"} • {job.copies} {job.copies === 1 ? "copy" : "copies"} •{" "}
-                    <LocalTime iso={job.created_at} />
-                  </p>
-                  <div className="mt-2">
-                    <JobProgressBar
-                      status={job.status}
-                      policyAction={job.policy_action}
-                      eventTypes={eventTypesByJob[job.id]}
-                      isTestPrint={job.is_test_print}
-                    />
-                  </div>
-                  {attention &&
-                    (job.status === "held" ? (
-                      <p className="mt-1 text-xs text-[var(--color-warning)]">{attention}</p>
-                    ) : (
-                      <p className="mt-1 truncate text-xs text-[var(--color-danger)]">{attention}</p>
-                    ))}
-                </Link>
-                {/* Reprinting re-runs the ordinary pipeline (policy + quota),
-                 *  so it is not offered for a test print - see the job detail
-                 *  page for the same reasoning. */}
-                {["held", "pending_approval", "approved", "failed"].includes(job.status) && <CancelJobButton jobId={job.id} compact />}
-                {!job.is_test_print &&
-                  (job.files_purged_at ? (
-                    <p className="mt-1 text-xs text-[var(--color-muted)]">
-                      File removed after a few days - to print again, upload the original document.
-                    </p>
-                  ) : (
-                    <ReprintButton jobId={job.id} />
-                  ))}
-              </li>
-            );
-          })}
+          {visible.map((job) => (
+            <JobListItem key={job.id} job={job} eventTypes={eventTypesByJob[job.id]} />
+          ))}
         </ul>
       )}
     </>

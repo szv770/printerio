@@ -5,7 +5,7 @@ import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { currentPeriod, getApplicableQuotaLimit, getUsageSnapshot, usageForBasis } from "@/lib/quota";
 import { routes } from "@/lib/routes";
-import { jobStatusDisplay } from "@/lib/job-status-labels";
+import { JobStatusBadge } from "../jobs/JobStatusBadge";
 import { Card, EmptyState } from "@/components/ui";
 
 const BASIS_LABEL: Record<QuotaBasis, string> = {
@@ -81,12 +81,14 @@ export default async function DashboardHomePage() {
       <Link
         href={routes.print}
         data-tour="home-print-cta"
-        className="mb-6 flex items-center gap-4 rounded-xl bg-[var(--color-primary)] p-6 text-[var(--color-primary-fg)] transition-opacity hover:opacity-90"
+        className="mb-6 flex items-center gap-4 rounded-[var(--radius-card)] bg-[var(--color-primary)] p-5 text-[var(--color-primary-fg)] shadow-[inset_0_1px_0_rgb(255_255_255/0.2),var(--shadow-card)] transition-colors hover:bg-[var(--color-primary-hover)] focus-visible:outline-none focus-visible:shadow-[var(--ring)] sm:p-6"
       >
-        <PrinterIcon className="h-8 w-8 shrink-0" />
+        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/15">
+          <PrinterIcon className="h-7 w-7" />
+        </span>
         <div>
-          <p className="text-lg font-semibold">Print a document</p>
-          <p className="text-sm opacity-90">Upload a PDF and choose your printer and options.</p>
+          <p className="text-xl font-bold tracking-[-0.02em]">Print a document</p>
+          <p className="mt-0.5 text-sm opacity-90">Upload a PDF and choose your printer and options.</p>
         </div>
       </Link>
 
@@ -114,18 +116,14 @@ export default async function DashboardHomePage() {
       ) : (
         <ul className="flex flex-col gap-2">
           {recentJobs.map((job) => {
-            const display = jobStatusDisplay(job.status);
             return (
               <li key={job.id}>
                 <Link
                   href={routes.job(job.id)}
-                  className="flex items-center justify-between rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 hover:border-[var(--color-primary)]"
+                  className="flex min-h-14 items-center justify-between gap-3 rounded-[var(--radius-control)] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 shadow-[var(--shadow-xs)] hover:border-[var(--color-border-strong)]"
                 >
-                  <span className="font-medium">{job.original_file_name}</span>
-                  <span className="flex items-center gap-1.5 text-sm text-[var(--color-muted)]">
-                    <display.Icon className="h-4 w-4" />
-                    {display.label}
-                  </span>
+                  <span className="min-w-0 truncate font-medium">{job.original_file_name}</span>
+                  <JobStatusBadge status={job.status} />
                 </Link>
               </li>
             );

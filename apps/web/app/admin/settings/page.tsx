@@ -26,7 +26,7 @@ export default async function SettingsPage() {
     <div>
       <PageHeader
         title="Settings"
-        description="Organization-wide sign-in and security settings. See docs/architecture.md sec 19."
+        description="Who can sign in, how printing behaves by default, and the print stamp. Open a section to change it, then save."
       />
       <SettingsPanel
         allowedDomains={org?.allowed_domains ?? []}
