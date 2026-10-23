@@ -27,7 +27,7 @@ export async function AppShell({
 
   if (resolveShell(session.membership.role) === "member") {
     return (
-      <div className="min-h-screen pb-[calc(4.5rem+env(safe-area-inset-bottom))] sm:pb-0">
+      <div className="min-h-screen pb-[calc(4.5rem+env(safe-area-inset-bottom))] [--sticky-bottom:calc(5.25rem+env(safe-area-inset-bottom))] sm:pb-0 sm:[--sticky-bottom:1rem]">
         <MemberHeader userId={session.userId} isSuperAdmin={isSuperAdmin} user={user} />
         {children}
       </div>

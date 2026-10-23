@@ -46,8 +46,8 @@ export function JobListItem({ job, eventTypes }: { job: JobRow; eventTypes?: str
               </span>
             </div>
             <p className="mt-0.5 text-[13px] leading-5 text-[var(--color-muted)]">
-              {job.source_pdf_pages} {job.source_pdf_pages === 1 ? "page" : "pages"} · {job.color_mode === "color" ? "Color" : "B&W"} ·{" "}
-              {job.duplex ? "Duplex" : "Simplex"} · {job.copies} {job.copies === 1 ? "copy" : "copies"}
+              {job.source_pdf_pages} {job.source_pdf_pages === 1 ? "page" : "pages"} · {job.color_mode === "color" ? "Color" : "Black & white"} ·{" "}
+              {job.duplex ? "Double-sided" : "Single-sided"} · {job.copies} {job.copies === 1 ? "copy" : "copies"}
             </p>
             <p className="text-xs leading-5 text-[var(--color-faint)]">
               {job.job_number} · <LocalTime iso={job.created_at} />

@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { routes } from "@/lib/routes";
 import { jobStatusDisplay } from "@/lib/job-status-labels";
-import { buildJobProgress, jobProgressPosition } from "@/lib/job-progress";
-import { Card } from "@/components/ui";
+import { JOB_STAGE_LABELS, buildJobProgress, jobProgressPosition } from "@/lib/job-progress";
+import { jobHeadline } from "@/lib/job-headline";
+import { AlertTriangle, ListChecks } from "lucide-react";
+import { ButtonLink, Card, Collapsible } from "@/components/ui";
 import type { Tables } from "@/lib/database.types";
 import { LocalTime } from "../LocalTime";
+import { JobProgressBar } from "../JobProgressBar";
 import { JobProgressStepper } from "./JobProgressStepper";
 import { HeldBookletCard } from "./HeldBookletCard";
 import { BOOKLET_BINDING_REASON } from "@/lib/gateway/ipp-choices";
@@ -28,30 +30,35 @@ type PrintJob = Tables<"print_jobs">;
  */
 const STALLED_IN_QUEUE_MS = 5 * 60 * 1000;
 
-const TONE_TEXT = {
-  neutral: "text-[var(--color-muted)]",
-  success: "text-[var(--color-success)]",
-  warning: "text-[var(--color-warning)]",
-  danger: "text-[var(--color-danger)]",
+/** Dot colors are the printer inks: cyan in motion, yellow waiting on someone, magenta a problem. */
+const HEADLINE_DOT = {
+  neutral: "bg-[var(--color-faint)]",
+  live: "bg-[var(--ink-c)]",
+  success: "bg-[var(--color-success)]",
+  warning: "bg-[var(--ink-y)]",
+  danger: "bg-[var(--ink-m)]",
 } as const;
 
 const TONE_PANEL = {
-  neutral: "border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text)]",
-  success: "border-[var(--color-success)] bg-[var(--color-bg)] text-[var(--color-text)]",
-  warning: "border-[var(--color-warning)] bg-[var(--color-bg)] text-[var(--color-text)]",
-  danger: "border-[var(--color-danger)] bg-[var(--color-bg)] text-[var(--color-danger)]",
+  neutral: "bg-[var(--color-surface-2)] text-[var(--color-text)]",
+  success: "bg-[var(--color-success-soft)] text-[var(--color-success-ink)]",
+  warning: "bg-[var(--color-warning-soft)] text-[var(--color-warning-ink)]",
+  danger: "bg-[var(--color-danger-soft)] text-[var(--color-danger-ink)]",
 } as const;
 
 export function JobStatusLive({
   job: serverJob,
   eventTypes,
   rejectionReason,
+  actions,
 }: {
   job: PrintJob;
   /** print_job_events.event_type for this job, oldest first - what tells the stepper how far a stopped job actually got. */
   eventTypes: string[];
   /** The approver's own words, from the REJECTED event's metadata (mirrors approval_actions.reason). */
   rejectionReason: string | null;
+  /** The primary buttons (Cancel / Try again / Print again), rendered by the server page so each keeps its own action wiring. */
+  actions?: React.ReactNode;
 }) {
   const router = useRouter();
   const [liveJob, setLiveJob] = useState<PrintJob | null>(null);
@@ -175,93 +182,108 @@ export function JobStatusLive({
   const stalledInQueue = waitingForAgent && nowMs !== null && nowMs - Date.parse(job.updated_at) > STALLED_IN_QUEUE_MS;
   const policyReasons = job.policy_reasons ?? [];
   const explanation = progress.explanation;
-  const { Icon } = display;
+  const headline = jobHeadline(job.status);
+  const stageLabel = JOB_STAGE_LABELS[progress.currentStageId];
 
   return (
-    <Card>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="flex items-center gap-2 text-lg font-medium">
-          <Icon className={`h-5 w-5 ${TONE_TEXT[display.tone]} ${display.spinning ? "animate-spin" : ""}`} />
-          {display.label}
-        </p>
-        <p className="text-xs text-[var(--color-muted)]">
-          {/* A step counter only means something while the job is still
-           *  moving - on a stopped job it would read as progress that isn't
-           *  happening. */}
-          {!progress.halted && (
-            <>
-              Step {position.step} of {position.total} •{" "}
-            </>
-          )}
-          updated <LocalTime iso={job.updated_at} />
-        </p>
-      </div>
-
-      {/* Says plainly what this row is, so nobody reading the job list or an
-       *  audit trail later mistakes an admin's queue check for a person's
-       *  print job - and so the two deliberately-skipped stages below need no
-       *  further explanation. */}
-      {job.is_test_print && (
-        <div className={`mt-3 rounded-lg border p-3 text-sm ${TONE_PANEL.neutral}`}>
-          <p className="font-medium">Test print</p>
-          <p className="mt-1">
-            Sent from Admin → Printers to check this queue end to end. It goes through the same upload, the same print
-            agent and the same Windows queue as a real job, but print rules, approval and quota are skipped on purpose -
-            it isn&apos;t counted in anyone&apos;s usage or in the reports.
+    <div className="flex flex-col gap-4">
+      <Card className="flex flex-col gap-4 sm:p-6">
+        <div>
+          <div className="flex items-center gap-3">
+            <span className="relative flex h-3.5 w-3.5 shrink-0" aria-hidden="true">
+              {headline.tone === "live" && (
+                <span className={`absolute inset-0 animate-ping rounded-full opacity-50 motion-reduce:animate-none ${HEADLINE_DOT.live}`} />
+              )}
+              <span className={`relative h-3.5 w-3.5 rounded-full ${HEADLINE_DOT[headline.tone]}`} />
+            </span>
+            <h2 className="text-2xl font-semibold leading-8 tracking-[-0.01em] sm:text-[1.75rem] sm:leading-9">{headline.sentence}</h2>
+          </div>
+          <p className="mt-1.5 pl-[1.625rem] text-[13px] leading-5 text-[var(--color-muted)]">
+            {/* A step counter only means something while the job is still moving - on a stopped job it would read
+             *  as progress that is not happening. */}
+            {!progress.halted && (
+              <>
+                Step {position.step} of {position.total}: {stageLabel} ·{" "}
+              </>
+            )}
+            Updated <LocalTime iso={job.updated_at} />
           </p>
         </div>
-      )}
 
-      {explanation && (
-        <div className={`mt-3 rounded-lg border p-3 text-sm ${TONE_PANEL[display.tone]}`}>
-          <p className="font-medium">{explanation.title}</p>
-          {explanation.lines.length === 1 ? (
-            <p className="mt-1">{explanation.lines[0]}</p>
-          ) : (
-            <ul className="mt-1 list-inside list-disc">
-              {explanation.lines.map((line, i) => (
-                <li key={i}>{line}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+        <JobProgressBar status={job.status} policyAction={job.policy_action} progress={progress} large />
 
-      {/* Held ONLY to ask left or right binding: one tap finishes it. A booklet held for any other reason too
-       *  (e.g. an A4 page size) keeps the ordinary "choose again" route, so nothing else is silently dropped. */}
-      {isBindingQuestion && <HeldBookletCard jobId={job.id} reason={job.held_reason} />}
-      {job.status === "held" && !isBindingQuestion && (
-        <p className="mt-3 text-sm">
-          <Link href={routes.print} className="font-medium text-[var(--color-primary)] underline">
+        {/* Says plainly what this row is, so nobody reading the job list or an audit trail later mistakes an
+         *  admin's queue check for a person's print job - and so the two deliberately-skipped stages need no
+         *  further explanation. */}
+        {job.is_test_print && (
+          <div className={`rounded-xl p-3.5 text-sm ${TONE_PANEL.neutral}`}>
+            <p className="font-medium">Test print</p>
+            <p className="mt-1">
+              Sent from Admin &rarr; Printers to check this printer from start to finish. Print rules, approval and quota are skipped on purpose, and it is
+              not counted in anyone&apos;s usage or in the reports.
+            </p>
+          </div>
+        )}
+
+        {explanation && (
+          <div className={`rounded-xl p-3.5 text-sm ${TONE_PANEL[display.tone]}`} role={display.tone === "danger" ? "alert" : undefined}>
+            <div className="flex items-start gap-2.5">
+              {(display.tone === "danger" || display.tone === "warning") && (
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              )}
+              <div className="min-w-0">
+                <p className="font-semibold">{explanation.title}</p>
+                {explanation.lines.length === 1 ? (
+                  <p className="mt-1">{explanation.lines[0]}</p>
+                ) : (
+                  <ul className="mt-1 list-inside list-disc">
+                    {explanation.lines.map((line, i) => (
+                      <li key={i}>{line}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Held ONLY to ask left or right binding: one tap finishes it. A booklet held for any other reason too
+         *  (e.g. an A4 page size) keeps the ordinary "choose again" route, so nothing else is silently dropped. */}
+        {isBindingQuestion && <HeldBookletCard jobId={job.id} reason={job.held_reason} />}
+        {job.status === "held" && !isBindingQuestion && (
+          <ButtonLink href={routes.print} size="lg" className="w-full sm:w-auto">
             Choose your options again
-          </Link>
-        </p>
-      )}
+          </ButtonLink>
+        )}
 
-      {/* Never silent about an override: this job's own policy_action/reasons
-       *  say what the rules would otherwise have done - see
-       *  lib/policy/admin-bypass.ts and Admin → Settings' "Admins bypass
-       *  approval & quota" toggle, which is what let this through. */}
-      {job.policy_bypassed_for_admin && (
-        <div className={`mt-3 rounded-lg border p-3 text-sm ${TONE_PANEL.warning}`}>
-          <p className="font-medium">Printed as an admin override</p>
-          <p className="mt-1">
-            This would normally have {job.policy_action === "deny" ? "been denied" : "required approval"}:
-          </p>
-          {policyReasons.length > 0 && (
-            <ul className="mt-1 list-inside list-disc">
-              {policyReasons.map((r, i) => (
-                <li key={i}>{r}</li>
-              ))}
-            </ul>
-          )}
-          <p className="mt-1 text-xs text-[var(--color-muted)]">
-            Allowed anyway because admin jobs bypass these rules in this organization (Admin → Settings).
-          </p>
-        </div>
-      )}
+        {/* Never silent about an override: this job's own policy_action/reasons say what the rules would otherwise
+         *  have done - see lib/policy/admin-bypass.ts and Admin > Settings' "Admins bypass approval & quota" toggle. */}
+        {job.policy_bypassed_for_admin && (
+          <div className={`rounded-xl p-3.5 text-sm ${TONE_PANEL.warning}`}>
+            <p className="font-semibold">Printed as an admin override</p>
+            <p className="mt-1">This would normally have {job.policy_action === "deny" ? "been denied" : "required approval"}:</p>
+            {policyReasons.length > 0 && (
+              <ul className="mt-1 list-inside list-disc">
+                {policyReasons.map((r, i) => (
+                  <li key={i}>{r}</li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-1 text-xs opacity-80">
+              Allowed anyway because admin jobs skip these rules in this organization (Admin &rarr; Settings).
+            </p>
+          </div>
+        )}
 
-      <div className="mt-4 border-t border-[var(--color-border)] pt-4">
+        {actions}
+      </Card>
+
+      <Collapsible
+        id="job-steps"
+        title="Step by step"
+        icon={<ListChecks className="h-4 w-4" aria-hidden="true" />}
+        summary={progress.halted ? `Stopped at: ${stageLabel}` : `Now: ${stageLabel}`}
+      >
         <JobProgressStepper
           progress={progress}
           spinning={display.spinning === true}
@@ -284,13 +306,13 @@ export function JobStatusLive({
             queued: stalledInQueue ? (
               <p className="mt-1 text-xs text-[var(--color-warning)]">
                 Still waiting after several minutes. Print agents normally collect a job within a minute or two, so the
-                agent for this printer may not be running - ask an administrator to check it.
+                agent for this printer may not be running. Ask an administrator to check it.
               </p>
             ) : null,
           }}
         />
-      </div>
-    </Card>
+      </Collapsible>
+    </div>
   );
 }
 

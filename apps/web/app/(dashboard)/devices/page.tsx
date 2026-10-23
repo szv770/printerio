@@ -15,11 +15,11 @@ export default async function DevicesPage() {
   for (const i of issues) if (i.status === "open") openByDevice.set(i.device_id, (openByDevice.get(i.device_id) ?? 0) + 1);
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-10">
-      <PageHeader title="My devices" />
-      <p className="mb-6 text-sm text-[var(--color-muted)]">
-        Add your phone, tablet or laptop so you can print from its normal Print button. Each device gets its own private address.
-      </p>
+    <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
+      <PageHeader
+        title="My devices"
+        description="Add your phone, tablet or laptop to print from its normal Print button. Each device gets its own private address."
+      />
       <DevicesView
         devices={devices.map((d) => ({
           id: d.id,

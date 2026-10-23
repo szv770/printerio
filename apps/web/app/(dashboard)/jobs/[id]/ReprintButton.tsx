@@ -15,15 +15,15 @@ const initialSubmitJobState: SubmitJobState = {};
  * original bytes from storage server-side. Redirects to the new job's
  * status page on success, same as a fresh submission.
  */
-export function ReprintButton({ jobId }: { jobId: string }) {
+export function ReprintButton({ jobId, big = false, primary = false }: { jobId: string; /** Thumb-sized and full width on a phone (the job page). */ big?: boolean; /** The main action of the page (a finished job). */ primary?: boolean }) {
   const [state, formAction, pending] = useActionState(reprintJobAction, initialSubmitJobState);
 
   return (
-    <form action={formAction}>
+    <form action={formAction} className={big ? "w-full sm:w-auto" : undefined}>
       <input type="hidden" name="jobId" value={jobId} />
-      <Button type="submit" variant="outline" size="sm" pending={pending} pendingLabel="Submitting...">
+      <Button type="submit" variant={primary ? "primary" : "outline"} size={big ? "lg" : "sm"} className={big ? "w-full sm:w-auto" : ""} pending={pending} pendingLabel="Submitting...">
         <span className="flex items-center gap-1.5">
-          <RotateCw className="h-3.5 w-3.5" />
+          <RotateCw className={big ? "h-4 w-4" : "h-3.5 w-3.5"} aria-hidden="true" />
           Print again
         </span>
       </Button>

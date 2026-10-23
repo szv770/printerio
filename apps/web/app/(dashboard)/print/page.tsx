@@ -49,8 +49,8 @@ export default async function PrintPage() {
   }));
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-10">
-      <PageHeader title="Print a document" description="Upload a PDF and choose how you want it printed." />
+    <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
+      <PageHeader title="Print a document" description="Choose a PDF, check the basics, press Print." />
       {/* Always render the form, even with zero printer_profiles - it shows
        *  its own inline notice and disables Submit in that case, rather than
        *  blocking the user from picking a file and preparing everything
