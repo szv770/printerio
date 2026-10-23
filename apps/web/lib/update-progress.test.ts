@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentSupportsCheckOnly, deriveUpdateView, shouldAutoCheck, UPDATE_STEPS, type UpdateCommandRow } from "./update-progress";
+import { agentSupportsCheckOnly, deriveUpdateView, isUpdateLive, shouldAutoCheck, UPDATE_STEPS, type UpdateCommandRow } from "./update-progress";
 
 const NOW = Date.parse("2026-10-23T12:00:00Z");
 const ago = (s: number) => new Date(NOW - s * 1000).toISOString();
@@ -153,5 +153,60 @@ describe("check-only capability (an old agent would treat check_only as a full u
   });
   it("auto-checks a capable agent", () => {
     expect(shouldAutoCheck({ commands: [], lastSeenAt: ago(3), nowMs: NOW, agentVersion: "0.2.0" })).toBe(true);
+  });
+});
+
+describe("legacy (0.1.0) agent: the banner follows the RUNNING version, never a stale already-up-to-date row", () => {
+  const staleCurrent = row({ status: "completed", createdAt: ago(7200), completedAt: ago(7190), result: { updated: false, reason: "already_up_to_date", message: "Already up to date." } });
+  const v = (commands: UpdateCommandRow[], agentVersion: string | null, lastSeenAt: string | null = ago(3)) =>
+    deriveUpdateView({ commands, lastSeenAt, nowMs: NOW, agentVersion, latestVersion: "0.2.0" });
+
+  it("no rows and an old version: update available, naming both versions", () => {
+    expect(v([], "0.1.0")).toMatchObject({ kind: "outdated", running: "0.1.0", latest: "0.2.0" });
+  });
+  it("a stale already-up-to-date answer does NOT make an outdated server look current (needs a restart instead)", () => {
+    expect(v([staleCurrent], "0.1.0")).toMatchObject({ kind: "restart_needed", running: "0.1.0", latest: "0.2.0" });
+  });
+  it("an unknown version is treated as not provably current", () => {
+    expect(v([], null).kind).toBe("outdated");
+  });
+  it("a legacy agent that is on the newest version is simply up to date, with no check time", () => {
+    expect(deriveUpdateView({ commands: [], lastSeenAt: ago(3), nowMs: NOW, agentVersion: "0.1.0", latestVersion: "0.1.0" })).toEqual({ kind: "up_to_date", checkedAt: null });
+  });
+  it("a check_only row left over from an old agent that ran a full update is read as a full update", () => {
+    const left = row({ checkOnly: true, status: "completed", createdAt: ago(100), completedAt: ago(40), result: { updated: true, reason: "updated", to: "8c4d0e2" } });
+    expect(v([left], "0.1.0", ago(5)).kind).toBe("done");
+  });
+  it("running updates still show live steps for a legacy agent", () => {
+    expect(v([row({ status: "acknowledged", result: { step: "installing" } })], "0.1.0").kind).toBe("updating");
+  });
+  it("a capable agent's own up-to-date answer stays up to date when its version is current", () => {
+    const r = row({ checkOnly: true, status: "completed", completedAt: ago(2), result: { updateAvailable: false, reason: "up_to_date" } });
+    expect(v([r], "0.2.0").kind).toBe("up_to_date");
+  });
+});
+
+describe("restart-only path (RESTART_AGENT_SERVICE) for a downloaded-but-not-running update", () => {
+  const rs = (o: Partial<UpdateCommandRow>) => row({ id: "r1", command: "RESTART_AGENT_SERVICE", ...o });
+  const v = (commands: UpdateCommandRow[], agentVersion: string | null, lastSeenAt: string | null) =>
+    deriveUpdateView({ commands, lastSeenAt, nowMs: NOW, agentVersion, latestVersion: "0.2.0" });
+
+  it("while the restart is waiting or just done but not back, shows Restarting", () => {
+    expect(v([rs({ status: "pending", createdAt: ago(10) })], "0.1.0", ago(20)).kind).toBe("restarting");
+    expect(v([rs({ status: "completed", createdAt: ago(30), completedAt: ago(20) })], "0.1.0", ago(25)).kind).toBe("restarting");
+  });
+  it("back on the new version: done, naming it", () => {
+    expect(v([rs({ status: "completed", createdAt: ago(60), completedAt: ago(40) })], "0.2.0", ago(5))).toMatchObject({ kind: "done", to: "0.2.0" });
+  });
+  it("back but still on the old version: an honest failure, not a fake success", () => {
+    const r = v([rs({ status: "completed", createdAt: ago(60), completedAt: ago(40) })], "0.1.0", ago(5));
+    expect(r.kind).toBe("failed");
+    if (r.kind === "failed") expect(r.message).toMatch(/0\.1\.0/);
+  });
+  it("an old unrelated restart (over 10 minutes) is ignored", () => {
+    expect(v([rs({ status: "completed", createdAt: ago(3000), completedAt: ago(2990) })], "0.2.0", ago(5)).kind).toBe("idle");
+  });
+  it("is live while restarting", () => {
+    expect(isUpdateLive(v([rs({ status: "pending", createdAt: ago(10) })], "0.1.0", ago(20)))).toBe(true);
   });
 });
