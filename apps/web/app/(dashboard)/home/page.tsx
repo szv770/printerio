@@ -44,7 +44,7 @@ export default async function DashboardHomePage() {
     supabase.from("group_members").select("group_id").eq("user_id", session.userId),
     supabase
       .from("print_jobs")
-      .select("id, original_file_name, status, created_at, source_pdf_pages, copies")
+      .select("id, original_file_name, status, error_message, created_at, source_pdf_pages, copies")
       .eq("created_by", session.userId)
       .order("created_at", { ascending: false })
       .limit(RECENT_JOBS_LIMIT),
@@ -82,6 +82,7 @@ export default async function DashboardHomePage() {
     href: routes.job(j.id),
     name: j.original_file_name,
     status: j.status,
+    errorMessage: j.error_message,
     meta: jobMetaLine({ pages: j.source_pdf_pages, copies: j.copies, createdAt: j.created_at }, now),
   }));
 

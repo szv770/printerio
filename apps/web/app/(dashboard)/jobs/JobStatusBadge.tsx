@@ -6,8 +6,8 @@ import { jobStatusDisplay } from "@/lib/job-status-labels";
  * glance (cyan moving, yellow waiting on someone, green done, magenta a
  * problem); the word is always there too, so color is never the only signal.
  */
-export function JobStatusBadge({ status }: { status: string }) {
-  const { label, tone, spinning } = jobStatusDisplay(status);
+export function JobStatusBadge({ status, errorMessage }: { status: string; errorMessage?: string | null }) {
+  const { label, tone, spinning } = jobStatusDisplay(status, errorMessage);
   const dot: StatusTone = spinning ? "live" : tone;
   return <StatusDot tone={dot}>{label}</StatusDot>;
 }

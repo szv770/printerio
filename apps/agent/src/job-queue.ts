@@ -27,6 +27,13 @@ export interface LocalJobRecord {
   /** The Windows spooler job id this agent's own submission was identified as (spooler-monitor.ts findNewJobId) - undefined until `printing` has produced one. */
   spoolerJobId?: number;
   leaseExpiresAt?: string;
+  /**
+   * Raw path: the document HAS been sent to the printer, but these status reports (in order) have not all reached the
+   * web app yet. They are re-driven on the next poll / after a restart. While this is set the job must never be
+   * released back to the queue or sent again (that would print it twice).
+   */
+  sentUnreported?: string[];
+  bytesSent?: number;
   attemptCount: number;
   lastError?: string;
   updatedAt: string;

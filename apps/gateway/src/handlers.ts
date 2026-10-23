@@ -1,5 +1,6 @@
 // IPP operation handlers. Behaviours, error codes, events and job-state mapping follow
 // docs/superpowers/specs/2026-10-22-gateway-contract.md.
+import { createHash } from "node:crypto";
 import { hashDeviceToken } from "@printio/shared/device-token";
 import { isTerminalState, type JobState } from "@printio/shared";
 import {
@@ -19,10 +20,12 @@ import {
 } from "./ipp/codec.js";
 import { buildPrinterAttributes, filterRequested } from "./ipp/printer-attributes.js";
 import { describeJob, IPP_JOB_STATE } from "./job-messages.js";
+import { DedupeCache } from "./dedupe-cache.js";
 import { JobRegistry, type JobEntry } from "./job-registry.js";
+import { StatusCache } from "./status-cache.js";
 import type { Logger } from "./logger.js";
 import { intakePath, type IntakeStorage } from "./storage.js";
-import { WebUnavailableError, type ResolvedDevice, type WebApi } from "./web-client.js";
+import { WebUnavailableError, type JobInfo, type ResolvedDevice, type WebApi } from "./web-client.js";
 
 export interface GatewayDeps {
   web: WebApi;
@@ -34,7 +37,65 @@ export interface GatewayDeps {
   now?: () => number;
   /** Awaited-by-nobody background work (events); tests can drain it. */
   background?: Set<Promise<unknown>>;
+  /** Phone-retry protection (same device + same document within ~3 minutes). Created on first use when absent. */
+  dedupe?: DedupeCache<FinalizedJob>;
+  /** ~3 s per-job web status cache. Created on first use when absent. */
+  statusCache?: StatusCache;
 }
+
+/** What a finished upload+finalize attempt produced. Small on purpose: it is kept for the dedupe window. */
+export type FinalizedJob =
+  | { ok: true; job: JobInfo & { jobNumber: string }; bytes: number }
+  | { ok: false; reply: Reply };
+
+const runtimes = new WeakMap<GatewayDeps, { dedupe: DedupeCache<FinalizedJob>; status: StatusCache }>();
+function runtime(deps: GatewayDeps): { dedupe: DedupeCache<FinalizedJob>; status: StatusCache } {
+  let r = runtimes.get(deps);
+  if (!r) {
+    const now = () => (deps.now ?? Date.now)();
+    r = { dedupe: deps.dedupe ?? new DedupeCache<FinalizedJob>({ now }), status: deps.statusCache ?? new StatusCache({ now }) };
+    runtimes.set(deps, r);
+  }
+  return r;
+}
+
+/** The job-template attributes that change WHAT is printed. Per-attempt noise (job-uuid, timestamps, names) is left out. */
+const PRINT_AFFECTING = [
+  "copies",
+  "sides",
+  "media",
+  "media-col",
+  "page-ranges",
+  "finishings",
+  "finishings-col",
+  "print-color-mode",
+  "print-quality",
+  "orientation-requested",
+  "number-up",
+  "output-bin",
+  "multiple-document-handling",
+  "print-scaling",
+] as const;
+
+function stableStringify(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(stableStringify).join(",")}]`;
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${stableStringify(o[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(v) ?? "null";
+}
+
+/** deviceId + SHA-256 of the PDF bytes + the print-affecting options. Different device, document or options never collide. */
+export function dedupeKey(deviceId: string, doc: Buffer, attributes: FlatObject): string {
+  const picked: Record<string, unknown> = {};
+  for (const k of PRINT_AFFECTING) if (attributes[k] !== undefined) picked[k] = attributes[k];
+  const hash = createHash("sha256").update(doc).digest("hex");
+  const opts = createHash("sha256").update(stableStringify(picked)).digest("hex").slice(0, 16);
+  return `${deviceId}:${hash}:${opts}`;
+}
+
+
 
 export interface RequestContext {
   /** Device token read from the Host header. */
@@ -125,7 +186,7 @@ function track(deps: GatewayDeps, p: Promise<unknown>): void {
 // ---------- job attributes ----------
 
 function jobAttributes(deps: GatewayDeps, ctx: RequestContext, e: JobEntry): IppAttr[] {
-  const mapped = describeJob(e.state, e.message);
+  const mapped = describeJob(e.state, e.message, e.waiting);
   const out: IppAttr[] = [
     attr(TAG.integer, "job-id", e.ippId),
     attr(TAG.uri, "job-uri", `${ctx.baseUrl}/ipp/print/jobs/${e.ippId}`),
@@ -159,17 +220,20 @@ async function refreshState(deps: GatewayDeps, device: ResolvedDevice, e: JobEnt
   if (!e.webJobId) return;
   // A finished job never changes again: stop asking the web app about it.
   if (e.state && isTerminalState(e.state)) return;
-  const info = await deps.web.getJob(e.webJobId, device.deviceId);
+  // Phones poll about once a second: answer from the ~3 s cache (shared by concurrent polls of the same job).
+  const webJobId = e.webJobId;
+  const info = await runtime(deps).status.get(webJobId, () => deps.web.getJob(webJobId, device.deviceId));
   if (!info) return;
   e.state = info.status;
   e.message = info.message;
+  e.waiting = info.waiting;
 }
 
 /** Print-Job / Send-Document success: the job attributes plus a status-message saying where the job is. */
 function submittedReply(deps: GatewayDeps, ctx: RequestContext, e: JobEntry): Reply {
   return {
     status: STATUS.ok,
-    message: describeJob(e.state, e.message).message,
+    message: describeJob(e.state, e.message, e.waiting).message,
     groups: [{ tag: TAG.job, attrs: jobAttributes(deps, ctx, e) }],
   };
 }
@@ -213,6 +277,77 @@ async function submitDocument(
       },
     };
   }
+  const attributes: FlatObject = { ...p.attributes, "document-format": "application/pdf" };
+  const { dedupe, status: statusCache } = runtime(deps);
+
+  // Everything from here to the finalize answer happens at most once per (device, document, options) in the
+  // window: the key exists BEFORE the web call, so a retry that arrives while the first is still being processed
+  // joins it instead of starting a second job. See docs/superpowers/specs/2026-10-22-gateway-contract.md.
+  const key = dedupeKey(device.deviceId, p.doc, attributes);
+  const { value: done, deduped } = await dedupe.run(
+    key,
+    () => uploadAndFinalize(deps, ctx, device, p, attributes),
+    {
+      cache: (v) => v.ok,
+      // A hit may only hand back the earlier job while it is genuinely STILL IN FLIGHT. Ask the web app NOW (not the
+      // 3 s cache): a finished job (completed, failed, cancelled, ...) means this is a deliberate reprint and must
+      // print. If the lookup fails or the job is gone we cannot prove a duplicate, so we do not dedupe (a rare
+      // double print is better than a lost one).
+      usable: async (v) => {
+        if (!v.ok) return false;
+        try {
+          const now = await deps.web.getJob(v.job.jobId, device.deviceId);
+          if (!now) return false;
+          statusCache.prime(v.job.jobId, now);
+          return !isTerminalState(now.status) && now.status !== "failed";
+        } catch {
+          return false;
+        }
+      },
+    },
+  );
+  if (!done.ok) return { ok: false, reply: done.reply };
+
+  const j = done.job;
+  if (!deduped) statusCache.prime(j.jobId, { jobId: j.jobId, status: j.status, message: j.message, ...(j.waiting ? { waiting: j.waiting } : {}) });
+  else {
+    deps.logger.info("duplicate submission answered with the existing job", { deviceId: device.deviceId, webJobId: j.jobId });
+    track(deps, deps.web.postEvent({ deviceId: device.deviceId, type: "info", userAgent: ctx.userAgent, detail: { reason: "duplicate_submission", jobId: j.jobId } }));
+  }
+
+  // A repeat Print-Job gets the entry (and IPP job-id) the first one got; a repeat Send-Document fills in its own
+  // Create-Job entry so the id the phone holds resolves to the same web job.
+  if (deduped && !p.pending) {
+    const existing = deps.registry.findByWebJobId(device.deviceId, j.jobId);
+    if (existing) return { ok: true, entry: existing };
+  }
+  const latest = deduped ? (statusCache.peek(j.jobId) ?? j) : j;
+  const name = p.jobName ?? "untitled";
+  const entry = deps.registry.markSubmitted(
+    device.deviceId,
+    p.pending,
+    {
+      ippId: deps.registry.allocateId(),
+      webJobId: j.jobId,
+      state: (latest?.status ?? j.status) as JobState,
+      message: latest?.message ?? j.message,
+      waiting: latest?.waiting,
+      bytes: done.bytes,
+    },
+    { name, userName: p.userName, attributes },
+  );
+  return { ok: true, entry };
+}
+
+/** Event + upload to the intake bucket + finalize. Never throws for refusals; a web/storage outage becomes a temporary-error reply. */
+async function uploadAndFinalize(
+  deps: GatewayDeps,
+  ctx: RequestContext,
+  device: ResolvedDevice,
+  p: { jobName: string | undefined; doc: Buffer; ippVersion: string; opAttrs: FlatObject },
+  attributes: FlatObject,
+): Promise<FinalizedJob> {
+  const declared = asString(p.opAttrs["document-format"]);
   await deps.web.postEvent({
     deviceId: device.deviceId,
     type: "job_received",
@@ -228,7 +363,6 @@ async function submitDocument(
     return { ok: false, reply: { status: STATUS.temporaryError, message: "Storage is temporarily unavailable. Try again shortly." } };
   }
 
-  const attributes: FlatObject = { ...p.attributes, "document-format": "application/pdf" };
   let result;
   try {
     result = await deps.web.finalize({
@@ -274,15 +408,7 @@ async function submitDocument(
     };
   }
 
-  const j = result.job;
-  const name = p.jobName ?? "untitled";
-  const entry = deps.registry.markSubmitted(
-    device.deviceId,
-    p.pending,
-    { ippId: deps.registry.allocateId(), webJobId: j.jobId, state: j.status, message: j.message, bytes: p.doc.length },
-    { name, userName: p.userName, attributes },
-  );
-  return { ok: true, entry };
+  return { ok: true, job: result.job, bytes: p.doc.length };
 }
 
 const REFUSAL_MESSAGES = {
@@ -470,6 +596,12 @@ async function dispatch(deps: GatewayDeps, ctx: RequestContext, msg: IppMessage)
         return buildReply(msg, { status: STATUS.notPossible, message: r.message ?? "This job can no longer be cancelled." });
       }
       e.state = r.status;
+      e.waiting = undefined;
+      // The next poll must see the cancel, and a cancelled job must not be handed back for a repeat of the document.
+      const rt = runtime(deps);
+      rt.status.invalidate(e.webJobId);
+      const cancelledWebJobId = e.webJobId;
+      rt.dedupe.invalidate((v) => v.ok && v.job.jobId === cancelledWebJobId);
       return buildReply(msg, { status: STATUS.ok });
     }
 

@@ -10,6 +10,8 @@
  * Pure and dependency-free so the job page, the job list and the progress model can all share it.
  */
 
+import { WAITING_UNAVAILABLE_TEXT } from "@printio/shared";
+
 const FALLBACK = "This job did not print. The printer or the print computer reported a problem.";
 
 interface Rule {
@@ -18,6 +20,10 @@ interface Rule {
 }
 
 const RULES: readonly Rule[] = [
+  // Written by the release route when a job waited out its window (packages/shared/src/waiting.ts): already plain words.
+  { test: /^\[printio:gave-up\]\s*([\s\S]+)$/, say: (m) => (m[1] ?? "").trim() },
+  // Defensive: a waiting marker on a job that is no longer waiting must never leak raw.
+  { test: /^\[printio:waiting\b[^\]]*\]/, say: () => WAITING_UNAVAILABLE_TEXT },
   {
     test: /queue ['"]([^'"\r\n]{1,80})['"] not found/i,
     say: (m) => `The printer queue "${m[1]}" was not found on the print computer. Ask an administrator to check the printer setup.`,
@@ -29,6 +35,11 @@ const RULES: readonly Rule[] = [
   {
     test: /agent restarted|could not be resumed|restarted mid/i,
     say: () => "The print computer restarted while this job was printing, so it did not finish.",
+  },
+  {
+    test: /all data was sent but the printer did not confirm/i,
+    say: () =>
+      "The document was sent, but the printer did not confirm that it received it. Look at the printer first; press Try again only if nothing came out.",
   },
   {
     test: /timed out|timeout/i,

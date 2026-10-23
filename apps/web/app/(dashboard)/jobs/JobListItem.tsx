@@ -3,6 +3,7 @@ import { FileCheck2, FileText } from "lucide-react";
 import { routes } from "@/lib/routes";
 import { Badge } from "@/components/ui";
 import { jobAttentionLine } from "@/lib/job-progress";
+import { jobWaitingLine } from "@/lib/job-waiting";
 import { ReprintButton } from "./[id]/ReprintButton";
 import { CancelJobButton } from "./[id]/CancelJobButton";
 import { JobStatusBadge } from "./JobStatusBadge";
@@ -23,6 +24,7 @@ export function JobListItem({ job, eventTypes }: { job: JobRow; eventTypes?: str
     policyReasons: job.policy_reasons,
     heldReason: job.held_reason,
   });
+  const waitingLine = jobWaitingLine({ status: job.status, errorMessage: job.error_message });
   const canCancel = ["held", "pending_approval", "approved", "failed"].includes(job.status);
   // Reprinting re-runs the ordinary pipeline (policy + quota), so it is not
   // offered for a test print - see the job detail page for the same reasoning.
@@ -42,7 +44,7 @@ export function JobListItem({ job, eventTypes }: { job: JobRow; eventTypes?: str
             <div className="flex items-start justify-between gap-3">
               <span className="min-w-0 truncate text-[15px] font-medium leading-6">{job.original_file_name}</span>
               <span className="shrink-0">
-                <JobStatusBadge status={job.status} />
+                <JobStatusBadge status={job.status} errorMessage={job.error_message} />
               </span>
             </div>
             <p className="mt-0.5 text-[13px] leading-5 text-[var(--color-muted)]">
@@ -69,6 +71,9 @@ export function JobListItem({ job, eventTypes }: { job: JobRow; eventTypes?: str
                 isTestPrint={job.is_test_print}
               />
             </div>
+            {waitingLine && (
+              <p className="mt-2 text-[13px] leading-5 text-[var(--color-warning)]">{waitingLine}</p>
+            )}
             {attention && (
               <p
                 className={`mt-2 text-[13px] leading-5 ${

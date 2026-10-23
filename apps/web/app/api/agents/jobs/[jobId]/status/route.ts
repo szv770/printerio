@@ -7,9 +7,10 @@ import { isAutoRetryEnabled, requeueFailedJob } from "@/lib/jobs/lifecycle";
 import { logger } from "@/lib/logger";
 import type { TablesUpdate } from "@/lib/database.types";
 
-const REPORTABLE_STATUSES: JobState[] = ["downloaded", "printing", "submitted_to_spooler", "completed", "failed"];
+const REPORTABLE_STATUSES: JobState[] = ["downloading", "downloaded", "printing", "submitted_to_spooler", "completed", "failed"];
 
 const EVENT_FOR_STATUS: Partial<Record<JobState, string>> = {
+  downloading: "DOWNLOAD_STARTED",
   downloaded: "DOWNLOAD_COMPLETED",
   printing: "PRINT_SUBMITTED",
   submitted_to_spooler: "SPOOLER_ACCEPTED",

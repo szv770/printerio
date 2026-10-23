@@ -7,6 +7,7 @@ import { routes } from "@/lib/routes";
 import { jobStatusDisplay } from "@/lib/job-status-labels";
 import { JOB_STAGE_LABELS, buildJobProgress, jobProgressPosition } from "@/lib/job-progress";
 import { jobHeadline } from "@/lib/job-headline";
+import { jobWaiting } from "@/lib/job-waiting";
 import { AlertTriangle, ListChecks } from "lucide-react";
 import { ButtonLink, Card, Collapsible } from "@/components/ui";
 import type { Tables } from "@/lib/database.types";
@@ -122,7 +123,7 @@ export function JobStatusLive({
     return Date.parse(liveJob.updated_at) > Date.parse(serverJob.updated_at) ? liveJob : serverJob;
   }, [liveJob, serverJob]);
 
-  const display = jobStatusDisplay(job.status);
+  const display = jobStatusDisplay(job.status, job.error_message);
   const isBindingQuestion =
     job.status === "held" && !!(job.finishing as { booklet?: boolean } | null)?.booklet && job.held_reason === BOOKLET_BINDING_REASON;
   const progress = useMemo(
@@ -179,10 +180,11 @@ export function JobStatusLive({
     };
   }, [waitingForAgent, job.updated_at]);
 
-  const stalledInQueue = waitingForAgent && nowMs !== null && nowMs - Date.parse(job.updated_at) > STALLED_IN_QUEUE_MS;
+  // A job that is already waiting for the printer has its own plain explanation (the Waiting for the printer panel).
+  const stalledInQueue = waitingForAgent && !jobWaiting(job.status, job.error_message) && nowMs !== null && nowMs - Date.parse(job.updated_at) > STALLED_IN_QUEUE_MS;
   const policyReasons = job.policy_reasons ?? [];
   const explanation = progress.explanation;
-  const headline = jobHeadline(job.status);
+  const headline = jobHeadline(job.status, job.error_message);
   const stageLabel = JOB_STAGE_LABELS[progress.currentStageId];
 
   return (

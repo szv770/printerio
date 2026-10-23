@@ -1,3 +1,4 @@
+import { jobStatusDisplay } from "@/lib/job-status-labels";
 /**
  * Pure helpers for the admin "All jobs" page (app/admin/jobs): which status
  * pill means which job states, the paging maths, and the search-string and
@@ -79,6 +80,11 @@ export function buildJobsHref(query: JobsQuery, change: Partial<JobsQuery> = {})
 export type JobTone = "neutral" | "live" | "success" | "warning" | "danger";
 
 /** The status dot colour for a job: cyan while moving, yellow while waiting, magenta for a problem. */
+/** Label + tone for a status cell in any table; a queued job with the waiting marker reads 'Waiting for the printer'. */
+export function jobStatusCell(status: string, errorMessage?: string | null): { label: string; tone: JobTone } {
+  return { label: jobStatusDisplay(status, errorMessage).label, tone: jobStatusTone(status) };
+}
+
 export function jobStatusTone(status: string): JobTone {
   if (FILTER_STATUSES.printing.includes(status)) return "live";
   if (status === "completed") return "success";

@@ -3,6 +3,7 @@ import { generateDeviceToken, hashDeviceToken, deviceHostname } from "@printio/s
 import type { JobState } from "@printio/shared";
 import { createGatewayServer } from "../src/server.js";
 import { JobRegistry } from "../src/job-registry.js";
+import { UploadGuard } from "../src/upload-guard.js";
 import { silentLogger, type Logger } from "../src/logger.js";
 import {
   attr,
@@ -42,6 +43,15 @@ export class FakeWeb implements WebApi {
   nextStatus: JobState = "approved";
   nextMessage: string | undefined;
   cancelResult: CancelResult = { kind: "ok", status: "cancelled" };
+  getJobCalls = 0;
+  /** Only job lookups fail (finalize and device resolution keep working). */
+  getJobDown = false;
+  /** While set, finalize waits for it (lets tests hold several uploads in flight at once). */
+  finalizeGate: Promise<void> | null = null;
+  finalizeInFlight = 0;
+  peakFinalizeInFlight = 0;
+  /** Make the next finalize create the job on the "web side" and then fail (a timeout after the work was done). */
+  failAfterCreating = false;
   private n = 0;
 
   registerDevice(token: string, deviceId = "dev-1"): void {
@@ -62,19 +72,36 @@ export class FakeWeb implements WebApi {
   async finalize(req: FinalizeRequest): Promise<FinalizeResult> {
     if (this.down || this.finalizeDown) throw new WebUnavailableError("down");
     this.finalizeCalls.push(req);
+    this.finalizeInFlight++;
+    this.peakFinalizeInFlight = Math.max(this.peakFinalizeInFlight, this.finalizeInFlight);
+    try {
+      if (this.finalizeGate) await this.finalizeGate;
+    } finally {
+      this.finalizeInFlight--;
+    }
     if (this.finalizeResult) return this.finalizeResult;
     this.n++;
     // The real web app answers with its text job number (print_jobs.job_number), not an integer.
     const job = { jobId: `web-job-${this.n}`, jobNumber: `JOB-2026-${String(40 + this.n).padStart(6, "0")}`, status: this.nextStatus, message: this.nextMessage };
     this.jobs.set(job.jobId, job);
+    if (this.failAfterCreating) {
+      this.failAfterCreating = false;
+      throw new WebUnavailableError("timed out after creating the job");
+    }
     return { kind: "ok", job };
   }
   async getJob(jobId: string): Promise<JobInfo | null> {
+    this.getJobCalls++;
+    if (this.getJobDown) throw new WebUnavailableError("job lookup down");
     if (this.down) throw new WebUnavailableError("down");
     return this.jobs.get(jobId) ?? null;
   }
   async cancelJob(jobId: string): Promise<CancelResult> {
     this.cancelCalls.push(jobId);
+    if (this.cancelResult.kind === "ok") {
+      const j = this.jobs.get(jobId);
+      if (j) this.jobs.set(jobId, { ...j, status: this.cancelResult.status });
+    }
     return this.cancelResult;
   }
 }
@@ -95,6 +122,9 @@ export interface Harness {
   host: string;
   port: number;
   registry: JobRegistry;
+  guard: UploadGuard;
+  /** Registers another device (its own token/host/deviceId). */
+  addDevice(deviceId: string): { token: string; host: string; deviceId: string };
   close(): Promise<void>;
   post(body: Buffer, opts?: PostOpts): Promise<HttpResult>;
   ipp(msg: { code: number; requestId?: number; groups: IppGroup[] }, doc?: Buffer, opts?: PostOpts): Promise<{ http: HttpResult; ipp: IppMessage }>;
@@ -114,17 +144,21 @@ export interface HttpResult {
   body: Buffer;
 }
 
-export async function startHarness(over: { maxBodyBytes?: number; now?: () => number; logger?: Logger } = {}): Promise<Harness> {
+export async function startHarness(
+  over: { maxBodyBytes?: number; now?: () => number; logger?: Logger; guard?: { maxInflightBytes?: number; maxPerKey?: number } } = {},
+): Promise<Harness> {
   const web = new FakeWeb();
   const storage = new FakeStorage();
   const token = generateDeviceToken();
   web.registerDevice(token);
   const registry = new JobRegistry(over.now);
+  const guard = new UploadGuard(over.guard);
   const background = new Set<Promise<unknown>>();
   const server = createGatewayServer({
     deps: { web, storage, logger: over.logger ?? silentLogger, printerName: "Printio", registry, startedAt: Date.now(), now: over.now, background },
     baseDomain: BASE_DOMAIN,
     maxBodyBytes: over.maxBodyBytes ?? 1024 * 1024,
+    guard,
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const port = (server.address() as { port: number }).port;
@@ -173,6 +207,12 @@ export async function startHarness(over: { maxBodyBytes?: number; now?: () => nu
     host,
     port,
     registry,
+    guard,
+    addDevice(deviceId) {
+      const t = generateDeviceToken();
+      web.registerDevice(t, deviceId);
+      return { token: t, host: deviceHostname(t, BASE_DOMAIN), deviceId };
+    },
     async close() {
       await Promise.allSettled([...background]);
       server.closeAllConnections();
@@ -196,3 +236,9 @@ export const jobGroup = (...attrs: IppAttr[]): IppGroup => ({ tag: TAG.job, attr
 
 export const flatGroup = (m: IppMessage, tag: number): ReturnType<typeof flatten> =>
   flatten(m.groups.find((g) => g.tag === tag));
+
+/** A distinct, valid-looking PDF per `tag` (so different documents hash differently), optionally padded to `size` bytes. */
+export function pdfOf(tag: string, size = 0): Buffer {
+  const head = Buffer.from(`%PDF-1.4\n% ${tag}\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n`);
+  return size > head.length ? Buffer.concat([head, Buffer.alloc(size - head.length, 0x20)]) : head;
+}

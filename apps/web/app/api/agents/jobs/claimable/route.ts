@@ -2,6 +2,9 @@ import { apiError } from "@/lib/api-errors";
 import { authenticateAgentRequest } from "@/lib/agent-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
+/** The Agent processes jobs one at a time, so a longer list only costs a bigger response. */
+const CLAIMABLE_LIMIT = 50;
+
 /** See docs/agent-api.md. Jobs in `approved` status whose printer_profiles.agent_id
  *  is this agent, unclaimed or with an expired lease. */
 export async function GET(request: Request) {
@@ -30,7 +33,14 @@ export async function GET(request: Request) {
     .eq("organization_id", agent.organizationId)
     .eq("status", "approved")
     .in("printer_profile_id", profileIds)
-    .or(`lease_expires_at.is.null,lease_expires_at.lt.${nowIso}`);
+    // A job waiting out a "printer not available" backoff has lease_expires_at in the future (see the release
+    // route), so this same filter hides it until its next attempt is due.
+    .or(`lease_expires_at.is.null,lease_expires_at.lt.${nowIso}`)
+    // Fairness: oldest first (id breaks ties so the order is stable), so ten teachers sending at once are served
+    // in the order they sent, and the Agent - which works through this list in order - keeps that order.
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(CLAIMABLE_LIMIT);
 
   if (error) return apiError(500, "internal_error", "Failed to list claimable jobs.");
 

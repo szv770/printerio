@@ -104,3 +104,29 @@ describe("agent status route: idempotency", () => {
     expect(adjust.mock.calls[0]![5]).toBe("consume");
   });
 });
+
+describe("agent status route: the deferred raw chain (claimed -> downloading -> ... -> completed)", () => {
+  it("accepts 'downloading' from claimed and records DOWNLOAD_STARTED", async () => {
+    job = printing({ status: "claimed" });
+    const res = await call("downloading");
+    expect(res.status).toBe(200);
+    expect(job.status).toBe("downloading");
+    expect(events.map((e) => e.event_type)).toEqual(["DOWNLOAD_STARTED"]);
+  });
+
+  it("the whole chain an agent reports after a clean raw send is legal, in order, and consumes quota once", async () => {
+    job = printing({ status: "claimed" });
+    for (const s of ["downloading", "downloaded", "printing", "submitted_to_spooler", "completed"]) {
+      expect((await call(s, s === "submitted_to_spooler" ? "sent to printer raw port" : undefined)).status, s).toBe(200);
+    }
+    expect(job.status).toBe("completed");
+    expect(adjust).toHaveBeenCalledTimes(1);
+    expect(adjust.mock.calls[0]![5]).toBe("consume");
+  });
+
+  it("success clears a leftover 'waiting for the printer' marker from earlier retries", async () => {
+    job = printing({ status: "submitted_to_spooler", error_message: "[printio:waiting v1 since=2026-10-23T10:00:00.000Z tries=2 kind=unavailable] x" });
+    await call("completed", "sent to printer raw port");
+    expect(job.error_message).toBeNull();
+  });
+});

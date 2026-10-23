@@ -5,11 +5,16 @@ import { JOB_STATES } from "@printio/shared";
 import { hashDeviceToken } from "@printio/shared/device-token";
 import { attr, encodeIpp, OP, STATUS, TAG, type IppAttr } from "../src/ipp/codec.js";
 import { mapJobState } from "../src/handlers.js";
-import { flatGroup, jobGroup, operationGroup, PDF, startHarness, type Harness } from "./helpers.js";
+import { flatGroup, jobGroup, operationGroup, PDF, pdfOf, startHarness, type Harness } from "./helpers.js";
 
 let h: Harness;
+// Controllable clock: the gateway remembers a job's web status for ~3 s, so tests that change the web side and poll
+// again move this forward past that window.
+let clock = 1_000_000;
+const PAST_STATUS_CACHE_MS = 4_000;
 beforeEach(async () => {
-  h = await startHarness();
+  clock = 1_000_000;
+  h = await startHarness({ now: () => clock });
 });
 afterEach(async () => {
   await h.close();
@@ -149,6 +154,7 @@ describe("Windows 11 flow", () => {
 
     // Windows polls the job afterwards; the web moves it along
     h.web.jobs.set("web-job-1", { jobId: "web-job-1", status: "completed" });
+    clock += PAST_STATUS_CACHE_MS;
     const polled = await h.ipp({
       code: OP.getJobAttributes,
       groups: [operationGroup(printerUri(), attr(TAG.integer, "job-id", cj["job-id"] as number))],
@@ -234,7 +240,8 @@ describe("Android flow", () => {
   it("every JobState maps to the contract's IPP state and reasons in a real reply", async () => {
     for (const state of JOB_STATES) {
       h.web.nextStatus = state;
-      const r = await h.ipp(androidPrint(), PDF);
+      // A different document per state: the same document again within minutes is (deliberately) the same job.
+      const r = await h.ipp(androidPrint(), pdfOf(`state-${state}`));
       const j = flatGroup(r.ipp, TAG.job);
       const want = mapJobState(state);
       expect([state, j["job-state"], j["job-state-reasons"]]).toEqual([state, want.state, want.reason]);
@@ -270,6 +277,7 @@ describe("phone-visible job status", () => {
     const id = sj["job-id"] as number;
     for (const [status, msg] of [["printing", "Printing"], ["completed", "Printed"]] as const) {
       h.web.jobs.set("web-job-1", { jobId: "web-job-1", status });
+      clock += PAST_STATUS_CACHE_MS;
       expect(flatGroup((await poll(id)).ipp, TAG.job)["job-state-message"]).toBe(msg);
     }
     let lookups = 0;
@@ -461,6 +469,7 @@ describe("negative paths", () => {
     h.web.getJob = async () => {
       throw new Error("kaboom");
     };
+    clock += PAST_STATUS_CACHE_MS; // the finalize answer is cached for a moment; past that the web app is asked (and explodes)
     const r = await h.ipp({ code: OP.getJobAttributes, groups: [operationGroup(printerUri(), attr(TAG.integer, "job-id", cj["job-id"] as number))] });
     expect(r.ipp.code).toBe(STATUS.internalError);
     h.web.getJob = orig;

@@ -22,7 +22,7 @@ export default async function AllJobsPage({ searchParams }: { searchParams: Prom
 
   let request = supabase
     .from("print_jobs")
-    .select("id, job_number, original_file_name, status, created_by, created_at, source_pdf_pages, copies, is_test_print")
+    .select("id, job_number, original_file_name, status, created_by, created_at, source_pdf_pages, copies, is_test_print, error_message")
     .eq("organization_id", orgId);
 
   const statuses = statusesForFilter(query.status);
@@ -70,6 +70,7 @@ export default async function AllJobsPage({ searchParams }: { searchParams: Prom
         copies: j.copies,
         createdAt: j.created_at,
         isTest: j.is_test_print,
+        errorMessage: j.error_message,
       }))}
     />
   );

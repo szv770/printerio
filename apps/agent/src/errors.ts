@@ -67,3 +67,15 @@ export class DownloadValidationError extends Error {
     this.name = "DownloadValidationError";
   }
 }
+
+/**
+ * Fetching the job's document failed for a reason that says nothing about the job itself (network down, the
+ * storage service answered 5xx/429). The job is released back to the queue to wait, not failed.
+ * A missing, empty or non-PDF document stays a DownloadValidationError (permanent).
+ */
+export class TransientDownloadError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TransientDownloadError";
+  }
+}

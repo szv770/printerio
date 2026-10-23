@@ -7,6 +7,7 @@ export interface RecentJobRow {
   href: string;
   name: string;
   status: string;
+  errorMessage?: string | null;
   meta: string;
 }
 
@@ -26,7 +27,7 @@ export function RecentJobs({ jobs, emptyText }: { jobs: RecentJobRow[]; emptyTex
               <span className="block truncate text-xs text-[var(--color-muted)]">{j.meta}</span>
             </span>
             <span className="shrink-0">
-              <JobStatusBadge status={j.status} />
+              <JobStatusBadge status={j.status} errorMessage={j.errorMessage} />
             </span>
           </Link>
         </li>

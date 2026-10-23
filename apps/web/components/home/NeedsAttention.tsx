@@ -9,6 +9,7 @@ const ICON: Record<AttentionItem["id"], LucideIcon> = {
   failed: AlertTriangle,
   approvals: Clock,
   held: Hand,
+  waiting: Printer,
   devices: Smartphone,
 };
 

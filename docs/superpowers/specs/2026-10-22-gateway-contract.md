@@ -138,3 +138,36 @@ this job as held with this reason" (`forcedHeldReason`), reusing its existing he
 - `page-ranges` with an upper bound of 2147483647 ("to the end") becomes `N-`. A range the document does not have holds the job.
 - Job names: `ipp.jobName` (else `fileName`) becomes the stored file name.
 - Phone-visible job status (no web change needed): `GET jobs/<id>` and `finalize` already carry `message` for held (the held reason text), denied (first policy reason) and failed. The gateway (`apps/gateway/src/job-messages.ts`) turns state + that text into the IPP `job-state`, `job-state-reasons` and a short plain `job-state-message` (< 100 chars) on Get-Job-Attributes / Get-Jobs, and the same text as `status-message` on the Print-Job / Send-Document reply. It recognises a held reason by its wording in `lib/gateway/ipp-choices.ts` (booklet binding, short edge, paper size, copies, page range, sides, finishing); an unrecognised held text falls back to "Open Printio > My jobs to choose how to print this". If those sentences are reworded, update `HELD_KINDS` there. Finished jobs (completed / cancelled / denied / rejected / expired) are no longer looked up again by the gateway; `failed` is still polled because the web can retry it.
+
+### Reliability batch (2026-10-23): waiting jobs, duplicate protection, status cache, busy guard
+
+- **Waiting for the printer.** A queued job that the Print Agent could not hand to the printer (off, offline, unreachable, unknown
+  cause) stays `approved` and carries a marker in `error_message` (`[printio:waiting v1 since=... tries=... kind=...] <sentence>`, see
+  `docs/agent-api.md` "release"). `GET jobs/<id>` then also answers `waiting: "unavailable" | "unknown"` and `message` = the plain
+  sentence; the key is absent for every other job. The gateway shows `job-state` 3 (pending), reason `job-queued` and a short
+  `job-state-message`: "Waiting for the printer - it is off or offline" / "Waiting for the printer - status unknown" (plain "Waiting
+  for the printer" when no kind is given). It is never `aborted`. After the window (default 2 h) the job is `failed`; `message` for a
+  failed job is now the web's plain sentence (never the raw agent text or the internal `[printio:gave-up]` marker).
+- **Duplicate protection (gateway).** Key = device id + SHA-256 of the PDF bytes + the print-affecting job attributes (copies, sides,
+  media, media-col, page-ranges, finishings, print-color-mode, print-quality, orientation-requested, number-up, output-bin,
+  multiple-document-handling, print-scaling; per-attempt noise such as `job-uuid` is ignored). The key is registered BEFORE the
+  upload, so a retry that arrives while the first request is still being processed joins the same in-flight work. Within 3 minutes
+  an identical request gets the earlier result: no second upload, no second `finalize`, a normal success with the same web job (a
+  repeat Print-Job gets the same IPP job-id; a repeat Send-Document fills in its own Create-Job id with the same web job). Only
+  successes are remembered, and a remembered result is handed back ONLY while that web job is still in flight: on every hit the gateway
+  asks the web app for the job's CURRENT status (a fresh lookup, not the 3 s cache) and treats completed, failed, cancelled, denied,
+  rejected and expired (and "job not found", and a failed lookup) as "not a duplicate", so a deliberate reprint always prints and the
+  new job replaces the cache entry. Identical requests that arrive while the first is still being processed still share one job.
+  Cancel-Job also forgets the entry. Different document, different
+  options or a different device are never merged. LRU-capped at 500 entries; the cache holds job ids, never the PDF.
+  **Not covered:** a `finalize` that created the job but whose answer was lost (timeout/5xx) cannot be recognised on the retry - the
+  web side has no idempotency key or file-hash column (would need a migration) - so that retry creates a second job.
+- **Status cache (gateway).** Each job's web status is remembered for 3 s per web job id (concurrent polls share one request, the
+  `finalize` answer primes it, Cancel-Job invalidates it and discards an answer that was already in flight). Terminal states are never
+  looked up again. Ten phones polling once a second therefore cost about one web request per job per 3 s.
+- **Busy guard (gateway).** Uploads (request bodies over 64 KB; small requests such as status polls are never counted or refused) are
+  counted from the moment the body starts until the request is completely finished or the client disappears (one idempotent release
+  on every path). Over `MAX_INFLIGHT_UPLOAD_MB` (default 150, never below the per-file limit) of total in-flight bytes, or more than
+  `MAX_UPLOADS_PER_DEVICE` (default 2) from one device, the gateway drains the body without keeping it and answers HTTP 200 with
+  IPP `server-error-busy` (0x0507), `status-message` "The server is busy right now. Please try again in a moment.",
+  `Retry-After: 10` and `Connection: close`, and logs a warning. The 50 MB per-file limit (413 / 0x0408) is checked first and is unchanged.

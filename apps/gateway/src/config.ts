@@ -10,6 +10,10 @@ const schema = z.object({
   PRINTER_NAME: z.string().min(1).default("Printio"),
   /** The org's upload limit; contract default is 50 MB. */
   MAX_UPLOAD_MB: z.coerce.number().positive().default(50),
+  /** Busy guard: total bytes of uploads being processed at once (each is held in memory until it is stored). */
+  MAX_INFLIGHT_UPLOAD_MB: z.coerce.number().positive().default(150),
+  /** Busy guard: concurrent uploads from one device. */
+  MAX_UPLOADS_PER_DEVICE: z.coerce.number().int().min(1).default(2),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 });
 
@@ -22,6 +26,8 @@ export interface GatewayConfig {
   port: number;
   printerName: string;
   maxBodyBytes: number;
+  maxInflightUploadBytes: number;
+  maxUploadsPerDevice: number;
   logLevel: "debug" | "info" | "warn" | "error";
 }
 
@@ -34,6 +40,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
     throw new ConfigError(`Invalid gateway configuration (see .env.example):\n${lines.join("\n")}`);
   }
   const e = parsed.data;
+  const maxBodyBytes = Math.floor(e.MAX_UPLOAD_MB * 1024 * 1024);
   return {
     webBaseUrl: e.WEB_BASE_URL.replace(/\/+$/, ""),
     sharedSecret: e.GATEWAY_SHARED_SECRET,
@@ -42,7 +49,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
     baseDomain: e.BASE_DOMAIN.toLowerCase().replace(/^\.+/, ""),
     port: e.PORT,
     printerName: e.PRINTER_NAME,
-    maxBodyBytes: Math.floor(e.MAX_UPLOAD_MB * 1024 * 1024),
+    maxBodyBytes,
+    // Never lower than one legal file, or a file at the per-file limit could never be admitted.
+    maxInflightUploadBytes: Math.max(Math.floor(e.MAX_INFLIGHT_UPLOAD_MB * 1024 * 1024), maxBodyBytes),
+    maxUploadsPerDevice: e.MAX_UPLOADS_PER_DEVICE,
     logLevel: e.LOG_LEVEL,
   };
 }
