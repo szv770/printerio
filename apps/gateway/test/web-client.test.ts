@@ -25,13 +25,30 @@ describe("web client", () => {
     expect(f).toHaveBeenCalledTimes(2);
   });
 
-  it("does not cache negative answers; maps 404 / 403", async () => {
+  it("maps 404 / 403, remembers them for 30 s only, and stays bounded", async () => {
+    let t = 0;
     const answers = [json(404, { error: "unknown_device" }), json(403, { error: "revoked" }), json(403, { error: "inactive_member" })];
     const f = vi.fn(async () => answers.shift() as Response);
-    const c = client(f as unknown as typeof fetch);
-    expect(await c.resolveDevice("h")).toEqual({ kind: "unknown" });
-    expect(await c.resolveDevice("h")).toEqual({ kind: "revoked" });
-    expect(await c.resolveDevice("h")).toEqual({ kind: "inactive_member" });
+    const c = client(f as unknown as typeof fetch, { now: () => t });
+    expect(await c.resolveDevice("a")).toEqual({ kind: "unknown" });
+    expect(await c.resolveDevice("a")).toEqual({ kind: "unknown" });
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(await c.resolveDevice("b")).toEqual({ kind: "revoked" });
+    expect(await c.resolveDevice("c")).toEqual({ kind: "inactive_member" });
+    t += 30_001;
+    answers.push(json(404));
+    expect(await c.resolveDevice("a")).toEqual({ kind: "unknown" });
+    expect(f).toHaveBeenCalledTimes(4);
+  });
+
+  it("a flood of distinct invented tokens does not grow the cache without bound", async () => {
+    const f = vi.fn(async () => json(404));
+    const c = createWebClient({ baseUrl: "https://web.test", secret: "s".repeat(32), fetchImpl: f as unknown as typeof fetch, maxCacheEntries: 50 });
+    for (let i = 0; i < 200; i++) await c.resolveDevice(`h${i}`);
+    await c.resolveDevice("h199"); // still remembered
+    expect(f).toHaveBeenCalledTimes(200);
+    await c.resolveDevice("h0"); // evicted
+    expect(f).toHaveBeenCalledTimes(201);
   });
 
   it("5xx, 401, network errors and timeouts all become WebUnavailableError", async () => {

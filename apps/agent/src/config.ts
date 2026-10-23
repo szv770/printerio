@@ -6,6 +6,7 @@
  * storage - see index.ts).
  */
 
+import { parseAllowedDownloadHosts } from "./input-validation.js";
 import os from "node:os";
 import path from "node:path";
 import { ConfigError } from "./errors.js";
@@ -35,6 +36,8 @@ export interface AgentConfig {
   rawOnly: boolean;
   /** PRINTIO_RAW_ALLOWED_HOSTS: if set, raw print jobs are only ever sent to these hosts (lower-case, comma separated in the env). Always on top of the private-LAN-only rule. */
   rawAllowedHosts?: string[];
+  /** PRINTIO_DOWNLOAD_ALLOWED_HOSTS: if set, job documents are only downloaded from these hosts (or their subdomains), e.g. supabase.co. */
+  downloadAllowedHosts?: string[];
 }
 
 const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"];
@@ -158,5 +161,6 @@ export function loadConfig(options: LoadConfigOptions = {}): AgentConfig {
     ),
     rawOnly: parseBool("PRINTIO_RAW_ONLY", env.PRINTIO_RAW_ONLY, false),
     rawAllowedHosts: parseRawAllowedHosts(env.PRINTIO_RAW_ALLOWED_HOSTS),
+    downloadAllowedHosts: parseAllowedDownloadHosts(env.PRINTIO_DOWNLOAD_ALLOWED_HOSTS),
   };
 }

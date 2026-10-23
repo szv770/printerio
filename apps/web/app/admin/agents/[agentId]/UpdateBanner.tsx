@@ -24,7 +24,11 @@ export interface UpdateBannerProps {
   busy?: boolean;
   error?: string | null;
   onUpdate?: () => void;
+  /** Restart-only action, for the case where the newest code is already on the machine. */
+  onRestart?: () => void;
   onCheckAgain?: () => void;
+  /** Whether the print server can do a look-only check. Without it "Check again" is not offered at all. */
+  canCheckAgain?: boolean;
 }
 
 function StepIcon({ state }: { state: StepView["state"] }) {
@@ -126,7 +130,7 @@ const sub = "mt-0.5 text-sm text-[var(--color-text-2)] [overflow-wrap:anywhere]"
  * The calm update banner on the print server page. Purely presentational: it renders exactly the state it is
  * given (see lib/update-progress.ts), so every state can be shown in the dev preview without a server.
  */
-export function UpdateBanner({ view, situation = "normal", busy = false, error, onUpdate, onCheckAgain }: UpdateBannerProps) {
+export function UpdateBanner({ view, situation = "normal", busy = false, error, onUpdate, onRestart, onCheckAgain, canCheckAgain = false }: UpdateBannerProps) {
   if (situation === "cannot_update") {
     return (
       <Shell tone="neutral" icon={<CircleArrowUp className="h-5 w-5" aria-hidden="true" />} title="This print server cannot update itself">
@@ -183,11 +187,13 @@ export function UpdateBanner({ view, situation = "normal", busy = false, error, 
           icon={<CircleCheck className="h-5 w-5" aria-hidden="true" />}
           title="Up to date"
           action={
-            <Button type="button" variant="ghost" size="sm" onClick={onCheckAgain} pending={busy} pendingLabel="Checking...">
-              <span className="flex items-center gap-1.5">
-                <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Check again
-              </span>
-            </Button>
+            canCheckAgain ? (
+              <Button type="button" variant="ghost" size="sm" onClick={onCheckAgain} pending={busy} pendingLabel="Checking...">
+                <span className="flex items-center gap-1.5">
+                  <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Check again
+                </span>
+              </Button>
+            ) : undefined
           }
         >
           <p className={sub}>
@@ -200,6 +206,7 @@ export function UpdateBanner({ view, situation = "normal", busy = false, error, 
             )}{" "}
             This print server has the newest Printio.
           </p>
+          {error ? <p className="mt-2 text-sm text-[var(--color-danger-ink)]">{error}</p> : null}
         </Shell>
       );
 
@@ -233,12 +240,56 @@ export function UpdateBanner({ view, situation = "normal", busy = false, error, 
           icon={<TriangleAlert className="h-5 w-5" aria-hidden="true" />}
           title="Could not check for updates"
           action={
-            <Button type="button" variant="outline" size="sm" onClick={onCheckAgain} pending={busy} pendingLabel="Checking...">
-              Check again
-            </Button>
+            canCheckAgain ? (
+              <Button type="button" variant="outline" size="sm" onClick={onCheckAgain} pending={busy} pendingLabel="Checking...">
+                Check again
+              </Button>
+            ) : undefined
           }
         >
           <p className={sub}>{view.message}</p>
+          {error ? <p className="mt-2 text-sm text-[var(--color-danger-ink)]">{error}</p> : null}
+        </Shell>
+      );
+
+    case "outdated":
+      return (
+        <Shell
+          tone="primary"
+          icon={<CircleArrowUp className="h-5 w-5" aria-hidden="true" />}
+          title="An update is available"
+          action={
+            <Button type="button" variant="primary" onClick={onUpdate} pending={busy} pendingLabel="Starting...">
+              Update now
+            </Button>
+          }
+        >
+          <p className={sub}>
+            This print server is running {view.running ?? "an unknown version"}. The newest is {view.latest}.
+          </p>
+          <p className="mt-1 text-[13px] text-[var(--color-muted)]">The print server restarts and is unavailable for about a minute. Best done when nothing is printing.</p>
+          {error ? <p className="mt-2 text-sm text-[var(--color-danger-ink)]">{error}</p> : null}
+        </Shell>
+      );
+
+    case "restart_needed":
+      return (
+        <Shell
+          tone="primary"
+          icon={<RefreshCw className="h-5 w-5" aria-hidden="true" />}
+          title="The new version is downloaded. A restart is needed."
+          action={
+            <Button type="button" variant="primary" onClick={onRestart} pending={busy} pendingLabel="Restarting...">
+              Restart now
+            </Button>
+          }
+        >
+          <p className={sub}>
+            The newest code is already on the print server, but it is still running {view.running ?? "an older version"} (newest is {view.latest}).
+            Restarting the print agent loads it. The phone gateway may also need a restart; if phones still misbehave afterwards, ask whoever manages the server.
+          </p>
+          <p className="mt-1 text-[13px] text-[var(--color-muted)]">The print server is unavailable for about a minute while it restarts.</p>
+          {error ? <p className="mt-2 text-sm text-[var(--color-danger-ink)]">{error}</p> : null}
         </Shell>
       );
 

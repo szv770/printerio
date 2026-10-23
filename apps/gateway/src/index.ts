@@ -36,6 +36,8 @@ async function start(): Promise<void> {
     deps: { web, storage, logger, printerName: config.printerName, registry, startedAt: Date.now() },
     baseDomain: config.baseDomain,
     maxBodyBytes: config.maxBodyBytes,
+    limits: config.limits,
+    trustedProxies: config.trustedProxies,
     guard: new UploadGuard({ maxInflightBytes: config.maxInflightUploadBytes, maxPerKey: config.maxUploadsPerDevice }),
   });
 

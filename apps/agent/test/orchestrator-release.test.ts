@@ -135,6 +135,7 @@ function makeOrchestrator(
   const jobQueue = createJobQueue(h.dir, logger);
   const cloudWithList = Object.assign(Object.create(cloud as object), { getClaimableJobs: async () => claimable }) as CloudClient;
   const orch = createOrchestrator({
+    allowLocalDownloads: true,
     config: { localStoragePath: h.dir, pollIntervalSeconds: 1, maxPollIntervalSeconds: 2 } as never,
     cloudClient: cloudWithList,
     jobQueue,
