@@ -1,8 +1,9 @@
 "use client";
 
 import { useActionState, useEffect, useState, useTransition } from "react";
-import { ChevronDown, ChevronRight, Smartphone } from "lucide-react";
-import { Badge, Button, Card, EmptyState, FieldLabel, FormError, Textarea } from "@/components/ui";
+import { ChevronDown, Smartphone } from "lucide-react";
+import { Badge, Button, EmptyState, FieldLabel, FormError, ResponsiveTable, StatusDot, Textarea, type TableColumn } from "@/components/ui";
+import { deviceTone } from "@/lib/admin/summaries";
 import { deviceStatus, deviceTypeLabel } from "@/lib/devices/present";
 import { issueKindLabel, MAX_ISSUE_NOTE, STUCK_LABELS, type StuckReason } from "@/lib/devices/admin";
 import { adminDeleteDeviceAction, adminRevokeDeviceAction, resolveIssueAction, type AdminDeleteState, type AdminRevokeState, type ResolveIssueState } from "./actions";
@@ -37,62 +38,98 @@ const fmt = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Never";
 
 export function DevicesAdmin({ devices }: { devices: AdminDevice[] }) {
-  if (devices.length === 0) return <EmptyState message="No devices yet. They show up here when people add them." icon={Smartphone} />;
+  const [openId, setOpenId] = useState<string | null>(null);
+  if (devices.length === 0)
+    return (
+      <EmptyState
+        title="No user devices yet"
+        message="When people add their phone or laptop to print from it, it shows up here."
+        icon={Smartphone}
+      />
+    );
+
+  const needAttention = devices.filter((d) => d.issues.some((i) => i.status === "open") || d.stuck).length;
+  const columns: TableColumn<AdminDevice>[] = [
+    {
+      header: "Person",
+      primary: true,
+      cell: (d) => {
+        const open = openId === d.id;
+        return (
+          <button
+            type="button"
+            onClick={() => setOpenId(open ? null : d.id)}
+            aria-expanded={open}
+            aria-controls={`device-${d.id}`}
+            className="flex min-h-11 w-full items-start gap-2 rounded-[var(--radius-control)] text-left focus-visible:shadow-[var(--ring)] focus-visible:outline-none"
+          >
+            <ChevronDown
+              className={`mt-1 h-4 w-4 shrink-0 text-[var(--color-muted)] transition-transform motion-reduce:transition-none ${open ? "rotate-180" : "-rotate-90"}`}
+              aria-hidden="true"
+            />
+            <span className="min-w-0">
+              <span className="block break-words">{d.userName}</span>
+              <span className="block text-[13px] font-normal break-words text-[var(--color-muted)]">
+                {d.name}, {deviceTypeLabel(d.device_type)}
+              </span>
+            </span>
+          </button>
+        );
+      },
+    },
+    {
+      header: "Status",
+      cell: (d) => {
+        const status = deviceStatus(d);
+        const openIssues = d.issues.filter((i) => i.status === "open").length;
+        return (
+          <span className="flex flex-col gap-1.5 sm:items-start">
+            <StatusDot tone={deviceTone({ statusKey: status.key, openIssues, stuck: d.stuck })}>{status.label}</StatusDot>
+            {openIssues > 0 && <Badge tone="danger">{openIssues === 1 ? "1 problem to look at" : `${openIssues} problems to look at`}</Badge>}
+            {d.stuck && <Badge tone="warning">{STUCK_LABELS[d.stuck]}</Badge>}
+          </span>
+        );
+      },
+    },
+    { header: "Last seen", cell: (d) => fmt(d.last_seen_at) },
+    { header: "First print", cell: (d) => (d.first_job_at ? fmt(d.first_job_at) : "None yet") },
+  ];
+
   return (
-    <ul className="flex flex-col gap-3">
-      {devices.map((d) => (
-        <DeviceItem key={d.id} device={d} />
-      ))}
-    </ul>
+    <div>
+      <p className="mb-3 text-[13px] text-[var(--color-muted)]" aria-live="polite">
+        {devices.length} {devices.length === 1 ? "device" : "devices"}
+        {needAttention > 0 ? `, ${needAttention} need a look` : ""}
+      </p>
+      <ResponsiveTable
+        columns={columns}
+        rows={devices}
+        rowKey={(d) => d.id}
+        caption="User devices"
+        rowClassName={(d) =>
+          d.issues.some((i) => i.status === "open")
+            ? "bg-[var(--color-danger-soft)]/40 ring-1 ring-[var(--color-danger)]/30"
+            : d.revoked_at
+              ? "opacity-70"
+              : ""
+        }
+        expanded={(d) => (openId === d.id ? <DeviceDetail device={d} /> : null)}
+      />
+    </div>
   );
 }
 
-function DeviceItem({ device }: { device: AdminDevice }) {
-  const [open, setOpen] = useState(false);
-  const status = deviceStatus(device);
-  const revoked = status.key === "revoked";
-  const openIssues = device.issues.filter((i) => i.status === "open");
-  const panelId = `device-${device.id}`;
-
+function DeviceDetail({ device }: { device: AdminDevice }) {
+  const revoked = deviceStatus(device).key === "revoked";
   return (
-    <li className={revoked ? "opacity-70" : ""}>
-      <Card className="flex flex-col gap-3">
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          aria-controls={panelId}
-          className="flex w-full items-start gap-3 rounded-lg text-left"
-        >
-          {open ? <ChevronDown className="mt-0.5 h-5 w-5 shrink-0" aria-hidden /> : <ChevronRight className="mt-0.5 h-5 w-5 shrink-0" aria-hidden />}
-          <span className="min-w-0 flex-1">
-            <span className="block break-words font-medium">{device.userName}</span>
-            <span className="block break-words text-sm text-[var(--color-muted)]">
-              {device.name} · {deviceTypeLabel(device.device_type)}
-            </span>
-            <span className="mt-1 block text-xs text-[var(--color-muted)]">
-              Last seen {fmt(device.last_seen_at)} · First print {device.first_job_at ? fmt(device.first_job_at) : "none yet"}
-            </span>
-          </span>
-          <span className="flex shrink-0 flex-col items-end gap-1">
-            <Badge tone={status.tone}>{status.label}</Badge>
-            {device.stuck && <Badge tone="warning">{STUCK_LABELS[device.stuck]}</Badge>}
-            {openIssues.length > 0 && <Badge tone="warning">{openIssues.length} open</Badge>}
-          </span>
-        </button>
-
-        {open && (
-          <div id={panelId} className="flex flex-col gap-4 border-t border-[var(--color-border)] pt-3">
-            <IssuesList issues={device.issues} />
-            <EventsLog deviceId={device.id} lastUserAgent={device.last_user_agent} />
-            <div className="flex flex-col gap-3">
-              {!revoked && <RevokeControl deviceId={device.id} />}
-              <DeleteControl deviceId={device.id} />
-            </div>
-          </div>
-        )}
-      </Card>
-    </li>
+    <div id={`device-${device.id}`} className="mt-3 flex flex-col gap-5 border-t border-[var(--color-border)] pt-4 text-left font-normal">
+      <IssuesList issues={device.issues} />
+      <EventsLog deviceId={device.id} lastUserAgent={device.last_user_agent} />
+      <div className="flex flex-col gap-3 border-t border-[var(--color-border)] pt-4">
+        {!revoked && <RevokeControl deviceId={device.id} />}
+        <DeleteControl deviceId={device.id} />
+      </div>
+    </div>
   );
 }
 
@@ -118,7 +155,7 @@ function IssueItem({ issue }: { issue: AdminIssue }) {
   const isOpen = issue.status === "open" && !state.resolvedId;
 
   return (
-    <li className="rounded-lg border border-[var(--color-border)] p-3 text-sm">
+    <li className="rounded-[var(--radius-control)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3.5 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="font-medium">{issueKindLabel(issue.kind)}</span>
         <span className="text-xs text-[var(--color-muted)]">{fmt(issue.created_at)}</span>
@@ -222,7 +259,7 @@ function EventsLog({ deviceId, lastUserAgent }: { deviceId: string; lastUserAgen
         ) : (
           <ul className="flex max-h-72 flex-col gap-2 overflow-y-auto text-xs">
             {events.map((e) => (
-              <li key={e.id} className="rounded-lg bg-[var(--color-surface)] p-2">
+              <li key={e.id} className="rounded-[var(--radius-control)] bg-[var(--color-surface-2)]/60 p-2.5">
                 <p className="font-medium">
                   {eventLabel(e.type)} <span className="font-normal text-[var(--color-muted)]">· {fmt(e.created_at)}</span>
                 </p>

@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
-import { PageHeader } from "@/components/ui";
+import { PageHeader, Tabs } from "@/components/ui";
+import { peopleTabs } from "@/lib/admin/tabs";
 import { GroupsPanel } from "./GroupsPanel";
 
 export default async function GroupsPage() {
@@ -24,10 +25,8 @@ export default async function GroupsPage() {
 
   return (
     <div>
-      <PageHeader
-        title="Groups"
-        description="Departments/classes/custom cohorts print policies and quotas can scope on (scope_type: 'group'). See docs/architecture.md."
-      />
+      <PageHeader title="Groups" description="Put people into departments or classes, so print rules and monthly limits can apply to the whole group." />
+      <Tabs label="People" items={peopleTabs("groups", session.membership.role === "org_admin")} />
       <GroupsPanel
         groups={groups ?? []}
         groupMembers={groupMembers ?? []}

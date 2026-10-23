@@ -1,9 +1,9 @@
 "use client";
 
 import { useActionState } from "react";
-import { FolderKanban } from "lucide-react";
+import { FolderKanban, FolderPlus, UserMinus } from "lucide-react";
 import type { Tables } from "@/lib/database.types";
-import { Button, Input, Select, FieldLabel, FormError, Badge, EmptyState, Card } from "@/components/ui";
+import { Badge, Button, Collapsible, EmptyState, Field, FormError, Input, Select } from "@/components/ui";
 import {
   createGroupAction,
   deleteGroupAction,
@@ -32,6 +32,13 @@ const KIND_TONE: Record<string, "neutral" | "success" | "warning"> = {
   custom: "neutral",
 };
 
+const KIND_LABEL: Record<string, string> = { department: "Department", class: "Class", custom: "Custom" };
+
+export function groupSummary(count: number): string {
+  if (count === 0) return "Nobody in it yet";
+  return count === 1 ? "1 user" : `${count} users`;
+}
+
 export function GroupsPanel({
   groups,
   groupMembers,
@@ -46,28 +53,36 @@ export function GroupsPanel({
   const [createState, createAction, creating] = useActionState(createGroupAction, initialGroupActionState);
 
   return (
-    <div className="flex flex-col gap-6" data-tour="admin-groups-panel">
+    <div className="flex flex-col gap-4" data-tour="admin-groups-panel">
       {canManage && (
-        <Card>
-          <form action={createAction} className="flex flex-wrap items-end gap-3">
-            <div>
-              <FieldLabel htmlFor="groupName">New group name</FieldLabel>
-              <Input id="groupName" name="name" required placeholder="Science Department" />
-            </div>
-            <div>
-              <FieldLabel htmlFor="groupKind">Kind</FieldLabel>
+        <Collapsible
+          id="new-group"
+          title="New group"
+          icon={<FolderPlus className="h-4 w-4" />}
+          summary="A department, a class, or any set of people"
+          forceOpen={!!createState.error}
+        >
+          <form action={createAction} className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_12rem_auto] sm:items-start">
+            <Field label="Group name" htmlFor="groupName">
+              <Input id="groupName" name="name" required placeholder="Science department" />
+            </Field>
+            <Field label="Type" htmlFor="groupKind">
               <Select id="groupKind" name="kind" defaultValue="custom">
                 <option value="department">Department</option>
                 <option value="class">Class</option>
                 <option value="custom">Custom</option>
               </Select>
+            </Field>
+            <div className="sm:pt-[1.625rem]">
+              <Button type="submit" pending={creating} pendingLabel="Creating..." className="w-full sm:w-auto">
+                Create group
+              </Button>
             </div>
-            <Button type="submit" size="sm" pending={creating} pendingLabel="Creating...">
-              Create group
-            </Button>
-            <FormError message={createState.error} />
+            <div className="sm:col-span-3">
+              <FormError message={createState.error} />
+            </div>
           </form>
-        </Card>
+        </Collapsible>
       )}
 
       {groups.map((group) => (
@@ -81,7 +96,8 @@ export function GroupsPanel({
       ))}
       {groups.length === 0 && (
         <EmptyState
-          message="No groups yet - groups let policies and quotas scope to a department, class, or custom cohort."
+          title="No groups yet"
+          message="Groups let you set print rules and monthly limits for a whole department or class at once."
           icon={FolderKanban}
         />
       )}
@@ -107,63 +123,76 @@ function GroupCard({
   const memberSet = new Set(memberIds);
   const members = roster.filter((r) => memberSet.has(r.userId));
   const available = roster.filter((r) => !memberSet.has(r.userId));
+  const err = addState.error ?? removeState.error ?? deleteState.error;
 
   return (
-    <Card>
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="font-medium">{group.name}</p>
-          <Badge tone={KIND_TONE[group.kind] ?? "neutral"}>{group.kind}</Badge>
-        </div>
-        {canManage && (
-          <form action={deleteAction}>
-            <input type="hidden" name="groupId" value={group.id} />
-            <Button type="submit" variant="outline-danger" size="sm" pending={deleting} pendingLabel="Deleting...">
-              Delete group
-            </Button>
-          </form>
-        )}
-      </div>
-
-      <ul className="flex flex-col gap-1">
-        {members.map((m) => (
-          <li key={m.userId} className="flex items-center justify-between rounded bg-gray-50 px-3 py-2 text-sm">
-            <span>{m.label}</span>
-            {canManage && (
-              <form action={removeAction}>
-                <input type="hidden" name="groupId" value={group.id} />
-                <input type="hidden" name="userId" value={m.userId} />
-                <button type="submit" className="text-xs text-[var(--color-muted)] underline">
-                  remove
-                </button>
-              </form>
-            )}
-          </li>
-        ))}
-        {members.length === 0 && <p className="text-xs text-[var(--color-muted)]">No members in this group.</p>}
-      </ul>
-      <FormError message={removeState.error} />
+    <Collapsible
+      id={`group-${group.id}`}
+      title={group.name}
+      summary={groupSummary(members.length)}
+      badge={<Badge tone={KIND_TONE[group.kind] ?? "neutral"}>{KIND_LABEL[group.kind] ?? group.kind}</Badge>}
+      forceOpen={!!err}
+    >
+      {members.length === 0 ? (
+        <p className="text-sm text-[var(--color-muted)]">Nobody is in this group yet.</p>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {members.map((m) => (
+            <li
+              key={m.userId}
+              className="flex items-center justify-between gap-2 rounded-[var(--radius-control)] bg-[var(--color-surface-2)]/60 py-1 pr-1 pl-3.5 text-sm"
+            >
+              <span className="min-w-0 truncate">{m.label}</span>
+              {canManage && (
+                <form action={removeAction}>
+                  <input type="hidden" name="groupId" value={group.id} />
+                  <input type="hidden" name="userId" value={m.userId} />
+                  <button
+                    type="submit"
+                    aria-label={`Take ${m.label} out of ${group.name}`}
+                    title="Take out of this group"
+                    className="flex h-11 w-11 items-center justify-center rounded-full text-[var(--color-muted)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] focus-visible:shadow-[var(--ring)] focus-visible:outline-none"
+                  >
+                    <UserMinus className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </form>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
 
       {canManage && available.length > 0 && (
-        <form action={addAction} className="mt-3 flex flex-wrap items-end gap-2">
+        <form action={addAction} className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
           <input type="hidden" name="groupId" value={group.id} />
-          <div>
-            <FieldLabel htmlFor={`addMember-${group.id}`}>Add member</FieldLabel>
-            <Select id={`addMember-${group.id}`} name="userId" className="w-auto">
-              {available.map((r) => (
-                <option key={r.userId} value={r.userId}>
-                  {r.label}
-                </option>
-              ))}
-            </Select>
+          <div className="min-w-0 flex-1">
+            <Field label="Add a user" htmlFor={`addMember-${group.id}`}>
+              <Select id={`addMember-${group.id}`} name="userId">
+                {available.map((r) => (
+                  <option key={r.userId} value={r.userId}>
+                    {r.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
           </div>
-          <Button type="submit" size="sm" pending={adding} pendingLabel="Adding...">
+          <Button type="submit" pending={adding} pendingLabel="Adding..." className="w-full sm:w-auto">
             Add
           </Button>
         </form>
       )}
-      <FormError message={addState.error} />
-      <FormError message={deleteState.error} />
-    </Card>
+      <div className="mt-3">
+        <FormError message={err} />
+      </div>
+
+      {canManage && (
+        <form action={deleteAction} className="mt-5 border-t border-[var(--color-border)] pt-4">
+          <input type="hidden" name="groupId" value={group.id} />
+          <Button type="submit" variant="outline-danger" size="sm" pending={deleting} pendingLabel="Deleting..." className="w-full sm:w-auto">
+            Delete this group
+          </Button>
+        </form>
+      )}
+    </Collapsible>
   );
 }

@@ -22,11 +22,17 @@ export function ResponsiveTable<T>({
   rows,
   rowKey,
   caption,
+  rowClassName,
+  expanded,
 }: {
   columns: TableColumn<T>[];
   rows: T[];
   rowKey: (row: T) => string;
   caption: string;
+  /** Extra classes for a row / card (e.g. to tint rows that need attention). */
+  rowClassName?: (row: T) => string;
+  /** Full-width detail shown under a row (table) or at the bottom of its card (phone). Return null for none. */
+  expanded?: (row: T) => ReactNode;
 }) {
   const primary = (columns.find((c) => c.primary) ?? columns[0]) as TableColumn<T>;
   return (
@@ -50,20 +56,33 @@ export function ResponsiveTable<T>({
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--color-border)]">
-            {rows.map((row) => (
-              <tr key={rowKey(row)} className="transition-colors hover:bg-[var(--color-surface-2)]/50">
-                {columns.map((c) => (
-                  <td
-                    key={c.header}
-                    className={`px-4 py-3 align-middle first:pl-5 last:pr-5 ${c.align === "right" ? "text-right tabular-nums" : ""} ${
-                      c === primary ? "font-medium text-[var(--color-text)]" : "text-[var(--color-text-2)]"
-                    }`}
-                  >
-                    {c.cell(row)}
-                  </td>
-                ))}
-              </tr>
-            ))}
+            {rows.flatMap((row) => {
+              const detail = expanded?.(row);
+              const tint = rowClassName?.(row) ?? "";
+              return [
+                <tr key={rowKey(row)} className={`transition-colors hover:bg-[var(--color-surface-2)]/50 ${tint}`}>
+                  {columns.map((c) => (
+                    <td
+                      key={c.header}
+                      className={`px-4 py-3 align-middle first:pl-5 last:pr-5 ${c.align === "right" ? "text-right tabular-nums" : ""} ${
+                        c === primary ? "font-medium text-[var(--color-text)]" : "text-[var(--color-text-2)]"
+                      }`}
+                    >
+                      {c.cell(row)}
+                    </td>
+                  ))}
+                </tr>,
+                ...(detail
+                  ? [
+                      <tr key={`${rowKey(row)}-detail`} className={tint}>
+                        <td colSpan={columns.length} className="px-5 pt-0 pb-5">
+                          {detail}
+                        </td>
+                      </tr>,
+                    ]
+                  : []),
+              ];
+            })}
           </tbody>
         </table>
       </div>
@@ -72,10 +91,10 @@ export function ResponsiveTable<T>({
         {rows.map((row) => (
           <li
             key={rowKey(row)}
-            className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-card)]"
+            className={`rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-card)] ${rowClassName?.(row) ?? ""}`}
           >
             <div className="text-[15px] font-medium leading-6">{primary.cell(row)}</div>
-            <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[13px]">
+            <dl className="mt-2 grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2 text-[13px]">
               {columns
                 .filter((c) => c !== primary && !c.hideOnPhone)
                 .map((c) => (
@@ -85,6 +104,7 @@ export function ResponsiveTable<T>({
                   </div>
                 ))}
             </dl>
+            {expanded?.(row)}
           </li>
         ))}
       </ul>

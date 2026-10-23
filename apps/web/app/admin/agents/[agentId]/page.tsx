@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
-import { Card, PageHeader } from "@/components/ui";
+import { PageHeader } from "@/components/ui";
 import {
   describeAgentConnection,
   describeAgentVersion,
@@ -106,7 +106,7 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
         className="mb-4 inline-flex items-center gap-1 text-sm text-[var(--color-muted)] hover:underline"
       >
         <ArrowLeft className="h-4 w-4" />
-        Back to agents
+        Back to print servers
       </Link>
 
       <PageHeader
@@ -143,13 +143,13 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
       />
 
       {profiles.length === 0 && (
-        <Card className="mt-4 text-sm text-[var(--color-muted)]">
-          This Agent has no print queues mapped to it yet. Add one from the{" "}
-          <Link href={routes.adminPrinters} className="underline">
+        <p className="mt-4 rounded-[var(--radius-control)] bg-[var(--color-surface-2)] px-4 py-3 text-sm text-[var(--color-text-2)]">
+          No print queues use this print server yet. Add one from the{" "}
+          <Link href={routes.adminPrinters} className="font-medium text-[var(--color-primary)] underline">
             Printers
           </Link>{" "}
-          page (or the guided setup wizard), and it will appear here.
-        </Card>
+          page and it will show up here.
+        </p>
       )}
     </div>
   );

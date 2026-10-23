@@ -43,6 +43,7 @@ export async function createInvitationAction(_prev: InviteState, formData: FormD
   if (error) return { error: describeDatabaseError(error, "Couldn't create that invitation code.") };
 
   revalidatePath(routes.adminUsers);
+  revalidatePath(routes.adminInvites);
   return { code };
 }
 
@@ -270,5 +271,6 @@ export async function revokeInvitationAction(_prev: RevokeInvitationState, formD
   });
 
   revalidatePath(routes.adminUsers);
+  revalidatePath(routes.adminInvites);
   return {};
 }

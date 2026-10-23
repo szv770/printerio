@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { DevicesPreview, JobListPreview, JobPreview, PrintPreview, ProfilePreview, UsagePreview } from "./member-pages";
+import { GroupsPreview, InvitesPreview, PrintersPreview, ServerDetailPreview, ServersPreview, UserDevicesPreview, UsersPreview } from "./admin-a";
 import { AdminHomeSection, TeacherHomeSection } from "./homes";
 import {
   AdminSection,
@@ -13,7 +14,7 @@ import {
  * DEV-ONLY visual preview: every shell/page-chrome piece with hard-coded
  * sample data and no auth or database calls, so the UI can be looked at (and
  * screenshotted) without signing in. 404s everywhere except `next dev`.
- * Pick a section with ?section=admin|adminhome|teacher|member|settings|primitives|jobs|print|job|joblist|devices|usage|profile (+ &shell=admin, &variant=...).
+ * Pick a section with ?section=admin|adminhome|teacher|member|settings|primitives|jobs|print|job|joblist|devices|usage|profile|users|groups|invites|printers|servers|serverdetail|userdevices (+ &shell=admin, &variant=...).
  * Admin/member accept ?path=/admin/reports to pretend to be on that page.
  */
 export default async function PreviewPage({
@@ -36,6 +37,20 @@ export default async function PreviewPage({
       return <UsagePreview shell={shell} variant={variant} />;
     case "profile":
       return <ProfilePreview shell={shell} />;
+    case "users":
+      return <UsersPreview variant={variant} />;
+    case "groups":
+      return <GroupsPreview />;
+    case "invites":
+      return <InvitesPreview />;
+    case "printers":
+      return <PrintersPreview variant={variant} />;
+    case "servers":
+      return <ServersPreview />;
+    case "serverdetail":
+      return <ServerDetailPreview />;
+    case "userdevices":
+      return <UserDevicesPreview variant={variant} />;
     case "adminhome":
       return <AdminHomeSection />;
     case "adminclear":

@@ -1,9 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
-import { PageHeader } from "@/components/ui";
-import { InviteForm } from "./InviteForm";
+import { PageHeader, Tabs } from "@/components/ui";
+import { peopleTabs } from "@/lib/admin/tabs";
 import { MembersTable } from "./MembersTable";
-import { InvitationsList } from "./InvitationsList";
 import { ensureMemberUserCode } from "@/lib/jobs/ensure-user-code";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { logger } from "@/lib/logger";
@@ -45,26 +44,12 @@ export default async function UsersPage() {
     }
   }
 
-  const { data: invitations } = await supabase
-    .from("organization_invitations")
-    .select("*")
-    .eq("organization_id", session.membership.organization_id)
-    .order("created_at", { ascending: false });
-
   const isOrgAdmin = session.membership.role === "org_admin";
 
   return (
     <div>
-      <PageHeader title="Users" />
-
-      {isOrgAdmin && (
-        <div className="mb-8">
-          <h2 className="mb-2 text-sm font-medium">Invite someone</h2>
-          <InviteForm />
-        </div>
-      )}
-
-      <h2 className="mb-2 text-sm font-medium">Roster</h2>
+      <PageHeader title="Users" description="Everyone who can print here. Change a role, department or print code, then save." />
+      <Tabs label="People" items={peopleTabs("users", isOrgAdmin)} />
       <MembersTable
         members={memberRows.map((m) => ({
           userId: m.user_id,
@@ -79,22 +64,6 @@ export default async function UsersPage() {
         }))}
         canEdit={isOrgAdmin}
       />
-
-      {isOrgAdmin && invitations && invitations.length > 0 && (
-        <div className="mt-8">
-          <h2 className="mb-2 text-sm font-medium">Open invitations</h2>
-          <InvitationsList
-            invitations={invitations.map((inv) => ({
-              id: inv.id,
-              code: inv.code,
-              role: inv.role,
-              usesCount: inv.uses_count,
-              maxUses: inv.max_uses,
-              expiresAt: inv.expires_at,
-            }))}
-          />
-        </div>
-      )}
     </div>
   );
 }
