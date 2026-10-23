@@ -27,6 +27,14 @@ import { RAW_DEFERRED_STATUSES, RAW_SUCCESS_STATUSES, executeRawPrint, type RawT
 import { PROFILE_COOLDOWN_MS, decideDownloadFailure, decideRawFailure, type WaitKind } from "./retry-policy.js";
 import { handleCommand } from "./commands.js";
 import { createSelfUpdateDeps, performSelfUpdate, performUpdateCheck } from "./self-update.js";
+import {
+  isSafeJobId,
+  MAX_DOWNLOAD_BYTES,
+  sanitizeLocalFileName,
+  validateDownloadUrl,
+  validateQueueName,
+  type DownloadUrlPolicy,
+} from "./input-validation.js";
 import { CloudApiError, DownloadValidationError, PrintExecutionError, SpoolerError, TransientDownloadError } from "./errors.js";
 import type { Logger } from "./logger.js";
 
@@ -46,6 +54,8 @@ export interface OrchestratorDeps {
   rawTimeouts?: RawTimeouts;
   /** Decides whether a raw target may be sent to (private-LAN only, optional allow-list); injectable for tests. */
   checkRawTarget?: (target: { host: string; port: number }) => Promise<RawTargetCheck>;
+  /** Tests/dev only: allow http / loopback download URLs (production requires a public https host). */
+  allowLocalDownloads?: boolean;
 }
 
 /** What one processJob() call tells its caller (the poll loop). */
@@ -132,20 +142,18 @@ export function computeNextPollDelayMs(
   return Math.min(scaledMs, maxMs);
 }
 
-/** Strips any directory component from a cloud-supplied file name before it ever touches a local path - defense in depth against a malformed/hostile fileName. */
-function sanitizeFileName(fileName: string): string {
-  const base = path.basename(fileName).replace(/[^A-Za-z0-9._-]/g, "_");
-  return base || "job.pdf";
-}
-
 async function downloadJobFile(
   downloadUrl: string,
   destPath: string,
   logger: Logger,
+  policy: DownloadUrlPolicy = {},
 ): Promise<{ bytesWritten: number }> {
+  const checked = validateDownloadUrl(downloadUrl, policy);
+  if (!checked.ok) throw new DownloadValidationError(`refusing to download: ${checked.reason}`);
   let res: Response;
   try {
-    res = await fetch(downloadUrl);
+    // redirect: "error" - a redirect could point a vetted public URL at an internal address.
+    res = await fetch(checked.url, { redirect: "error" });
   } catch (err) {
     // Says nothing about the job: the network or the storage service is down. The job waits instead of failing.
     throw new TransientDownloadError(`download request could not be made: ${err instanceof Error ? err.message : String(err)}`);
@@ -160,14 +168,27 @@ async function downloadJobFile(
   mkdirSync(path.dirname(destPath), { recursive: true });
   const tmpPath = `${destPath}.partial`;
   const expectedLength = res.headers.get("content-length");
+  if (expectedLength && Number(expectedLength) > MAX_DOWNLOAD_BYTES) {
+    throw new DownloadValidationError(`document is larger than the ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB limit`);
+  }
 
   // Stream to disk rather than buffering the whole file in memory - matters
   // for the "large job" case in the physical validation checklist (README).
   await new Promise<void>((resolve, reject) => {
     const fileStream = createWriteStream(tmpPath);
     const nodeStream = Readable.fromWeb(res.body as unknown as import("node:stream/web").ReadableStream);
+    let received = 0;
+    nodeStream.on("data", (c: Buffer) => {
+      received += c.length;
+      if (received > MAX_DOWNLOAD_BYTES) {
+        nodeStream.destroy(new DownloadValidationError(`document is larger than the ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB limit`));
+      }
+    });
     nodeStream.pipe(fileStream);
-    nodeStream.on("error", reject);
+    nodeStream.on("error", (e) => {
+      fileStream.destroy();
+      reject(e);
+    });
     fileStream.on("error", reject);
     fileStream.on("finish", resolve);
   });
@@ -358,10 +379,17 @@ export function createOrchestrator(deps: OrchestratorDeps) {
         jobQueue.upsertJob(claimable.jobId, { windowsQueueName: dl.printRequest.windowsQueueName });
       }
 
-      const localFileName = `${claimable.jobId}-${sanitizeFileName(dl.fileName)}`;
+      if (!isSafeJobId(claimable.jobId)) throw new DownloadValidationError("refusing a job with an unsafe id");
+      if (!dl.printRequest.raw && !validateQueueName(dl.printRequest.windowsQueueName)) {
+        throw new DownloadValidationError("refusing a job whose printer queue name is not valid");
+      }
+      const localFileName = `${claimable.jobId}-${sanitizeLocalFileName(dl.fileName)}`;
       const localFilePath = path.join(config.localStoragePath, "downloads", localFileName);
       downloadedPath = localFilePath;
-      await downloadJobFile(dl.downloadUrl, localFilePath, jobLogger);
+      await downloadJobFile(dl.downloadUrl, localFilePath, jobLogger, {
+        allowedHosts: config.downloadAllowedHosts,
+        allowLocal: deps.allowLocalDownloads,
+      });
       if (!deferRawReports) {
         jobQueue.upsertJob(claimable.jobId, { state: "downloaded", localFilePath });
         await safeReportStatus(claimable.jobId, "downloaded");
