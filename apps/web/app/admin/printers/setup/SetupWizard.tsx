@@ -4,7 +4,7 @@ import { useActionState, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, RefreshCw, WifiOff, ArrowRight, ArrowLeft, ListChecks } from "lucide-react";
 import Link from "next/link";
-import { Button, Card, Badge, Select, Input, FieldLabel, FormError, EmptyState } from "@/components/ui";
+import { Button, ButtonLink, Card, Badge, Select, Input, FieldLabel, FormError, EmptyState } from "@/components/ui";
 import { PRINTER_PROFILE_ICON_COMPONENTS, type PrinterProfileIconKey } from "@/lib/printer-profile-icons";
 import { PRINTER_ARCHETYPE_IDS, PRINTER_ARCHETYPES, buildRecipeCards, isPrinterArchetypeId, type PrinterArchetypeId, type RecipeCard } from "@/lib/printer-setup-wizard";
 import { createPrinterProfilesFromWizardAction, type PrinterActionState } from "../actions";
@@ -147,6 +147,15 @@ export function SetupWizard({
   );
 }
 
+/** Leave the wizard without saving anything. */
+function CancelLink() {
+  return (
+    <ButtonLink href={routes.adminPrinters} variant="ghost">
+      Cancel
+    </ButtonLink>
+  );
+}
+
 function StepIndicator({ step }: { step: 1 | 2 | 3 }) {
   const labels: Record<1 | 2 | 3, string> = { 1: "Plan", 2: "Register the machine", 3: "Finish" };
   return (
@@ -212,7 +221,8 @@ function Step1Plan({
         </>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <CancelLink />
         <Button type="button" onClick={onNext} disabled={recipeCards.length === 0}>
           Next: Register the machine <ArrowRight className="ml-1 inline h-4 w-4" />
         </Button>
@@ -317,10 +327,13 @@ function Step2RegisterMachine({
         </Button>
       </div>
 
-      <div className="flex justify-between">
-        <Button type="button" variant="outline" onClick={onBack}>
-          <ArrowLeft className="mr-1 inline h-4 w-4" /> Back
-        </Button>
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex gap-2">
+          <Button type="button" variant="outline" onClick={onBack}>
+            <ArrowLeft className="mr-1 inline h-4 w-4" /> Back
+          </Button>
+          <CancelLink />
+        </div>
         <Button type="button" onClick={onNext} disabled={!ready}>
           Next: Finish <ArrowRight className="ml-1 inline h-4 w-4" />
         </Button>
@@ -545,10 +558,13 @@ function Step3Finish({
 
         <FormError message={state.error} />
 
-        <div className="flex justify-between">
-          <Button type="button" variant="outline" onClick={onBack}>
-            <ArrowLeft className="mr-1 inline h-4 w-4" /> Back
-          </Button>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={onBack}>
+              <ArrowLeft className="mr-1 inline h-4 w-4" /> Back
+            </Button>
+            <CancelLink />
+          </div>
           <Button type="submit" disabled={!canSubmit} pending={pending} pendingLabel="Creating profiles...">
             Create {recipeCards.length} profile{recipeCards.length === 1 ? "" : "s"}
           </Button>
