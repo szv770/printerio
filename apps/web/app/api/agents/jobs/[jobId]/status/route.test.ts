@@ -8,10 +8,21 @@ type Row = Record<string, unknown>;
 let job: Row;
 let settings: Row | null;
 const events: Row[] = [];
+const deviceUpdates: Array<{ patch: Row; eqs: Array<[string, unknown]>; isNull: string[] }> = [];
 
 const service = {
   from(table: string) {
     if (table === "print_job_events") return { insert: async (v: Row) => (events.push(v), { error: null }) };
+    if (table === "member_devices") {
+      const rec = { patch: {} as Row, eqs: [] as Array<[string, unknown]>, isNull: [] as string[] };
+      const q: Record<string, unknown> = {
+        update: (p: Row) => ((rec.patch = p), deviceUpdates.push(rec), q),
+        eq: (k: string, v: unknown) => (rec.eqs.push([k, v]), q),
+        is: (k: string) => (rec.isNull.push(k), q),
+        then: (resolve: (v: unknown) => void) => resolve({ error: null }),
+      };
+      return q;
+    }
     if (table === "organization_settings") {
       const q: Record<string, unknown> = { select: () => q, eq: () => q, maybeSingle: async () => ({ data: settings, error: null }) };
       return q;
@@ -48,6 +59,7 @@ beforeEach(() => {
   job = printing();
   settings = { auto_retry_failed_prints: false };
   events.length = 0;
+  deviceUpdates.length = 0;
   adjust.mockClear();
 });
 
@@ -128,5 +140,34 @@ describe("agent status route: the deferred raw chain (claimed -> downloading -> 
     job = printing({ status: "submitted_to_spooler", error_message: "[printio:waiting v1 since=2026-10-23T10:00:00.000Z tries=2 kind=unavailable] x" });
     await call("completed", "sent to printer raw port");
     expect(job.error_message).toBeNull();
+  });
+});
+
+describe("agent status route: device first_printed_at", () => {
+  it("stamps first_printed_at (only when still empty) when a job from a device is completed", async () => {
+    job = printing({ status: "submitted_to_spooler", device_id: "dev1" });
+    expect((await call("completed")).status).toBe(200);
+    const upd = deviceUpdates.find((u) => "first_printed_at" in u.patch);
+    expect(upd).toBeTruthy();
+    expect(upd!.eqs).toContainEqual(["id", "dev1"]);
+    expect(upd!.isNull).toContain("first_printed_at");
+  });
+
+  it("does nothing for a job without a device (website upload)", async () => {
+    job = printing({ status: "submitted_to_spooler", device_id: null });
+    await call("completed");
+    expect(deviceUpdates).toHaveLength(0);
+  });
+
+  it("does not stamp on failure", async () => {
+    job = printing({ device_id: "dev1" });
+    await call("failed", "boom");
+    expect(deviceUpdates).toHaveLength(0);
+  });
+
+  it("never fails the status report if the device update errors", async () => {
+    job = printing({ status: "submitted_to_spooler", device_id: "dev1" });
+    deviceUpdates.length = 0;
+    expect((await call("completed")).status).toBe(200);
   });
 });

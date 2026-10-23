@@ -2929,3 +2929,5 @@ revoke execute on function public.adjust_monthly_usage(uuid, uuid, text, int, in
   from public, anon, authenticated;
 grant execute on function public.adjust_monthly_usage(uuid, uuid, text, int, int, int, int, text, int, text)
   to service_role;
+
+-- 0038_backfill_device_first_printed.sql is a data-only back-fill (no schema change).

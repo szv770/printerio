@@ -146,6 +146,23 @@ export async function listDevicesForAdmin(supabase: Client, input: { organizatio
 }
 
 /**
+ * Marks a device as having really printed: sets first_printed_at the first time only. Called when a job that came
+ * from the device reaches the completed (printed) state. Best-effort: never throws, so it can never fail a print.
+ */
+export async function markDevicePrinted(supabase: Client, deviceId: string): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from("member_devices")
+      .update({ first_printed_at: new Date().toISOString() })
+      .eq("id", deviceId)
+      .is("first_printed_at", null);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Records a gateway event for a device: appends to device_events, bumps last_seen_at / last_user_agent, and sets
  * first_job_at on the first job_received. Needs the service role (device_events has no insert policy).
  * Best-effort bookkeeping: it returns false instead of throwing, so an event can never fail a print.
