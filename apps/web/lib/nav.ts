@@ -35,6 +35,7 @@ export type NavIcon =
   | "settings"
   | "print"
   | "jobs"
+  | "alljobs"
   | "usage"
   | "profile";
 
@@ -81,6 +82,7 @@ export function adminMenu(isOrgAdmin: boolean): NavGroup[] {
       items: [
         { href: routes.admin, label: "Overview", icon: "overview", exact: true },
         MY_JOBS,
+        { href: routes.adminJobs, label: "All jobs", icon: "alljobs" },
         { href: routes.adminApprovals, label: "Approvals", icon: "approvals", badge: "pendingApprovals" },
       ],
     },

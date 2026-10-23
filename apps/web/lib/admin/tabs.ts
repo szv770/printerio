@@ -23,3 +23,21 @@ export function printerTabs(active: PrinterTab, isOrgAdmin: boolean): TabItem[] 
   if (isOrgAdmin) tabs.push({ href: routes.adminDevices, label: "User devices", active: active === "devices" });
   return tabs;
 }
+
+export type RulesTab = "rules" | "quotas";
+export type ReportsTab = "usage" | "audit";
+
+/** Print rules | Monthly limits. */
+export function rulesTabs(active: RulesTab): TabItem[] {
+  return [
+    { href: routes.adminPolicies, label: "Print rules", active: active === "rules" },
+    { href: routes.adminQuotas, label: "Monthly limits", active: active === "quotas" },
+  ];
+}
+
+/** Usage | Activity log (the log is for admins only, like the page). */
+export function reportTabs(active: ReportsTab, isOrgAdmin: boolean): TabItem[] {
+  const tabs: TabItem[] = [{ href: routes.adminReports, label: "Usage", active: active === "usage" }];
+  if (isOrgAdmin) tabs.push({ href: routes.adminAudit, label: "Activity log", active: active === "audit" });
+  return tabs;
+}

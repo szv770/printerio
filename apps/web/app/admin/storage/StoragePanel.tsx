@@ -1,9 +1,10 @@
 "use client";
 
 import { useActionState } from "react";
-import { HardDrive, Trash2 } from "lucide-react";
-import { Button, Card, FormError, FormSuccess } from "@/components/ui";
+import { CalendarClock, Check, HardDrive, Info, Sparkles } from "lucide-react";
+import { Button, Card, Collapsible, FormError } from "@/components/ui";
 import { formatFileSize } from "@/lib/pdf/client-precheck";
+import { storageMeter } from "@/lib/admin/reports-view";
 import { runStorageCleanupAction, type StorageCleanupState } from "./actions";
 
 // A "use server" file may only export async functions, so this trivial seed
@@ -29,6 +30,22 @@ const GROUP_LABELS: Record<"completed" | "rejected" | "failed", string> = {
   failed: "Failed jobs",
 };
 
+const SHORT_LABELS: Record<"completed" | "rejected" | "failed", string> = {
+  completed: "printed",
+  rejected: "rejected",
+  failed: "failed",
+};
+
+const SEGMENT_COLOR = {
+  active: "bg-[var(--ink-c)]",
+  kept: "bg-[var(--color-border-strong)]",
+  cleanable: "bg-[var(--ink-y)]",
+} as const;
+
+const size = (bytes: number) => formatFileSize(bytes) || "0 KB";
+const files = (n: number) => `${n.toLocaleString("en-US")} ${n === 1 ? "file" : "files"}`;
+const days = (d: number) => `${d} ${d === 1 ? "day" : "days"}`;
+
 export function StoragePanel({
   summary,
   windows,
@@ -42,85 +59,129 @@ export function StoragePanel({
 }) {
   const [state, formAction, pending] = useActionState(runStorageCleanupAction, initialCleanupState);
 
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-        <Stat label="Stored now" value={formatFileSize(summary.total.bytes) || "0 KB"} sub={`${summary.total.jobs} files`} />
-        <Stat
-          label="Ready to clean up"
-          value={formatFileSize(summary.cleanable.bytes) || "0 KB"}
-          sub={`${summary.cleanable.jobs} files past their retention window`}
-        />
-        <Stat
-          label="Still in use"
-          value={formatFileSize(summary.active.bytes) || "0 KB"}
-          sub={`${summary.active.jobs} jobs not finished yet`}
-        />
-      </div>
+  const meter = storageMeter({
+    active: summary.active.bytes,
+    withinRetention: summary.withinRetention.bytes,
+    cleanable: summary.cleanable.bytes,
+  });
+  const counts = { active: summary.active.jobs, kept: summary.withinRetention.jobs, cleanable: summary.cleanable.jobs };
+  const nothingToClean = summary.cleanable.jobs === 0;
 
-      <Card>
-        <div className="mb-3 flex items-center gap-2">
-          <HardDrive className="h-4 w-4 text-[var(--color-muted)]" />
-          <h2 className="text-sm font-semibold">What is being kept, and for how long</h2>
+  return (
+    <div className="flex flex-col gap-4">
+      <Card className="p-5 sm:p-6">
+        <div className="flex items-start gap-4">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--color-primary-soft)] text-[var(--color-primary)]">
+            <HardDrive className="h-6 w-6" aria-hidden="true" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[13px] text-[var(--color-muted)]">Stored now</p>
+            <p className="text-3xl leading-9 font-bold tracking-[-0.02em] tabular-nums">{size(summary.total.bytes)}</p>
+            <p className="text-[13px] text-[var(--color-muted)]">{files(summary.total.jobs)}</p>
+          </div>
         </div>
-        <p className="mb-3 text-sm text-[var(--color-muted)]">
-          Printio keeps a job&apos;s uploaded PDF only as long as your retention settings say, then deletes it
-          automatically. The job itself - who printed what, when, and how many sheets it used - is kept either way, so
-          deleting files never costs you any history or reporting.
-        </p>
-        <ul className="flex flex-col gap-1 text-sm">
-          {windows.map((w) => (
-            <li key={w.group} className="flex flex-wrap items-baseline justify-between gap-2">
-              <span>
-                {GROUP_LABELS[w.group]} — files kept {w.days} {w.days === 1 ? "day" : "days"}
-              </span>
-              <span className="text-[var(--color-muted)]">
-                {summary.cleanableByGroup[w.group].jobs > 0
-                  ? `${summary.cleanableByGroup[w.group].jobs} ready to remove (${formatFileSize(summary.cleanableByGroup[w.group].bytes) || "0 KB"})`
-                  : "nothing waiting"}
-              </span>
+
+        <div
+          role="img"
+          aria-label={
+            meter.total === 0
+              ? "No files stored"
+              : meter.segments.map((s) => `${s.label}: ${s.pct}%`).join(", ")
+          }
+          className="mt-5 flex h-4 gap-0.5 overflow-hidden rounded-full bg-[var(--color-surface-2)]"
+        >
+          {meter.segments
+            .filter((s) => s.bytes > 0)
+            .map((s) => (
+              <div key={s.key} className={`h-full min-w-1.5 ${SEGMENT_COLOR[s.key]}`} style={{ flexGrow: s.bytes, flexBasis: 0 }} />
+            ))}
+        </div>
+
+        <ul className="mt-4 flex flex-col gap-2.5">
+          {meter.segments.map((s) => (
+            <li key={s.key} className="flex items-center gap-3 text-sm">
+              <span className={`h-3 w-3 shrink-0 rounded-full ${SEGMENT_COLOR[s.key]}`} aria-hidden="true" />
+              <span className="min-w-0 flex-1 text-[var(--color-text-2)]">{s.label}</span>
+              <span className="text-[13px] text-[var(--color-muted)]">{files(counts[s.key])}</span>
+              <span className="w-20 text-right font-medium tabular-nums">{size(s.bytes)}</span>
             </li>
           ))}
         </ul>
-        <p className="mt-3 text-xs text-[var(--color-muted)]">
-          Sizes are the uploaded originals. A booklet job also stores a generated print-ready copy, whose size
-          isn&apos;t recorded, so the real total is a little higher than shown.
-          {truncated ? " This organization has more stored files than this page reads at once, so these totals are a floor." : ""}
-        </p>
+        {truncated && (
+          <p className="mt-4 flex items-start gap-2 text-[13px] text-[var(--color-warning-ink)]">
+            <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            There are more stored files than this page counts at once, so these numbers are a minimum.
+          </p>
+        )}
       </Card>
 
-      <Card>
-        <div className="mb-3 flex items-center gap-2">
-          <Trash2 className="h-4 w-4 text-[var(--color-muted)]" />
-          <h2 className="text-sm font-semibold">Clean up now</h2>
+      <Card className="p-5 sm:p-6">
+        <div className="flex items-start gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--color-warning-soft)] text-[var(--color-warning)]">
+            <Sparkles className="h-[18px] w-[18px]" aria-hidden="true" />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-base leading-6 font-semibold">Clean up</h2>
+            <p className="text-sm text-[var(--color-muted)]">
+              Remove files that are past their keep time. Jobs and their history stay.
+            </p>
+          </div>
         </div>
-        <p className="mb-3 text-sm text-[var(--color-muted)]">
-          Runs the same automatic cleanup immediately instead of waiting for the next scheduled pass. It removes only
-          the files already past their retention window above - nothing belonging to a job that is still waiting,
-          printing, or inside its window - and never deletes a job record.
-        </p>
 
-        <FormError message={state.error} />
-        <FormSuccess message={state.success} />
-
-        <form action={formAction} className="mt-2">
-          <Button type="submit" variant="outline" pending={pending} pendingLabel="Cleaning up...">
-            {summary.cleanable.jobs > 0
-              ? `Clean up ${summary.cleanable.jobs} ${summary.cleanable.jobs === 1 ? "file" : "files"} now`
-              : "Clean up now"}
+        <form action={formAction} className="mt-4">
+          <Button
+            type="submit"
+            size="lg"
+            variant={nothingToClean ? "secondary" : "primary"}
+            pending={pending}
+            pendingLabel="Cleaning up..."
+            className="w-full sm:w-auto"
+          >
+            {nothingToClean ? "Clean up now" : `Clean up ${files(summary.cleanable.jobs)} now`}
           </Button>
         </form>
-      </Card>
-    </div>
-  );
-}
 
-function Stat({ label, value, sub }: { label: string; value: string; sub: string }) {
-  return (
-    <Card className="p-5">
-      <p className="text-sm text-[var(--color-muted)]">{label}</p>
-      <p className="mt-1 text-2xl font-semibold">{value}</p>
-      <p className="mt-1 text-xs text-[var(--color-muted)]">{sub}</p>
-    </Card>
+        <div aria-live="polite" className="mt-3 empty:hidden">
+          <FormError message={state.error} />
+          {state.success && (
+            <p className="flex items-start gap-2 rounded-[var(--radius-control)] bg-[var(--color-success-soft)] px-3.5 py-3 text-sm text-[var(--color-success-ink)]">
+              <Check className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>{state.success}</span>
+            </p>
+          )}
+        </div>
+      </Card>
+
+      <Collapsible
+        id="keep-times"
+        title="How long files are kept"
+        icon={<CalendarClock className="h-4 w-4" />}
+        summary={windows.map((w) => `${SHORT_LABELS[w.group]} ${w.days}`).join(", ") + " days"}
+      >
+        <p className="mb-3 text-sm text-[var(--color-muted)]">
+          Files are removed on their own after these times. The record of who printed what, and how many sheets it used, is kept.
+        </p>
+        <ul className="flex flex-col divide-y divide-[var(--color-border)]">
+          {windows.map((w) => {
+            const waiting = summary.cleanableByGroup[w.group];
+            return (
+              <li key={w.group} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 py-3 first:pt-0 last:pb-0">
+                <span className="text-sm font-medium">{GROUP_LABELS[w.group]}</span>
+                <span className="text-sm text-[var(--color-text-2)]">
+                  kept {days(w.days)}
+                  <span className="text-[var(--color-muted)]">
+                    {" "}
+                    · {waiting.jobs > 0 ? `${files(waiting.jobs)} ready to remove (${size(waiting.bytes)})` : "nothing waiting"}
+                  </span>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+        <p className="mt-3 text-xs text-[var(--color-muted)]">
+          Sizes are the files people sent. Booklets also store a print-ready copy that is not counted, so the real total is a little higher.
+        </p>
+      </Collapsible>
+    </div>
   );
 }

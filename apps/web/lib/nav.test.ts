@@ -52,6 +52,23 @@ describe("adminMenu", () => {
   });
 });
 
+describe("All jobs", () => {
+  it("sits in the first group next to My jobs and Approvals, for both roles", () => {
+    for (const isOrgAdmin of [true, false]) {
+      const hrefs = adminMenu(isOrgAdmin)[0]!.items.map((i) => i.href);
+      expect(hrefs).toContain(routes.adminJobs);
+      expect(hrefs).toContain(routes.jobs);
+      expect(hrefs).toContain(routes.adminApprovals);
+    }
+    expect(routes.adminJobs).toBe("/admin/jobs");
+  });
+  it("is the current item on /admin/jobs, and My jobs stays current on /jobs", () => {
+    const groups = adminMenu(true);
+    expect(activeItemHref(groups, "/admin/jobs")).toBe(routes.adminJobs);
+    expect(activeItemHref(groups, "/jobs/abc")).toBe(routes.jobs);
+  });
+});
+
 describe("memberMenu", () => {
   it("is the simple member list and has no admin pages", () => {
     const items = memberMenu();

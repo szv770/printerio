@@ -13,6 +13,7 @@ import { ReprintButton } from "./ReprintButton";
 import { DeleteFileButton } from "./DeleteFileButton";
 import { CancelJobButton } from "./CancelJobButton";
 import { RetryJobButton } from "./RetryJobButton";
+import { jobActionPlan } from "@/lib/jobs/action-plan";
 import { LocalTime } from "../LocalTime";
 
 /** The approver's own words, recorded on the REJECTED event alongside the
@@ -59,12 +60,14 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   const eventRows = events ?? [];
 
 
-  const canReprint = !job.is_test_print && isOwner && !job.files_purged_at;
-  const canRetry = isOwner && job.status === "failed" && job.attempt_count < job.max_attempts && !job.files_purged_at;
-  const canCancel = isOwner && ["held", "pending_approval", "approved", "failed"].includes(job.status);
-  const atPrinter = isOwner && ["claimed", "downloading", "downloaded", "printing", "submitted_to_spooler"].includes(job.status);
-  // Print again is the main thing to do with a finished job, and with a failed one that cannot be retried.
-  const reprintIsPrimary = job.status === "completed" || (job.status === "failed" && !canRetry);
+  const plan = jobActionPlan({
+    status: job.status,
+    isOwner,
+    isTestPrint: job.is_test_print,
+    filesPurged: !!job.files_purged_at,
+    attemptCount: job.attempt_count,
+    maxAttempts: job.max_attempts,
+  });
   const canDeleteFile = isOwner && !job.files_purged_at && canOwnerPurgeFiles(job).ok;
   const lastEvent = eventRows.length > 0 ? jobEventDisplay(eventRows[eventRows.length - 1]!.event_type).label : null;
 
@@ -74,13 +77,12 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   // ORIGINAL stored bytes, so it is not offered for a test print (that would silently become a real, quota-charged
   // job), for a job whose file was purged, or to anyone but the job's own submitter.
   const actions =
-    canRetry || canCancel || canReprint || atPrinter ? (
+    plan.retry || plan.cancel || plan.reprint || plan.atPrinter ? (
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
-        {canRetry && <RetryJobButton jobId={job.id} big />}
-        {canReprint && reprintIsPrimary && <ReprintButton jobId={job.id} big primary />}
-        {canReprint && !reprintIsPrimary && <ReprintButton jobId={job.id} big />}
-        {canCancel && <CancelJobButton jobId={job.id} big />}
-        {atPrinter && (
+        {plan.retry && <RetryJobButton jobId={job.id} big />}
+        {plan.reprint && <ReprintButton jobId={job.id} big primary={plan.reprintPrimary} />}
+        {plan.cancel && <CancelJobButton jobId={job.id} big />}
+        {plan.atPrinter && (
           <p className="text-sm text-[var(--color-muted)]">This job has already gone to the printer. Clear it at the printer.</p>
         )}
       </div>

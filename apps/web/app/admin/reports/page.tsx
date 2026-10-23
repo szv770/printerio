@@ -1,10 +1,7 @@
-import { Info } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
-import { PageHeader, Card, Badge, EmptyState } from "@/components/ui";
-import { jobStatusDisplay } from "@/lib/job-status-labels";
 import { currentPeriod } from "@/lib/quota";
-import { ExportCsvButton } from "./ExportCsvButton";
+import { REPORT_ROW_LIMIT, parseReportRange, rangeSinceIso, truncationNote } from "@/lib/admin/reports-view";
 import {
   aggregateByUser,
   aggregateByDepartment,
@@ -15,8 +12,8 @@ import {
   type ReportJobRow,
   type MonthlyUsageRow,
 } from "@/lib/reports";
+import { ReportsView } from "./ReportsView";
 
-const JOB_WINDOW_DAYS = 90;
 const USAGE_MONTHS = 6;
 
 function monthsAgoPeriod(months: number): string {
@@ -25,16 +22,16 @@ function monthsAgoPeriod(months: number): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-export default async function ReportsPage() {
+export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ range?: string | string[] }> }) {
   const session = await requireOrgRole(["org_admin", "approver"]);
   const supabase = await createClient();
   const orgId = session.membership.organization_id;
+  const range = parseReportRange((await searchParams).range);
 
   // Server Component snapshot at request time, not a value React needs to
   // keep referentially stable across re-renders - same rationale as
   // admin/page.tsx's onlineCutoff.
-  // eslint-disable-next-line react-hooks/purity
-  const since = new Date(Date.now() - JOB_WINDOW_DAYS * 24 * 3600 * 1000).toISOString();
+  const since = rangeSinceIso(range, new Date());
   const oldestPeriod = monthsAgoPeriod(USAGE_MONTHS - 1);
 
   const [{ data: jobRows }, { data: members }, { data: printerRows }, { data: usageRows }] = await Promise.all([
@@ -49,7 +46,11 @@ export default async function ReportsPage() {
       // sending admin's own row, their department, and that printer's totals
       // with paper nobody requested (supabase/migrations/0024_*.sql).
       .eq("is_test_print", false)
-      .gte("created_at", since),
+      .gte("created_at", since)
+      // Newest first with an explicit cap: the database would otherwise cut
+      // the list at 1,000 rows without saying so, and not necessarily the oldest.
+      .order("created_at", { ascending: false })
+      .limit(REPORT_ROW_LIMIT),
     supabase.from("organization_members").select("user_id, department, profiles(email, display_name)").eq("organization_id", orgId),
     supabase.from("printers").select("id, name").eq("organization_id", orgId),
     supabase
@@ -86,244 +87,41 @@ export default async function ReportsPage() {
     colorWeightedUsed: u.color_weighted_used,
   }));
 
-  const byUser = aggregateByUser(jobs, (id) => labelByUser.get(id) ?? id);
+  const byUser = aggregateByUser(jobs, (id) => labelByUser.get(id) ?? "Unknown user");
   const byDepartment = aggregateByDepartment(jobs);
-  const byPrinter = aggregateByPrinter(jobs, (id) => nameByPrinter.get(id) ?? id);
+  const byPrinter = aggregateByPrinter(jobs, (id) => nameByPrinter.get(id) ?? "Unknown printer");
   const colorUsage = aggregateColorUsage(jobs);
-  const rejectedFailed = recentRejectedOrFailed(jobs);
-  const pagesByMonth = aggregatePagesByMonth(usage);
-  const thisPeriod = currentPeriod();
-
-  // "At a glance" strip - same Card-grid pattern as admin/page.tsx's stats.
-  // The full monthly/color tables below are look-up-when-needed reference
-  // detail; this is the one-line summary of the same numbers.
-  const currentMonth = pagesByMonth.find((m) => m.period === thisPeriod);
-  const priorMonth = pagesByMonth.at(-2);
-  const monthDeltaPct =
-    currentMonth && priorMonth && priorMonth.physicalSheets > 0
-      ? Math.round(((currentMonth.physicalSheets - priorMonth.physicalSheets) / priorMonth.physicalSheets) * 100)
-      : null;
+  const problems = recentRejectedOrFailed(jobs);
   const totalSheets = colorUsage.color.sheets + colorUsage.bw.sheets;
-  const colorPct = totalSheets > 0 ? Math.round((colorUsage.color.sheets / totalSheets) * 100) : null;
-
-  const stats = [
-    {
-      label: "Sheets this month",
-      value: (currentMonth?.physicalSheets ?? 0).toLocaleString(),
-      hint: monthDeltaPct === null ? undefined : `${monthDeltaPct >= 0 ? "▲" : "▼"}${Math.abs(monthDeltaPct)}% vs last month`,
-    },
-    { label: "Color share", value: colorPct === null ? "—" : `${colorPct}%`, hint: `${JOB_WINDOW_DAYS}d window` },
-    { label: "Denied / failed", value: rejectedFailed.length.toLocaleString(), hint: `${JOB_WINDOW_DAYS}d window` },
-  ];
 
   return (
-    <div className="flex flex-col gap-6">
-      <PageHeader
-        title="Reports"
-        description={`Job activity over the last ${JOB_WINDOW_DAYS} days and usage over the last ${USAGE_MONTHS} months. "Sheets" only counts jobs that actually reached a printer (completed/printing/submitted_to_spooler) - denied and pending jobs never consumed paper. Admin test prints are excluded everywhere on this page. Tables only for V1 - see docs known-limitations.`}
-      />
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3" data-tour="admin-reports-stats">
-        {stats.map((s) => (
-          <Card key={s.label} className="p-5">
-            <p className="text-sm text-[var(--color-muted)]">{s.label}</p>
-            <p className="mt-1 text-2xl font-semibold">{s.value}</p>
-            {s.hint && <p className="mt-1 text-xs text-[var(--color-muted)]">{s.hint}</p>}
-          </Card>
-        ))}
-      </div>
-
-      <Card>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-medium">Recently denied / failed</h2>
-          {rejectedFailed.length > 0 && (
-            <ExportCsvButton
-              filename="recently-denied-failed"
-              columns={["User", "Status", "Date"]}
-              rows={rejectedFailed.map((j) => [
-                labelByUser.get(j.createdBy) ?? j.createdBy,
-                jobStatusDisplay(j.status).label,
-                new Date(j.createdAt).toLocaleDateString(),
-              ])}
-            />
-          )}
-        </div>
-        {rejectedFailed.length === 0 ? (
-          <EmptyState message="No denied or failed jobs in this window." icon={Info} />
-        ) : (
-          <ul className="flex flex-col gap-2 text-sm">
-            {rejectedFailed.map((j) => {
-              const display = jobStatusDisplay(j.status);
-              return (
-                <li key={j.id} className="flex items-center justify-between rounded bg-gray-50 px-3 py-2">
-                  <span>{labelByUser.get(j.createdBy) ?? j.createdBy}</span>
-                  <span className="flex items-center gap-2">
-                    <Badge tone={j.status === "denied" ? "danger" : "warning"}>
-                      <span className="flex items-center gap-1">
-                        <display.Icon className="h-3.5 w-3.5" />
-                        {display.label}
-                      </span>
-                    </Badge>
-                    <span className="text-[var(--color-muted)]">{new Date(j.createdAt).toLocaleDateString()}</span>
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </Card>
-
-      <Card>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-medium">By user ({JOB_WINDOW_DAYS}d)</h2>
-          {byUser.length > 0 && (
-            <ExportCsvButton
-              filename="by-user"
-              columns={["User", "Jobs", "Sheets"]}
-              rows={byUser.map((r) => [r.label, String(r.jobCount), String(r.sheets)])}
-            />
-          )}
-        </div>
-        {byUser.length === 0 ? (
-          <EmptyState message="No jobs in this window." icon={Info} />
-        ) : (
-          <ReportTable
-            columns={["User", "Jobs", "Sheets"]}
-            rows={byUser.map((r) => [r.label, r.jobCount.toLocaleString(), r.sheets.toLocaleString()])}
-          />
-        )}
-      </Card>
-
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <Card>
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-medium">By department ({JOB_WINDOW_DAYS}d)</h2>
-            {byDepartment.length > 0 && (
-              <ExportCsvButton
-                filename="by-department"
-                columns={["Department", "Jobs", "Sheets"]}
-                rows={byDepartment.map((r) => [r.label, String(r.jobCount), String(r.sheets)])}
-              />
-            )}
-          </div>
-          {byDepartment.length === 0 ? (
-            <EmptyState message="No department-tagged jobs in this window." icon={Info} />
-          ) : (
-            <ReportTable
-              columns={["Department", "Jobs", "Sheets"]}
-              rows={byDepartment.map((r) => [r.label, r.jobCount.toLocaleString(), r.sheets.toLocaleString()])}
-            />
-          )}
-        </Card>
-
-        <Card>
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-medium">By printer ({JOB_WINDOW_DAYS}d)</h2>
-            {byPrinter.length > 0 && (
-              <ExportCsvButton
-                filename="by-printer"
-                columns={["Printer", "Jobs", "Sheets"]}
-                rows={byPrinter.map((r) => [r.label, String(r.jobCount), String(r.sheets)])}
-              />
-            )}
-          </div>
-          {byPrinter.length === 0 ? (
-            <EmptyState message="No jobs in this window." icon={Info} />
-          ) : (
-            <ReportTable
-              columns={["Printer", "Jobs", "Sheets"]}
-              rows={byPrinter.map((r) => [r.label, r.jobCount.toLocaleString(), r.sheets.toLocaleString()])}
-            />
-          )}
-        </Card>
-      </div>
-
-      <details className="rounded-xl border border-[var(--color-border)] p-4">
-        <summary className="cursor-pointer font-medium">Full history: pages by month &amp; color usage</summary>
-        <div className="mt-4 flex flex-col gap-6">
-          <div>
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="font-medium">Pages by month</h2>
-              {pagesByMonth.length > 0 && (
-                <ExportCsvButton
-                  filename="pages-by-month"
-                  columns={["Month", "PDF pages", "Printed sides", "Physical sheets", "Color-weighted"]}
-                  rows={pagesByMonth.map((m) => [
-                    m.period,
-                    String(m.pdfPages),
-                    String(m.printedSides),
-                    String(m.physicalSheets),
-                    String(m.colorWeighted),
-                  ])}
-                />
-              )}
-            </div>
-            {pagesByMonth.length === 0 ? (
-              <EmptyState message="No usage recorded yet." icon={Info} />
-            ) : (
-              <ReportTable
-                columns={["Month", "PDF pages", "Printed sides", "Physical sheets", "Color-weighted"]}
-                rows={pagesByMonth.map((m) => [
-                  m.period === thisPeriod ? `${m.period} (current)` : m.period,
-                  m.pdfPages.toLocaleString(),
-                  m.printedSides.toLocaleString(),
-                  m.physicalSheets.toLocaleString(),
-                  m.colorWeighted.toLocaleString(),
-                ])}
-              />
-            )}
-          </div>
-          <div>
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="font-medium">Color usage ({JOB_WINDOW_DAYS}d)</h2>
-              <ExportCsvButton
-                filename="color-usage"
-                columns={["Mode", "Jobs", "Sheets"]}
-                rows={[
-                  ["Color", String(colorUsage.color.jobCount), String(colorUsage.color.sheets)],
-                  ["Black & white", String(colorUsage.bw.jobCount), String(colorUsage.bw.sheets)],
-                ]}
-              />
-            </div>
-            <ReportTable
-              columns={["Mode", "Jobs", "Sheets"]}
-              rows={[
-                ["Color", colorUsage.color.jobCount.toLocaleString(), colorUsage.color.sheets.toLocaleString()],
-                ["Black & white", colorUsage.bw.jobCount.toLocaleString(), colorUsage.bw.sheets.toLocaleString()],
-              ]}
-            />
-          </div>
-        </div>
-      </details>
-    </div>
-  );
-}
-
-function ReportTable({ columns, rows }: { columns: string[]; rows: string[][] }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[40rem] text-sm">
-        <thead>
-          <tr className="border-b border-[var(--color-border)] text-left text-[var(--color-muted)]">
-            {columns.map((c) => (
-              <th key={c} className="py-2 pr-4">
-                {c}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={i} className="border-b border-[var(--color-border)]">
-              {row.map((cell, j) => (
-                <td key={j} className="py-2 pr-4">
-                  {cell}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <ReportsView
+      range={range}
+      isOrgAdmin={session.membership.role === "org_admin"}
+      stats={{
+        sheets: totalSheets,
+        jobs: jobs.length,
+        colorPct: totalSheets > 0 ? Math.round((colorUsage.color.sheets / totalSheets) * 100) : null,
+        problems: jobs.filter((j) => j.status === "denied" || j.status === "failed").length,
+      }}
+      truncated={truncationNote(jobs.length, REPORT_ROW_LIMIT)}
+      byUser={byUser}
+      byDepartment={byDepartment}
+      byPrinter={byPrinter}
+      problems={problems.map((j) => ({
+        id: j.id,
+        who: labelByUser.get(j.createdBy) ?? "Unknown user",
+        status: j.status,
+        createdAt: j.createdAt,
+      }))}
+      months={aggregatePagesByMonth(usage)}
+      thisPeriod={currentPeriod()}
+      color={{
+        colorJobs: colorUsage.color.jobCount,
+        colorSheets: colorUsage.color.sheets,
+        bwJobs: colorUsage.bw.jobCount,
+        bwSheets: colorUsage.bw.sheets,
+      }}
+    />
   );
 }

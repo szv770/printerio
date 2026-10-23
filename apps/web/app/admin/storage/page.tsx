@@ -57,7 +57,10 @@ export default async function AdminStoragePage() {
 
   return (
     <div>
-      <PageHeader title="Storage" />
+      <PageHeader
+        title="Files & storage"
+        description="Files people send to print are kept for a short time, then removed. Job history stays."
+      />
       <StoragePanel
         summary={summary}
         windows={retentionWindows(retention).map((w) => ({ group: w.group, days: w.days }))}

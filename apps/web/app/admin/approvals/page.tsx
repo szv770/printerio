@@ -40,7 +40,10 @@ export default async function ApprovalsPage() {
 
   return (
     <div>
-      <PageHeader title="Print approvals" />
+      <PageHeader
+        title="Approvals"
+        description={pendingJobs.length > 0 ? "Say yes or no to each job." : "Jobs that need a yes or no show up here."}
+      />
       <ApprovalQueue
         initialJobs={pendingJobs}
         organizationId={session.membership.organization_id}
