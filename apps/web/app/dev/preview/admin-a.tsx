@@ -173,6 +173,7 @@ export function ServerDetailPreview() {
             { id: "c1", command: "CHECK_FOR_UPDATE", status: "completed", createdAt: ago(300), completedAt: ago(299), result: { message: "Already up to date." } },
             { id: "c2", command: "RESTART_SERVICE", status: "failed", createdAt: ago(900), completedAt: ago(899), result: null },
           ]}
+          nowMs={NOW}
           canManage
         />
       </div>

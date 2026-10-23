@@ -1,6 +1,7 @@
 import { apiError } from "@/lib/api-errors";
 import { authenticateAgentRequest } from "@/lib/agent-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { recoverExpiredLeasesForAgent } from "@/lib/lease-recovery";
 
 /** The Agent processes jobs one at a time, so a longer list only costs a bigger response. */
 const CLAIMABLE_LIMIT = 50;
@@ -25,6 +26,15 @@ export async function GET(request: Request) {
   const { data: profiles } = await supabase.from("printer_profiles").select("id").eq("agent_id", agent.id);
   const profileIds = (profiles ?? []).map((p) => p.id);
   if (profileIds.length === 0) return Response.json({ jobs: [] });
+
+  // Self-healing: this Agent polls every few seconds, so use the poll to recover ITS OWN jobs whose lease expired
+  // (an Agent that crashed mid-print) instead of waiting for the daily sweep. Same function as the sweep, bounded,
+  // conditional, and never allowed to fail this call.
+  await recoverExpiredLeasesForAgent(supabase, {
+    organizationId: agent.organizationId,
+    agentId: agent.id,
+    printerProfileIds: profileIds,
+  });
 
   const nowIso = new Date().toISOString();
   const { data: jobs, error } = await supabase

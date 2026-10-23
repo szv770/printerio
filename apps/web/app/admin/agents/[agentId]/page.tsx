@@ -11,7 +11,9 @@ import {
   deriveAgentActivity,
   summarizeUsageByProfile,
 } from "@/lib/agent-detail";
+import { hasActiveCommand } from "@/lib/command-result";
 import { AgentDetail } from "./AgentDetail";
+import { CommandAutoRefresh } from "./CommandAutoRefresh";
 
 /** How many recently-issued remote commands to show. Enough to see whether the
  *  button you just pressed was actually picked up and what the Agent answered,
@@ -37,12 +39,14 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
   const supabase = await createClient();
   const orgId = session.membership.organization_id;
 
-  const { data: agent } = await supabase
+  const { data: agent, error: agentError } = await supabase
     .from("agents")
     .select("*")
     .eq("id", agentId)
     .eq("organization_id", orgId)
     .maybeSingle();
+  // A database hiccup must show the "Something went wrong - Try again" page (error.tsx), not a misleading 404.
+  if (agentError) throw new Error(`Could not load print server: ${agentError.message}`);
   if (!agent) notFound();
 
   // Queues (printer_profiles) mapped to this Agent, with the printer each one
@@ -70,7 +74,7 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
         .in("printer_profile_id", profileIds)
     : { data: [] };
 
-  const [{ data: leasedJobs }, { data: commands }, { data: pausedByProfile }] = await Promise.all([
+  const [{ data: leasedJobs }, { data: commands, error: commandsError }, { data: pausedByProfile }] = await Promise.all([
     supabase
       .from("print_jobs")
       .select("updated_at")
@@ -90,6 +94,8 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
       : Promise.resolve({ data: null }),
   ]);
 
+  if (commandsError) throw new Error(`Could not load recent requests: ${commandsError.message}`);
+
   const usageByProfile = summarizeUsageByProfile(profileIds, profileJobs ?? []);
   const activity = deriveAgentActivity(agent.last_seen_at, leasedJobs ?? [], commands ?? []);
   const version = describeAgentVersion(agent.version);
@@ -97,7 +103,23 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
   // fresh snapshot per request, the same rationale as admin/page.tsx's
   // onlineCutoff and admin/users/[userId]'s activity window.
   // eslint-disable-next-line react-hooks/purity
-  const connection = describeAgentConnection(agent, Date.now());
+  const nowMs = Date.now();
+  const connection = describeAgentConnection(agent, nowMs);
+  const recentCommands = (commands ?? []).map((command) => ({
+    id: command.id,
+    command: command.command,
+    status: command.status,
+    createdAt: command.created_at,
+    completedAt: command.completed_at,
+    result: command.result,
+  }));
+  // Only the newest GET_LOGS keeps its (large) log text; older ones keep just their small summary, so the page
+  // payload stays small however many times logs were requested.
+  const newestLogsId = recentCommands.find((c) => c.command === "GET_LOGS" && c.status === "completed")?.id;
+  const shippedCommands = recentCommands.map((c) =>
+    c.command === "GET_LOGS" && c.id !== newestLogsId ? { ...c, result: null } : c,
+  );
+  const live = hasActiveCommand(recentCommands, nowMs);
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -108,6 +130,8 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
         <ArrowLeft className="h-4 w-4" />
         Back to print servers
       </Link>
+
+      <CommandAutoRefresh active={live} />
 
       <PageHeader
         title={agent.name}
@@ -131,14 +155,8 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
           printerStatusAt: profile.printers.last_status_at,
           usage: usageByProfile[profile.id] ?? { totalJobs: 0, printedJobs: 0, lastUsedAt: null },
         }))}
-        recentCommands={(commands ?? []).map((command) => ({
-          id: command.id,
-          command: command.command,
-          status: command.status,
-          createdAt: command.created_at,
-          completedAt: command.completed_at,
-          result: command.result,
-        }))}
+        recentCommands={shippedCommands}
+        nowMs={nowMs}
         canManage={session.membership.role === "org_admin"}
       />
 

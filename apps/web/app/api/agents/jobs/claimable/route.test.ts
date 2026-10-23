@@ -41,6 +41,9 @@ const service = {
 };
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: () => service }));
 
+const recover = vi.fn(async (..._a: unknown[]) => ({ releasedLeases: 0, failedFromStaleLease: 0, autoRetried: 0 }) as unknown);
+vi.mock("@/lib/lease-recovery", () => ({ recoverExpiredLeasesForAgent: (...a: unknown[]) => recover(...a) }));
+
 import { GET } from "./route";
 
 const get = () => GET(new Request("http://x"));
@@ -50,6 +53,7 @@ const job = (n: number, over: Row = {}): Row => ({
 });
 
 beforeEach(() => {
+  recover.mockClear();
   agentRow = { id: "agent1", organizationId: "org1", paused: false };
 });
 
@@ -90,5 +94,28 @@ describe("claimable jobs: fairness", () => {
     agentRow = { id: "agent1", organizationId: "org1", paused: true };
     jobs = [job(1)];
     expect((await (await get()).json()).jobs).toEqual([]);
+  });
+});
+
+describe("claimable jobs: self-healing", () => {
+  it("recovers this agent's expired leases (scoped to its org and printer profiles) before listing work", async () => {
+    jobs = [job(1)];
+    await get();
+    expect(recover).toHaveBeenCalledTimes(1);
+    expect(recover.mock.calls[0]![1]).toEqual({ organizationId: "org1", agentId: "agent1", printerProfileIds: ["prof1"] });
+  });
+
+  it("does not recover anything for a paused agent", async () => {
+    agentRow = { id: "agent1", organizationId: "org1", paused: true };
+    await get();
+    expect(recover).not.toHaveBeenCalled();
+  });
+
+  it("still answers when recovery reports a failure (it returns null instead of throwing)", async () => {
+    recover.mockResolvedValueOnce(null);
+    jobs = [job(1)];
+    const res = await get();
+    expect(res.status).toBe(200);
+    expect((await res.json()).jobs).toHaveLength(1);
   });
 });
