@@ -390,7 +390,7 @@ export class CloudClient {
   /** POST /api/agents/commands/:commandId/ack */
   async ackCommand(
     commandId: string,
-    status: "completed" | "failed",
+    status: "completed" | "failed" | "progress",
     result?: Record<string, unknown>,
   ): Promise<void> {
     await this.request<{ ok: true }>(

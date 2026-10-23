@@ -8,11 +8,16 @@ vi.mock("@/lib/auth/session", () => ({
     return { userId: "admin-1", membership: { organization_id: "org1", role } };
   },
 }));
-vi.mock("@/lib/supabase/server", () => ({ createClient: async () => ({}) }));
+let agentVersion: string | null = "0.2.0";
+vi.mock("@/lib/supabase/server", () => ({
+  createClient: async () => ({
+    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { version: agentVersion } }) }) }) }),
+  }),
+}));
 const issue = vi.fn(async (..._a: unknown[]) => ({ ok: true, commandId: "c1" }) as { ok: true; commandId: string } | { ok: false; error: string });
 vi.mock("@/lib/remote-commands", () => ({ issueRemoteCommand: (...a: unknown[]) => issue(...a) }));
 
-import { getAgentLogsAction, checkAgentForUpdateAction } from "./actions";
+import { getAgentLogsAction, checkAgentForUpdateAction, checkAgentUpdateAvailableAction } from "./actions";
 
 const form = (agentId = "agent1") => {
   const f = new FormData();
@@ -22,6 +27,7 @@ const form = (agentId = "agent1") => {
 
 beforeEach(() => {
   role = "org_admin";
+  agentVersion = "0.2.0";
   issue.mockClear();
   issue.mockResolvedValue({ ok: true, commandId: "c1" });
 });
@@ -63,5 +69,28 @@ describe("checkAgentForUpdateAction", () => {
     expect(issue.mock.calls[0]![1]).toEqual({ organizationId: "org1", issuedBy: "admin-1", agentId: "agent1", command: "CHECK_FOR_UPDATE" });
     role = "approver";
     await expect(checkAgentForUpdateAction({}, form())).rejects.toThrow("FORBIDDEN");
+  });
+});
+
+describe("checkAgentUpdateAvailableAction", () => {
+  it("issues CHECK_FOR_UPDATE with only the fixed check_only mode, admin only, ignoring form extras", async () => {
+    const f = form();
+    f.set("mode", "pull --force");
+    const r = await checkAgentUpdateAvailableAction({}, f);
+    expect(r).toEqual({});
+    expect(issue.mock.calls[0]![1]).toEqual({ organizationId: "org1", issuedBy: "admin-1", agentId: "agent1", command: "CHECK_FOR_UPDATE", payload: { mode: "check_only" } });
+    role = "member";
+    await expect(checkAgentUpdateAvailableAction({}, form())).rejects.toThrow("FORBIDDEN");
+  });
+});
+
+describe("checkAgentUpdateAvailableAction - old agents", () => {
+  it("refuses to send check_only to an agent that has not reported support, so an old agent can never start a full update by itself", async () => {
+    for (const v of ["0.1.0", null]) {
+      agentVersion = v;
+      const r = await checkAgentUpdateAvailableAction({}, form());
+      expect(r.error).toBeTruthy();
+    }
+    expect(issue).not.toHaveBeenCalled();
   });
 });

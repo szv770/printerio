@@ -1,6 +1,6 @@
 {
   "name": "@printio/agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Printio on-premises Windows Print Agent - claims approved print jobs, downloads them, and submits them to a local Windows print queue.",

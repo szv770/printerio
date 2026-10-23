@@ -129,4 +129,26 @@ describe("POST /api/agents/commands/[id]/ack", () => {
     expect((await post("c2", { status: "completed", result: { blob: "x".repeat(300_000) } })).status).toBe(413);
     expect(commands[0]!.status).toBe("acknowledged");
   });
+  it("a progress report updates the live result without finishing the command or auditing it", async () => {
+    commands = [cmd("c1", "acknowledged")];
+    const res = await post("c1", { status: "progress", result: { step: "downloading", message: "Downloading" } });
+    expect(res.status).toBe(200);
+    expect(commands[0]).toMatchObject({ status: "acknowledged", result: { step: "downloading" } });
+    expect(commands[0]!.completed_at).toBeUndefined();
+    expect(audits).toHaveLength(0);
+  });
+
+  it("a late progress report can never overwrite a finished answer", async () => {
+    commands = [cmd("c1", "completed", 0, { result: { message: "final" } })];
+    const res = await post("c1", { status: "progress", result: { step: "installing" } });
+    expect(res.status).toBe(200);
+    expect(commands[0]).toMatchObject({ status: "completed", result: { message: "final" } });
+  });
+
+  it("progress needs an object result and belongs to the calling agent only", async () => {
+    commands = [cmd("c1", "acknowledged")];
+    expect((await post("c1", { status: "progress" })).status).toBe(400);
+    commands = [cmd("c2", "acknowledged", 0, { agent_id: "other" })];
+    expect((await post("c2", { status: "progress", result: { step: "installing" } })).status).toBe(404);
+  });
 });

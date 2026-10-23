@@ -9,6 +9,8 @@ import { GroupsPanel } from "@/app/admin/groups/GroupsPanel";
 import { PrintersPanel } from "@/app/admin/printers/PrintersPanel";
 import { AgentsPanel } from "@/app/admin/agents/AgentsPanel";
 import { AgentDetail } from "@/app/admin/agents/[agentId]/AgentDetail";
+import { UpdateBanner } from "@/app/admin/agents/[agentId]/UpdateBanner";
+import { deriveUpdateView, type UpdateCommandRow } from "@/lib/update-progress";
 import { DevicesAdmin, type AdminDevice } from "@/app/admin/devices/DevicesAdmin";
 
 /** DEV-ONLY sample data for admin group A (people, printers, print servers, user devices). Nothing here touches auth or the database. */
@@ -156,8 +158,68 @@ export function ServersPreview() {
   );
 }
 
-export function ServerDetailPreview() {
-  const a = agent({});
+/** The update-banner states, as the command rows the page would really have. Minutes ago, like `ago`. */
+function updateRows(variant: string | undefined): { commands: UpdateCommandRow[]; lastSeenAt: string } {
+  const row = (o: Partial<UpdateCommandRow>): UpdateCommandRow => ({ id: "u1", command: "CHECK_FOR_UPDATE", status: "completed", createdAt: ago(3), completedAt: ago(3), result: null, checkOnly: false, ...o });
+  const seen = ago(0.2);
+  switch (variant) {
+    case "checking":
+      return { commands: [row({ status: "pending", completedAt: null, createdAt: ago(0.1), checkOnly: true })], lastSeenAt: seen };
+    case "available":
+      return { commands: [row({ checkOnly: true, createdAt: ago(1), completedAt: ago(0.9), result: { mode: "check_only", updateAvailable: true, latest: "8c4d0e2", latestMessage: "Booklets print faster and the dashboard loads sooner", behind: 3, current: "3f2a1b9" } })], lastSeenAt: seen };
+    case "downloading":
+      return { commands: [row({ status: "acknowledged", completedAt: null, createdAt: ago(0.4), result: { step: "downloading", message: "Downloading the update..." } })], lastSeenAt: seen };
+    case "installing":
+      return { commands: [row({ status: "acknowledged", completedAt: null, createdAt: ago(1), result: { step: "installing", message: "Installing the update..." } })], lastSeenAt: seen };
+    case "restarting":
+      return { commands: [row({ createdAt: ago(1.5), completedAt: ago(0.3), result: { updated: true, reason: "updated", from: "3f2a1b9", to: "8c4d0e2", step: "restarting" } })], lastSeenAt: ago(0.6) };
+    case "done":
+      return { commands: [row({ createdAt: ago(2.5), completedAt: ago(1.5), result: { updated: true, reason: "updated", from: "3f2a1b9", to: "8c4d0e2", step: "restarting" } })], lastSeenAt: ago(0.2) };
+    case "failed":
+      return { commands: [row({ createdAt: ago(2), completedAt: ago(1), result: { updated: false, reason: "install_failed", step: "installing", message: "New code was downloaded, but installing its packages failed, so the print server was NOT restarted and is still running the previous version. Nothing was lost." } })], lastSeenAt: seen };
+    case "check_failed":
+      return { commands: [row({ checkOnly: true, createdAt: ago(1), completedAt: ago(0.9), result: { mode: "check_only", updateAvailable: false, reason: "git_failed", message: "Could not reach GitHub to look for updates." } })], lastSeenAt: seen };
+    default:
+      return { commands: [row({ checkOnly: true, createdAt: ago(3), completedAt: ago(2.9), result: { mode: "check_only", updateAvailable: false, reason: "up_to_date", current: "8c4d0e2" } })], lastSeenAt: seen };
+  }
+}
+
+const BANNER_VARIANTS = ["checking", "available", "uptodate", "downloading", "installing", "restarting", "done", "failed", "check_failed"] as const;
+
+/** Every banner state stacked, for looking at them side by side (?section=updatebanner). */
+export function UpdateBannerPreview() {
+  return (
+    <Frame path="/admin/agents/a1">
+      <div className="mx-auto flex max-w-3xl flex-col gap-4">
+        {BANNER_VARIANTS.map((v) => {
+          const { commands, lastSeenAt } = updateRows(v);
+          return (
+            <div key={v}>
+              <p className="mb-1 font-mono text-xs text-[var(--color-muted)]">{v}</p>
+              <UpdateBanner view={deriveUpdateView({ commands, lastSeenAt, nowMs: NOW })} />
+            </div>
+          );
+        })}
+        <div>
+          <p className="mb-1 font-mono text-xs text-[var(--color-muted)]">legacy (agent older than 0.2.0)</p>
+          <UpdateBanner view={{ kind: "idle" }} situation="legacy" />
+        </div>
+        <div>
+          <p className="mb-1 font-mono text-xs text-[var(--color-muted)]">offline</p>
+          <UpdateBanner view={{ kind: "idle" }} situation="offline" />
+        </div>
+        <div>
+          <p className="mb-1 font-mono text-xs text-[var(--color-muted)]">cannot_update</p>
+          <UpdateBanner view={{ kind: "idle" }} situation="cannot_update" />
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+export function ServerDetailPreview({ variant }: { variant?: string } = {}) {
+  const { commands, lastSeenAt } = updateRows(variant);
+  const a = agent({ last_seen_at: lastSeenAt, ...(variant === "legacy" ? { version: "0.1.0" } : {}) });
   return (
     <Frame path="/admin/agents/a1">
       <div className="mx-auto max-w-3xl">
@@ -173,8 +235,8 @@ export function ServerDetailPreview() {
             { id: "pp2", label: "Booklet with staples", windowsQueueName: null, rawTarget: "192.168.1.50:9100", printerId: "p1", printerName: "Main office Kyocera", printerStatus: "online", printerStatusAt: ago(2), usage: { totalJobs: 0, printedJobs: 0, lastUsedAt: null } },
           ]}
           recentCommands={[
-            { id: "c1", command: "CHECK_FOR_UPDATE", status: "completed", createdAt: ago(300), completedAt: ago(299), result: { message: "Already up to date." } },
-            { id: "c2", command: "RESTART_SERVICE", status: "failed", createdAt: ago(900), completedAt: ago(899), result: null },
+            ...commands,
+            { id: "c2", command: "RESTART_SERVICE", status: "failed", createdAt: ago(900), completedAt: ago(899), result: null, checkOnly: false },
           ]}
           nowMs={NOW}
           canManage

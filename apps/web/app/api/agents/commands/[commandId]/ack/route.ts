@@ -5,7 +5,7 @@ import { auditSafeResult } from "@/lib/command-result";
 import type { Json } from "@/lib/database.types";
 
 interface AckBody {
-  status?: "completed" | "failed";
+  status?: "completed" | "failed" | "progress";
   result?: Record<string, unknown>;
 }
 
@@ -23,8 +23,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ com
   } catch {
     return apiError(400, "invalid_json", "Request body must be JSON.");
   }
-  if (body.status !== "completed" && body.status !== "failed") {
-    return apiError(400, "invalid_status", "status must be 'completed' or 'failed'.");
+  if (body.status !== "completed" && body.status !== "failed" && body.status !== "progress") {
+    return apiError(400, "invalid_status", "status must be 'completed', 'failed' or 'progress'.");
+  }
+  if (body.status === "progress" && (!body.result || typeof body.result !== "object")) {
+    return apiError(400, "invalid_result", "A progress report needs a result object.");
   }
   if (body.result !== undefined && body.result !== null && (typeof body.result !== "object" || Array.isArray(body.result))) {
     return apiError(400, "invalid_result", "result must be a JSON object.");
@@ -36,6 +39,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ com
   const supabase = createServiceRoleClient();
   const { data: command } = await supabase.from("remote_commands").select("*").eq("id", commandId).maybeSingle();
   if (!command || command.agent_id !== agent.id) return apiError(404, "not_found", "Command not found.");
+
+  // A progress report only refreshes the live `result` of a command that is still running (the admin page shows it
+  // as step-by-step progress). It never finishes the command, never audits, and a late one cannot overwrite a final
+  // answer because of the same status condition as below.
+  if (body.status === "progress") {
+    const { error: progressError } = await supabase
+      .from("remote_commands")
+      .update({ status: "acknowledged", result: body.result as Json })
+      .eq("id", commandId)
+      .in("status", ["pending", "acknowledged"]);
+    if (progressError) return apiError(500, "internal_error", "Failed to record progress.");
+    return Response.json({ ok: true });
+  }
 
   // Conditional: a command already answered keeps its first answer (an Agent retry cannot overwrite or re-audit it).
   const { data: updated, error } = await supabase

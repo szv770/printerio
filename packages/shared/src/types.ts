@@ -96,10 +96,12 @@ export interface RemoteCommandPayload {
   REFRESH_PRINTER_STATUS: Record<string, never>;
   RESTART_AGENT_SERVICE: Record<string, never>;
   CLEAR_AGENT_TEMP_FILES: Record<string, never>;
-  /** Deliberately payload-free: the Agent runs one hardcoded update sequence
-   *  in its own checkout (apps/agent/src/self-update.ts) and takes no branch,
-   *  remote, path, or command string from the cloud. */
-  CHECK_FOR_UPDATE: Record<string, never>;
+  /** The Agent runs one hardcoded update sequence in its own checkout
+   *  (apps/agent/src/self-update.ts) and takes no branch, remote, path, or
+   *  command string from the cloud. The ONLY thing a payload can do is pick
+   *  the literal mode "check_only" (git fetch + compare, nothing pulled or
+   *  installed); anything else, including no payload, is the full update. */
+  CHECK_FOR_UPDATE: { mode?: "check_only" };
   /** Payload-free: the Agent reads the tail of its OWN fixed log files (never a path from the cloud) and returns them secret-masked. */
   GET_LOGS: Record<string, never>;
 }
@@ -118,7 +120,14 @@ export interface RemoteCommandPayload {
  * apps/agent/test/version.test.ts fails the build if the two ever drift, so
  * this cannot silently go stale.
  */
-export const LATEST_AGENT_VERSION = "0.1.0";
+export const LATEST_AGENT_VERSION = "0.2.0";
+
+/**
+ * First Agent version that understands CHECK_FOR_UPDATE with payload { mode: "check_only" }. Older Agents ignore
+ * the payload and would run the FULL update (pull, install, restart), so the website must never send check_only
+ * to an Agent that has not reported at least this version.
+ */
+export const CHECK_ONLY_MIN_AGENT_VERSION = "0.2.0";
 
 /**
  * Compares two dot-separated version strings numerically (not

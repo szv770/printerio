@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { DevicesPreview, JobListPreview, JobPreview, PrintPreview, ProfilePreview, UsagePreview } from "./member-pages";
-import { GroupsPreview, InvitesPreview, PrintersPreview, ServerDetailPreview, ServersPreview, UserDevicesPreview, UsersPreview } from "./admin-a";
+import { GroupsPreview, InvitesPreview, PrintersPreview, ServerDetailPreview, ServersPreview, UpdateBannerPreview, UserDevicesPreview, UsersPreview } from "./admin-a";
 import { ActivityPreview, AllJobsPreview, ApprovalsPreview, FilesPreview, LimitsPreview, ReportsPreview, RulesPreview } from "./admin-b";
 import { SetupWizard } from "@/app/admin/printers/setup/SetupWizard";
 import { JoinCard } from "@/app/join/JoinCard";
@@ -19,7 +19,7 @@ import {
  * DEV-ONLY visual preview: every shell/page-chrome piece with hard-coded
  * sample data and no auth or database calls, so the UI can be looked at (and
  * screenshotted) without signing in. 404s everywhere except `next dev`.
- * Pick a section with ?section=admin|adminhome|teacher|member|settings|primitives|jobs|print|job|joblist|devices|usage|profile|users|groups|invites|printers|servers|serverdetail|userdevices|rules|limits|reports|activity|approvals|files|alljobs (+ &shell=admin, &variant=...).
+ * Pick a section with ?section=admin|adminhome|teacher|member|settings|primitives|jobs|print|job|joblist|devices|usage|profile|users|groups|invites|printers|servers|serverdetail|updatebanner|userdevices|rules|limits|reports|activity|approvals|files|alljobs (+ &shell=admin, &variant=...).
  * Admin/member accept ?path=/admin/reports to pretend to be on that page.
  */
 export default async function PreviewPage({
@@ -65,7 +65,9 @@ export default async function PreviewPage({
     case "servers":
       return <ServersPreview />;
     case "serverdetail":
-      return <ServerDetailPreview />;
+      return <ServerDetailPreview variant={variant} />;
+    case "updatebanner":
+      return <UpdateBannerPreview />;
     case "userdevices":
       return <UserDevicesPreview variant={variant} />;
     case "rules":

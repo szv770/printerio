@@ -26,7 +26,7 @@ import { checkRawTarget as defaultCheckRawTarget, type RawTargetCheck } from "./
 import { RAW_DEFERRED_STATUSES, RAW_SUCCESS_STATUSES, executeRawPrint, type RawTimeouts } from "./raw-print-executor.js";
 import { PROFILE_COOLDOWN_MS, decideDownloadFailure, decideRawFailure, type WaitKind } from "./retry-policy.js";
 import { handleCommand } from "./commands.js";
-import { createSelfUpdateDeps, performSelfUpdate } from "./self-update.js";
+import { createSelfUpdateDeps, performSelfUpdate, performUpdateCheck } from "./self-update.js";
 import { CloudApiError, DownloadValidationError, PrintExecutionError, SpoolerError, TransientDownloadError } from "./errors.js";
 import type { Logger } from "./logger.js";
 
@@ -675,7 +675,15 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           scheduleServiceRestart: () => {
             restartRequested = true;
           },
-          runSelfUpdate: () => performSelfUpdate(createSelfUpdateDeps(logger)),
+          runSelfUpdate: (onProgress) => performSelfUpdate({ ...createSelfUpdateDeps(logger), ...(onProgress ? { onProgress } : {}) }),
+          runUpdateCheck: () => performUpdateCheck(createSelfUpdateDeps(logger)),
+          reportProgress: async (commandId, result) => {
+            try {
+              await cloudClient.ackCommand(commandId, "progress", result);
+            } catch (err) {
+              logger.warn("could not report command progress", { commandId, error: err instanceof Error ? err.message : String(err) });
+            }
+          },
         });
         await cloudClient.ackCommand(envelope.id, result.status, result.result);
       } catch (err) {

@@ -1,5 +1,6 @@
 "use server";
 
+import { agentSupportsCheckOnly } from "@/lib/update-progress";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
@@ -246,6 +247,36 @@ export async function checkAgentForUpdateAction(
     issuedBy: session.userId,
     agentId,
     command: "CHECK_FOR_UPDATE",
+  });
+  if (!result.ok) return { error: result.error };
+
+  revalidatePath(routes.adminAgentDetail(agentId));
+  return {};
+}
+
+/** Quiet "is there an update?" check run when the Print server page opens. Same fixed CHECK_FOR_UPDATE command, but the
+ *  payload is the one literal { mode: "check_only" }: the Agent only fetches and compares, it pulls and installs
+ *  nothing. No form value can reach the payload. Admin only. */
+export async function checkAgentUpdateAvailableAction(
+  _prev: AgentActionState,
+  formData: FormData,
+): Promise<AgentActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const agentId = String(formData.get("agentId") ?? "");
+
+  const supabase = await createClient();
+  // An Agent older than the check_only feature would read this payload as "update now" and do a full update.
+  // Only send it to an Agent that has itself reported a new enough version.
+  const { data: target } = await supabase.from("agents").select("version").eq("id", agentId).maybeSingle();
+  if (!agentSupportsCheckOnly(target?.version)) {
+    return { error: "This print server has to be updated once before it can check for updates by itself." };
+  }
+  const result = await issueRemoteCommand(supabase, {
+    organizationId: session.membership.organization_id,
+    issuedBy: session.userId,
+    agentId,
+    command: "CHECK_FOR_UPDATE",
+    payload: { mode: "check_only" },
   });
   if (!result.ok) return { error: result.error };
 

@@ -102,6 +102,32 @@ export interface SelfUpdateResult {
   repoRoot: string;
   /** Only set when `updated`: whether the gateway service was restarted (false = a note explains why is in `message`). */
   gatewayRestarted?: boolean;
+  /** Short commit before / after, when known (set when `updated`). */
+  from?: string;
+  to?: string;
+  /** Which visible step a failure happened in, so the admin page can mark it. */
+  failedStep?: UpdateStep;
+}
+
+/** The steps the admin page shows live (the page adds "restarting" and "done" itself). */
+export type UpdateStep = "checking" | "downloading" | "installing";
+
+export interface UpdateProgress {
+  step: UpdateStep;
+  /** Plain English for the admin page. */
+  message: string;
+}
+
+/** What a check-only run (CHECK_FOR_UPDATE with mode "check_only") answers. */
+export interface UpdateCheckResult {
+  mode: "check_only";
+  updateAvailable: boolean;
+  reason: "update_available" | "up_to_date" | "not_a_git_checkout" | "git_unavailable" | "git_failed";
+  message: string;
+  current?: string;
+  latest?: string;
+  latestMessage?: string;
+  behind?: number;
 }
 
 /** Extra spawn options; the only ones the updater ever sets. */
@@ -133,6 +159,28 @@ export interface SelfUpdateDeps {
   hasGitCheckout: (repoRoot: string) => boolean;
   /** Injected so tests can exercise the non-Windows path; defaults to process.platform. */
   platform?: NodeJS.Platform;
+  /** Told which visible step the update is in (the orchestrator forwards it to the cloud). Failures here are swallowed. */
+  onProgress?: (progress: UpdateProgress) => void | Promise<void>;
+}
+
+const PROGRESS_REPORT_TIMEOUT_MS = 5_000;
+
+/** Reports a step without ever letting the report break, or noticeably slow, the update itself. */
+async function reportProgress(deps: SelfUpdateDeps, progress: UpdateProgress): Promise<void> {
+  if (!deps.onProgress) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      Promise.resolve().then(() => deps.onProgress!(progress)),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, PROGRESS_REPORT_TIMEOUT_MS);
+      }),
+    ]);
+  } catch (err) {
+    deps.logger.warn("could not report update progress", { error: err instanceof Error ? err.message : String(err) });
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /**
@@ -423,6 +471,8 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
     };
   }
 
+  await reportProgress(deps, { step: "checking", message: "Checking this print server..." });
+
   // Find pnpm BEFORE touching anything: a missing pnpm must not leave newly
   // pulled code behind (the next press would then say "already up to date").
   const resolution = resolvePnpmLauncher({
@@ -437,6 +487,7 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
     return {
       updated: false,
       reason: "pnpm_not_found",
+      failedStep: "checking",
       message:
         "pnpm was not found on that machine; set PRINTIO_PNPM_PATH in apps/agent/.env (the full path to pnpm.cjs, pnpm.cmd or pnpm.exe) and press Update again. " +
         "Nothing was changed." +
@@ -447,6 +498,7 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
 
   const before = await currentVersion(deps);
 
+  await reportProgress(deps, { step: "downloading", message: "Downloading the update..." });
   let pull: CommandOutcome;
   try {
     // Hardcoded argv. `--ff-only` so an unattended update either advances
@@ -458,6 +510,7 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
     return {
       updated: false,
       reason: "git_unavailable",
+      failedStep: "downloading",
       message:
         "git isn't available on that machine (or couldn't be started), so this Agent can't update itself. " +
         "Install git, or run setup-agent.ps1 on the machine to update it by hand.",
@@ -471,6 +524,7 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
     return {
       updated: false,
       reason: "git_failed",
+      failedStep: "downloading",
       message:
         `Couldn't update: "git pull --ff-only" failed on that machine, so nothing was changed. ` +
         `Someone may need to look at the checkout directly. Details: ${detail || "(no output)"}`,
@@ -494,6 +548,7 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
   // The checkout just moved, so the dependency tree may have moved with it -
   // same reasoning (and the same command) as setup-agent.ps1 step 6's
   // "$repoWasUpdated -> re-run pnpm install". A no-op when nothing changed.
+  await reportProgress(deps, { step: "installing", message: "Installing the update..." });
   let install: CommandOutcome;
   try {
     install = await deps.run(launcher.command, launcher.args, repoRoot, INSTALL_TIMEOUT_MS, {
@@ -507,6 +562,7 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
     return {
       updated: false,
       reason: "install_failed",
+      failedStep: "installing",
       message:
         `New code was pulled, but pnpm couldn't be started (${(err instanceof Error ? err.message : String(err)).slice(0, 160)}), so the Agent was NOT restarted. ` +
         "Set PRINTIO_PNPM_PATH in apps/agent/.env or run setup-agent.ps1 on that machine to finish the update.",
@@ -520,6 +576,7 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
     return {
       updated: false,
       reason: "install_failed",
+      failedStep: "installing",
       message:
         `New code was pulled, but "pnpm install" failed, so the Agent was NOT restarted (it is still running the previous build). ` +
         `Run setup-agent.ps1 on that machine to finish the update. Details: ${detail || "(no output)"}`,
@@ -545,5 +602,78 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
       "The print server is restarting and will be back in about a minute.",
     repoRoot,
     gatewayRestarted: gatewayProblem === null,
+    from: before,
+    to: after,
   };
+}
+
+const COMMIT_SUBJECT_MAX = 140;
+
+/**
+ * CHECK_FOR_UPDATE with mode "check_only": is there something newer on the remote? Runs only fixed, read-only git
+ * argv (fetch, rev-parse, rev-list, log) in the Agent's own checkout - nothing is pulled, merged, installed or
+ * restarted, and nothing from the cloud reaches a process invocation. Never throws.
+ */
+export async function performUpdateCheck(deps: SelfUpdateDeps): Promise<UpdateCheckResult> {
+  const { repoRoot, logger } = deps;
+  if (!deps.hasGitCheckout(repoRoot)) {
+    return {
+      mode: "check_only",
+      updateAvailable: false,
+      reason: "not_a_git_checkout",
+      message:
+        "This print server was not installed from a git clone (most likely a downloaded ZIP), so it cannot check for or install updates by itself. " +
+        "Run setup-agent.bat on that computer to update it.",
+    };
+  }
+  const git = (args: readonly string[]) => deps.run("git", args, repoRoot, GIT_TIMEOUT_MS);
+  try {
+    const fetch = await git(["fetch", "--quiet"]);
+    if (fetch.exitCode !== 0) {
+      const detail = (fetch.stderr || fetch.stdout).trim().replace(/\s+/g, " ").slice(0, 200);
+      logger.warn("update check: git fetch failed", { exitCode: fetch.exitCode, detail });
+      return {
+        mode: "check_only",
+        updateAvailable: false,
+        reason: "git_failed",
+        message: `Could not reach GitHub to look for updates${detail ? ` (${detail})` : ""}.`,
+      };
+    }
+    const current = await currentVersion(deps);
+    const upstream = await git(["rev-parse", "--short", "@{u}"]);
+    const latest = upstream.stdout.trim();
+    if (upstream.exitCode !== 0 || !/^[0-9a-f]{4,40}$/i.test(latest)) {
+      return {
+        mode: "check_only",
+        updateAvailable: false,
+        reason: "git_failed",
+        message: "This checkout is not tracking a GitHub branch, so there is nothing to compare against.",
+      };
+    }
+    const count = await git(["rev-list", "--count", "HEAD..@{u}"]);
+    const behind = count.exitCode === 0 ? Number.parseInt(count.stdout.trim(), 10) : NaN;
+    if (!Number.isFinite(behind) || behind <= 0) {
+      return { mode: "check_only", updateAvailable: false, reason: "up_to_date", message: "Up to date.", current, latest };
+    }
+    const subject = await git(["log", "-1", "--format=%s", "@{u}"]);
+    const latestMessage = subject.exitCode === 0 ? subject.stdout.trim().replace(/\s+/g, " ").slice(0, COMMIT_SUBJECT_MAX) : "";
+    return {
+      mode: "check_only",
+      updateAvailable: true,
+      reason: "update_available",
+      message: `An update is available (${behind} new ${behind === 1 ? "change" : "changes"}).`,
+      current,
+      latest,
+      behind,
+      ...(latestMessage ? { latestMessage } : {}),
+    };
+  } catch (err) {
+    logger.warn("update check: could not run git", { error: err instanceof Error ? err.message : String(err) });
+    return {
+      mode: "check_only",
+      updateAvailable: false,
+      reason: "git_unavailable",
+      message: "git is not available on that machine (or could not be started), so it cannot check for updates.",
+    };
+  }
 }

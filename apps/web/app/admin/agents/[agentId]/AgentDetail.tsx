@@ -33,12 +33,12 @@ import {
 import type { AgentActivity, AgentVersionStatus, QueueUsage } from "@/lib/agent-detail";
 import { commandPhase, parseCommandResult } from "@/lib/command-result";
 import { LocalTime } from "@/components/LocalTime";
+import { UpdatePanel } from "./UpdatePanel";
 // "Send test print" is deliberately the SAME server action the Printers page
 // binds its own button to, imported rather than re-implemented here: one
 // authorization check, one pipeline, one place to change.
 import { sendTestPrintAction, type PrinterActionState } from "../../printers/actions";
 import {
-  checkAgentForUpdateAction,
   clearAgentTempFilesAction,
   getAgentLogsAction,
   pauseAgentAction,
@@ -75,6 +75,8 @@ interface CommandRow {
   createdAt: string;
   completedAt: string | null;
   result: unknown;
+  /** True for the quiet "is there an update?" checks, which the banner shows instead of the history list. */
+  checkOnly?: boolean;
 }
 
 const COMMAND_STATUS_TONE: Record<string, "success" | "warning" | "danger" | "neutral"> = {
@@ -108,9 +110,16 @@ export function AgentDetail({
 }) {
   return (
     <div className="flex flex-col gap-4">
+      {canManage && (
+        <UpdatePanel
+          agent={agent}
+          nowMs={nowMs}
+          commands={recentCommands.map((c) => ({ ...c, checkOnly: c.checkOnly === true }))}
+        />
+      )}
       <ConnectionCard agent={agent} connection={connection} activity={activity} />
       <MachineCard agent={agent} />
-      <VersionCard agent={agent} version={version} canManage={canManage} recentCommands={recentCommands} nowMs={nowMs} />
+      <VersionCard version={version} canManage={canManage} />
       {canManage && <PauseCard agent={agent} pausedByLabel={pausedByLabel} />}
       <QueuesCard agent={agent} queues={queues} canManage={canManage} />
       {canManage && <MaintenanceCard agent={agent} />}
@@ -220,27 +229,8 @@ function MachineCard({ agent }: { agent: Tables<"agents"> }) {
   );
 }
 
-/** Version + the compare-target, and the honest limits of remote updating. */
-function VersionCard({
-  agent,
-  version,
-  canManage,
-  recentCommands,
-  nowMs,
-}: {
-  agent: Tables<"agents">;
-  version: AgentVersionStatus;
-  canManage: boolean;
-  recentCommands: CommandRow[];
-  nowMs: number;
-}) {
-  const [state, action, pending] = useActionState(checkAgentForUpdateAction, initialAgentActionState);
-  const [confirming, setConfirming] = useState(false);
-  const canSelfUpdate = agent.is_git_checkout === true;
-  // recentCommands arrives newest-first; the first CHECK_FOR_UPDATE is the last update request.
-  const lastUpdate = recentCommands.find((c) => c.command === "CHECK_FOR_UPDATE") ?? null;
-  const lastUpdatePhase = lastUpdate ? commandPhase(lastUpdate, nowMs) : null;
-
+/** Version + the compare-target, and the honest limits of remote updating. The live update banner is above. */
+function VersionCard({ version, canManage }: { version: AgentVersionStatus; canManage: boolean }) {
   return (
     <Collapsible
       id="version"
@@ -248,86 +238,21 @@ function VersionCard({
       icon={<Download className="h-4 w-4" />}
       summary={agentVersionSummary(version)}
       badge={version.state === "outdated" ? <Badge tone="warning">Update available</Badge> : undefined}
-      forceOpen={!!state.error}
     >
       <p className="text-sm text-[var(--color-text-2)]">{version.summary}</p>
 
       {canManage && (
-        <div className="mt-4">
-          {agent.is_git_checkout === null ? (
-            <p className="text-sm text-[var(--color-muted)]">
-              It has not said yet whether it can update itself. That arrives with its next check-in. Until then, update it by
-              running <code className="rounded bg-[var(--color-surface-2)] px-1 py-0.5 font-mono text-xs">setup-agent.bat</code> on that computer.
-            </p>
-          ) : canSelfUpdate ? (
-            <>
-              <p className="text-sm text-[var(--color-text-2)]">
-                Gets the latest Printio code, then restarts the print agent and the phone gateway.
-              </p>
-              {confirming ? (
-                <form
-                  action={(formData) => {
-                    setConfirming(false);
-                    action(formData);
-                  }}
-                  className="mt-2 flex flex-col gap-2 rounded-[var(--radius-control)] border border-[var(--color-border)] bg-[var(--color-surface-2)]/50 p-3"
-                >
-                  <input type="hidden" name="agentId" value={agent.id} />
-                  <p className="text-sm">
-                    Update this print server now? It will restart and be unavailable for about a minute, so
-                    avoid doing this while a big job is printing.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button type="submit" variant="outline" size="sm" pending={pending} pendingLabel="Requesting...">
-                      Yes, update it
-                    </Button>
-                    <Button type="button" variant="ghost" size="sm" onClick={() => setConfirming(false)}>
-                      Cancel
-                    </Button>
-                  </div>
-                </form>
-              ) : (
-                <div className="mt-2">
-                  <Button type="button" variant="outline" size="sm" pending={pending} pendingLabel="Requesting..." onClick={() => setConfirming(true)}>
-                    <span className="flex items-center gap-1">
-                      <RefreshCw className="h-3.5 w-3.5" /> Update this server
-                    </span>
-                  </Button>
-                </div>
-              )}
-              {state.error ? null : pending ? (
-                <p className="mt-2 text-[13px] text-[var(--color-muted)]">Update requested. The result shows below within a minute.</p>
-              ) : null}
-              <div className="mt-3 text-[13px] text-[var(--color-muted)]" aria-live="polite">
-                {lastUpdate && lastUpdatePhase ? (
-                  <>
-                    <span className="font-medium text-[var(--color-text-2)]">Last update request:</span>{" "}
-                    <LocalTime value={lastUpdate.completedAt ?? lastUpdate.createdAt} />. {lastUpdatePhase.text}
-                    {lastUpdatePhase.kind === "waiting" || lastUpdatePhase.kind === "running" ? " This page updates by itself." : ""}
-                  </>
-                ) : (
-                  "No update has been requested from here yet."
-                )}
-              </div>
-            </>
-          ) : (
-            <p className="text-sm text-[var(--color-muted)]">
-              This print server cannot update itself. To update it, run{" "}
-              <code className="rounded bg-[var(--color-surface-2)] px-1 py-0.5 font-mono text-xs">setup-agent.bat</code> on that computer.
-            </p>
-          )}
-          <FormError message={state.error} />
-          <details className="mt-3 text-[13px] text-[var(--color-muted)]">
-            <summary className="cursor-pointer font-medium text-[var(--color-text-2)]">How does this work, and is it safe?</summary>
-            <p className="mt-1">
-              Only an admin can press it. The website sends only a fixed &ldquo;update&rdquo; signal with no data in it. The print
-              server then runs the same fixed steps every time: get the newest code that is already on GitHub (fast-forward only),
-              install its packages, restart the phone gateway, then restart itself. No command text ever comes from the website.
-              The one thing to protect is GitHub itself (two-step sign-in and a protected main branch), because whatever is pushed
-              there is what the server will run.
-            </p>
-          </details>
-        </div>
+        <details className="mt-3 text-[13px] text-[var(--color-muted)]">
+          <summary className="cursor-pointer font-medium text-[var(--color-text-2)]">How does updating work, and is it safe?</summary>
+          <p className="mt-1">
+            Only an admin can press it. When you open this page, the website only asks the print server to look for a newer version.
+            Nothing is changed by that. When you press Update, the website sends only a fixed &ldquo;update&rdquo; signal with no data
+            in it. The print server then runs the same fixed steps every time: get the newest code that is already on GitHub
+            (fast-forward only), install its packages, restart the phone gateway, then restart itself. No command text ever comes from
+            the website. The one thing to protect is GitHub itself (two-step sign-in and a protected main branch), because whatever is
+            pushed there is what the server will run.
+          </p>
+        </details>
       )}
     </Collapsible>
   );
