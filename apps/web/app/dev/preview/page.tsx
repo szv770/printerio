@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { DevicesPreview, JobListPreview, JobPreview, PrintPreview, ProfilePreview, UsagePreview } from "./member-pages";
 import { GroupsPreview, InvitesPreview, PrintersPreview, ServerDetailPreview, ServersPreview, UserDevicesPreview, UsersPreview } from "./admin-a";
 import { ActivityPreview, AllJobsPreview, ApprovalsPreview, FilesPreview, LimitsPreview, ReportsPreview, RulesPreview } from "./admin-b";
+import { BookletPreviewSection } from "./booklet";
 import { AdminHomeSection, TeacherHomeSection } from "./homes";
 import {
   AdminSection,
@@ -21,11 +22,13 @@ import {
 export default async function PreviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ section?: string; path?: string; shell?: string; variant?: string }>;
+  searchParams: Promise<{ side?: string; section?: string; path?: string; shell?: string; variant?: string }>;
 }) {
   if (process.env.NODE_ENV !== "development") notFound();
-  const { section = "admin", path, shell, variant } = await searchParams;
+  const { section = "admin", path, shell, variant, side } = await searchParams;
   switch (section) {
+    case "booklet":
+      return <BookletPreviewSection side={side === "right" ? "right" : "left"} />;
     case "print":
       return <PrintPreview shell={shell} variant={variant} />;
     case "job":

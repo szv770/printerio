@@ -1,5 +1,7 @@
 import "server-only";
-import { PDFDocument, type PDFPage } from "pdf-lib";
+import { PDFDocument, type PDFEmbeddedPage, type PDFPage } from "pdf-lib";
+import { computeCroppedSlotTransform, computeUniformCrop, type Box } from "./crop";
+import { analyzePdfContent } from "./content-analysis";
 
 /**
  * Real N-up saddle-stitch booklet imposition (docs/architecture.md sec 8).
@@ -15,6 +17,12 @@ import { PDFDocument, type PDFPage } from "pdf-lib";
  * That per-page independence is the entire point of this module - see the
  * "different scale factors on different slots" assertion in
  * imposition.test.ts, which is the test that actually proves it.
+ *
+ * Fitting the whole PAGE is not enough, though: a normal document page has
+ * about an inch of its own blank margin, which shrinks with it. With
+ * `fit: "fill"` the blank margins are first cropped off (lib/pdf/crop.ts, from
+ * the content found by lib/pdf/content-analysis.ts) using ONE crop for the
+ * whole document, so text stays the same size on every page.
  */
 
 /**
@@ -34,6 +42,19 @@ export const IMPOSITION_GUTTER_PT = 14.4;
  * never past this factor: beyond 2x, raster content gets visibly soft and a tiny page would look absurd.
  */
 export const IMPOSITION_MAX_UPSCALE = 2;
+
+/**
+ * How a booklet page is fitted into its cell.
+ *  - "fill": the page's own blank margins are cropped off first (one identical crop for the whole document, from
+ *    where the content really is), so the text fills the cell. This is what a person expects from a booklet.
+ *  - "keep": the whole page, margins included, is scaled into the cell (the original behaviour).
+ */
+export type BookletFit = "fill" | "keep";
+
+export interface ImposeOptions {
+  /** Default "keep" here so direct callers and the order/mirroring tests are unchanged; the job pipeline passes "fill". */
+  fit?: BookletFit;
+}
 
 export interface SheetSizePt {
   width: number;
@@ -186,6 +207,7 @@ export async function imposeBookletPdf(
   paddedBytes: Uint8Array,
   sheetSize: SheetSizePt,
   bindingSide: BindingSide = "left",
+  options: ImposeOptions = {},
 ): Promise<Uint8Array> {
   const sourceDoc = await PDFDocument.load(paddedBytes);
   const totalPages = sourceDoc.getPageCount();
@@ -205,17 +227,30 @@ export async function imposeBookletPdf(
     sourcePage.pushOperators();
   }
 
+  // "fill": one crop per page from where the document's content really is (null = leave pages whole).
+  const crops = options.fit === "fill" ? await planCrops(paddedBytes, sourceDoc) : null;
+
   const outDoc = await PDFDocument.create();
-  const embeddedPages = await outDoc.embedPages(sourceDoc.getPages());
+  const embeddedPages: PDFEmbeddedPage[] = crops
+    ? await outDoc.embedPages(
+        sourceDoc.getPages(),
+        crops.map((c) => ({ left: c.x0, bottom: c.y0, right: c.x1, top: c.y1 })),
+      )
+    : await outDoc.embedPages(sourceDoc.getPages());
 
   function drawSlot(outPage: PDFPage, pageNumber: number, region: SlotRegion): void {
     const sourcePage = sourceDoc.getPage(pageNumber - 1);
-    const { width, height } = sourcePage.getSize();
     const embedded = embeddedPages.at(pageNumber - 1);
     if (!embedded) {
       throw new Error(`imposeBookletPdf: no embedded page for source page number ${pageNumber}`);
     }
-    const { x, y, scale } = computeSlotTransform(width, height, region);
+    // A cropped page is placed by its crop's size (the embedded page is already origin-shifted to the crop's corner).
+    const { x, y, scale } = crops
+      ? computeCroppedSlotTransform({ width: embedded.width, height: embedded.height }, region)
+      : (() => {
+          const { width, height } = sourcePage.getSize();
+          return computeSlotTransform(width, height, region);
+        })();
     outPage.drawPage(embedded, { x, y, xScale: scale, yScale: scale });
   }
 
@@ -240,6 +275,20 @@ export async function imposeBookletPdf(
   }
 
   return outDoc.save();
+}
+
+/**
+ * The crop rectangle (absolute page coordinates) for every page of the padded document, or null when it should
+ * stay whole: the analysis failed, found no content, or any page was not understood. Never throws.
+ */
+async function planCrops(paddedBytes: Uint8Array, sourceDoc: PDFDocument): Promise<Box[] | null> {
+  const content = await analyzePdfContent(paddedBytes);
+  if (!content || content.length !== sourceDoc.getPageCount()) return null;
+  const pages = sourceDoc.getPages().map((page, i) => {
+    const mb = page.getMediaBox();
+    return { page: { x0: mb.x, y0: mb.y, x1: mb.x + mb.width, y1: mb.y + mb.height }, content: content[i]! };
+  });
+  return computeUniformCrop(pages);
 }
 
 const LETTER_SIZE_PT: SheetSizePt = { width: 612, height: 792 };

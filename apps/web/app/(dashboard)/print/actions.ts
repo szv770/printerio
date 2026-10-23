@@ -86,6 +86,7 @@ export async function submitPrintJobAction(_prev: SubmitJobState, formData: Form
     paperSize: String(formData.get("paperSize") ?? "letter"),
     punch: formData.get("punch") === "on",
     confirmBookletPadding: formData.get("confirmBookletPadding") === "true",
+    bookletFit: formData.get("bookletFit") === "keep" ? "keep" : "fill",
   });
 }
 
@@ -135,7 +136,7 @@ export async function reprintJobAction(_prev: SubmitJobState, formData: FormData
   }
   const originalBytes = new Uint8Array(await fileData.arrayBuffer());
 
-  const finishing = job.finishing as { staple: boolean; booklet: boolean; punch: boolean };
+  const finishing = job.finishing as { staple: boolean; booklet: boolean; punch: boolean; bookletFit?: string };
 
   // The stored per-job choices go back through the same pipeline, applied to the untouched original. An
   // older job that never stored a staple corner / binding side falls back to the printer's own default.
@@ -158,6 +159,7 @@ export async function reprintJobAction(_prev: SubmitJobState, formData: FormData
     paperSize: job.paper_size,
     punch: finishing.punch,
     confirmBookletPadding: true,
+    bookletFit: finishing.bookletFit === "keep" ? "keep" : "fill",
   });
 }
 
@@ -189,7 +191,7 @@ export async function finishHeldBookletAction(_prev: SubmitJobState, formData: F
     .maybeSingle();
   if (jobError || !job) return { error: "Job not found." };
 
-  const finishing = job.finishing as { booklet?: boolean; punch?: boolean } | null;
+  const finishing = job.finishing as { booklet?: boolean; punch?: boolean; bookletFit?: string } | null;
   if (job.status !== "held" || !finishing?.booklet || job.held_reason !== BOOKLET_BINDING_REASON) {
     return { error: "This job is no longer waiting for your choice." };
   }
@@ -206,6 +208,7 @@ export async function finishHeldBookletAction(_prev: SubmitJobState, formData: F
     paperSize: job.paper_size,
     punch: false,
     confirmBookletPadding: true,
+    bookletFit: finishing.bookletFit === "keep" ? "keep" : "fill",
     writeClient: service,
     ...(job.source === "ipp" ? { source: "ipp" as const, deviceId: job.device_id ?? undefined } : {}),
   });

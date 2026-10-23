@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState, startTransition } from "react";
-import { AlertTriangle, FileText, FileUp, ListOrdered, Minus, Palette, Paperclip, Plus, Printer, SlidersHorizontal } from "lucide-react";
+import { AlertTriangle, BookOpen, FileText, FileUp, ListOrdered, Minus, Palette, Paperclip, Plus, Printer, SlidersHorizontal } from "lucide-react";
 import { parsePageRange } from "@printio/shared";
 import { Button, Card, Collapsible, FieldError, FieldLabel, FormError, Input, Segmented, Select, Spinner, StatusDot, Switch } from "@/components/ui";
 import { formatFileSize, precheckPdfHeader, precheckSelectedFile, shouldPreviewInBrowser } from "@/lib/pdf/client-precheck";
@@ -15,7 +15,13 @@ import {
   type StapleChoice,
 } from "@/lib/print-choices";
 import { liveSummaryLine, summarizeAdvanced, summarizeFinishing, summarizePages, summarizePaperColor } from "@/lib/print-form-summary";
+import dynamic from "next/dynamic";
 import { submitPrintJobAction, type SubmitJobState } from "./actions";
+import { previewBookletAction, type BookletPreviewState } from "./preview-action";
+import type { BookletPreviewData } from "./BookletPreview";
+
+// Loaded only when a preview is asked for: it pulls in pdfjs-dist, which most visits never need.
+const BookletPreview = dynamic(() => import("./BookletPreview").then((m) => m.BookletPreview), { ssr: false });
 import { createFileSnapshotCache, wrapSubmitAction } from "@/lib/print-submit";
 
 // A "use server" file may only export async functions, so this trivial seed
@@ -44,6 +50,7 @@ interface SavedChoices {
   sides?: SidesChoice;
   staple?: StapleChoice;
   booklet?: BookletChoice;
+  bookletFit?: "fill" | "keep";
   copies?: number;
   colorMode?: "bw" | "color";
   paperSize?: string;
@@ -65,6 +72,7 @@ function readSavedChoices(): SavedChoices {
     if (v.colorMode === "bw" || v.colorMode === "color") out.colorMode = v.colorMode;
     if (typeof v.paperSize === "string") out.paperSize = v.paperSize;
     if (typeof v.punch === "boolean") out.punch = v.punch;
+    if (v.bookletFit === "fill" || v.bookletFit === "keep") out.bookletFit = v.bookletFit;
     return out;
   } catch {
     return {};
@@ -139,6 +147,9 @@ export function PrintForm({
   const [colorMode, setColorMode] = useState<"bw" | "color">("bw");
   const [paperSize, setPaperSize] = useState("letter");
   const [punch, setPunch] = useState(false);
+  /** Booklets only: "fill" crops the document's own blank margins so the content fills the page; "keep" scales the whole page. */
+  const [bookletFit, setBookletFit] = useState<"fill" | "keep">("fill");
+  const [preview, setPreview] = useState<{ status: "idle" | "loading" | "error" | "ready"; error?: string; data?: BookletPreviewData; signature?: string }>({ status: "idle" });
   /** False until the remembered choices have been read, so the first render never overwrites them. */
   const [restored, setRestored] = useState(false);
 
@@ -161,6 +172,7 @@ export function PrintForm({
       if (saved.colorMode) setColorMode(saved.colorMode);
       if (saved.paperSize) setPaperSize(saved.paperSize);
       if (typeof saved.punch === "boolean") setPunch(saved.punch);
+      if (saved.bookletFit) setBookletFit(saved.bookletFit);
       setRestored(true);
     }, 0);
     return () => clearTimeout(t);
@@ -174,8 +186,8 @@ export function PrintForm({
 
   useEffect(() => {
     if (!restored) return;
-    writeSavedChoices({ profileId, sides, staple, booklet, copies, colorMode, paperSize, punch });
-  }, [restored, profileId, sides, staple, booklet, copies, colorMode, paperSize, punch]);
+    writeSavedChoices({ profileId, sides, staple, booklet, bookletFit, copies, colorMode, paperSize, punch });
+  }, [restored, profileId, sides, staple, booklet, bookletFit, copies, colorMode, paperSize, punch]);
 
   /**
    * What the form will actually submit, given what the selected printer can do. The raw picks stay in state, so
@@ -336,6 +348,38 @@ export function PrintForm({
       formRef.current?.requestSubmit();
     } finally {
       confirmingRef.current = false;
+    }
+  }
+
+  /** The preview belongs to one exact set of choices and one file; any change hides it (and a new press rebuilds it). */
+  const previewSignature = JSON.stringify([formSignature, bookletFit, paperSize, rangeText]);
+
+  async function onPreviewBooklet() {
+    if (preview.status === "loading") return;
+    const form = formRef.current;
+    if (!form) return;
+    const data = new FormData(form);
+    const picked = data.get("file");
+    if (!(picked instanceof File) || picked.size === 0) {
+      setPreview({ status: "error", error: "Choose a PDF first." });
+      return;
+    }
+    const signature = previewSignature;
+    setPreview({ status: "loading" });
+    try {
+      data.set("file", await fileSnapshots.current.get(picked));
+      const res: BookletPreviewState = await previewBookletAction(data);
+      if (!res.ok) {
+        setPreview({ status: "error", error: res.fieldErrors?.pageRange ?? res.error });
+        return;
+      }
+      setPreview({
+        status: "ready",
+        signature,
+        data: { pdfBase64: res.pdfBase64, bindingSide: res.bindingSide, sheets: res.sheets, blankPagesAdded: res.blankPagesAdded },
+      });
+    } catch {
+      setPreview({ status: "error", error: "The preview didn't load (the connection dropped or the file is too large to preview). Printing is not affected." });
     }
   }
 
@@ -705,6 +749,44 @@ export function PrintForm({
                     : "Bound on the right edge, like a Hebrew book.")
               }
             />
+            {effBooklet !== "none" && (
+              <div>
+                <Segmented<"fill" | "keep">
+                  name="bookletFit"
+                  label="Booklet fit"
+                  value={bookletFit}
+                  onChange={setBookletFit}
+                  options={[
+                    { value: "fill", label: "Fill the page (recommended)" },
+                    { value: "keep", label: "Keep original margins" },
+                  ]}
+                  hint={
+                    bookletFit === "fill"
+                      ? "Trims your document's own blank margins so the text fills each booklet page. Every page is trimmed the same, so the text stays one size."
+                      : "Shrinks the whole page, margins included, to fit. Text comes out smaller."
+                  }
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="mt-3"
+                  disabled={!fileName || !!fileError || !hasPrinters || !!rangeError}
+                  pending={preview.status === "loading"}
+                  pendingLabel="Building preview..."
+                  onClick={onPreviewBooklet}
+                >
+                  <BookOpen className="h-4 w-4" aria-hidden="true" />
+                  Preview booklet
+                </Button>
+                {!fileName && <p className="mt-1 text-xs text-[var(--color-muted)]">Choose a PDF to preview the booklet.</p>}
+                {preview.status === "error" && preview.error && <FormError message={preview.error} />}
+                {preview.status === "ready" && preview.data && preview.signature === previewSignature && <BookletPreview data={preview.data} />}
+                {preview.status === "ready" && preview.signature !== previewSignature && (
+                  <p className="mt-2 text-xs text-[var(--color-muted)]">Your choices changed. Press Preview booklet to see the new layout.</p>
+                )}
+              </div>
+            )}
           </div>
         </Collapsible>
 
