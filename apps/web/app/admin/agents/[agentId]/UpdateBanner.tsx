@@ -15,7 +15,7 @@ const TONE: Record<Tone, { box: string; icon: string }> = {
 };
 
 /** Where the banner can be shown when the page is not in a normal state. */
-export type BannerSituation = "normal" | "offline" | "cannot_update";
+export type BannerSituation = "normal" | "offline" | "cannot_update" | "legacy";
 
 export interface UpdateBannerProps {
   view: UpdateView;
@@ -134,6 +134,27 @@ export function UpdateBanner({ view, situation = "normal", busy = false, error, 
           To update it, run <code className="rounded bg-[var(--color-surface-2)] px-1 py-0.5 font-mono text-xs">setup-agent.bat</code> on that
           computer.
         </p>
+      </Shell>
+    );
+  }
+
+  // An older agent cannot do a look-only check (it would do the full update), so there is nothing to show but the
+  // plain button and a note. Live progress states still show normally.
+  if (situation === "legacy" && (view.kind === "idle" || view.kind === "check_failed" || view.kind === "checking")) {
+    return (
+      <Shell
+        tone="neutral"
+        icon={<CircleArrowUp className="h-5 w-5" aria-hidden="true" />}
+        title="Update this print server"
+        action={
+          <Button type="button" variant="primary" onClick={onUpdate} pending={busy} pendingLabel="Starting...">
+            Update now
+          </Button>
+        }
+      >
+        <p className={sub}>Printio will check for updates by itself after your next update.</p>
+        <p className="mt-1 text-[13px] text-[var(--color-muted)]">Pressing Update now installs the newest version. The print server restarts and is unavailable for about a minute.</p>
+        {error ? <p className="mt-2 text-sm text-[var(--color-danger-ink)]">{error}</p> : null}
       </Shell>
     );
   }

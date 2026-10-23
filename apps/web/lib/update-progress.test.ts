@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveUpdateView, shouldAutoCheck, UPDATE_STEPS, type UpdateCommandRow } from "./update-progress";
+import { agentSupportsCheckOnly, deriveUpdateView, shouldAutoCheck, UPDATE_STEPS, type UpdateCommandRow } from "./update-progress";
 
 const NOW = Date.parse("2026-10-23T12:00:00Z");
 const ago = (s: number) => new Date(NOW - s * 1000).toISOString();
@@ -115,24 +115,43 @@ describe("deriveUpdateView - updating with live steps", () => {
 
 describe("shouldAutoCheck", () => {
   it("checks when nothing was ever requested", () => {
-    expect(shouldAutoCheck({ commands: [], lastSeenAt: ago(3), nowMs: NOW })).toBe(true);
+    expect(shouldAutoCheck({ commands: [], lastSeenAt: ago(3), nowMs: NOW, agentVersion: "0.2.0" })).toBe(true);
   });
   it("does not stack a check on one in flight or a running update", () => {
-    expect(shouldAutoCheck({ commands: [row({ checkOnly: true })], lastSeenAt: ago(3), nowMs: NOW })).toBe(false);
-    expect(shouldAutoCheck({ commands: [row({ status: "acknowledged" })], lastSeenAt: ago(3), nowMs: NOW })).toBe(false);
+    expect(shouldAutoCheck({ commands: [row({ checkOnly: true })], lastSeenAt: ago(3), nowMs: NOW, agentVersion: "0.2.0" })).toBe(false);
+    expect(shouldAutoCheck({ commands: [row({ status: "acknowledged" })], lastSeenAt: ago(3), nowMs: NOW, agentVersion: "0.2.0" })).toBe(false);
   });
   it("reuses a result younger than 10 minutes, re-checks an older one", () => {
     const fresh = row({ checkOnly: true, status: "completed", createdAt: ago(120), completedAt: ago(110), result: { updateAvailable: false } });
     const old = row({ checkOnly: true, status: "completed", createdAt: ago(1200), completedAt: ago(1190), result: { updateAvailable: false } });
-    expect(shouldAutoCheck({ commands: [fresh], lastSeenAt: ago(3), nowMs: NOW })).toBe(false);
-    expect(shouldAutoCheck({ commands: [old], lastSeenAt: ago(3), nowMs: NOW })).toBe(true);
+    expect(shouldAutoCheck({ commands: [fresh], lastSeenAt: ago(3), nowMs: NOW, agentVersion: "0.2.0" })).toBe(false);
+    expect(shouldAutoCheck({ commands: [old], lastSeenAt: ago(3), nowMs: NOW, agentVersion: "0.2.0" })).toBe(true);
   });
   it("does not check an agent that has been silent for over 2 minutes (it could not answer)", () => {
-    expect(shouldAutoCheck({ commands: [], lastSeenAt: ago(600), nowMs: NOW })).toBe(false);
-    expect(shouldAutoCheck({ commands: [], lastSeenAt: null, nowMs: NOW })).toBe(false);
+    expect(shouldAutoCheck({ commands: [], lastSeenAt: ago(600), nowMs: NOW, agentVersion: "0.2.0" })).toBe(false);
+    expect(shouldAutoCheck({ commands: [], lastSeenAt: null, nowMs: NOW, agentVersion: "0.2.0" })).toBe(false);
   });
   it("leaves a just-finished update's Updated-to message alone for a while", () => {
     const done = row({ status: "completed", createdAt: ago(200), completedAt: ago(100), result: { updated: true, to: "8c4d0e2" } });
-    expect(shouldAutoCheck({ commands: [done], lastSeenAt: ago(3), nowMs: NOW })).toBe(false);
+    expect(shouldAutoCheck({ commands: [done], lastSeenAt: ago(3), nowMs: NOW, agentVersion: "0.2.0" })).toBe(false);
+  });
+});
+
+describe("check-only capability (an old agent would treat check_only as a full update)", () => {
+  it("only agents that reported version 0.2.0 or newer support it", () => {
+    expect(agentSupportsCheckOnly("0.1.0")).toBe(false);
+    expect(agentSupportsCheckOnly("0.1.9")).toBe(false);
+    expect(agentSupportsCheckOnly(null)).toBe(false);
+    expect(agentSupportsCheckOnly("")).toBe(false);
+    expect(agentSupportsCheckOnly("0.2.0")).toBe(true);
+    expect(agentSupportsCheckOnly("0.10.0")).toBe(true);
+    expect(agentSupportsCheckOnly("1.0.0")).toBe(true);
+  });
+  it("never auto-checks an agent that has not proven the capability, even when idle and online", () => {
+    expect(shouldAutoCheck({ commands: [], lastSeenAt: ago(3), nowMs: NOW, agentVersion: "0.1.0" })).toBe(false);
+    expect(shouldAutoCheck({ commands: [], lastSeenAt: ago(3), nowMs: NOW, agentVersion: null })).toBe(false);
+  });
+  it("auto-checks a capable agent", () => {
+    expect(shouldAutoCheck({ commands: [], lastSeenAt: ago(3), nowMs: NOW, agentVersion: "0.2.0" })).toBe(true);
   });
 });

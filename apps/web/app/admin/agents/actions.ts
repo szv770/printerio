@@ -1,5 +1,6 @@
 "use server";
 
+import { agentSupportsCheckOnly } from "@/lib/update-progress";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
@@ -264,6 +265,12 @@ export async function checkAgentUpdateAvailableAction(
   const agentId = String(formData.get("agentId") ?? "");
 
   const supabase = await createClient();
+  // An Agent older than the check_only feature would read this payload as "update now" and do a full update.
+  // Only send it to an Agent that has itself reported a new enough version.
+  const { data: target } = await supabase.from("agents").select("version").eq("id", agentId).maybeSingle();
+  if (!agentSupportsCheckOnly(target?.version)) {
+    return { error: "This print server has to be updated once before it can check for updates by itself." };
+  }
   const result = await issueRemoteCommand(supabase, {
     organizationId: session.membership.organization_id,
     issuedBy: session.userId,

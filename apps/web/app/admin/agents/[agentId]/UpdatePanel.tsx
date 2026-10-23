@@ -2,7 +2,7 @@
 
 import { startTransition, useActionState, useEffect, useRef } from "react";
 import type { Tables } from "@/lib/database.types";
-import { deriveUpdateView, shouldAutoCheck, type UpdateCommandRow } from "@/lib/update-progress";
+import { agentSupportsCheckOnly, deriveUpdateView, shouldAutoCheck, type UpdateCommandRow } from "@/lib/update-progress";
 import { checkAgentForUpdateAction, checkAgentUpdateAvailableAction, type AgentActionState } from "../actions";
 import { UpdateBanner } from "./UpdateBanner";
 
@@ -29,7 +29,7 @@ export function UpdatePanel({
   const view = deriveUpdateView({ commands, lastSeenAt: agent.last_seen_at, nowMs });
   const canSelfUpdate = agent.is_git_checkout === true;
   const online = agent.last_seen_at ? nowMs - Date.parse(agent.last_seen_at) < 2 * 60_000 : false;
-  const autoCheck = canSelfUpdate && shouldAutoCheck({ commands, lastSeenAt: agent.last_seen_at, nowMs });
+  const autoCheck = canSelfUpdate && shouldAutoCheck({ commands, lastSeenAt: agent.last_seen_at, nowMs, agentVersion: agent.version });
 
   const form = (): FormData => {
     const f = new FormData();
@@ -45,7 +45,8 @@ export function UpdatePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoCheck]);
 
-  const situation = agent.is_git_checkout === false ? "cannot_update" : !online ? "offline" : "normal";
+  const capable = agentSupportsCheckOnly(agent.version);
+  const situation = agent.is_git_checkout === false ? "cannot_update" : !capable ? "legacy" : !online ? "offline" : "normal";
   // Until the server data catches up with a button press, show the first step instead of a stale state.
   const shown = updating ? deriveUpdateView({ commands: [{ id: "local", command: "CHECK_FOR_UPDATE", status: "pending", createdAt: new Date(nowMs).toISOString(), completedAt: null, result: null, checkOnly: false }], lastSeenAt: null, nowMs }) : view;
 
@@ -56,7 +57,7 @@ export function UpdatePanel({
       busy={updating || checking}
       error={updateState.error ?? checkState.error ?? null}
       onUpdate={() => startTransition(() => updateAction(form()))}
-      onCheckAgain={() => startTransition(() => checkAction(form()))}
+      onCheckAgain={capable ? () => startTransition(() => checkAction(form())) : undefined}
     />
   );
 }

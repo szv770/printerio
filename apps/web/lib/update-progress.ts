@@ -10,6 +10,8 @@
  * answer, and only then says "Updated to <version>".
  */
 
+import { CHECK_ONLY_MIN_AGENT_VERSION, compareAgentVersions } from "@printio/shared";
+
 export const UPDATE_STEPS = ["checking", "downloading", "installing", "restarting", "done"] as const;
 export type UpdateStepId = (typeof UPDATE_STEPS)[number];
 export type StepState = "pending" | "active" | "done" | "failed";
@@ -162,7 +164,8 @@ export function deriveUpdateView(input: { commands: UpdateCommandRow[]; lastSeen
 }
 
 /** Should opening the page quietly ask the server whether an update exists? */
-export function shouldAutoCheck(input: { commands: UpdateCommandRow[]; lastSeenAt: string | null; nowMs: number }): boolean {
+export function shouldAutoCheck(input: { commands: UpdateCommandRow[]; lastSeenAt: string | null; nowMs: number; agentVersion: string | null | undefined }): boolean {
+  if (!agentSupportsCheckOnly(input.agentVersion)) return false;
   const seen = ms(input.lastSeenAt);
   if (!Number.isFinite(seen) || input.nowMs - seen > AUTO_CHECK_ONLINE_MS) return false;
   const view = deriveUpdateView(input);
@@ -178,4 +181,13 @@ export function shouldAutoCheck(input: { commands: UpdateCommandRow[]; lastSeenA
 /** True while the page should poll quickly (every ~2s). */
 export function isUpdateLive(view: UpdateView): boolean {
   return view.kind === "checking" || view.kind === "updating" || view.kind === "restarting";
+}
+
+/**
+ * Whether the Agent has reported a version that understands check_only. An older Agent would read the same
+ * payload as "update now", so nothing may be sent to it automatically (or at all) until it reports this.
+ */
+export function agentSupportsCheckOnly(version: string | null | undefined): boolean {
+  const state = compareAgentVersions(version, CHECK_ONLY_MIN_AGENT_VERSION);
+  return state === "up_to_date" || state === "ahead";
 }

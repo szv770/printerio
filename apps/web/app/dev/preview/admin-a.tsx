@@ -198,6 +198,10 @@ export function UpdateBannerPreview() {
           );
         })}
         <div>
+          <p className="mb-1 font-mono text-xs text-[var(--color-muted)]">legacy (agent older than 0.2.0)</p>
+          <UpdateBanner view={{ kind: "idle" }} situation="legacy" />
+        </div>
+        <div>
           <p className="mb-1 font-mono text-xs text-[var(--color-muted)]">offline</p>
           <UpdateBanner view={{ kind: "idle" }} situation="offline" />
         </div>
@@ -212,7 +216,7 @@ export function UpdateBannerPreview() {
 
 export function ServerDetailPreview({ variant }: { variant?: string } = {}) {
   const { commands, lastSeenAt } = updateRows(variant);
-  const a = agent({ last_seen_at: lastSeenAt });
+  const a = agent({ last_seen_at: lastSeenAt, ...(variant === "legacy" ? { version: "0.1.0" } : {}) });
   return (
     <Frame path="/admin/agents/a1">
       <div className="mx-auto max-w-3xl">

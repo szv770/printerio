@@ -120,7 +120,14 @@ export interface RemoteCommandPayload {
  * apps/agent/test/version.test.ts fails the build if the two ever drift, so
  * this cannot silently go stale.
  */
-export const LATEST_AGENT_VERSION = "0.1.0";
+export const LATEST_AGENT_VERSION = "0.2.0";
+
+/**
+ * First Agent version that understands CHECK_FOR_UPDATE with payload { mode: "check_only" }. Older Agents ignore
+ * the payload and would run the FULL update (pull, install, restart), so the website must never send check_only
+ * to an Agent that has not reported at least this version.
+ */
+export const CHECK_ONLY_MIN_AGENT_VERSION = "0.2.0";
 
 /**
  * Compares two dot-separated version strings numerically (not
