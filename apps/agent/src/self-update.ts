@@ -231,6 +231,8 @@ export function resolvePnpmLauncher(opts: {
     const sep = win ? ";" : ":";
     const existing = e[key];
     e[key] = existing ? `${nodeDir}${sep}${existing}` : nodeDir;
+    // No TTY under a service: tell pnpm so it doesn't abort when it wants to confirm purging node_modules.
+    e.CI = "true";
     return e;
   };
 
