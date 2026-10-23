@@ -107,7 +107,7 @@ export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
       severity: "danger",
       title: `${count} ${count === 1 ? "print failed" : "prints failed"} this week`,
       note,
-      href: routes.adminReports,
+      href: `${routes.adminJobs}?status=failed`,
       action: "See why",
     });
   }
@@ -131,7 +131,7 @@ export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
       severity: "warning",
       title: `${n} ${n === 1 ? "job needs" : "jobs need"} a choice from their owner`,
       note: "They are on hold until the person picks how to print.",
-      href: routes.adminReports,
+      href: `${routes.adminJobs}?status=held`,
       action: "Look",
     });
   }

@@ -1,54 +1,38 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
-import { PageHeader } from "@/components/ui";
+import { auditDetails, truncationNote } from "@/lib/admin/reports-view";
+import { AuditView } from "./AuditView";
+
+/** How many events the page reads. Said out loud when reached, never silent. */
+const AUDIT_ROW_LIMIT = 200;
 
 export default async function AuditPage() {
   const session = await requireOrgRole(["org_admin"]);
   const supabase = await createClient();
+  const orgId = session.membership.organization_id;
 
-  const { data: logs } = await supabase
-    .from("audit_logs")
-    .select("*")
-    .eq("organization_id", session.membership.organization_id)
-    .order("created_at", { ascending: false })
-    .limit(200);
+  const [{ data: logs }, { data: members }] = await Promise.all([
+    supabase
+      .from("audit_logs")
+      .select("id, created_at, actor_id, action, metadata")
+      .eq("organization_id", orgId)
+      .order("created_at", { ascending: false })
+      .limit(AUDIT_ROW_LIMIT),
+    supabase.from("organization_members").select("user_id, profiles(email, display_name)").eq("organization_id", orgId),
+  ]);
+
+  const nameById = new Map((members ?? []).map((m) => [m.user_id, m.profiles?.display_name ?? m.profiles?.email ?? "Someone"]));
 
   return (
-    <div>
-      <PageHeader title="Audit log" />
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[44rem] text-sm">
-          <thead>
-            <tr className="border-b border-[var(--color-border)] text-left text-[var(--color-muted)]">
-              <th className="py-2 pr-4">When</th>
-              <th className="py-2 pr-4">Action</th>
-              <th className="py-2 pr-4">Target</th>
-              <th className="py-2 pr-4">Metadata</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(logs ?? []).map((log) => (
-              <tr key={log.id} className="border-b border-[var(--color-border)] align-top">
-                <td className="py-2 pr-4 whitespace-nowrap">{new Date(log.created_at).toLocaleString()}</td>
-                <td className="py-2 pr-4">{log.action}</td>
-                <td className="py-2 pr-4">
-                  {log.target_type ? `${log.target_type}:${log.target_id}` : "—"}
-                </td>
-                <td className="py-2 pr-4">
-                  <pre className="max-w-xs overflow-x-auto text-xs">{JSON.stringify(log.metadata)}</pre>
-                </td>
-              </tr>
-            ))}
-            {(!logs || logs.length === 0) && (
-              <tr>
-                <td colSpan={4} className="py-4 text-center text-[var(--color-muted)]">
-                  No audit events yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <AuditView
+      truncated={truncationNote((logs ?? []).length, AUDIT_ROW_LIMIT, "latest")}
+      rows={(logs ?? []).map((l) => ({
+        id: l.id,
+        createdAt: l.created_at,
+        who: l.actor_id ? (nameById.get(l.actor_id) ?? "Someone who left") : "The system",
+        action: l.action,
+        details: auditDetails(l.metadata),
+      }))}
+    />
   );
 }

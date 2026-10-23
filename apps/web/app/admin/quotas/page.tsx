@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
-import { PageHeader } from "@/components/ui";
+import { PageHeader, Tabs } from "@/components/ui";
+import { rulesTabs } from "@/lib/admin/tabs";
+import { unitWord } from "@/lib/admin/rules";
 import { QuotasPanel } from "./QuotasPanel";
 
 export default async function QuotasPage() {
@@ -18,12 +20,15 @@ export default async function QuotasPage() {
     supabase.from("organization_settings").select("quota_basis").eq("organization_id", orgId).maybeSingle(),
   ]);
 
+  const quotaBasis = settings?.quota_basis ?? "physical_sheets";
+
   return (
     <div>
       <PageHeader
-        title="Quotas"
-        description={`Monthly print limits, measured in ${settings?.quota_basis ?? "physical_sheets"} (organization_settings.quota_basis). When a user matches more than one scope, the lowest limit applies. See docs/architecture.md sec 14.`}
+        title="Monthly limits"
+        description={`How many ${unitWord(quotaBasis)} someone can print each month. If a person fits more than one limit, the lowest one applies.`}
       />
+      <Tabs label="Rules and limits" items={rulesTabs("quotas")} />
       <QuotasPanel
         quotas={quotas ?? []}
         groups={groups ?? []}
@@ -32,6 +37,7 @@ export default async function QuotasPage() {
           label: m.profiles?.display_name ?? m.profiles?.email ?? m.user_id,
         }))}
         canManage={session.membership.role === "org_admin"}
+        quotaBasis={quotaBasis}
       />
     </div>
   );

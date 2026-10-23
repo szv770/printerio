@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
-import { PageHeader } from "@/components/ui";
+import { PageHeader, Tabs } from "@/components/ui";
+import { rulesTabs } from "@/lib/admin/tabs";
 import { PoliciesPanel } from "./PoliciesPanel";
 
 export default async function PoliciesPage() {
@@ -8,7 +9,10 @@ export default async function PoliciesPage() {
   const supabase = await createClient();
   const orgId = session.membership.organization_id;
 
-  const { data: policies } = await supabase.from("print_policies").select("*").eq("organization_id", orgId).order("created_at");
+  const [{ data: policies }, { data: groups }] = await Promise.all([
+    supabase.from("print_policies").select("*").eq("organization_id", orgId).order("created_at"),
+    supabase.from("groups").select("id, name").eq("organization_id", orgId),
+  ]);
   const policyIds = (policies ?? []).map((p) => p.id);
   const { data: rules } =
     policyIds.length > 0
@@ -17,16 +21,13 @@ export default async function PoliciesPage() {
 
   return (
     <div>
-      <PageHeader
-        title="Policies"
-        description={
-          'Precedence: any matching DENY rule wins first, then any matching REQUIRE_APPROVAL rule, then ALLOW, then the organization default. All conditions on a rule are AND-ed - express "OR" as separate rules in the same action tier. See docs/architecture.md sec 6.'
-        }
-      />
+      <PageHeader title="Print rules" description="Say when a job needs approval or is not allowed. Switch a rule off to pause it." />
+      <Tabs label="Rules and limits" items={rulesTabs("rules")} />
       <PoliciesPanel
         policies={policies ?? []}
         rules={rules ?? []}
         canManage={session.membership.role === "org_admin"}
+        groupNames={Object.fromEntries((groups ?? []).map((g) => [g.id, g.name]))}
       />
     </div>
   );

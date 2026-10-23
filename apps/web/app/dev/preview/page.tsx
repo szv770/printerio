@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { DevicesPreview, JobListPreview, JobPreview, PrintPreview, ProfilePreview, UsagePreview } from "./member-pages";
 import { GroupsPreview, InvitesPreview, PrintersPreview, ServerDetailPreview, ServersPreview, UserDevicesPreview, UsersPreview } from "./admin-a";
+import { ActivityPreview, AllJobsPreview, ApprovalsPreview, FilesPreview, LimitsPreview, ReportsPreview, RulesPreview } from "./admin-b";
 import { AdminHomeSection, TeacherHomeSection } from "./homes";
 import {
   AdminSection,
@@ -14,7 +15,7 @@ import {
  * DEV-ONLY visual preview: every shell/page-chrome piece with hard-coded
  * sample data and no auth or database calls, so the UI can be looked at (and
  * screenshotted) without signing in. 404s everywhere except `next dev`.
- * Pick a section with ?section=admin|adminhome|teacher|member|settings|primitives|jobs|print|job|joblist|devices|usage|profile|users|groups|invites|printers|servers|serverdetail|userdevices (+ &shell=admin, &variant=...).
+ * Pick a section with ?section=admin|adminhome|teacher|member|settings|primitives|jobs|print|job|joblist|devices|usage|profile|users|groups|invites|printers|servers|serverdetail|userdevices|rules|limits|reports|activity|approvals|files|alljobs (+ &shell=admin, &variant=...).
  * Admin/member accept ?path=/admin/reports to pretend to be on that page.
  */
 export default async function PreviewPage({
@@ -51,6 +52,20 @@ export default async function PreviewPage({
       return <ServerDetailPreview />;
     case "userdevices":
       return <UserDevicesPreview variant={variant} />;
+    case "rules":
+      return <RulesPreview variant={variant} />;
+    case "limits":
+      return <LimitsPreview variant={variant} />;
+    case "reports":
+      return <ReportsPreview variant={variant} />;
+    case "activity":
+      return <ActivityPreview variant={variant} />;
+    case "approvals":
+      return <ApprovalsPreview variant={variant} />;
+    case "files":
+      return <FilesPreview variant={variant} />;
+    case "alljobs":
+      return <AllJobsPreview variant={variant} />;
     case "adminhome":
       return <AdminHomeSection />;
     case "adminclear":

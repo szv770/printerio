@@ -43,7 +43,7 @@ describe("buildAttentionItems", () => {
         ],
       },
     });
-    expect(item).toMatchObject({ id: "failed", severity: "danger", title: "2 prints failed this week", href: "/admin/reports", action: "See why" });
+    expect(item).toMatchObject({ id: "failed", severity: "danger", title: "2 prints failed this week", href: "/admin/jobs?status=failed", action: "See why" });
     expect(item?.note).toContain("Quiz.pdf");
     expect(item?.note).toContain("Handout.pdf");
   });

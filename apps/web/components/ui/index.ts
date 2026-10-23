@@ -24,3 +24,5 @@ export { Collapsible, type CollapsibleProps } from "./Collapsible";
 export { SaveBar, SAVE_BAR_CLEARANCE } from "./SaveBar";
 export { useDirtyForm, useBeforeUnload } from "./useDirtyForm";
 export { ResponsiveTable, type TableColumn } from "./Table";
+export { Pills, type PillItem } from "./Pills";
+export { StatCard } from "./StatCard";

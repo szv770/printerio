@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
+  Layers,
   LayoutDashboard,
   CircleCheckBig,
   Users,
@@ -195,6 +196,7 @@ const ICONS: Record<NavIcon, LucideIcon> = {
   settings: SlidersHorizontal,
   print: Plus,
   jobs: ListChecks,
+  alljobs: Layers,
   usage: PieChart,
   profile: UserRound,
 };

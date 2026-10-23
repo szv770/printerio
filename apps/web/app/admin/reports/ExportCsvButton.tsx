@@ -39,7 +39,7 @@ export function ExportCsvButton({ columns, rows, filename }: { columns: string[]
     <button
       type="button"
       onClick={handleClick}
-      className="flex items-center gap-1 text-xs font-medium text-[var(--color-primary)] hover:underline"
+      className="inline-flex min-h-11 items-center gap-1 text-xs font-medium text-[var(--color-primary)] hover:underline"
     >
       <Download className="h-3.5 w-3.5" />
       Export CSV
