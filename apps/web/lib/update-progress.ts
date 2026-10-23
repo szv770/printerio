@@ -10,7 +10,7 @@
  * answer, and only then says "Updated to <version>".
  */
 
-import { CHECK_ONLY_MIN_AGENT_VERSION, compareAgentVersions } from "@printio/shared";
+import { CHECK_ONLY_MIN_AGENT_VERSION, LATEST_AGENT_VERSION, compareAgentVersions } from "@printio/shared";
 
 export const UPDATE_STEPS = ["checking", "downloading", "installing", "restarting", "done"] as const;
 export type UpdateStepId = (typeof UPDATE_STEPS)[number];
@@ -46,6 +46,10 @@ export type UpdateView =
   | { kind: "checking" }
   | { kind: "available"; latest: string | null; latestMessage: string | null; behind: number | null }
   | { kind: "up_to_date"; checkedAt: string | null }
+  /** The running build is older than the newest version (judged by its reported version). Update now runs the full update. */
+  | { kind: "outdated"; running: string | null; latest: string }
+  /** The newest code is already on the machine but the running build is old: only a restart is needed. */
+  | { kind: "restart_needed"; running: string | null; latest: string }
   | { kind: "check_failed"; message: string }
   | { kind: "updating"; steps: StepView[]; message: string | null }
   | { kind: "restarting"; steps: StepView[]; to: string | null }
@@ -156,22 +160,91 @@ function deriveFromUpdate(row: UpdateCommandRow, lastSeenAt: string | null, nowM
   return failed(str(r.message, 400) ?? "The update did not complete. Try again.", step ?? "checking");
 }
 
-export function deriveUpdateView(input: { commands: UpdateCommandRow[]; lastSeenAt: string | null; nowMs: number }): UpdateView {
-  // Newest first, like the page query; the newest update-related row decides.
-  const latest = input.commands.find((c) => c.command === "CHECK_FOR_UPDATE");
-  if (!latest) return { kind: "idle" };
-  return latest.checkOnly ? deriveFromCheck(latest, input.nowMs) : deriveFromUpdate(latest, input.lastSeenAt, input.nowMs);
+/** A restart request this recent is part of the update story; an older one is just history. */
+export const RESTART_ROW_KEEP_MS = 10 * 60_000;
+
+export interface DeriveInput {
+  commands: UpdateCommandRow[];
+  lastSeenAt: string | null;
+  nowMs: number;
+  /**
+   * The version the print server reports it is RUNNING. `undefined` = not provided (version logic off); `null` = it
+   * never reported one. An "already up to date" answer only proves the checkout on disk is current, never the
+   * running build, so the version decides what "up to date" means.
+   */
+  agentVersion?: string | null;
+  latestVersion?: string;
+}
+
+function isOutdated(version: string | null | undefined, latest: string): boolean {
+  const state = compareAgentVersions(version, latest);
+  return state === "outdated" || state === "unknown";
+}
+
+function deriveFromRestart(row: UpdateCommandRow, lastSeenAt: string | null, nowMs: number, version: string | null, latest: string): UpdateView {
+  const created = ms(row.createdAt);
+  const age = Number.isFinite(created) ? nowMs - created : 0;
+  if (row.status === "pending") {
+    if (age > UPDATE_PICKUP_GIVE_UP_MS) return failed("The print server did not pick up the restart. It may be switched off or offline.", "restarting");
+    return { kind: "restarting", steps: buildSteps("restarting"), to: null };
+  }
+  if (row.status === "failed") return failed("The restart did not go through. Try again.", "restarting");
+  const completed = ms(row.completedAt);
+  const seen = ms(lastSeenAt);
+  if (Number.isFinite(completed) && Number.isFinite(seen) && seen > completed) {
+    if (isOutdated(version, latest)) {
+      return failed(`The print server restarted but is still running ${version ?? "an unknown version"}, not ${latest}. Press Update now to try again.`, "restarting");
+    }
+    return { kind: "done", steps: buildSteps("done", "all_done"), from: null, to: version };
+  }
+  if (Number.isFinite(completed) && nowMs - completed > RESTART_GIVE_UP_MS) {
+    return failed("The print server did not come back within a few minutes. Check that its computer is on.", "restarting");
+  }
+  return { kind: "restarting", steps: buildSteps("restarting"), to: null };
+}
+
+export function deriveUpdateView(input: DeriveInput): UpdateView {
+  const latestVersion = input.latestVersion ?? LATEST_AGENT_VERSION;
+  const versionAware = input.agentVersion !== undefined;
+  const version = input.agentVersion ?? null;
+  const capable = !versionAware || agentSupportsCheckOnly(version);
+
+  // Newest first, like the page query. A recent restart request newer than the newest update request is the story.
+  const update = input.commands.find((c) => c.command === "CHECK_FOR_UPDATE");
+  const restart = input.commands.find((c) => c.command === "RESTART_AGENT_SERVICE");
+  if (restart && versionAware) {
+    const rc = ms(restart.createdAt);
+    const uc = update ? ms(update.createdAt) : -Infinity;
+    if (Number.isFinite(rc) && input.nowMs - rc < RESTART_ROW_KEEP_MS && rc >= uc) {
+      return deriveFromRestart(restart, input.lastSeenAt, input.nowMs, version, latestVersion);
+    }
+  }
+
+  let view: UpdateView;
+  if (!update) {
+    view = !versionAware || capable ? { kind: "idle" } : isOutdated(version, latestVersion) ? { kind: "outdated", running: version, latest: latestVersion } : { kind: "up_to_date", checkedAt: null };
+  } else {
+    // An agent that cannot do check_only ran any such request as a FULL update, so read its row as one.
+    const asCheck = update.checkOnly && capable;
+    view = asCheck ? deriveFromCheck(update, input.nowMs) : deriveFromUpdate(update, input.lastSeenAt, input.nowMs);
+  }
+
+  if (versionAware && view.kind === "up_to_date" && isOutdated(version, latestVersion)) {
+    return { kind: "restart_needed", running: version, latest: latestVersion };
+  }
+  return view;
 }
 
 /** Should opening the page quietly ask the server whether an update exists? */
-export function shouldAutoCheck(input: { commands: UpdateCommandRow[]; lastSeenAt: string | null; nowMs: number; agentVersion: string | null | undefined }): boolean {
+export function shouldAutoCheck(input: DeriveInput & { agentVersion: string | null | undefined }): boolean {
   if (!agentSupportsCheckOnly(input.agentVersion)) return false;
   const seen = ms(input.lastSeenAt);
   if (!Number.isFinite(seen) || input.nowMs - seen > AUTO_CHECK_ONLINE_MS) return false;
   const view = deriveUpdateView(input);
   if (view.kind === "idle") return true;
   if (view.kind === "checking" || view.kind === "updating" || view.kind === "restarting") return false;
-  const latest = input.commands.find((c) => c.command === "CHECK_FOR_UPDATE")!;
+  const latest = input.commands.find((c) => c.command === "CHECK_FOR_UPDATE");
+  if (!latest) return true;
   const when = ms(latest.completedAt ?? latest.createdAt);
   const age = Number.isFinite(when) ? input.nowMs - when : Infinity;
   const keep = view.kind === "done" || view.kind === "failed" ? DONE_KEEP_MS : AUTO_CHECK_FRESH_MS;

@@ -111,11 +111,13 @@ export function AgentDetail({
   return (
     <div className="flex flex-col gap-4">
       {canManage && (
-        <UpdatePanel
-          agent={agent}
-          nowMs={nowMs}
-          commands={recentCommands.map((c) => ({ ...c, checkOnly: c.checkOnly === true }))}
-        />
+        <div id="update" className="scroll-mt-20">
+          <UpdatePanel
+            agent={agent}
+            nowMs={nowMs}
+            commands={recentCommands.map((c) => ({ ...c, checkOnly: c.checkOnly === true }))}
+          />
+        </div>
       )}
       <ConnectionCard agent={agent} connection={connection} activity={activity} />
       <MachineCard agent={agent} />
@@ -240,6 +242,13 @@ function VersionCard({ version, canManage }: { version: AgentVersionStatus; canM
       badge={version.state === "outdated" ? <Badge tone="warning">Update available</Badge> : undefined}
     >
       <p className="text-sm text-[var(--color-text-2)]">{version.summary}</p>
+      {canManage && version.state === "outdated" && (
+        <p className="mt-2 text-sm">
+          <a href="#update" className="font-medium text-[var(--color-primary)] underline underline-offset-2">
+            Go to the Update now button at the top of this page
+          </a>
+        </p>
+      )}
 
       {canManage && (
         <details className="mt-3 text-[13px] text-[var(--color-muted)]">
