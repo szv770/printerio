@@ -1,9 +1,10 @@
 // Node http server for the gateway. Identity is the Host header (u-<token>.<BASE_DOMAIN>); the URL path is ignored.
 // Cloudflare terminates TLS and speaks plain HTTP to us (X-Forwarded-Proto says what the client used).
 import http from "node:http";
-import { tokenFromHost } from "@printio/shared/device-token";
+import { hashDeviceToken, tokenFromHost } from "@printio/shared/device-token";
 import { errorReply, handleIppRequest, type GatewayDeps } from "./handlers.js";
 import { STATUS } from "./ipp/codec.js";
+import { clientIpFor, DEFAULT_LIMITS, DEFAULT_TRUSTED_PROXIES, RateLimiter, type ServerLimits } from "./request-limits.js";
 import { DEFAULT_MAX_INFLIGHT_BYTES, DEFAULT_MAX_UPLOADS_PER_DEVICE, UploadGuard, type UploadLease } from "./upload-guard.js";
 
 export const BUSY_MESSAGE = "The server is busy right now. Please try again in a moment.";
@@ -20,6 +21,10 @@ export interface GatewayServerOptions {
   drainFactor?: number;
   /** Busy guard: caps on in-flight upload bytes and uploads per device. Default 150 MB and 2 (see upload-guard.ts). */
   guard?: UploadGuard;
+  /** Abuse limits (see request-limits.ts). Any field may be overridden. */
+  limits?: Partial<ServerLimits>;
+  /** TCP peers allowed to vouch for CF-Connecting-IP (the local cloudflared). Default: loopback only. */
+  trustedProxies?: readonly string[];
 }
 
 function forwardedProto(req: http.IncomingMessage): "http" | "https" {
@@ -30,7 +35,11 @@ function forwardedProto(req: http.IncomingMessage): "http" | "https" {
 
 export function createGatewayServer(opts: GatewayServerOptions): http.Server {
   const { deps, baseDomain, maxBodyBytes } = opts;
-  const drainLimit = maxBodyBytes * (opts.drainFactor ?? 4);
+  const limits: ServerLimits = { ...DEFAULT_LIMITS, ...opts.limits };
+  const trusted = opts.trustedProxies ?? DEFAULT_TRUSTED_PROXIES;
+  const perIp = new RateLimiter({ max: limits.perIpRequestsPerMin, windowMs: 60_000 });
+  const global = new RateLimiter({ max: limits.globalRequestsPerMin, windowMs: 60_000, maxKeys: 1 });
+  const unknownPerIp = new RateLimiter({ max: limits.unknownTokensPerIpPerMin, windowMs: 60_000 });
   const log = deps.logger;
   const guard =
     opts.guard ??
@@ -56,11 +65,26 @@ export function createGatewayServer(opts: GatewayServerOptions): http.Server {
     res.end(body);
   };
 
-  const server = http.createServer((req, res) => {
+  /** Answer now and drop the connection without reading the rest of the body. */
+  const refuse = (req: http.IncomingMessage, res: http.ServerResponse, body: Buffer, extra: Record<string, string> = {}): void => {
+    sendIpp(res, body, true, extra);
+    res.once("finish", () => req.destroy());
+  };
+  const busyBody = (): Buffer => errorReply(STATUS.serverBusy, BUSY_MESSAGE);
+  const busyHeaders = { "retry-after": String(BUSY_RETRY_AFTER_SECONDS) };
+
+  const server = http.createServer({ maxHeaderSize: limits.maxHeaderBytes, connectionsCheckingInterval: Math.min(1000, Math.max(50, limits.headersTimeoutMs / 2)) }, (req, res) => {
     try {
       if (req.method === "GET" && req.url?.split("?")[0] === "/healthz") {
         req.resume();
         return sendText(res, 200, "ok");
+      }
+      const ip = clientIpFor(req.socket.remoteAddress, req.headers, trusted);
+      if (!global.take("g") || !perIp.take(ip)) {
+        log.warn("rate limited", { ip });
+        if (req.method === "POST" && tokenFromHost(req.headers.host, baseDomain)) return refuse(req, res, busyBody(), busyHeaders);
+        req.destroy();
+        return;
       }
       const token = tokenFromHost(req.headers.host, baseDomain);
       const seen = {
@@ -77,6 +101,49 @@ export function createGatewayServer(opts: GatewayServerOptions): http.Server {
       }
 
       log.info("request", seen);
+      // Identity first, document second: the device is looked up (cached, incl. a short negative cache) BEFORE any of
+      // the body is read, so invented tokens can neither hold upload budget nor make us buffer megabytes.
+      req.pause();
+      void (async () => {
+        let limit = maxBodyBytes;
+        let known = false;
+        try {
+          if (unknownPerIp.isLimited(ip)) {
+            log.warn("rate limited: too many unknown device tokens", { ip });
+            return refuse(req, res, busyBody(), busyHeaders);
+          }
+          const r = await deps.web.resolveDevice(hashDeviceToken(token));
+          known = r.kind === "ok";
+          if (r.kind !== "ok") {
+            if (r.kind === "unknown") unknownPerIp.take(ip);
+            limit = Math.min(maxBodyBytes, limits.unauthBodyBytes);
+          }
+        } catch {
+          limit = Math.min(maxBodyBytes, limits.unauthBodyBytes);
+          if (declaredLength(req) > limit) return refuse(req, res, errorReply(STATUS.temporaryError, "Printio is temporarily unavailable. Try again shortly."));
+        }
+        if (!known && declaredLength(req) > limit) {
+          return refuse(req, res, errorReply(STATUS.notAuthorized, "This device is not registered with Printio."));
+        }
+        serve(req, res, token, limit);
+      })().catch((err) => {
+        log.error("unhandled error before reading body", { error: String(err) });
+        refuse(req, res, errorReply(STATUS.internalError, "Internal error."));
+      });
+    } catch (err) {
+      log.error("unhandled error in request listener", { error: String(err) });
+      sendText(res, 500, "internal error");
+    }
+  });
+
+  function declaredLength(req: http.IncomingMessage): number {
+    const n = Number(req.headers["content-length"]);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  }
+
+  function serve(req: http.IncomingMessage, res: http.ServerResponse, token: string, maxBodyBytes: number): void {
+    const drainLimit = maxBodyBytes * (opts.drainFactor ?? 4);
+    try {
       const chunks: Buffer[] = [];
       let size = 0;
       let tooLarge = false;
@@ -122,7 +189,19 @@ export function createGatewayServer(opts: GatewayServerOptions): http.Server {
       res.once("close", onGone);
       if (declared !== undefined && declared <= maxBodyBytes && declared > GUARD_THRESHOLD_BYTES) takeLease(declared);
 
+      let stall: NodeJS.Timeout | undefined;
+      const armStall = (): void => {
+        clearTimeout(stall);
+        stall = setTimeout(() => {
+          log.warn("request body stalled; closing", { receivedBytes: size });
+          req.destroy();
+        }, limits.bodyStallMs);
+        stall.unref();
+      };
+      armStall();
+      req.once("close", () => clearTimeout(stall));
       req.on("data", (c: Buffer) => {
+        armStall();
         size += c.length;
         if (first8.length < 8) first8 = Buffer.concat([first8, c.subarray(0, 8 - first8.length)]);
         if (tooLarge || busy) {
@@ -146,8 +225,10 @@ export function createGatewayServer(opts: GatewayServerOptions): http.Server {
           }
         }
       });
+      req.resume(); // it was paused while the device was being looked up
       req.on("error", (err) => log.warn("request stream error", { error: String(err) }));
       req.on("end", () => {
+        clearTimeout(stall);
         handlerStarted = true;
         void (async () => {
           try {
@@ -193,7 +274,7 @@ export function createGatewayServer(opts: GatewayServerOptions): http.Server {
       log.error("unhandled error in request listener", { error: String(err) });
       sendText(res, 500, "internal error");
     }
-  });
+  }
 
   server.on("clientError", (err, socket) => {
     log.debug("client error", { error: String(err) });
@@ -201,5 +282,8 @@ export function createGatewayServer(opts: GatewayServerOptions): http.Server {
   });
   // Big PDFs over slow links: allow up to 10 minutes for a whole request.
   server.requestTimeout = 10 * 60 * 1000;
+  server.headersTimeout = limits.headersTimeoutMs;
+  server.keepAliveTimeout = 30_000;
+  server.maxConnections = limits.maxConnections;
   return server;
 }

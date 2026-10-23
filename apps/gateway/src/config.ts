@@ -14,6 +14,13 @@ const schema = z.object({
   MAX_INFLIGHT_UPLOAD_MB: z.coerce.number().positive().default(150),
   /** Busy guard: concurrent uploads from one device. */
   MAX_UPLOADS_PER_DEVICE: z.coerce.number().int().min(1).default(2),
+  /** Abuse limits (all optional; defaults in request-limits.ts). */
+  MAX_CONNECTIONS: z.coerce.number().int().min(1).default(512),
+  RATE_LIMIT_PER_IP_PER_MIN: z.coerce.number().int().min(1).default(600),
+  RATE_LIMIT_GLOBAL_PER_MIN: z.coerce.number().int().min(1).default(3000),
+  RATE_LIMIT_UNKNOWN_TOKENS_PER_IP_PER_MIN: z.coerce.number().int().min(1).default(60),
+  /** Comma-separated peers trusted to supply CF-Connecting-IP (the local cloudflared). */
+  TRUSTED_PROXIES: z.string().default("127.0.0.1,::1"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 });
 
@@ -28,6 +35,8 @@ export interface GatewayConfig {
   maxBodyBytes: number;
   maxInflightUploadBytes: number;
   maxUploadsPerDevice: number;
+  limits: { maxConnections: number; perIpRequestsPerMin: number; globalRequestsPerMin: number; unknownTokensPerIpPerMin: number };
+  trustedProxies: string[];
   logLevel: "debug" | "info" | "warn" | "error";
 }
 
@@ -53,6 +62,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
     // Never lower than one legal file, or a file at the per-file limit could never be admitted.
     maxInflightUploadBytes: Math.max(Math.floor(e.MAX_INFLIGHT_UPLOAD_MB * 1024 * 1024), maxBodyBytes),
     maxUploadsPerDevice: e.MAX_UPLOADS_PER_DEVICE,
+    limits: {
+      maxConnections: e.MAX_CONNECTIONS,
+      perIpRequestsPerMin: e.RATE_LIMIT_PER_IP_PER_MIN,
+      globalRequestsPerMin: e.RATE_LIMIT_GLOBAL_PER_MIN,
+      unknownTokensPerIpPerMin: e.RATE_LIMIT_UNKNOWN_TOKENS_PER_IP_PER_MIN,
+    },
+    trustedProxies: e.TRUSTED_PROXIES.split(",").map((x) => x.trim()).filter(Boolean),
     logLevel: e.LOG_LEVEL,
   };
 }
