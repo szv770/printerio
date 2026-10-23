@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { removeUnmatchedSignup } from "@/lib/admin/unmatched-signups";
 import { describeDatabaseError } from "@/lib/action-errors";
 import { routes } from "@/lib/routes";
 import { normalizeUserCode } from "@/lib/jobs/user-code";
@@ -322,4 +324,25 @@ export async function revokeInvitationAction(_prev: RevokeInvitationState, formD
   revalidatePath(routes.adminUsers);
   revalidatePath(routes.adminInvites);
   return {};
+}
+
+export interface RemoveSignupState {
+  error?: string;
+  success?: string;
+}
+
+/** Deletes a sign-up that has no access anywhere (Users > Sign-ups without access). Admin only; the org and actor
+ *  come from the session, and the service refuses members, admins, super admins and yourself. */
+export async function removeSignupAction(_prev: RemoveSignupState, formData: FormData): Promise<RemoveSignupState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const userId = String(formData.get("userId") ?? "");
+  if (!/^[\w-]{1,64}$/.test(userId)) return { error: "Choose an account to remove." };
+  const result = await removeUnmatchedSignup(createServiceRoleClient(), {
+    actorId: session.userId,
+    organizationId: session.membership.organization_id,
+    targetId: userId,
+  });
+  if (!result.ok) return { error: result.error };
+  revalidatePath(routes.adminUsers);
+  return { success: "Removed. They can still sign up again, but they will see nothing until you invite them." };
 }

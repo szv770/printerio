@@ -10,9 +10,9 @@ import { RedeemForm } from "./RedeemForm";
 export default async function NoAccessPage({
   searchParams,
 }: {
-  searchParams: Promise<{ reason?: string; domain?: string; code?: string; invite_error?: string }>;
+  searchParams: Promise<{ reason?: string; code?: string; invite_error?: string }>;
 }) {
-  const { reason, domain, code, invite_error } = await searchParams;
+  const { code, invite_error } = await searchParams;
   const inviteMessages: Record<string, string> = {
     not_found: "That invite isn't valid.",
     expired: "That invite has expired. Ask for a new one.",
@@ -20,33 +20,6 @@ export default async function NoAccessPage({
     email_mismatch: "That invitation was made for a different email address.",
     rate_limited: "Too many tries. Please wait a few minutes and try again.",
   };
-
-  // Domain-restriction rejection (docs/architecture.md sec 19): the user was
-  // already signed back out in app/auth/callback/route.ts before landing
-  // here, so there is deliberately no session to check below - this branch
-  // must render on its own, for a signed-out visitor, with a specific
-  // explanation rather than a generic "no access" message.
-  if (reason === "domain_not_allowed") {
-    return (
-      <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-4 px-4">
-        <div>
-          <h1 className="text-xl font-semibold">This organization only accepts certain email domains</h1>
-          <p className="mt-2 text-sm text-[var(--color-muted)]">
-            {domain ? (
-              <>
-                Your email&apos;s domain (<strong>{domain}</strong>) isn&apos;t on the list of domains this
-                organization allows to sign in.
-              </>
-            ) : (
-              <>Your email&apos;s domain isn&apos;t on the list of domains this organization allows to sign in.</>
-            )}{" "}
-            You&apos;ve been signed out. If you believe this is a mistake, ask your organization administrator to
-            add your domain under Admin &rarr; Settings.
-          </p>
-        </div>
-      </main>
-    );
-  }
 
   const session = await getCurrentSession();
   if (!session) redirect(routes.login);
@@ -159,18 +132,23 @@ export default async function NoAccessPage({
       <div>
         <h1 className="flex items-center gap-2 text-xl font-semibold">
           <KeyRound className="h-5 w-5 text-[var(--color-muted)]" />
-          You&apos;re signed in, but not in an organization yet
+          You need an invite
         </h1>
         <p className="mt-2 text-sm text-[var(--color-muted)]">
-          Signed in as {session.email}. Ask your organization administrator for an enrollment code, or
-          enter one below.
+          You&apos;re signed in as <strong className="break-all text-[var(--color-text)]">{session.email}</strong>, but this
+          account isn&apos;t part of the organization yet. That&apos;s expected if you haven&apos;t been invited.
         </p>
+        <ul className="mt-3 flex list-disc flex-col gap-1 pl-5 text-sm text-[var(--color-muted)]">
+          <li>Ask your Printio admin to send you an invite link, then open it.</li>
+          <li>Already have an invite code? Enter it below.</li>
+          <li>Used the wrong email? Sign out and sign in with the one you were invited on.</li>
+        </ul>
       </div>
       <RedeemForm defaultCode={code && /^[A-Za-z0-9_-]{4,64}$/.test(code) ? code : ""} initialError={invite_error ? inviteMessages[invite_error] : undefined} />
       <div className="border-t border-[var(--color-border)] pt-4">
         <p className="text-xs text-[var(--color-muted)]">
-          Wrong account, or expecting to be set up as the first admin instead? You can sign out and try
-          again with a different email or sign-in method.
+          Until you&apos;re invited, this account can&apos;t see or print anything. You can sign out and try again with a
+          different email.
         </p>
         <form action={signOutAction} className="mt-2">
           <button type="submit" className="text-sm text-[var(--color-primary)] hover:underline">

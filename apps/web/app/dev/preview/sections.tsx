@@ -187,11 +187,12 @@ export function SettingsSection() {
     <AdminFrame isOrgAdmin isSuperAdmin={false} userId={PREVIEW_USER_ID} pendingApprovals={3} user={USER} pathnameOverride="/admin/settings">
       <PageHeader
         title="Settings"
-        description="Who can sign in, how printing behaves by default, and the print stamp. Open a section to change it, then save."
+        description="Who can join, how printing behaves by default, and the print stamp. Open a section to change it, then save."
       />
       <SettingsPanel
         allowedDomains={["lecfl.com", "staff.lecfl.com"]}
-        magicLinkRequiresAllowedDomain
+        joinMode="invite_or_domain"
+        domainJoinRole="student"
         defaultBookletBindingSide="left"
         adminsBypassRestrictions
         autoRetryFailedPrints={false}

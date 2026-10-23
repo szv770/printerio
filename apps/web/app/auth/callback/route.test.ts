@@ -13,6 +13,13 @@ const update = vi.fn(() => ({ eq }));
 const from = vi.fn(() => ({ update }));
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: () => ({ from }) }));
 
+const hasActiveMembership = vi.fn();
+const tryJoinByDomain = vi.fn();
+vi.mock("@/lib/auth/domain-join", () => ({
+  hasActiveMembership: (...a: unknown[]) => hasActiveMembership(...a),
+  tryJoinByDomain: (...a: unknown[]) => tryJoinByDomain(...a),
+}));
+
 const maybeBootstrapOrganization = vi.fn();
 vi.mock("@/lib/auth/bootstrap", () => ({ maybeBootstrapOrganization: (...a: unknown[]) => maybeBootstrapOrganization(...a) }));
 vi.mock("@/lib/logger", () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
@@ -45,6 +52,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   eq.mockResolvedValue({ error: null });
   rpc.mockResolvedValue({ data: true, error: null });
+  hasActiveMembership.mockResolvedValue(true);
+  tryJoinByDomain.mockResolvedValue(null);
   maybeBootstrapOrganization.mockResolvedValue(undefined);
   redeemInvitation.mockResolvedValue({ ok: true, organizationId: "o1", role: "staff" });
   exchangeCodeForSession.mockResolvedValue({ data: { user: googleUser }, error: null });
@@ -52,11 +61,11 @@ beforeEach(() => {
 });
 
 describe("auth callback: code (Google PKCE) path", () => {
-  it("exchanges the code, uses the google gate, stamps, redirects home", async () => {
+  it("exchanges the code, stamps, redirects home", async () => {
     const res = await call("code=abc");
     expect(exchangeCodeForSession).toHaveBeenCalledWith("abc");
     expect(verifyOtp).not.toHaveBeenCalled();
-    expect(rpc).toHaveBeenCalledWith("email_domain_allowed");
+    expect(rpc).not.toHaveBeenCalled();
     expect(maybeBootstrapOrganization).toHaveBeenCalledWith("u2", "g@school.org");
     expect(from).toHaveBeenCalledWith("profiles");
     expect(location(res).pathname).toBe("/");
@@ -81,21 +90,40 @@ describe("auth callback: token_hash (cross-browser magic link) path", () => {
     expect(location(res).pathname).toBe("/");
   });
 
-  it("uses the magic-link domain gate function", async () => {
+  it("no longer calls the old domain-gate RPCs (superseded by join_mode)", async () => {
     await call("token_hash=th1&type=email");
-    expect(rpc).toHaveBeenCalledWith("email_domain_allowed_for_magic_link");
-    expect(rpc).not.toHaveBeenCalledWith("email_domain_allowed");
+    expect(rpc).not.toHaveBeenCalled();
   });
 
-  it("signs out and redirects to no-access when the domain is not allowed", async () => {
-    rpc.mockResolvedValue({ data: false, error: null });
+  it("an existing member is never sent through the join rule", async () => {
+    const res = await call("token_hash=th1&type=email");
+    expect(tryJoinByDomain).not.toHaveBeenCalled();
+    expect(location(res).pathname).toBe("/");
+  });
+
+  it("a non-member whose domain is allowed joins and lands home", async () => {
+    hasActiveMembership.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    tryJoinByDomain.mockResolvedValue("o1");
+    const res = await call("token_hash=th1&type=email");
+    expect(tryJoinByDomain).toHaveBeenCalledWith("u1");
+    expect(location(res).pathname).toBe("/");
+  });
+
+  it("a non-member with no invite and no allowed domain stays signed in and sees the friendly invite page", async () => {
+    hasActiveMembership.mockResolvedValue(false);
     const res = await call("token_hash=th1&type=email");
     const url = location(res);
-    expect(signOut).toHaveBeenCalled();
+    expect(signOut).not.toHaveBeenCalled();
     expect(url.pathname).toBe("/no-access");
-    expect(url.searchParams.get("reason")).toBe("domain_not_allowed");
-    expect(url.searchParams.get("domain")).toBe("school.org");
-    expect(from).not.toHaveBeenCalled();
+    expect(url.searchParams.get("reason")).toBe("invite_needed");
+    expect(from).toHaveBeenCalledWith("profiles"); // reauth stamped so the page keeps the session
+  });
+
+  it("fails closed: a join error means no membership, never an accidental home redirect", async () => {
+    hasActiveMembership.mockResolvedValue(false);
+    tryJoinByDomain.mockResolvedValue(null);
+    const res = await call("code=abc");
+    expect(location(res).pathname).toBe("/no-access");
   });
 
   it.each(["recovery", "signup", "invite", "email_change", ""])("rejects type=%s without calling verifyOtp", async (type) => {
@@ -145,6 +173,13 @@ describe("auth callback: invite link carried through sign-in", () => {
     expect(loc.pathname).toBe("/no-access");
     expect(loc.searchParams.get("code")).toBe("a1b2c3d4e5f6");
     expect(loc.searchParams.get("invite_error")).toBe("expired");
+  });
+
+  it("an invited outsider (any email domain) gets in: invite is redeemed before any domain rule", async () => {
+    hasActiveMembership.mockResolvedValue(true); // membership exists after redeem
+    const res = await call("token_hash=th1&type=email&invite=a1b2c3d4e5f6");
+    expect(redeemInvitation).toHaveBeenCalled();
+    expect(location(res).pathname).toBe("/");
   });
 
   it("treats already_member as success", async () => {

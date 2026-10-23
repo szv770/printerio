@@ -10,7 +10,8 @@ import { dirtyKeys } from "@/lib/ui/dirty";
 
 export interface SettingsValues extends Record<string, unknown> {
   domains: string;
-  magicLinkRequiresAllowedDomain: boolean;
+  joinMode: "invite_only" | "invite_or_domain";
+  domainJoinRole: "student" | "staff";
   bindingSide: "left" | "right";
   adminsBypass: boolean;
   autoRetry: boolean;
@@ -20,12 +21,13 @@ export interface SettingsValues extends Record<string, unknown> {
 }
 
 /** One entry per existing server action in app/admin/settings/actions.ts. */
-export type SettingsActionId = "domains" | "magicLink" | "bindingSide" | "adminBypass" | "autoRetry" | "stamp";
+export type SettingsActionId = "domains" | "bindingSide" | "adminBypass" | "autoRetry" | "stamp";
 export type SettingsSectionId = "signin" | "printing" | "stamp" | "admins";
 
 export const ACTION_FIELDS: Record<SettingsActionId, Array<keyof SettingsValues>> = {
-  domains: ["domains"],
-  magicLink: ["magicLinkRequiresAllowedDomain"],
+  // "Who can join": the mode, the domain list and the role are validated and saved together (one UPDATE),
+  // because the database refuses domain mode with an empty list.
+  domains: ["domains", "joinMode", "domainJoinRole"],
   bindingSide: ["bindingSide"],
   adminBypass: ["adminsBypass"],
   autoRetry: ["autoRetry"],
@@ -34,7 +36,6 @@ export const ACTION_FIELDS: Record<SettingsActionId, Array<keyof SettingsValues>
 
 export const ACTION_SECTION: Record<SettingsActionId, SettingsSectionId> = {
   domains: "signin",
-  magicLink: "signin",
   bindingSide: "printing",
   autoRetry: "printing",
   stamp: "stamp",
@@ -42,7 +43,7 @@ export const ACTION_SECTION: Record<SettingsActionId, SettingsSectionId> = {
 };
 
 /** Fixed order the unified Save runs the actions in. */
-export const ACTION_ORDER: SettingsActionId[] = ["domains", "magicLink", "bindingSide", "autoRetry", "adminBypass", "stamp"];
+export const ACTION_ORDER: SettingsActionId[] = ["domains", "bindingSide", "autoRetry", "adminBypass", "stamp"];
 
 /** Actions that have at least one changed field, in save order. */
 export function dirtyActions(initial: SettingsValues, current: SettingsValues): SettingsActionId[] {
@@ -55,9 +56,7 @@ export function dirtyActions(initial: SettingsValues, current: SettingsValues): 
 export function actionFormFields(action: SettingsActionId, v: SettingsValues): Record<string, string> {
   switch (action) {
     case "domains":
-      return { domains: v.domains };
-    case "magicLink":
-      return v.magicLinkRequiresAllowedDomain ? { magicLinkRequiresAllowedDomain: "on" } : {};
+      return { domains: v.domains, joinMode: v.joinMode, domainJoinRole: v.domainJoinRole };
     case "bindingSide":
       return { defaultBookletBindingSide: v.bindingSide };
     case "adminBypass":
@@ -78,12 +77,15 @@ export function sectionsWithErrors(errors: Partial<Record<SettingsActionId, stri
 
 // ---- closed-section summaries ------------------------------------------------
 
-export function signInSummary(v: Pick<SettingsValues, "domains" | "magicLinkRequiresAllowedDomain">): string {
+export function signInSummary(v: Pick<SettingsValues, "domains" | "joinMode">): string {
   const { domains } = parseAllowedDomainsInput(v.domains);
-  if (domains.length === 0) return "Anyone with an invitation can join, from any email domain";
+  if (v.joinMode !== "invite_or_domain") {
+    return domains.length === 0 ? "Invitation only (add a domain to let school emails join)" : "Invitation only";
+  }
+  if (domains.length === 0) return "Invitation only (add a domain to let school emails join)";
   const shown = domains.slice(0, 2).join(", ");
   const more = domains.length > 2 ? ` and ${domains.length - 2} more` : "";
-  return `New users must use ${shown}${more}`;
+  return `Invitation, or an email at ${shown}${more}`;
 }
 
 export function printingSummary(v: Pick<SettingsValues, "bindingSide" | "autoRetry">): string {
