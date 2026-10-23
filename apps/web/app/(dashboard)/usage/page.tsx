@@ -1,15 +1,9 @@
 import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { currentPeriod, getApplicableQuotaLimit, getUsageSnapshot, usageForBasis } from "@/lib/quota";
-import { PageHeader, Card } from "@/components/ui";
+import { PageHeader } from "@/components/ui";
+import { UsageView } from "./UsageView";
 import type { QuotaBasis } from "@printio/shared";
-
-const BASIS_LABEL: Record<QuotaBasis, string> = {
-  pdf_pages: "PDF pages",
-  printed_sides: "printed sides",
-  physical_sheets: "physical sheets",
-  color_weighted: "color-weighted sheets",
-};
 
 export default async function UsagePage() {
   const session = await requireSessionOrRedirect();
@@ -17,8 +11,8 @@ export default async function UsagePage() {
 
   if (!session.membership) {
     return (
-      <main className="mx-auto max-w-2xl px-4 py-10">
-        <PageHeader title="Usage" />
+      <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
+        <PageHeader title="My usage" />
       </main>
     );
   }
@@ -45,26 +39,5 @@ export default async function UsagePage() {
     getUsageSnapshot(supabase, orgId, session.userId, currentPeriod()),
   ]);
   const used = usageForBasis(usage, basis);
-  const pct = limit ? Math.min(100, Math.round((used / limit) * 100)) : null;
-
-  return (
-    <main className="mx-auto max-w-2xl px-4 py-10">
-      <PageHeader title="Usage" description={`This month (${currentPeriod()}), measured in ${BASIS_LABEL[basis]}.`} />
-      <Card>
-        <p className="text-3xl font-semibold">
-          {used}
-          {limit !== null && <span className="text-lg font-normal text-[var(--color-muted)]"> / {limit}</span>}
-        </p>
-        <p className="text-sm text-[var(--color-muted)]">{limit === null ? "No quota configured - unlimited." : `${BASIS_LABEL[basis]} used`}</p>
-        {pct !== null && (
-          <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-100">
-            <div
-              className={`h-full rounded-full ${pct >= 90 ? "bg-[var(--color-danger)]" : pct >= 70 ? "bg-[var(--color-warning)]" : "bg-[var(--color-success)]"}`}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-        )}
-      </Card>
-    </main>
-  );
+  return <UsageView used={used} limit={limit} basis={basis} period={currentPeriod()} />;
 }

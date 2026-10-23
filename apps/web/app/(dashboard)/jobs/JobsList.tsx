@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FileText } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { routes } from "@/lib/routes";
-import { EmptyState } from "@/components/ui";
+import { ButtonLink, EmptyState } from "@/components/ui";
 import { jobListBucket } from "@/lib/job-progress";
 import { JobListItem } from "./JobListItem";
 
@@ -149,15 +148,13 @@ export function JobsList({
   if (jobs.length === 0) {
     return (
       <EmptyState
-        message="No print jobs yet."
+        title="No print jobs yet"
+        description="When you print something, it shows up here so you can follow it."
         icon={FileText}
         action={
-          <Link
-            href={routes.print}
-            className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-[var(--color-primary-fg)] hover:opacity-90"
-          >
-            + Print your first document
-          </Link>
+          <ButtonLink href={routes.print} size="lg">
+            Print your first document
+          </ButtonLink>
         }
       />
     );

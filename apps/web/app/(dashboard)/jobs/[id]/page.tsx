@@ -1,7 +1,10 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ChevronLeft, FileText, History } from "lucide-react";
+import { routes } from "@/lib/routes";
 import { createClient } from "@/lib/supabase/server";
 import { requireSessionOrRedirect } from "@/lib/auth/session";
-import { Card } from "@/components/ui";
+import { Collapsible } from "@/components/ui";
 import { jobEventDisplay } from "@/lib/job-event-labels";
 import { formatFileSize } from "@/lib/pdf/client-precheck";
 import { canOwnerPurgeFiles } from "@/lib/retention";
@@ -55,137 +58,139 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
     .order("created_at", { ascending: true });
   const eventRows = events ?? [];
 
+
+  const canReprint = !job.is_test_print && isOwner && !job.files_purged_at;
+  const canRetry = isOwner && job.status === "failed" && job.attempt_count < job.max_attempts && !job.files_purged_at;
+  const canCancel = isOwner && ["held", "pending_approval", "approved", "failed"].includes(job.status);
+  const atPrinter = isOwner && ["claimed", "downloading", "downloaded", "printing", "submitted_to_spooler"].includes(job.status);
+  // Print again is the main thing to do with a finished job, and with a failed one that cannot be retried.
+  const reprintIsPrimary = job.status === "completed" || (job.status === "failed" && !canRetry);
+  const canDeleteFile = isOwner && !job.files_purged_at && canOwnerPurgeFiles(job).ok;
+  const lastEvent = eventRows.length > 0 ? jobEventDisplay(eventRows[eventRows.length - 1]!.event_type).label : null;
+
+  // Owner-only controls. Cancel is offered only while nothing has been sent to the print agent (the server
+  // re-checks and says so plainly if the job slipped away); "Try again" re-queues THIS job after a failure while
+  // tries remain. "Print again" re-runs the ordinary submission pipeline (policy, quota and all) against the
+  // ORIGINAL stored bytes, so it is not offered for a test print (that would silently become a real, quota-charged
+  // job), for a job whose file was purged, or to anyone but the job's own submitter.
+  const actions =
+    canRetry || canCancel || canReprint || atPrinter ? (
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
+        {canRetry && <RetryJobButton jobId={job.id} big />}
+        {canReprint && reprintIsPrimary && <ReprintButton jobId={job.id} big primary />}
+        {canReprint && !reprintIsPrimary && <ReprintButton jobId={job.id} big />}
+        {canCancel && <CancelJobButton jobId={job.id} big />}
+        {atPrinter && (
+          <p className="text-sm text-[var(--color-muted)]">This job has already gone to the printer. Clear it at the printer.</p>
+        )}
+      </div>
+    ) : null;
+
+  const detail = (label: string, value: React.ReactNode) => (
+    <div key={label}>
+      <dt className="text-[13px] text-[var(--color-muted)]">{label}</dt>
+      <dd className="mt-0.5 text-[15px] font-medium">{value}</dd>
+    </div>
+  );
+
   return (
-    <main className="mx-auto max-w-2xl px-4 py-10">
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="mb-1 text-2xl font-semibold">{job.original_file_name}</h1>
-          <p className="text-sm text-[var(--color-muted)]">{job.job_number}</p>
-        </div>
-        {/* Three things have to hold for "Print again" to be offerable at all:
-         *  - it re-runs the ordinary submission pipeline (policy, quota and
-         *    all), so it is deliberately not offered for a test print, which
-         *    would silently become a real, quota-charged job - another test
-         *    print is sent from Admin → Printers instead;
-         *  - it re-runs that pipeline against the ORIGINAL stored bytes, so a
-         *    job whose file has been purged (retention, or the owner deleting
-         *    it below) can only fail;
-         *  - it is scoped to the job's own submitter server-side, so it is
-         *    pointless for an approver looking at someone else's job. */}
-        {!job.is_test_print && isOwner && !job.files_purged_at && <ReprintButton jobId={job.id} />}
+    <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
+      <Link
+        href={routes.jobs}
+        className="-ml-2 mb-3 inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm font-medium text-[var(--color-muted)] hover:text-[var(--color-text)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]"
+      >
+        <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+        My jobs
+      </Link>
+
+      <div className="mb-5">
+        <h1 className="break-words text-xl font-semibold leading-7 sm:text-2xl sm:leading-8">{job.original_file_name}</h1>
+        <p className="mt-0.5 text-sm text-[var(--color-muted)]">
+          {job.job_number} · Sent <LocalTime iso={job.created_at} />
+        </p>
       </div>
 
-      {/* Owner-only controls. Cancel is offered only while nothing has been sent to the print agent (the server
-       *  re-checks and says so plainly if the job slipped away); "Try again" re-queues THIS job after a failure
-       *  while tries remain. Once the agent has the job it cannot be recalled, so we say that instead. */}
-      {isOwner && (
-        <div className="mb-4 flex flex-wrap items-start gap-3">
-          {job.status === "failed" && job.attempt_count < job.max_attempts && !job.files_purged_at && (
-            <RetryJobButton jobId={job.id} />
-          )}
-          {["held", "pending_approval", "approved", "failed"].includes(job.status) && <CancelJobButton jobId={job.id} />}
-          {["claimed", "downloading", "downloaded", "printing", "submitted_to_spooler"].includes(job.status) && (
-            <p className="text-sm text-[var(--color-muted)]">This job has already gone to the printer. Clear it at the printer.</p>
-          )}
-        </div>
-      )}
+      {/* The answer to "where is this up to right now", live over Supabase Realtime. It also owns the "why" for a
+       *  job that stopped (denial reasons, the approver's reason, the agent's error message) and the reasons a job
+       *  needed approval in the first place. */}
+      <JobStatusLive
+        job={job}
+        eventTypes={eventRows.map((e) => e.event_type)}
+        rejectionReason={rejectionReasonFrom(eventRows)}
+        actions={actions}
+      />
 
-      {/* The stage-by-stage answer to "where is this up to right now", live
-       *  over Supabase Realtime. It also owns the "why" for a job that
-       *  stopped (denial reasons, the approver's reason, the agent's error
-       *  message) and the reasons a job needed approval in the first place -
-       *  those read as part of the stage they belong to, rather than as a
-       *  separate card floating above the details. */}
-      <JobStatusLive job={job} eventTypes={eventRows.map((e) => e.event_type)} rejectionReason={rejectionReasonFrom(eventRows)} />
-
-      <Card className="mt-4 grid grid-cols-2 gap-4 text-sm">
-        <div>
-          <p className="text-[var(--color-muted)]">Pages</p>
-          <p className="font-medium">{job.source_pdf_pages}</p>
-        </div>
-        {job.page_range && (
-          <div>
-            <p className="text-[var(--color-muted)]">Page range</p>
-            <p className="font-medium">{job.page_range}</p>
-          </div>
-        )}
-        <div>
-          <p className="text-[var(--color-muted)]">Finishing</p>
-          <p className="font-medium">{finishingLabel(job)}</p>
-        </div>
-        <div>
-          <p className="text-[var(--color-muted)]">Copies</p>
-          <p className="font-medium">{job.copies}</p>
-        </div>
-        <div>
-          <p className="text-[var(--color-muted)]">Color</p>
-          <p className="font-medium">{job.color_mode === "color" ? "Color" : "B&W"}</p>
-        </div>
-        <div>
-          <p className="text-[var(--color-muted)]">Sides</p>
-          <p className="font-medium">{job.duplex ? "Double-sided" : "Single-sided"}</p>
-        </div>
-        <div>
-          <p className="text-[var(--color-muted)]">Printed sides</p>
-          <p className="font-medium">{job.estimated_printed_sides}</p>
-        </div>
-        <div>
-          <p className="text-[var(--color-muted)]">Physical sheets</p>
-          <p className="font-medium">{job.estimated_physical_sheets}</p>
-        </div>
-        <div>
-          <p className="text-[var(--color-muted)]">File size</p>
-          <p className="font-medium">{formatFileSize(Number(job.file_size_bytes))}</p>
-        </div>
-        <div>
-          <p className="text-[var(--color-muted)]">Stored file</p>
-          <p className="font-medium">
-            {job.files_purged_at ? (
-              <>
-                Deleted <LocalTime iso={job.files_purged_at} />
-              </>
-            ) : (
-              "Kept for now"
+      <div className="mt-4 flex flex-col gap-3">
+        <Collapsible
+          id="job-details"
+          title="Details"
+          icon={<FileText className="h-4 w-4" aria-hidden="true" />}
+          summary={`${job.source_pdf_pages} ${job.source_pdf_pages === 1 ? "page" : "pages"} · ${job.copies} ${job.copies === 1 ? "copy" : "copies"} · ${job.duplex ? "double-sided" : "single-sided"}`}
+        >
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-4">
+            {detail("Pages", job.source_pdf_pages)}
+            {job.page_range && detail("Page range", job.page_range)}
+            {detail("Copies", job.copies)}
+            {detail("Sides", job.duplex ? "Double-sided" : "Single-sided")}
+            {detail("Finishing", finishingLabel(job))}
+            {detail("Color", job.color_mode === "color" ? "Color" : "Black & white")}
+            {detail("Printed sides", job.estimated_printed_sides)}
+            {detail("Sheets of paper", job.estimated_physical_sheets)}
+            {detail("File size", formatFileSize(Number(job.file_size_bytes)))}
+            {detail(
+              "Stored file",
+              job.files_purged_at ? (
+                <>
+                  Deleted <LocalTime iso={job.files_purged_at} />
+                </>
+              ) : (
+                "Kept for now"
+              ),
             )}
-          </p>
-        </div>
-      </Card>
+          </dl>
 
-      {/* Only the submitter, only once the job has genuinely finished, and
-       *  only while a file is actually there - the action re-checks all three
-       *  server-side (lib/retention.ts's canOwnerPurgeFiles); this just keeps
-       *  the control from appearing when it could not possibly work. */}
-      {isOwner && !job.files_purged_at && canOwnerPurgeFiles(job).ok && (
-        <div className="mt-4">
-          <p className="mb-2 text-sm text-[var(--color-muted)]">
-            Your uploaded PDF is stored until this organization&apos;s retention window ends. You can remove it now
-            instead - the job record and its history are kept either way.
-          </p>
-          <DeleteFileButton jobId={job.id} />
-        </div>
-      )}
+          {/* Only the submitter, only once the job has genuinely finished, and only while a file is actually there
+           *  - the action re-checks all three server-side (lib/retention.ts canOwnerPurgeFiles); this just keeps
+           *  the control from appearing when it could not possibly work. */}
+          {canDeleteFile && (
+            <div className="mt-5 border-t border-[var(--color-border)] pt-4">
+              <p className="mb-3 text-[13px] text-[var(--color-muted)]">
+                Your PDF is stored until this organization&apos;s retention window ends. You can remove it now instead. The job and its history stay either
+                way.
+              </p>
+              <DeleteFileButton jobId={job.id} />
+            </div>
+          )}
+        </Collapsible>
 
-      {eventRows.length > 0 && (
-        <div className="mt-6">
-          <p className="mb-2 text-sm font-medium">History</p>
-          {/* Detail under the stepper, not instead of it: the stepper says
-           *  where the job is, this says exactly what happened and when.
-           *  Plain-English labels, not the raw print_job_events.event_type
-           *  pipeline constants - see lib/job-event-labels.ts. */}
-          <ul className="flex flex-col gap-1.5 text-xs text-[var(--color-muted)]">
-            {eventRows.map((e) => {
-              const { Icon, label } = jobEventDisplay(e.event_type);
-              return (
-                <li key={e.id} className="flex items-center gap-2">
-                  <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                  <span className="text-[var(--color-text)]">{label}</span>
-                  <LocalTime iso={e.created_at} />
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
+        {eventRows.length > 0 && (
+          <Collapsible
+            id="job-history"
+            title="History"
+            icon={<History className="h-4 w-4" aria-hidden="true" />}
+            summary={`${eventRows.length} ${eventRows.length === 1 ? "step" : "steps"}${lastEvent ? ` · latest: ${lastEvent}` : ""}`}
+          >
+            {/* Detail under the step list, not instead of it: that says where the job is, this says exactly what
+             *  happened and when. Plain-English labels, not the raw print_job_events.event_type constants. */}
+            <ul className="flex flex-col gap-3 text-sm">
+              {eventRows.map((e) => {
+                const { Icon, label } = jobEventDisplay(e.event_type);
+                return (
+                  <li key={e.id} className="flex items-center gap-3">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-surface-2)] text-[var(--color-muted)]">
+                      <Icon className="h-4 w-4" aria-hidden />
+                    </span>
+                    <span className="min-w-0 flex-1 font-medium">{label}</span>
+                    <span className="shrink-0 text-xs text-[var(--color-muted)]">
+                      <LocalTime iso={e.created_at} />
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </Collapsible>
+        )}
+      </div>
     </main>
   );
 }

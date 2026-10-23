@@ -1,9 +1,9 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
-import { PageHeader } from "@/components/ui";
+import { ButtonLink, PageHeader } from "@/components/ui";
+import { Plus } from "lucide-react";
 import { JobsList } from "./JobsList";
 
 export default async function JobsPage() {
@@ -48,13 +48,14 @@ export default async function JobsPage() {
   }
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-10">
+    <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
       <PageHeader
         title="My jobs"
         action={
-          <Link href={routes.print} className="text-sm font-medium text-[var(--color-primary)]">
-            + New print job
-          </Link>
+          <ButtonLink href={routes.print} size="sm">
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            New print job
+          </ButtonLink>
         }
       />
       <JobsList initialJobs={jobRows} eventTypesByJob={eventTypesByJob} userId={session.userId} />

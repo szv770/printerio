@@ -1,4 +1,4 @@
-import { JOB_STAGE_LABELS, buildJobProgress, jobProgressPosition, type JobStageState } from "@/lib/job-progress";
+import { JOB_STAGE_LABELS, buildJobProgress, jobProgressPosition, type JobProgress, type JobStageState } from "@/lib/job-progress";
 
 const SEGMENT: Record<JobStageState, string> = {
   done: "bg-[var(--ink-c)]",
@@ -21,6 +21,8 @@ export function JobProgressBar({
   policyAction,
   eventTypes,
   isTestPrint,
+  progress: given,
+  large = false,
 }: {
   status: string;
   policyAction: string | null;
@@ -29,8 +31,12 @@ export function JobProgressBar({
   /** print_jobs.is_test_print - so the bar shows the print-rules stage as
    *  skipped, matching what actually happened to this job. */
   isTestPrint?: boolean;
+  /** Already-built progress (the detail page has the full inputs); otherwise it is built from the fields above. */
+  progress?: JobProgress;
+  /** The detail page bigger bar. */
+  large?: boolean;
 }) {
-  const progress = buildJobProgress({ status, policyAction, eventTypes, isTestPrint });
+  const progress = given ?? buildJobProgress({ status, policyAction, eventTypes, isTestPrint });
   const { step, total } = jobProgressPosition(progress);
   const stageLabel = JOB_STAGE_LABELS[progress.currentStageId];
   const label = progress.halted
@@ -41,12 +47,12 @@ export function JobProgressBar({
 
   return (
     <span className="flex flex-col gap-1.5" title={label}>
-      <span className="flex flex-1 gap-1 sm:max-w-56" aria-hidden>
+      <span className={large ? "flex flex-1 gap-1.5" : "flex flex-1 gap-1 sm:max-w-56"} aria-hidden>
         {progress.stages.map((stage) => (
-          <span key={stage.id} className={`h-1.5 flex-1 rounded-full ${SEGMENT[stage.state]}`} />
+          <span key={stage.id} className={`${large ? "h-2.5" : "h-1.5"} flex-1 rounded-full ${SEGMENT[stage.state]}`} />
         ))}
       </span>
-      <span className="text-xs text-[var(--color-muted)]">{label}</span>
+      <span className={large ? "sr-only" : "text-xs text-[var(--color-muted)]"}>{label}</span>
     </span>
   );
 }

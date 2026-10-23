@@ -1,9 +1,9 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState, startTransition } from "react";
-import { AlertTriangle, Minus, Plus, Printer } from "lucide-react";
+import { AlertTriangle, FileText, FileUp, ListOrdered, Minus, Palette, Paperclip, Plus, Printer, SlidersHorizontal } from "lucide-react";
 import { parsePageRange } from "@printio/shared";
-import { Button, Input, Select, FieldLabel, FormError, Card, Segmented } from "@/components/ui";
+import { Button, Card, Collapsible, FieldError, FieldLabel, FormError, Input, Segmented, Select, Spinner, StatusDot, Switch } from "@/components/ui";
 import { formatFileSize, precheckPdfHeader, precheckSelectedFile, shouldPreviewInBrowser } from "@/lib/pdf/client-precheck";
 import { renderPdfPageToCanvas } from "@/lib/pdf/render-page";
 import {
@@ -14,6 +14,7 @@ import {
   type SidesChoice,
   type StapleChoice,
 } from "@/lib/print-choices";
+import { liveSummaryLine, summarizeAdvanced, summarizeFinishing, summarizePages, summarizePaperColor } from "@/lib/print-form-summary";
 import { submitPrintJobAction, type SubmitJobState } from "./actions";
 import { createFileSnapshotCache, wrapSubmitAction } from "@/lib/print-submit";
 
@@ -133,6 +134,8 @@ export function PrintForm({
   const [booklet, setBooklet] = useState<BookletChoice>("none");
   const [copiesText, setCopiesText] = useState("1");
   const [pageRange, setPageRange] = useState("");
+  /** Presentation only: whether the "Some pages" box is showing. The text in pageRange is still what is submitted. */
+  const [pagesMode, setPagesMode] = useState<"all" | "range">("all");
   const [colorMode, setColorMode] = useState<"bw" | "color">("bw");
   const [paperSize, setPaperSize] = useState("letter");
   const [punch, setPunch] = useState(false);
@@ -336,8 +339,29 @@ export function PrintForm({
     }
   }
 
+  function resetChoices() {
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* storage unavailable - nothing to forget */
+    }
+    setSides("two");
+    setStaple("none");
+    setBooklet("none");
+    setCopiesText("1");
+    setColorMode("bw");
+    setPaperSize("letter");
+    setPunch(false);
+  }
+
+  const paperChoice = profile?.declaredPaperSizes.includes(paperSize) ? paperSize : (profile?.declaredPaperSizes[0] ?? "letter");
+  const showPaperColor = !isRaw;
+  const showPunch = !isRaw && caps.punch;
+  const liveLine = liveSummaryLine({ pages: selectedPages, copies, sides: effSides, staple: effStaple, booklet: effBooklet });
+  const barError = needsBookletConfirm ? null : (clientError ?? serverError);
+
   return (
-    <form ref={formRef} onSubmit={onSubmit} className="flex flex-col gap-5">
+    <form ref={formRef} onSubmit={onSubmit} className="flex flex-col gap-4">
       {needsBookletConfirm && (
         <div
           ref={bookletConfirmRef}
@@ -345,31 +369,32 @@ export function PrintForm({
           role="alertdialog"
           aria-labelledby="booklet-confirm-title"
           aria-describedby="booklet-confirm-body"
-          className="scroll-mt-4 rounded-2xl border-2 border-[var(--color-warning)] bg-yellow-50 p-4 text-sm shadow-md outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-warning)]"
+          className="scroll-mt-20 rounded-[var(--radius-card)] border-2 border-[var(--color-warning)] bg-[var(--color-warning-soft)] p-4 text-sm shadow-[var(--shadow-card)] outline-none focus-visible:shadow-[var(--ring)] sm:p-5"
         >
-          <p id="booklet-confirm-title" className="text-base font-semibold">
-            Question before printing: your booklet needs blank pages
+          <p id="booklet-confirm-title" className="text-lg font-semibold leading-6">
+            Your booklet needs blank pages
           </p>
-          <p id="booklet-confirm-body" className="mt-1">
+          <p id="booklet-confirm-body" className="mt-1.5 text-[15px] leading-6">
             Your document has {needsBookletConfirm.sourcePages} {needsBookletConfirm.sourcePages === 1 ? "page" : "pages"}, and a booklet needs a multiple
             of 4. Add {needsBookletConfirm.blankPagesAdded} blank {needsBookletConfirm.blankPagesAdded === 1 ? "page" : "pages"} at the end to make{" "}
             {needsBookletConfirm.paddedPages}?
           </p>
-          <ul className="mt-2 list-disc pl-5 text-[var(--color-muted)]">
+          <ul className="mt-2 list-disc pl-5 text-[var(--color-text-2)]">
             <li>
-              <strong className="text-[var(--color-text)]">Add blank pages and print</strong> - sends the job now with the blank{" "}
+              <strong className="text-[var(--color-text)]">Add blank pages and print</strong> sends the job now with the blank{" "}
               {needsBookletConfirm.blankPagesAdded === 1 ? "page" : "pages"} at the back.
             </li>
             <li>
-              <strong className="text-[var(--color-text)]">Cancel booklet</strong> - prints nothing and switches the booklet option off, so you can change
+              <strong className="text-[var(--color-text)]">Cancel booklet</strong> prints nothing and switches the booklet option off, so you can change
               your choices.
             </li>
           </ul>
           <FormError message={clientError ?? serverError} />
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap">
             <Button
               type="button"
               variant="outline"
+              size="lg"
               onClick={() => {
                 setBooklet("none");
                 setDismissedState(state);
@@ -381,20 +406,29 @@ export function PrintForm({
                 Enter in Copies/Pages submits nothing while this question is open (no submit button exists).
                 `pending` matters because this re-uploads the whole file: a double-tap would otherwise print the
                 booklet twice. */}
-            <Button type="button" pending={pending} pendingLabel="Submitting..." onClick={confirmBookletPadding}>
+            <Button type="button" size="lg" pending={pending} pendingLabel="Submitting..." onClick={confirmBookletPadding}>
               Add blank pages &amp; print
             </Button>
           </div>
-          <p className="mt-2 text-xs text-[var(--color-muted)]">
-            Your file and choices are kept. Take as long as you need - answering re-sends the file, and if that does not go through you can press the button
-            again.
+          <p className="mt-3 text-xs text-[var(--color-muted)]">
+            Your file and choices are kept. Take as long as you need. Answering sends the file again, and if that does not go through you can press the
+            button again.
           </p>
         </div>
       )}
 
-      <Card className="flex flex-col gap-3">
-        <FieldLabel htmlFor="file">Document</FieldLabel>
-        <div className="flex items-start gap-4" data-tour="print-file-picker">
+      {/* 1. The file: the biggest thing on the page. The real input covers the whole card (invisible), so tapping,
+          keyboard and dragging a file onto it all work natively. */}
+      <div data-tour="print-file-picker">
+        <div
+          className={`relative flex items-center gap-4 rounded-[var(--radius-card)] border-2 border-dashed p-5 transition-colors focus-within:shadow-[var(--ring)] ${
+            fileError
+              ? "border-[var(--color-danger)] bg-[var(--color-danger-soft)]"
+              : fileName
+                ? "border-[var(--color-primary)]/40 bg-[var(--color-surface)]"
+                : "border-[var(--color-border-strong)] bg-[var(--color-surface)] hover:border-[var(--color-primary)] hover:bg-[var(--color-primary-soft)]/50"
+          } ${fileName ? "min-h-28 text-left" : "min-h-40 flex-col items-center justify-center text-center sm:min-h-44"}`}
+        >
           <input
             id="file"
             type="file"
@@ -402,92 +436,156 @@ export function PrintForm({
             accept="application/pdf"
             required
             onChange={onFileChange}
-            className="block w-full min-w-0 rounded-xl border border-dashed border-[var(--color-border)] bg-[var(--color-bg)] p-3 text-sm file:mr-3 file:min-h-11 file:cursor-pointer file:rounded-lg file:border-0 file:bg-[var(--color-primary)] file:px-4 file:py-2 file:text-sm file:font-medium file:text-[var(--color-primary-fg)]"
+            aria-label="Choose a PDF to print"
+            aria-describedby={fileError ? "file-error" : undefined}
+            aria-invalid={!!fileError || undefined}
+            className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
           />
           {/* Canvas always mounted (just hidden when empty) so its ref is available the moment a file is chosen - no
            *  render-order race with the async thumbnail draw. */}
           <div
-            className="flex h-24 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--color-border)] bg-gray-50"
+            className="flex h-24 w-[4.5rem] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] shadow-[var(--shadow-xs)]"
             data-tour="print-preview"
             hidden={!fileName}
           >
-            {thumbnailLoading && <span className="text-xs text-[var(--color-muted)]">…</span>}
+            {thumbnailLoading && <Spinner />}
             <canvas ref={canvasRef} className="max-h-full max-w-full" hidden={!thumbnailReady} />
             {!thumbnailLoading && !thumbnailReady && fileName && (
-              <span className="px-1 text-center text-[10px] text-[var(--color-muted)]">No preview</span>
+              <FileText className="h-6 w-6 text-[var(--color-faint)]" aria-hidden="true" />
             )}
           </div>
-        </div>
-        {fileError && <p className="text-sm text-[var(--color-danger)]">{fileError}</p>}
-        {!fileError && estimatedPages !== null && (
-          <p className="text-xs text-[var(--color-muted)]">
-            {estimatedPages} {estimatedPages === 1 ? "page" : "pages"}
-            {fileSizeLabel ? ` · ${fileSizeLabel}` : ""}
-          </p>
-        )}
-        {!fileError && previewSkipped && (
-          <p className="text-xs text-[var(--color-muted)]">
-            {fileSizeLabel ? `${fileSizeLabel} · ` : ""}too large to preview here - it will still upload and print
-            normally, and the page count is confirmed after you submit.
-          </p>
-        )}
-      </Card>
-
-      {/* Always rendered (the tour points at it), but it only asks for a choice when there is one to make. */}
-      <fieldset className="flex flex-col gap-2" data-tour="print-printer-fieldset">
-        <legend className="mb-1 text-sm font-medium">Printer</legend>
-        {!hasPrinters && (
-          <div className="flex items-start gap-2 rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-3 text-sm">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-warning)]" />
-            <span>
-              No printer is connected yet. You can still pick a file and set everything up below - printing isn&apos;t
-              possible until an administrator adds one under Admin &rarr; Printers.
-            </span>
-          </div>
-        )}
-        {printerProfiles.length === 1 && profile && (
-          <>
-            <input type="hidden" name="printerProfileId" value={profile.id} />
-            <div className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-sm">
-              <Printer className="h-5 w-5 shrink-0 text-[var(--color-muted)]" aria-hidden />
-              <span className="flex min-w-0 flex-col">
-                <span className="truncate font-medium">{profile.label}</span>
-                {profile.description && <span className="text-xs text-[var(--color-muted)]">{profile.description}</span>}
+          {fileName ? (
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-base font-semibold leading-6">{fileName}</p>
+              {!fileError && estimatedPages !== null && (
+                <p className="text-sm text-[var(--color-muted)]">
+                  {estimatedPages} {estimatedPages === 1 ? "page" : "pages"}
+                  {fileSizeLabel ? ` · ${fileSizeLabel}` : ""}
+                </p>
+              )}
+              {!fileError && previewSkipped && (
+                <p className="text-sm text-[var(--color-muted)]">
+                  {fileSizeLabel ? `${fileSizeLabel} · ` : ""}Too large to preview. It will still print, and the page count is confirmed after you press
+                  Print.
+                </p>
+              )}
+              <p className="mt-1 text-sm font-medium text-[var(--color-primary)]">Choose a different file</p>
+            </div>
+          ) : (
+            <>
+              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--color-primary-soft)] text-[var(--color-primary)]">
+                <FileUp className="h-7 w-7" aria-hidden="true" />
               </span>
-              <span className={`ml-auto shrink-0 text-xs ${profile.printerOnline ? "text-[var(--color-success)]" : "text-[var(--color-muted)]"}`}>
-                {profile.printerOnline ? "Ready" : "Offline"}
+              <div>
+                <p className="text-lg font-semibold leading-6">{fileError ? "Choose another PDF" : "Choose a PDF"}</p>
+                <p className="mt-0.5 text-sm text-[var(--color-muted)]">Tap here, or drop a file. Up to {formatFileSize(maxUploadBytes)}.</p>
+              </div>
+            </>
+          )}
+        </div>
+        {fileError && (
+          <p id="file-error" role="alert" className="mt-2 flex items-start gap-1.5 text-sm text-[var(--color-danger)]">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <span>{fileError}</span>
+          </p>
+        )}
+      </div>
+
+      {/* 2. The basics: printer (only a choice when there is one), copies, sides. Everything else is one level down. */}
+      <Card className="flex flex-col gap-5" data-tour="print-options">
+        {/* Always rendered (the tour points at it), but it only asks for a choice when there is one to make. */}
+        <fieldset className="flex min-w-0 flex-col gap-2" data-tour="print-printer-fieldset">
+          <legend className="mb-1.5 text-sm font-medium">Printer</legend>
+          {!hasPrinters && (
+            <div className="flex items-start gap-2 rounded-xl bg-[var(--color-warning-soft)] p-3 text-sm text-[var(--color-warning-ink)]">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>
+                No printer is connected yet. You can still choose a file and set things up. Printing starts once an administrator adds a printer.
               </span>
             </div>
-          </>
-        )}
-        {printerProfiles.length > 1 &&
-          printerProfiles.map((p) => (
-            <label
-              key={p.id}
-              className={`flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border p-3 text-sm ${
-                profile?.id === p.id ? "border-[var(--color-primary)] bg-[var(--color-primary)]/5" : "border-[var(--color-border)]"
-              }`}
-            >
-              <input
-                type="radio"
-                name="printerProfileId"
-                value={p.id}
-                checked={profile?.id === p.id}
-                onChange={() => setProfileId(p.id)}
-                className="mt-0.5"
-              />
-              <span className="flex flex-col">
-                <span className="font-medium">
-                  {p.label}
-                  {!p.printerOnline ? " (offline)" : ""}
+          )}
+          {printerProfiles.length === 1 && profile && (
+            <>
+              <input type="hidden" name="printerProfileId" value={profile.id} />
+              <div className="flex items-center gap-3 rounded-xl bg-[var(--color-surface-2)] p-3 text-sm">
+                <Printer className="h-5 w-5 shrink-0 text-[var(--color-muted)]" aria-hidden="true" />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate font-medium">{profile.label}</span>
+                  {profile.description && <span className="truncate text-xs text-[var(--color-muted)]">{profile.description}</span>}
                 </span>
-                {p.description && <span className="text-xs text-[var(--color-muted)]">{p.description}</span>}
-              </span>
-            </label>
-          ))}
-      </fieldset>
+                <StatusDot tone={profile.printerOnline ? "success" : "neutral"}>{profile.printerOnline ? "Ready" : "Offline"}</StatusDot>
+              </div>
+            </>
+          )}
+          {printerProfiles.length > 1 &&
+            printerProfiles.map((p) => (
+              <label
+                key={p.id}
+                className={`flex min-h-14 cursor-pointer items-center gap-3 rounded-xl border-2 p-3 text-sm transition-colors has-[:focus-visible]:shadow-[var(--ring)] ${
+                  profile?.id === p.id
+                    ? "border-[var(--color-primary)] bg-[var(--color-primary-soft)]/60"
+                    : "border-[var(--color-border)] hover:border-[var(--color-border-strong)]"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="printerProfileId"
+                  value={p.id}
+                  checked={profile?.id === p.id}
+                  onChange={() => setProfileId(p.id)}
+                  className="h-5 w-5 shrink-0 accent-[var(--color-primary)]"
+                />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="font-medium">{p.label}</span>
+                  {p.description && <span className="text-xs text-[var(--color-muted)]">{p.description}</span>}
+                </span>
+                <StatusDot tone={p.printerOnline ? "success" : "neutral"}>{p.printerOnline ? "Ready" : "Offline"}</StatusDot>
+              </label>
+            ))}
+        </fieldset>
 
-      <Card className="flex flex-col gap-5" data-tour="print-options">
+        <div>
+          <FieldLabel htmlFor="copies">Copies</FieldLabel>
+          <div className="flex items-stretch gap-2">
+            <button
+              type="button"
+              aria-label="Fewer copies"
+              disabled={!copiesValid || copies <= 1}
+              onClick={() => setCopiesText(String(clampCopies(copies - 1)))}
+              className={STEPPER_BUTTON}
+            >
+              <Minus className="h-5 w-5" aria-hidden="true" />
+            </button>
+            <Input
+              id="copies"
+              name="copies"
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              value={copiesText}
+              invalid={!copiesValid}
+              aria-describedby={copiesValid ? undefined : "copies-error"}
+              onChange={(e) => setCopiesText(e.target.value)}
+              onBlur={() => copiesValid && setCopiesText(String(copies))}
+              className="!min-h-12 text-center text-xl font-semibold tabular-nums"
+            />
+            <button
+              type="button"
+              aria-label="More copies"
+              disabled={copiesValid && copies >= MAX_COPIES}
+              onClick={() => setCopiesText(String(clampCopies(copies + 1)))}
+              className={STEPPER_BUTTON}
+            >
+              <Plus className="h-5 w-5" aria-hidden="true" />
+            </button>
+          </div>
+          {!copiesValid && (
+            <div id="copies-error">
+              <FieldError message={`Enter a number from 1 to ${MAX_COPIES}.`} />
+            </div>
+          )}
+        </div>
+
         <Segmented<SidesChoice>
           name="sides"
           label="Sides"
@@ -497,202 +595,224 @@ export function PrintForm({
             { value: "one", label: "Single-sided", disabledReason: avail.sidesLocked ? "A booklet is always double-sided." : null },
             { value: "two", label: "Double-sided", disabledReason: caps.duplex ? null : "This printer can't print double-sided." },
           ]}
-          hint={avail.sidesLocked ? "A booklet is always double-sided." : !caps.duplex ? "This printer prints single-sided only." : undefined}
-        />
-
-        <Segmented<StapleChoice>
-          name="staple"
-          label="Staple"
-          value={effStaple}
-          onChange={setStaple}
-          disabled={!!avail.stapleDisabledReason}
-          options={
-            isRaw
-              ? [
-                  { value: "none", label: "None" },
-                  { value: "top-left", label: "Top-left" },
-                  { value: "top-right", label: "Top-right" },
-                ]
-              : [
-                  { value: "none", label: "None" },
-                  { value: "top-left", label: "Staple" },
-                ]
-          }
-          hint={avail.stapleDisabledReason ?? undefined}
-        />
-
-        <Segmented<BookletChoice>
-          name="booklet"
-          label="Booklet"
-          value={effBooklet}
-          onChange={setBooklet}
-          disabled={!!avail.bookletDisabledReason}
-          options={[
-            { value: "none", label: "None" },
-            { value: "left", label: "Left edge" },
-            { value: "right", label: "Right edge" },
-          ]}
           hint={
-            avail.bookletDisabledReason ??
-            (effBooklet === "none"
-              ? "Folds and staples the pages into a booklet. Left edge reads left-to-right; right edge is for right-to-left languages such as Hebrew."
-              : effBooklet === "left"
-                ? "Bound on the left edge, like an English book."
-                : "Bound on the right edge, like a Hebrew book.")
+            avail.sidesLocked
+              ? "A booklet is always double-sided."
+              : !caps.duplex
+                ? "This printer prints single-sided only."
+                : effSides === "two"
+                  ? "Long edge: pages flip like a book."
+                  : undefined
           }
         />
-
-        {!isRaw && (
-          <>
-            <Segmented<"bw" | "color">
-              name="colorMode"
-              label="Colour"
-              value={caps.color ? colorMode : "bw"}
-              onChange={setColorMode}
-              options={[
-                { value: "bw", label: "Black & white" },
-                { value: "color", label: "Colour", disabledReason: caps.color ? null : "This printer can't print in colour." },
-              ]}
-            />
-            <div>
-              <FieldLabel htmlFor="paperSize">Paper size</FieldLabel>
-              <Select
-                id="paperSize"
-                name="paperSize"
-                value={profile?.declaredPaperSizes.includes(paperSize) ? paperSize : (profile?.declaredPaperSizes[0] ?? "letter")}
-                onChange={(e) => setPaperSize(e.target.value)}
-                className="min-h-11"
-              >
-                {(profile?.declaredPaperSizes.length ? profile.declaredPaperSizes : ["letter"]).map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            {caps.punch && (
-              <label className="flex min-h-11 items-center gap-3 text-sm font-medium">
-                <input type="checkbox" name="punch" checked={punch} onChange={(e) => setPunch(e.target.checked)} className="h-5 w-5" />
-                Hole punch
-              </label>
-            )}
-          </>
-        )}
-
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-          <div>
-            <FieldLabel htmlFor="copies">Copies</FieldLabel>
-            <div className="flex items-stretch gap-2">
-              <button
-                type="button"
-                aria-label="Fewer copies"
-                disabled={!copiesValid || copies <= 1}
-                onClick={() => setCopiesText(String(clampCopies(copies - 1)))}
-                className="flex min-h-11 w-11 items-center justify-center rounded-lg border border-[var(--color-border)] hover:bg-[var(--color-bg)] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Minus className="h-4 w-4" />
-              </button>
-              <Input
-                id="copies"
-                name="copies"
-                type="text"
-                inputMode="numeric"
-                autoComplete="off"
-                value={copiesText}
-                aria-invalid={!copiesValid}
-                aria-describedby={copiesValid ? undefined : "copies-error"}
-                onChange={(e) => setCopiesText(e.target.value)}
-                onBlur={() => copiesValid && setCopiesText(String(copies))}
-                className="min-h-11 text-center"
-              />
-              <button
-                type="button"
-                aria-label="More copies"
-                disabled={copiesValid && copies >= MAX_COPIES}
-                onClick={() => setCopiesText(String(clampCopies(copies + 1)))}
-                className="flex min-h-11 w-11 items-center justify-center rounded-lg border border-[var(--color-border)] hover:bg-[var(--color-bg)] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Plus className="h-4 w-4" />
-              </button>
-            </div>
-            {!copiesValid && (
-              <p id="copies-error" className="mt-1.5 text-xs text-[var(--color-danger)]">
-                Enter a number from 1 to {MAX_COPIES}.
-              </p>
-            )}
-          </div>
-
-          <div>
-            <FieldLabel htmlFor="pageRange" hint="(optional)">
-              Pages
-            </FieldLabel>
-            <Input
-              id="pageRange"
-              name="pageRange"
-              type="text"
-              autoComplete="off"
-              placeholder="All pages, or e.g. 1-5, 8"
-              value={pageRange}
-              aria-invalid={!!rangeError}
-              aria-describedby={rangeError ? "pageRange-error" : undefined}
-              onChange={(e) => setPageRange(e.target.value)}
-              className="min-h-11"
-            />
-            {rangeError ? (
-              <p id="pageRange-error" className="mt-1.5 text-xs text-[var(--color-danger)]">
-                {rangeError}
-              </p>
-            ) : (
-              <p className="mt-1.5 text-xs text-[var(--color-muted)]">Leave empty to print the whole document.</p>
-            )}
-          </div>
-        </div>
       </Card>
 
-      {/* Summary + submit stay in view at the bottom of a phone screen while the options above are changed. */}
-      <div className="sticky bottom-3 z-10 flex flex-col gap-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]/95 p-4 shadow-lg backdrop-blur">
-        <div aria-live="polite">
-          {summary ? (
-            <>
-              <p className="text-2xl font-semibold leading-tight">
-                {summary.sheets} {summary.sheets === 1 ? "sheet" : "sheets"}
-              </p>
-              <p className="mt-0.5 text-sm text-[var(--color-muted)]">{summary.text}</p>
-              {summary.blankPagesAdded > 0 && (
-                <p className="mt-0.5 text-xs text-[var(--color-muted)]">
-                  Includes {summary.blankPagesAdded} blank {summary.blankPagesAdded === 1 ? "page" : "pages"} to fill the booklet.
-                </p>
-              )}
-              <p className="mt-1 text-xs text-[var(--color-muted)]">
-                Final page count and any approval needed are confirmed after you submit.
-              </p>
-            </>
+      {/* 3. One level down. Every section starts closed and says in one line what it is set to. */}
+      <div className="flex flex-col gap-3">
+        <Collapsible
+          id="print-pages"
+          title="Pages"
+          icon={<ListOrdered className="h-4 w-4" aria-hidden="true" />}
+          summary={rangeError ? <span className="text-[var(--color-danger)]">{rangeError}</span> : summarizePages(rangeText, estimatedPages, selectedPages)}
+          forceOpen={!!rangeError}
+        >
+          <div className="flex flex-col gap-4">
+            <Segmented<"all" | "range">
+              label="Which pages?"
+              value={pagesMode === "all" && !rangeText ? "all" : "range"}
+              onChange={(next) => {
+                setPagesMode(next);
+                if (next === "all") setPageRange("");
+              }}
+              options={[
+                { value: "all", label: "All pages" },
+                { value: "range", label: "Some pages" },
+              ]}
+            />
+            {!(pagesMode === "range" || rangeText) && <input type="hidden" name="pageRange" value="" />}
+            {(pagesMode === "range" || rangeText) && (
+              <div>
+                <FieldLabel htmlFor="pageRange">Pages to print</FieldLabel>
+                <Input
+                  id="pageRange"
+                  name="pageRange"
+                  type="text"
+                  autoComplete="off"
+                  placeholder="For example 1-5, 8"
+                  value={pageRange}
+                  invalid={!!rangeError}
+                  aria-describedby={rangeError ? "pageRange-error" : "pageRange-help"}
+                  onChange={(e) => setPageRange(e.target.value)}
+                />
+                {rangeError ? (
+                  <div id="pageRange-error">
+                    <FieldError message={rangeError} />
+                  </div>
+                ) : (
+                  <p id="pageRange-help" className="mt-1.5 text-[13px] text-[var(--color-muted)]">
+                    Use commas and dashes. {estimatedPages ? `This file has ${estimatedPages} pages.` : ""}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </Collapsible>
+
+        <Collapsible
+          id="print-finishing"
+          title="Finishing"
+          icon={<Paperclip className="h-4 w-4" aria-hidden="true" />}
+          summary={summarizeFinishing({ staple: effStaple, booklet: effBooklet })}
+        >
+          <div className="flex flex-col gap-5">
+            <Segmented<StapleChoice>
+              name="staple"
+              label="Staple"
+              value={effStaple}
+              onChange={setStaple}
+              disabled={!!avail.stapleDisabledReason}
+              options={
+                isRaw
+                  ? [
+                      { value: "none", label: "None" },
+                      { value: "top-left", label: "Top-left" },
+                      { value: "top-right", label: "Top-right" },
+                    ]
+                  : [
+                      { value: "none", label: "None" },
+                      { value: "top-left", label: "Staple" },
+                    ]
+              }
+              hint={avail.stapleDisabledReason ?? undefined}
+            />
+            <Segmented<BookletChoice>
+              name="booklet"
+              label="Booklet"
+              value={effBooklet}
+              onChange={setBooklet}
+              disabled={!!avail.bookletDisabledReason}
+              options={[
+                { value: "none", label: "None" },
+                { value: "left", label: "Left edge" },
+                { value: "right", label: "Right edge" },
+              ]}
+              hint={
+                avail.bookletDisabledReason ??
+                (effBooklet === "none"
+                  ? "Folds and staples the pages into a booklet. Left edge reads left to right. Right edge is for right-to-left languages such as Hebrew."
+                  : effBooklet === "left"
+                    ? "Bound on the left edge, like an English book."
+                    : "Bound on the right edge, like a Hebrew book.")
+              }
+            />
+          </div>
+        </Collapsible>
+
+        {showPaperColor && (
+          <Collapsible
+            id="print-paper"
+            title="Paper & color"
+            icon={<Palette className="h-4 w-4" aria-hidden="true" />}
+            summary={summarizePaperColor({ colorMode: caps.color ? colorMode : "bw", paperSize: paperChoice })}
+          >
+            <div className="flex flex-col gap-5">
+              <Segmented<"bw" | "color">
+                name="colorMode"
+                label="Color"
+                value={caps.color ? colorMode : "bw"}
+                onChange={setColorMode}
+                options={[
+                  { value: "bw", label: "Black & white" },
+                  { value: "color", label: "Color", disabledReason: caps.color ? null : "This printer can't print in color." },
+                ]}
+              />
+              <div>
+                <FieldLabel htmlFor="paperSize">Paper size</FieldLabel>
+                <Select id="paperSize" name="paperSize" value={paperChoice} onChange={(e) => setPaperSize(e.target.value)}>
+                  {(profile?.declaredPaperSizes.length ? profile.declaredPaperSizes : ["letter"]).map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+          </Collapsible>
+        )}
+
+        <Collapsible
+          id="print-advanced"
+          title="Advanced"
+          icon={<SlidersHorizontal className="h-4 w-4" aria-hidden="true" />}
+          summary={summarizeAdvanced({ punchAvailable: showPunch, punch })}
+        >
+          <div className="flex flex-col gap-4">
+            {showPunch && (
+              <Switch name="punch" label="Hole punch" description="Punches holes along the left edge." checked={punch} onChange={(e) => setPunch(e.target.checked)} />
+            )}
+            <div>
+              <p className="mb-2 text-[13px] text-[var(--color-muted)]">This page remembers your last choices on this device. Forget them to start fresh.</p>
+              <Button type="button" variant="secondary" size="sm" onClick={resetChoices}>
+                Forget my saved choices
+              </Button>
+            </div>
+          </div>
+        </Collapsible>
+      </div>
+
+      {/* 4. The action bar. On a phone it floats just above the tab bar (--sticky-bottom, set by the member shell);
+          from sm up it is a card that sticks to the bottom of the window. */}
+      <div className="sticky bottom-[var(--sticky-bottom,0.75rem)] z-30 -mx-1 rounded-[1.25rem] border border-[var(--color-border)] bg-[var(--color-surface)]/95 p-3 shadow-[var(--shadow-pop)] backdrop-blur sm:static sm:mx-0 sm:p-4 sm:shadow-[var(--shadow-card)]">
+        <div aria-live="polite" className="flex items-baseline justify-between gap-3">
+          {fileName || estimatedPages ? (
+            <p className="min-w-0 text-sm font-medium leading-5 text-[var(--color-text)]">{liveLine}</p>
           ) : (
-            <p className="text-sm text-[var(--color-muted)]">
-              {rangeText && !estimatedPages
-                ? "The page count is confirmed after you submit."
-                : "Choose a document to see how many sheets this will use."}
+            <p className="text-sm text-[var(--color-muted)]">Choose a PDF to get started.</p>
+          )}
+          {summary && (
+            <p className="shrink-0 text-sm tabular-nums text-[var(--color-muted)]">
+              {summary.sheets} {summary.sheets === 1 ? "sheet" : "sheets"}
             </p>
           )}
         </div>
+        {summary && summary.blankPagesAdded > 0 && (
+          <p className="mt-0.5 text-xs text-[var(--color-muted)]">
+            Includes {summary.blankPagesAdded} blank {summary.blankPagesAdded === 1 ? "page" : "pages"} to fill the booklet.
+          </p>
+        )}
+        {!summary && fileName && rangeText && !estimatedPages && (
+          <p className="mt-0.5 text-xs text-[var(--color-muted)]">The page count is confirmed after you press Print.</p>
+        )}
 
-        {!needsBookletConfirm && <FormError message={clientError ?? serverError} />}
-        {needsBookletConfirm && <p className="text-sm font-medium">Answer the question at the top of the form to continue.</p>}
-
-        {!needsBookletConfirm && (
+        {barError && (
+          <div className="mt-2">
+            <FormError message={barError} />
+          </div>
+        )}
+        {needsBookletConfirm ? (
+          <p className="mt-2 text-sm font-medium">Answer the question at the top of the page to continue.</p>
+        ) : (
           <Button
             type="submit"
+            size="lg"
             data-tour="print-submit-button"
             pending={pending}
             pendingLabel="Sending..."
-            disabled={!canSubmit}
-            className="w-full min-h-12"
-            title={hasPrinters ? undefined : "No printer is connected yet - see the notice above."}
+            disabled={!canSubmit || !fileName}
+            className="mt-3 min-h-14 w-full text-lg font-semibold"
+            title={hasPrinters ? undefined : "No printer is connected yet."}
           >
+            <Printer className="h-5 w-5" aria-hidden="true" />
             Print
           </Button>
+        )}
+        {!needsBookletConfirm && summary && (
+          <p className="mt-2 hidden text-center text-xs text-[var(--color-faint)] sm:block">Sheets and any approval needed are confirmed after you press Print.</p>
         )}
       </div>
     </form>
   );
 }
+
+const STEPPER_BUTTON =
+  "flex min-h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[var(--color-text)] shadow-[var(--shadow-xs)] transition-colors hover:bg-[var(--color-surface-2)] focus-visible:outline-none focus-visible:shadow-[var(--ring)] active:bg-[var(--color-surface-2)] disabled:cursor-not-allowed disabled:opacity-45";
