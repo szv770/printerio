@@ -1,6 +1,7 @@
 import { AdminFrame } from "@/components/shell/AdminFrame";
 import { MemberHeader } from "@/components/shell/MemberHeader";
 import { ButtonLink, PageHeader } from "@/components/ui";
+import { InstallCard } from "@/components/pwa/InstallCard";
 import { BigPrintCard } from "@/components/home/BigPrintCard";
 import { NeedsAttention } from "@/components/home/NeedsAttention";
 import { RightNow } from "@/components/home/RightNow";
@@ -88,6 +89,7 @@ export function TeacherHomeSection({ variant = "quota" }: { variant?: "quota" | 
         <div className="mb-5">
           <BigPrintCard hint="Upload a PDF and choose your options." />
         </div>
+        <InstallCard />
         <StatusCards cards={cards} />
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-bold tracking-[-0.01em]">Your last jobs</h2>

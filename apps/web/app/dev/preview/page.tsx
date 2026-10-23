@@ -4,6 +4,7 @@ import { GroupsPreview, InvitesPreview, PrintersPreview, ServerDetailPreview, Se
 import { ActivityPreview, AllJobsPreview, ApprovalsPreview, FilesPreview, LimitsPreview, ReportsPreview, RulesPreview } from "./admin-b";
 import { SetupWizard } from "@/app/admin/printers/setup/SetupWizard";
 import { JoinCard } from "@/app/join/JoinCard";
+import { PwaPreviewSection } from "./pwa";
 import { BookletPreviewSection } from "./booklet";
 import { AdminHomeSection, TeacherHomeSection } from "./homes";
 import {
@@ -37,6 +38,8 @@ export default async function PreviewPage({
       );
     case "join":
       return <JoinCard code="a1b2c3d4e5f6" orgName="Beth Rivkah" problem={variant} />;
+    case "pwa":
+      return <PwaPreviewSection variant={variant} />;
     case "booklet":
       return <BookletPreviewSection side={side === "right" ? "right" : "left"} />;
     case "print":

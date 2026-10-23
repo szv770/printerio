@@ -6,6 +6,8 @@ import { routes } from "@/lib/routes";
 import { ButtonLink } from "@/components/ui";
 import { firstName, jobMetaLine, quotaCard, statusCards, teacherEmptyText } from "@/lib/home/teacher-home";
 import { AutoRefresh } from "@/components/home/AutoRefresh";
+import { PendingShareBanner } from "@/components/pwa/PendingShareBanner";
+import { InstallCard } from "@/components/pwa/InstallCard";
 import { BigPrintCard } from "@/components/home/BigPrintCard";
 import { StatusCards } from "@/components/home/StatusCards";
 import { RecentJobs } from "@/components/home/RecentJobs";
@@ -93,6 +95,8 @@ export default async function DashboardHomePage() {
       <div className="mb-5">
         <BigPrintCard hint="Upload a PDF and choose your options." tourId="home-print-cta" />
       </div>
+      <PendingShareBanner where="home" />
+      <InstallCard />
       <StatusCards cards={cards} />
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-base font-bold tracking-[-0.01em]">Your last jobs</h2>

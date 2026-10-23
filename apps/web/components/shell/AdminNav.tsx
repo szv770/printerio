@@ -39,6 +39,7 @@ import {
   type NavItem,
 } from "@/lib/nav";
 import { Logo } from "./Logo";
+import { InstallCard } from "@/components/pwa/InstallCard";
 import { UserChip, type ShellUser } from "./UserChip";
 
 /**
@@ -173,6 +174,10 @@ export function AdminNav({
           <div className={`${ROW} text-[var(--color-text-2)] hover:bg-[var(--color-surface-2)] [&_button]:min-h-11 [&_button]:w-full [&_button]:text-sm [&_button]:font-medium md:[&_button]:min-h-10`}>
             <HelpMenu userId={userId} variant="admin" />
           </div>
+          <InstallCard
+            variant="row"
+            rowClassName={`${ROW} text-[var(--color-text-2)] hover:bg-[var(--color-surface-2)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]`}
+          />
           <UserChip user={user} />
         </div>
       </aside>

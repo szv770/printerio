@@ -6,6 +6,7 @@ import { Home, ListChecks, LogOut, PieChart, Printer, Smartphone, UserRound, X, 
 import { signOutAction } from "@/lib/auth/actions";
 import { routes } from "@/lib/routes";
 import { isActiveHref, TOUR_ANCHORS } from "@/lib/nav";
+import { InstallCard } from "@/components/pwa/InstallCard";
 import { UserChip, type ShellUser } from "./UserChip";
 
 interface Tab {
@@ -105,6 +106,9 @@ export function MemberTabBar({
               </Link>
             </li>
           ))}
+          <li>
+            <InstallCard variant="row" />
+          </li>
           <li>
             <form action={signOutAction}>
               <button
