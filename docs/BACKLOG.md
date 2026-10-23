@@ -106,3 +106,8 @@ LATER: email alerts (agent/printer offline), onboarding tour that really opens p
 - Booklet from the print dialog: the job is held and the member picks Left or Right in one tap.
 - Plain "staple" means top-left, but the owner mostly uses top-right. Bottom-left staple: not needed. Short-edge flip from the dialog stays held until tested.
 - The Raspberry Pi is retired.
+
+## Status: Batch 2 invites/devices PR (claude/batch2-invites)
+Done: invite share link (/join?code=..., code carried through the magic link via ?invite= and a 1h cookie, auto-redeemed in the auth callback), invite states (active/used up/expired) + copy link/code + turn off, join page, redeem rate limit (per user 10 and per IP 30 per 15 min via check_rate_limit, no migration; F13); Google button greyed "Coming soon"; "Activity log" everywhere + Show/Hide details; "All devices" + Add device (opens /devices?add=1), device type auto-detected from the browser, clearer Other/iPhone copy; setup wizard Cancel/Back; first_printed_at now set when a device's job completes.
+Untested on real devices: share sheet on Pixel/Windows, magic-link round trip with the invite (Supabase redirect allow-list must accept /auth/callback?invite=...; the cookie is the fallback but only works in the same browser), device type detection on real phones.
+Migration 0038 (back-fill of first_printed_at for old devices) is NOT applied to prod; apply by hand after merge.

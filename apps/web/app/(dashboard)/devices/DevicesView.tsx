@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Check, Copy, Laptop, Monitor, MonitorSmartphone, Plus, Smartphone, Tablet, TriangleAlert, type LucideIcon } from "lucide-react";
 import {
   Button,
@@ -53,6 +53,7 @@ const TYPE_OPTIONS: { value: string; label: string; Icon: LucideIcon }[] = [
   { value: "other", label: "Something else", Icon: MonitorSmartphone },
 ];
 
+const noopSubscribe = () => () => {};
 const NO_STEPS_TYPES = new Set(["iphone", "mac", "chromebook", "other"]);
 
 function DeviceTypeIcon({ type, className }: { type: string; className?: string }) {
@@ -115,13 +116,15 @@ function StepMarker({ step, title }: { step: 1 | 2; title: string }) {
 /** Form, then (after success) the one-time address. Unmounting it discards the address from memory. */
 function AddFlow({ onClose }: { onClose: () => void }) {
   const [state, formAction, pending] = useActionState(addDeviceAction, addInitial);
-  const [type, setType] = useState("windows");
-  const [guessed, setGuessed] = useState(false);
-  // Pre-select the type from this browser; the person can still change it.
-  useEffect(() => {
-    setType(detectDeviceType(navigator.userAgent, navigator.maxTouchPoints));
-    setGuessed(true);
-  }, []);
+  // Pre-select the type from this browser (server render and first paint use Windows); the person can still change it.
+  const guess = useSyncExternalStore(
+    noopSubscribe,
+    () => detectDeviceType(navigator.userAgent, navigator.maxTouchPoints),
+    () => "windows",
+  );
+  const [picked, setPicked] = useState<string | null>(null);
+  const type = picked ?? guess;
+  const guessed = picked === null;
   if (state.created) return <AddressCard created={state.created} onDone={onClose} />;
 
   return (
@@ -136,7 +139,7 @@ function AddFlow({ onClose }: { onClose: () => void }) {
                 key={o.value}
                 className="flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border-2 border-[var(--color-border)] p-3 text-sm font-medium transition-colors hover:border-[var(--color-border-strong)] has-[:checked]:border-[var(--color-primary)] has-[:checked]:bg-[var(--color-primary-soft)]/60 has-[:focus-visible]:shadow-[var(--ring)] has-[:disabled]:opacity-60"
               >
-                <input type="radio" name="deviceType" value={o.value} checked={type === o.value} onChange={() => setType(o.value)} className="sr-only" />
+                <input type="radio" name="deviceType" value={o.value} checked={type === o.value} onChange={() => setPicked(o.value)} className="sr-only" />
                 <o.Icon className="h-5 w-5 shrink-0 text-[var(--color-muted)]" aria-hidden="true" />
                 <span className="min-w-0">{o.label}</span>
               </label>
