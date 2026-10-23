@@ -31,7 +31,7 @@ export function sanitizePjlText(input: string): string {
 }
 
 export function buildPjlSettings(o: RawPrintOptions): PjlSettingsResult {
-  if (!Number.isInteger(o.copies) || o.copies < 1) {
+  if (!Number.isInteger(o.copies) || o.copies < 1 || o.copies > 999) {
     return { ok: false, reason: `invalid copies: ${o.copies}` };
   }
   const settings: string[] = [];

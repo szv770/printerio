@@ -69,6 +69,10 @@ export interface WebClientOptions {
   /** Finalize downloads, preflights and runs policy server-side, so it gets a longer timeout. */
   finalizeTimeoutMs?: number;
   cacheTtlMs?: number;
+  /** How long "unknown / revoked / inactive" answers are remembered (stops invented tokens costing a lookup each). */
+  negativeTtlMs?: number;
+  /** Upper bound on remembered tokens per cache (memory bound under a flood of invented tokens). */
+  maxCacheEntries?: number;
   fetchImpl?: typeof fetch;
   now?: () => number;
   onWarn?: (msg: string, fields?: Record<string, unknown>) => void;
@@ -77,6 +81,8 @@ export interface WebClientOptions {
 const DEFAULT_TIMEOUT = 10_000;
 const DEFAULT_FINALIZE_TIMEOUT = 60_000;
 const DEFAULT_CACHE_TTL = 60_000;
+const DEFAULT_NEGATIVE_TTL = 30_000;
+const DEFAULT_MAX_CACHE = 10_000;
 
 export function createWebClient(opts: WebClientOptions): WebApi {
   const f = opts.fetchImpl ?? fetch;
@@ -85,6 +91,17 @@ export function createWebClient(opts: WebClientOptions): WebApi {
   const warn = opts.onWarn ?? (() => {});
   const base = opts.baseUrl.replace(/\/+$/, "");
   const cache = new Map<string, { device: ResolvedDevice; expires: number }>();
+  const negTtl = opts.negativeTtlMs ?? DEFAULT_NEGATIVE_TTL;
+  const maxEntries = opts.maxCacheEntries ?? DEFAULT_MAX_CACHE;
+  const negative = new Map<string, { result: ResolveResult; expires: number }>();
+  const remember = <V>(m: Map<string, V>, k: string, v: V): void => {
+    while (m.size >= maxEntries) {
+      const oldest = m.keys().next().value;
+      if (oldest === undefined) break;
+      m.delete(oldest);
+    }
+    m.set(k, v);
+  };
 
   async function call(
     method: "GET" | "POST",
@@ -130,6 +147,9 @@ export function createWebClient(opts: WebClientOptions): WebApi {
       const hit = cache.get(tokenHash);
       if (hit && hit.expires > now()) return { kind: "ok", device: hit.device };
       cache.delete(tokenHash);
+      const neg = negative.get(tokenHash);
+      if (neg && neg.expires > now()) return neg.result;
+      negative.delete(tokenHash);
       const { status, json } = await call("POST", "/api/gateway/device/resolve", { tokenHash });
       if (status === 200) {
         const deviceId = str(json.deviceId);
@@ -137,11 +157,15 @@ export function createWebClient(opts: WebClientOptions): WebApi {
         const organizationId = str(json.organizationId);
         if (!deviceId || !userId || !organizationId) throw new WebUnavailableError("device/resolve returned an unexpected body");
         const device: ResolvedDevice = { deviceId, userId, organizationId, displayName: str(json.displayName) ?? "" };
-        cache.set(tokenHash, { device, expires: now() + ttl });
+        remember(cache, tokenHash, { device, expires: now() + ttl });
         return { kind: "ok", device };
       }
-      if (status === 403) return json.error === "inactive_member" ? { kind: "inactive_member" } : { kind: "revoked" };
-      if (status === 404) return { kind: "unknown" };
+      if (status === 403 || status === 404) {
+        const result: ResolveResult =
+          status === 404 ? { kind: "unknown" } : json.error === "inactive_member" ? { kind: "inactive_member" } : { kind: "revoked" };
+        remember(negative, tokenHash, { result, expires: now() + negTtl });
+        return result;
+      }
       throw new WebUnavailableError(`device/resolve answered ${status}`);
     },
 

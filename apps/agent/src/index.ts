@@ -10,7 +10,9 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config as loadDotEnv } from "dotenv";
+import { mkdirSync } from "node:fs";
 import { loadConfig } from "./config.js";
+import { restrictStorageAcl } from "./storage-acl.js";
 import { runStartupHousekeeping } from "./housekeeping.js";
 import { createLogger } from "./logger.js";
 import { CloudClient } from "./cloud-client.js";
@@ -72,6 +74,8 @@ async function runRegister(args: Record<string, string>): Promise<void> {
 
   const config = loadConfig();
   const logger = createLogger({ level: config.logLevel, logDir: path.join(config.localStoragePath, "logs") });
+  mkdirSync(config.localStoragePath, { recursive: true });
+  await restrictStorageAcl(config.localStoragePath, logger);
   const cloudClient = new CloudClient({ apiUrl: config.apiUrl, logger });
 
   try {
@@ -96,6 +100,8 @@ async function runRegister(args: Record<string, string>): Promise<void> {
 async function runStart(): Promise<void> {
   const config = loadConfig();
   const logger = createLogger({ level: config.logLevel, logDir: path.join(config.localStoragePath, "logs") });
+  mkdirSync(config.localStoragePath, { recursive: true });
+  await restrictStorageAcl(config.localStoragePath, logger);
 
   // Verify the dependencies the Agent cannot do its job without BEFORE it
   // starts polling for work - see dependency-check.ts for why this runs here

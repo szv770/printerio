@@ -3,6 +3,7 @@ import { generateDeviceToken, hashDeviceToken, deviceHostname } from "@printio/s
 import type { JobState } from "@printio/shared";
 import { createGatewayServer } from "../src/server.js";
 import { JobRegistry } from "../src/job-registry.js";
+import type { ServerLimits } from "../src/request-limits.js";
 import { UploadGuard } from "../src/upload-guard.js";
 import { silentLogger, type Logger } from "../src/logger.js";
 import {
@@ -145,7 +146,10 @@ export interface HttpResult {
 }
 
 export async function startHarness(
-  over: { maxBodyBytes?: number; now?: () => number; logger?: Logger; guard?: { maxInflightBytes?: number; maxPerKey?: number } } = {},
+  over: { maxBodyBytes?: number; now?: () => number; logger?: Logger; guard?: { maxInflightBytes?: number; maxPerKey?: number };
+    limits?: Partial<ServerLimits>;
+    trustedProxies?: readonly string[];
+  } = {},
 ): Promise<Harness> {
   const web = new FakeWeb();
   const storage = new FakeStorage();
@@ -159,6 +163,8 @@ export async function startHarness(
     baseDomain: BASE_DOMAIN,
     maxBodyBytes: over.maxBodyBytes ?? 1024 * 1024,
     guard,
+    limits: over.limits,
+    trustedProxies: over.trustedProxies,
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const port = (server.address() as { port: number }).port;

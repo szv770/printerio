@@ -24,6 +24,8 @@ on:
   # deploying, without waiting for the next scheduled tick.
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
   sweep:
     runs-on: ubuntu-latest
