@@ -194,6 +194,7 @@ export function DevicesPreview({ shell, variant }: { shell?: string; variant?: s
         ) : (
           <>
             {variant === "feedback" && <SetupFeedbackCard devices={[{ id: "d2", name: "Classroom laptop", device_type: "windows" }]} />}
+            {variant === "feedback-mac" && <SetupFeedbackCard devices={[{ id: "d9", name: "My MacBook", device_type: "mac" }]} />}
             <DevicesView devices={variant === "empty" ? [] : DEVICES} />
           </>
         )}

@@ -20,16 +20,32 @@ export interface FeedbackCardItem {
  * One device at a time; answering removes it. Yes is one tap; "Something was wrong" asks for a short note.
  */
 export function SetupFeedbackCard({ devices }: { devices: FeedbackCardItem[] }) {
-  const [answered, setAnswered] = useState<Set<string>>(new Set());
-  const next = devices.find((d) => !answered.has(d.id));
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  // Once shown, a device stays in this card until the person presses Close: answering revalidates the page, which
+  // drops the device from `devices`, and the thank-you message must not vanish with it.
+  const [current, setCurrent] = useState<FeedbackCardItem | null>(null);
+  const next = current ?? devices.find((d) => !dismissed.has(d.id)) ?? null;
   if (!next) return null;
-  return <FeedbackForm key={next.id} device={next} onAnswered={(id) => setAnswered((s) => new Set(s).add(id))} />;
+  return (
+    <FeedbackForm
+      key={next.id}
+      device={next}
+      onShown={() => setCurrent((c) => c ?? next)}
+      onAnswered={(id) => {
+        setDismissed((s) => new Set(s).add(id));
+        setCurrent(null);
+      }}
+    />
+  );
 }
 
-function FeedbackForm({ device, onAnswered }: { device: FeedbackCardItem; onAnswered: (id: string) => void }) {
+function FeedbackForm({ device, onShown, onAnswered }: { device: FeedbackCardItem; onShown: () => void; onAnswered: (id: string) => void }) {
   const [state, formAction, pending] = useActionState(submitSetupFeedbackAction, initial);
   const [describing, setDescribing] = useState(false);
   const doneRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    onShown();
+  }, [onShown]);
   useEffect(() => {
     if (state.answeredId) doneRef.current?.focus();
   }, [state.answeredId]);
@@ -68,6 +84,26 @@ function FeedbackForm({ device, onAnswered }: { device: FeedbackCardItem; onAnsw
             </p>
           </div>
         </div>
+
+        {device.device_type === "mac" && (
+          <fieldset className="min-w-0" disabled={pending}>
+            <legend className="mb-1.5 text-sm font-medium">How did you add it?</legend>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              {[
+                { value: "terminal", label: "With the Terminal line" },
+                { value: "ip_tab", label: "In System Settings (IP tab)" },
+              ].map((o, i) => (
+                <label
+                  key={o.value}
+                  className="flex min-h-11 flex-1 cursor-pointer items-center gap-2.5 rounded-xl border-2 border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm font-medium has-[:checked]:border-[var(--color-primary)] has-[:focus-visible]:shadow-[var(--ring)]"
+                >
+                  <input type="radio" name="variant" value={o.value} defaultChecked={i === 0} className="h-4 w-4 accent-[var(--color-primary)]" />
+                  {o.label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
 
         {describing ? (
           <>

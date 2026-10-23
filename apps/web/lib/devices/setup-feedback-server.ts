@@ -45,9 +45,9 @@ export async function listFeedbackCardDevices(supabase: Client, input: { userId:
 /** Saves the member's answer. "Something was wrong" also opens a normal device problem so the existing admin flow sees it. */
 export async function submitSetupFeedback(
   supabase: Client,
-  input: { deviceId: string; userId: string; organizationId: string; outcome: string; note: string },
+  input: { deviceId: string; userId: string; organizationId: string; outcome: string; note: string; variant?: string | null },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const v = validateFeedback({ outcome: input.outcome, note: input.note });
+  const v = validateFeedback({ outcome: input.outcome, note: input.note, variant: input.variant });
   if (!v.ok) return v;
   const { data: device } = await supabase
     .from("member_devices")
@@ -57,7 +57,7 @@ export async function submitSetupFeedback(
     .eq("organization_id", input.organizationId)
     .maybeSingle();
   if (!device) return { ok: false, error: "Device not found." };
-  const { error } = await supabase.from("device_setup_feedback").insert({ device_id: input.deviceId, outcome: v.outcome, note: v.note });
+  const { error } = await supabase.from("device_setup_feedback").insert({ device_id: input.deviceId, outcome: v.outcome, note: v.note, setup_variant: v.variant });
   if (error) {
     return { ok: false, error: error.code === "23505" ? "You already answered this one. Thank you!" : "Could not save your answer. Try again." };
   }

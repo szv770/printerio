@@ -37,6 +37,15 @@ describe("device_setup_feedback (migration 0042)", () => {
     const rows = await db.as<{ setup_key: string }>("authenticated", M2, `insert into device_setup_feedback (device_id, outcome) values ($1,'problem') returning setup_key`, [D2]);
     expect(rows[0]!.setup_key).toBe("mac_lpadmin");
   });
+  it("a Mac answer can say which route was used", async () => {
+    await db.admin(`delete from device_setup_feedback where device_id=$1`, [D2]);
+    const rows = await db.as<{ setup_key: string }>("authenticated", M2, `insert into device_setup_feedback (device_id, outcome, setup_variant) values ($1,'ok','ip_tab') returning setup_key`, [D2]);
+    expect(rows[0]!.setup_key).toBe("mac_ip_tab");
+    await db.admin(`delete from device_setup_feedback where device_id=$1`, [D2]);
+    const dflt = await db.as<{ setup_key: string }>("authenticated", M2, `insert into device_setup_feedback (device_id, outcome, setup_variant) values ($1,'problem','terminal') returning setup_key`, [D2]);
+    expect(dflt[0]!.setup_key).toBe("mac_lpadmin");
+    await expect(db.as("authenticated", M1, `insert into device_setup_feedback (device_id, outcome, setup_variant) values ('00000000-0000-0000-0000-0000000000d9','ok','bogus')`)).rejects.toThrow();
+  });
   it("only one answer per device", async () => {
     await expect(db.as("authenticated", M1, `insert into device_setup_feedback (device_id, outcome) values ($1,'ok')`, [D1])).rejects.toThrow();
   });

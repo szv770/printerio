@@ -222,9 +222,9 @@ function AddressCard({ created, onDone }: { created: NonNullable<AddDeviceState[
   const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => headingRef.current?.focus(), []);
 
-  const urlBlock = <AddressBlock title="Full address (Windows and Mac need this one)" value={addr.url} copyLabel="Copy full address" highlight={guide?.needs === "url"} />;
+  const urlBlock = <AddressBlock title="Full address (Windows needs this one)" value={addr.url} copyLabel="Copy full address" highlight={guide?.needs === "url"} />;
   const hostBlock = (
-    <AddressBlock title="Hostname only (Android needs this one)" value={addr.hostname} copyLabel="Copy hostname" highlight={guide?.needs === "hostname"} />
+    <AddressBlock title="Hostname only (Android and Mac Settings need this one)" value={addr.hostname} copyLabel="Copy hostname" highlight={guide?.needs === "hostname"} />
   );
 
   return (

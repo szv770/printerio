@@ -277,6 +277,7 @@ export type Database = {
           organization_id: string
           outcome: string
           setup_key: string
+          setup_variant: string | null
           user_id: string
         }
         Insert: {
@@ -287,6 +288,7 @@ export type Database = {
           organization_id?: string
           outcome: string
           setup_key?: string
+          setup_variant?: string | null
           user_id?: string
         }
         Update: {
@@ -297,6 +299,7 @@ export type Database = {
           organization_id?: string
           outcome?: string
           setup_key?: string
+          setup_variant?: string | null
           user_id?: string
         }
         Relationships: [

@@ -49,12 +49,14 @@ describe("setupSteps", () => {
   });
   it("mac has Terminal and Settings steps, an ipps command, and is honestly labelled untested", () => {
     const s = setupSteps("mac", addr)!;
-    expect(s.needs).toBe("url");
+    expect(s.needs).toBe("hostname");
     expect(s.command).toBe("lpadmin -p Printio -E -v ipps://u-abc.szvtech.org/ipp/print -m everywhere");
     const text = s.steps.join(" ");
     expect(text).toContain("Terminal");
     expect(text).toContain("Add Printer");
     expect(text).toContain("IP tab");
+    expect(text).toContain("u-abc.szvtech.org:443");
+    expect(text).toContain("Recommended");
     expect(s.testStatus).toMatch(/Not tested yet - being worked on/);
     expect(s.testStatus).not.toMatch(/works/i);
   });

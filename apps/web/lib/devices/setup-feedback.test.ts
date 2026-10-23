@@ -12,6 +12,8 @@ describe("setupKeyFor (must match private.setup_key_for in migration 0042)", () 
     expect(setupKeyFor("android")).toBe("android_bare_host");
     expect(setupKeyFor("mac")).toBe("mac_lpadmin");
     expect(setupKeyFor("chromebook")).toBe("other_chromebook");
+    expect(setupKeyFor("mac", "ip_tab")).toBe("mac_ip_tab");
+    expect(setupKeyFor("mac", "terminal")).toBe("mac_lpadmin");
   });
   it("has a plain label for each documented setup", () => {
     for (const k of SETUP_KEYS) expect(setupMethodLabel(k)).toMatch(/\w/);
@@ -40,8 +42,10 @@ describe("feedbackCardDevices", () => {
 
 describe("validateFeedback", () => {
   it("accepts yes, and a problem with a trimmed note", () => {
-    expect(validateFeedback({ outcome: "ok", note: "ignored" })).toEqual({ ok: true, outcome: "ok", note: "" });
-    expect(validateFeedback({ outcome: "problem", note: "  wrong tray  " })).toEqual({ ok: true, outcome: "problem", note: "wrong tray" });
+    expect(validateFeedback({ outcome: "ok", note: "ignored" })).toEqual({ ok: true, outcome: "ok", note: "", variant: null });
+    expect(validateFeedback({ outcome: "problem", note: "  wrong tray  " })).toEqual({ ok: true, outcome: "problem", note: "wrong tray", variant: null });
+    expect(validateFeedback({ outcome: "ok", note: "", variant: "ip_tab" })).toMatchObject({ variant: "ip_tab" });
+    expect(validateFeedback({ outcome: "ok", note: "", variant: "bogus" })).toMatchObject({ variant: null });
   });
   it("rejects unknown outcomes and over-long notes", () => {
     expect(validateFeedback({ outcome: "maybe", note: "" }).ok).toBe(false);

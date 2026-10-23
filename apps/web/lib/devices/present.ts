@@ -82,15 +82,15 @@ export function setupSteps(type: string, addr: DeviceAddress): SetupSteps | null
   if (type === "mac") {
     const ipps = `ipps://${addr.hostname}/ipp/print`;
     return {
-      needs: "url",
+      needs: "hostname",
       testStatus: "Not tested yet - being worked on",
       note: "We have not tried this on a real Mac yet. Earlier tests with other printers suggest it can work, but we cannot promise it. If it does not work, use Print a document on the website.",
       command: `lpadmin -p Printio -E -v ${ipps} -m everywhere`,
       steps: [
-        "Easiest: open Terminal (press Command + Space, type Terminal, press Return).",
+        "Recommended: open Terminal (press Command + Space, type Terminal, press Return).",
         "Paste the line below and press Return. If nothing is printed back, it was added.",
         "Or, without Terminal: open System Settings > Printers & Scanners > Add Printer, then the IP tab.",
-        `On the IP tab choose the IPP protocol, set Address to ${addr.hostname} and Queue to ipp/print.`,
+        `On the IP tab set Address to ${addr.hostname}:443, Protocol to IPPS (secure IPP), and Queue to ipp/print.`,
       ],
     };
   }

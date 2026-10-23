@@ -1,20 +1,21 @@
 /** Pure logic for the "Did it come out OK?" loop (no server-only imports: safe in client components). */
 
 /** The setups we have written steps for. Anything else is filed under other_<device type>. */
-export const SETUP_KEYS = ["windows_manual_wizard", "android_bare_host", "mac_lpadmin"] as const;
+export const SETUP_KEYS = ["windows_manual_wizard", "android_bare_host", "mac_lpadmin", "mac_ip_tab"] as const;
 export type SetupKey = (typeof SETUP_KEYS)[number];
 
 const LABELS: Record<SetupKey, string> = {
   windows_manual_wizard: "Windows 11 - manual wizard (Add manually > shared printer by name)",
   android_bare_host: "Android - Add by IP/hostname (bare hostname)",
   mac_lpadmin: "Mac - Terminal line (lpadmin)",
+  mac_ip_tab: "Mac - System Settings > Add Printer > IP tab",
 };
 
 /** Must match private.setup_key_for() in supabase/migrations/0042_setup_feedback.sql. */
-export function setupKeyFor(deviceType: string): string {
+export function setupKeyFor(deviceType: string, variant?: string | null): string {
   if (deviceType === "windows") return "windows_manual_wizard";
   if (deviceType === "android") return "android_bare_host";
-  if (deviceType === "mac") return "mac_lpadmin";
+  if (deviceType === "mac") return variant === "ip_tab" ? "mac_ip_tab" : "mac_lpadmin";
   return `other_${deviceType || "unknown"}`;
 }
 
@@ -53,11 +54,12 @@ export function feedbackCardDevices<T extends FeedbackDevice>(
 
 export const FEEDBACK_NOTE_MAX = 1000;
 
-export function validateFeedback(input: { outcome: string; note: string }): { ok: true; outcome: "ok" | "problem"; note: string } | { ok: false; error: string } {
+export function validateFeedback(input: { outcome: string; note: string; variant?: string | null }): { ok: true; outcome: "ok" | "problem"; note: string; variant: "terminal" | "ip_tab" | null } | { ok: false; error: string } {
   if (input.outcome !== "ok" && input.outcome !== "problem") return { ok: false, error: "Choose Yes or Something was wrong." };
   const note = input.outcome === "problem" ? input.note.trim() : "";
   if (note.length > FEEDBACK_NOTE_MAX) return { ok: false, error: `Keep the note under ${FEEDBACK_NOTE_MAX} characters.` };
-  return { ok: true, outcome: input.outcome, note };
+  const variant = input.variant === "terminal" || input.variant === "ip_tab" ? input.variant : null;
+  return { ok: true, outcome: input.outcome, note, variant };
 }
 
 export interface FeedbackRow {

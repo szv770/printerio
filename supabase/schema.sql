@@ -3184,12 +3184,13 @@ create trigger organization_invitations_group_same_org
 -- RLS: members see their own answers, org admins see the whole org's; only org admins write confirmations.
 -- Grants are explicit (never anon). Re-runnable.
 
-create or replace function private.setup_key_for(p_device_type text)
+-- p_variant only matters for the Mac, which has two documented routes: 'terminal' (default) or 'ip_tab'.
+create or replace function private.setup_key_for(p_device_type text, p_variant text default null)
 returns text language sql immutable set search_path = '' as $$
   select case p_device_type
     when 'windows' then 'windows_manual_wizard'
     when 'android' then 'android_bare_host'
-    when 'mac' then 'mac_lpadmin'
+    when 'mac' then case when p_variant = 'ip_tab' then 'mac_ip_tab' else 'mac_lpadmin' end
     else 'other_' || coalesce(p_device_type, 'unknown')
   end
 $$;
@@ -3202,6 +3203,8 @@ create table if not exists public.device_setup_feedback (
   setup_key text not null,
   outcome text not null check (outcome in ('ok', 'problem')),
   note text not null default '' check (char_length(note) <= 1000),
+  -- Which documented route the member used (Mac only: 'terminal' or 'ip_tab'); null = the default route.
+  setup_variant text check (setup_variant is null or setup_variant in ('terminal', 'ip_tab')),
   created_at timestamptz not null default now()
 );
 
@@ -3220,7 +3223,7 @@ begin
   end if;
   new.organization_id := d.organization_id;
   new.user_id := d.user_id;
-  new.setup_key := private.setup_key_for(d.device_type);
+  new.setup_key := private.setup_key_for(d.device_type, new.setup_variant);
   return new;
 end $$;
 
@@ -3250,7 +3253,7 @@ revoke all on table public.device_setup_feedback from anon;
 revoke all on table public.device_setup_feedback from authenticated;
 grant select, insert, update, delete on public.device_setup_feedback to service_role;
 grant select on public.device_setup_feedback to authenticated;
-grant insert (device_id, outcome, note) on public.device_setup_feedback to authenticated;
+grant insert (device_id, outcome, note, setup_variant) on public.device_setup_feedback to authenticated;
 
 create table if not exists public.setup_confirmations (
   organization_id uuid not null references public.organizations (id) on delete cascade,

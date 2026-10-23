@@ -131,6 +131,7 @@ export async function submitSetupFeedbackAction(_prev: SetupFeedbackState, formD
     organizationId: session.membership.organization_id,
     outcome: String(formData.get("outcome") ?? ""),
     note: String(formData.get("note") ?? ""),
+    variant: String(formData.get("variant") ?? ""),
   });
   if (!res.ok) return { error: res.error };
   revalidatePath(routes.devices);
