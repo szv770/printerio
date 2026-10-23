@@ -227,9 +227,9 @@ export async function restartAgentPrintQueueAction(
   return {};
 }
 
-/** "Check for updates" - issues the fixed CHECK_FOR_UPDATE command. What the
+/** "Update this server" - issues the fixed CHECK_FOR_UPDATE command (no payload). What the
  *  Agent does with it is entirely Agent-side and entirely hardcoded (git pull
- *  --ff-only + pnpm install in its own checkout, then a graceful self-restart,
+ *  --ff-only + pnpm install in its own checkout, a restart of the gateway service, then a graceful self-restart,
  *  or a clear "this isn't a git checkout" answer) - see
  *  apps/agent/src/self-update.ts. Nothing about the update sequence is sent
  *  from here; this issues a command NAME, never a command STRING. */

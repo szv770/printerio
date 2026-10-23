@@ -30,6 +30,20 @@
  *   controlled exit RESTART_AGENT_SERVICE already uses, which always acks
  *   first and lets the Windows Service Control Manager's configured recovery
  *   action relaunch the process. No new restart path is introduced here.
+ * - **The gateway restart is one more fixed command, run before that.** The
+ *   IPP gateway is a second Windows service run from the SAME checkout, so
+ *   after a successful update it would keep running old code. On win32 only,
+ *   and only after pull AND install both succeeded, this runs exactly
+ *   `powershell.exe -NoProfile -NonInteractive -Command "Restart-Service
+ *   -DisplayName 'Printio IPP Gateway' -ErrorAction Stop"` (the service's display
+ *   name): a hardcoded argv, `shell: false`, a timeout, no
+ *   interpolation, nothing from the payload. A missing or failing gateway
+ *   service never fails the update; it becomes a plain note in the message.
+ *   The Agent's own restart is scheduled by the caller only after this
+ *   function returns, so it always happens last (it is the process that
+ *   reports the result).
+ * - **`git rev-parse --short HEAD`** (fixed argv) is run before and after the
+ *   pull purely to tell the admin which version it moved from and to.
  */
 
 import { spawn } from "node:child_process";
@@ -40,6 +54,16 @@ import type { Logger } from "./logger.js";
 
 const GIT_TIMEOUT_MS = 120_000;
 const INSTALL_TIMEOUT_MS = 600_000;
+const GATEWAY_RESTART_TIMEOUT_MS = 60_000;
+
+/** Display name of the gateway service (apps/gateway/src/windows-service.ts); proven on the real server with `Start-Service -DisplayName`. */
+const GATEWAY_SERVICE_DISPLAY_NAME = "Printio IPP Gateway";
+const GATEWAY_RESTART_ARGS: readonly string[] = [
+  "-NoProfile",
+  "-NonInteractive",
+  "-Command",
+  `Restart-Service -DisplayName "${GATEWAY_SERVICE_DISPLAY_NAME}" -ErrorAction Stop`,
+];
 
 export interface CommandOutcome {
   exitCode: number | null;
@@ -62,6 +86,8 @@ export interface SelfUpdateResult {
   /** Plain-English, admin-facing - this string is what the console shows verbatim. */
   message: string;
   repoRoot: string;
+  /** Only set when `updated`: whether the gateway service was restarted (false = a note explains why is in `message`). */
+  gatewayRestarted?: boolean;
 }
 
 export interface SelfUpdateDeps {
@@ -71,6 +97,8 @@ export interface SelfUpdateDeps {
   run: (command: string, args: readonly string[], cwd: string, timeoutMs: number) => Promise<CommandOutcome>;
   /** Injected for the same reason; production passes `isGitCheckout`. */
   hasGitCheckout: (repoRoot: string) => boolean;
+  /** Injected so tests can exercise the non-Windows path; defaults to process.platform. */
+  platform?: NodeJS.Platform;
 }
 
 /**
@@ -145,6 +173,36 @@ export function createSelfUpdateDeps(logger: Logger): SelfUpdateDeps {
   return { repoRoot: resolveRepoRoot(), logger, run: runCommand, hasGitCheckout: isGitCheckout };
 }
 
+/** Short commit hash of HEAD via a fixed argv, or "unknown" - purely informational, never fails the update. */
+async function currentVersion(deps: SelfUpdateDeps): Promise<string> {
+  try {
+    const out = await deps.run("git", ["rev-parse", "--short", "HEAD"], deps.repoRoot, GIT_TIMEOUT_MS);
+    const hash = out.stdout.trim();
+    return out.exitCode === 0 && /^[0-9a-f]{4,40}$/i.test(hash) ? hash : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+/** Restarts the sibling IPP gateway service. Never throws; returns null on success or a plain reason on failure. */
+async function restartGateway(deps: SelfUpdateDeps): Promise<string | null> {
+  if ((deps.platform ?? process.platform) !== "win32") {
+    return "only Windows print servers run the gateway as a service.";
+  }
+  try {
+    const out = await deps.run("powershell.exe", GATEWAY_RESTART_ARGS, deps.repoRoot, GATEWAY_RESTART_TIMEOUT_MS);
+    if (out.exitCode === 0) return null;
+    const detail = (out.stderr || out.stdout).trim();
+    if (/cannot find any service|was not found|does not exist/i.test(detail)) {
+      return "it is not installed on this machine.";
+    }
+    if (out.exitCode === null) return "restarting it timed out.";
+    return `${detail.replace(/\s+/g, " ").slice(0, 200) || `exit code ${out.exitCode}`}.`;
+  } catch (err) {
+    return `${(err instanceof Error ? err.message : String(err)).slice(0, 200)}.`;
+  }
+}
+
 /**
  * Runs the fixed update sequence and reports, precisely, what happened.
  * Never throws: every failure mode becomes a `SelfUpdateResult` the caller
@@ -165,6 +223,8 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
       repoRoot,
     };
   }
+
+  const before = await currentVersion(deps);
 
   let pull: CommandOutcome;
   try {
@@ -208,6 +268,8 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
     };
   }
 
+  const after = await currentVersion(deps);
+
   // The checkout just moved, so the dependency tree may have moved with it -
   // same reasoning (and the same command) as setup-agent.ps1 step 6's
   // "$repoWasUpdated -> re-run pnpm install". A no-op when nothing changed.
@@ -241,12 +303,23 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
     };
   }
 
+  // Pull and install both succeeded. Restart the sibling gateway service
+  // BEFORE the caller schedules the Agent's own restart (see module header).
+  const gatewayProblem = await restartGateway(deps);
+  if (gatewayProblem) {
+    logger.warn("CHECK_FOR_UPDATE: gateway service not restarted", { reason: gatewayProblem });
+  }
   logger.warn("CHECK_FOR_UPDATE: updated and dependencies re-installed - a restart will follow");
   return {
     updated: true,
     reason: "updated",
     message:
-      "Updated to the latest code and re-installed dependencies. The Agent is restarting itself now - it should reappear as online within a minute or two.",
+      `Updated ${before} -> ${after}. ` +
+      (gatewayProblem
+        ? `The phone/print-dialog gateway was not restarted: ${gatewayProblem} `
+        : "Restarted the gateway. ") +
+      "The print server is restarting and will be back in about a minute.",
     repoRoot,
+    gatewayRestarted: gatewayProblem === null,
   };
 }

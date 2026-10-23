@@ -64,7 +64,7 @@ export function agentQueuesSummary(n: number): string {
 }
 
 const COMMAND_NAME: Record<string, string> = {
-  CHECK_FOR_UPDATE: "Check for update",
+  CHECK_FOR_UPDATE: "Update server",
   RESTART_SERVICE: "Restart service",
   CLEAR_TEMP_FILES: "Clear temp files",
   REFRESH_PRINTER_STATUS: "Refresh printer status",
