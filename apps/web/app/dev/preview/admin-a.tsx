@@ -179,12 +179,15 @@ function updateRows(variant: string | undefined): { commands: UpdateCommandRow[]
       return { commands: [row({ createdAt: ago(2), completedAt: ago(1), result: { updated: false, reason: "install_failed", step: "installing", message: "New code was downloaded, but installing its packages failed, so the print server was NOT restarted and is still running the previous version. Nothing was lost." } })], lastSeenAt: seen };
     case "check_failed":
       return { commands: [row({ checkOnly: true, createdAt: ago(1), completedAt: ago(0.9), result: { mode: "check_only", updateAvailable: false, reason: "git_failed", message: "Could not reach GitHub to look for updates." } })], lastSeenAt: seen };
+    case "legacy_stale":
+      // Version 0.1.0 agent; the only row is an old "already up to date" from the legacy full-update flow.
+      return { commands: [row({ createdAt: ago(7200), completedAt: ago(7190), result: { updated: false, reason: "already_up_to_date", message: "Already up to date - this Agent is running the latest code in its checkout." } })], lastSeenAt: seen };
     default:
       return { commands: [row({ checkOnly: true, createdAt: ago(3), completedAt: ago(2.9), result: { mode: "check_only", updateAvailable: false, reason: "up_to_date", current: "8c4d0e2" } })], lastSeenAt: seen };
   }
 }
 
-const BANNER_VARIANTS = ["checking", "available", "uptodate", "downloading", "installing", "restarting", "done", "failed", "check_failed"] as const;
+const BANNER_VARIANTS = ["checking", "available", "uptodate", "legacy_stale", "legacy_none", "downloading", "installing", "restarting", "done", "failed", "check_failed"] as const;
 
 /** Every banner state stacked, for looking at them side by side (?section=updatebanner). */
 export function UpdateBannerPreview() {
@@ -192,18 +195,18 @@ export function UpdateBannerPreview() {
     <Frame path="/admin/agents/a1">
       <div className="mx-auto flex max-w-3xl flex-col gap-4">
         {BANNER_VARIANTS.map((v) => {
-          const { commands, lastSeenAt } = updateRows(v);
+          const { commands, lastSeenAt } = updateRows(v === "legacy_none" ? "legacy_stale" : v);
+          const legacy = v === "legacy_stale" || v === "legacy_none";
           return (
             <div key={v}>
               <p className="mb-1 font-mono text-xs text-[var(--color-muted)]">{v}</p>
-              <UpdateBanner view={deriveUpdateView({ commands, lastSeenAt, nowMs: NOW })} />
+              <UpdateBanner
+                view={deriveUpdateView({ commands: v === "legacy_none" ? [] : commands, lastSeenAt, nowMs: NOW, agentVersion: legacy ? "0.1.0" : "0.2.0", latestVersion: "0.2.0" })}
+                canCheckAgain={!legacy}
+              />
             </div>
           );
         })}
-        <div>
-          <p className="mb-1 font-mono text-xs text-[var(--color-muted)]">legacy (agent older than 0.2.0)</p>
-          <UpdateBanner view={{ kind: "idle" }} situation="legacy" />
-        </div>
         <div>
           <p className="mb-1 font-mono text-xs text-[var(--color-muted)]">offline</p>
           <UpdateBanner view={{ kind: "idle" }} situation="offline" />
@@ -219,7 +222,7 @@ export function UpdateBannerPreview() {
 
 export function ServerDetailPreview({ variant }: { variant?: string } = {}) {
   const { commands, lastSeenAt } = updateRows(variant);
-  const a = agent({ last_seen_at: lastSeenAt, ...(variant === "legacy" ? { version: "0.1.0" } : {}) });
+  const a = agent({ last_seen_at: lastSeenAt, ...(variant === "legacy" || variant === "legacy_stale" ? { version: "0.1.0" } : {}) });
   return (
     <Frame path="/admin/agents/a1">
       <div className="mx-auto max-w-3xl">
@@ -227,7 +230,7 @@ export function ServerDetailPreview({ variant }: { variant?: string } = {}) {
         <AgentDetail
           agent={a}
           connection={describeAgentConnection(a, NOW)}
-          version={describeAgentVersion("0.2.0")}
+          version={describeAgentVersion(a.version)}
           activity={{ lastSyncedAt: ago(1), lastJobActivityAt: ago(34), lastCommandAt: ago(300) }}
           pausedByLabel={null}
           queues={[
