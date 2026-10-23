@@ -54,7 +54,7 @@ describe("isValidShareId", () => {
 
 describe("shareNotice", () => {
   it("explains each problem in plain words", () => {
-    expect(shareNotice("toolarge", 50 * MB)).toBe("That file is too big to print from here (limit 50 MB).");
+    expect(shareNotice("toolarge", 50 * MB)).toBe("That file is too big to share into Printio (limit 50 MB). Choose it on this page instead.");
     expect(shareNotice("notpdf", LIMIT)).toBe("Printio only prints PDFs. Open it and choose Print > Save as PDF first.");
     expect(shareNotice("notready", LIMIT)).toBe("Open Printio once, then share again.");
     expect(shareNotice("empty", LIMIT)).toMatch(/empty/i);

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { FileUp } from "lucide-react";
 import { InstallCard } from "@/components/pwa/InstallCard";
+import { PendingShareBanner } from "@/components/pwa/PendingShareBanner";
 import { SharedFileHandoff } from "@/components/pwa/SharedFileHandoff";
 import { INBOX_DB_NAME, INBOX_STORE_NAME } from "@/lib/pwa/inbox";
 
@@ -53,16 +54,18 @@ function FakeFileInput() {
 export function PwaPreviewSection({ variant = "shared" }: { variant?: string }) {
   const [ready, setReady] = useState(false);
   const seeded = variant === "shared" || variant === "old";
+  const pending = variant === "pendinghome" || variant === "pendinglogin";
 
   useEffect(() => {
-    if (!seeded) return;
+    if (!seeded && !pending) return;
     // "old" seeds an entry two hours old: the page must refuse it, like a stale share.
     const at = variant === "old" ? Date.now() - 2 * 3600_000 : Date.now();
     void seed("11111111-2222-3333-4444-555555555555", "Grade 7 science quiz - unit 4 (final).pdf", at).then(() => setReady(true));
-  }, [seeded, variant]);
+  }, [seeded, pending, variant]);
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-6">
+      {pending && ready && <PendingShareBanner where={variant === "pendinglogin" ? "login" : "home"} />}
       {variant === "android" && <InstallCard previewMode="prompt" />}
       {variant === "ios" && <InstallCard previewMode="ios" />}
       {variant === "rows" && (

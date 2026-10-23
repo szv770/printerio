@@ -7,8 +7,13 @@
  * unit tests exercise is the code the worker runs. Do not make them depend on imports or outer constants.
  */
 
-/** Same figure as the Print form's default (DEFAULT_MAX_UPLOAD_BYTES in lib/pdf/client-precheck.ts). */
-export { DEFAULT_MAX_UPLOAD_BYTES as SHARE_MAX_BYTES } from "@/lib/pdf/client-precheck";
+/**
+ * The service worker's own ceiling: deliberately generous, in step with the framework's 100 MB upload ceiling
+ * (serverActions.bodySizeLimit in next.config.ts). The worker cannot know the organization's real limit; the Print form
+ * checks the shared file against that limit (precheckSelectedFile) and says so in its own words. This one only stops
+ * something absurd from being copied into the browser's storage.
+ */
+export const SHARE_MAX_BYTES = 100 * 1024 * 1024;
 
 export const SHARE_TARGET_PATH = "/share-target";
 
@@ -76,7 +81,7 @@ export function isValidShareId(id: string): boolean {
 export function shareNotice(code: string | null, limitBytes: number): string | null {
   switch (code) {
     case "toolarge":
-      return `That file is too big to print from here (limit ${Math.round(limitBytes / (1024 * 1024))} MB).`;
+      return `That file is too big to share into Printio (limit ${Math.round(limitBytes / (1024 * 1024))} MB). Choose it on this page instead.`;
     case "notpdf":
       return "Printio only prints PDFs. Open it and choose Print > Save as PDF first.";
     case "notready":

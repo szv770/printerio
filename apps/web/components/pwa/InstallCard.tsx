@@ -92,10 +92,9 @@ export function InstallCard({
           </>
         ) : (
           <>
-            <p className="mt-1 flex flex-wrap items-center gap-x-1 text-sm leading-5 text-[var(--color-text-2)]">
-              {IOS_STEPS.replace("tap Share,", "tap")}
-              <Share className="inline h-4 w-4 text-[var(--color-primary)]" role="img" aria-label="Share" />
-              <span>then Add to Home Screen.</span>
+            <p className="mt-1 text-sm leading-5 text-[var(--color-text-2)]">
+              To install: tap Share
+              <Share className="ml-1 inline h-4 w-4 align-[-3px] text-[var(--color-primary)]" aria-hidden="true" />, then Add to Home Screen.
             </p>
             <p className="mt-1.5 text-sm leading-5 text-[var(--color-muted)]">{IOS_NO_SHARE}</p>
             <div className="mt-3">

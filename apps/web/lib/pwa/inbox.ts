@@ -46,6 +46,18 @@ export async function takeSharedEntry(store: InboxStore | null, id: string, now:
   }
 }
 
+/** The newest fresh entry (id + name), left in place. Used to remind someone about a share that did not reach the Print page (e.g. they had to sign in first). */
+export async function peekLatestEntry(store: InboxStore | null, now: number): Promise<{ id: string; name: string } | null> {
+  if (!store) return null;
+  try {
+    const fresh = (await store.list()).filter((e) => now - e.at <= INBOX_MAX_AGE_MS).sort((a, b) => b.at - a.at);
+    const newest = fresh[0];
+    return newest ? { id: newest.id, name: newest.name } : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Deletes entries older than the max age. Returns how many were removed. Never throws. */
 export async function purgeOldEntries(store: InboxStore | null, now: number): Promise<number> {
   if (!store) return 0;

@@ -1,4 +1,5 @@
 import { Card } from "@/components/ui";
+import { PendingShareBanner } from "@/components/pwa/PendingShareBanner";
 import { SignInButton } from "./SignInButton";
 import { MagicLinkForm } from "./MagicLinkForm";
 
@@ -10,7 +11,10 @@ export default async function LoginPage({
   const { reason } = await searchParams;
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 px-4">
+    <main className="flex min-h-screen flex-col items-center justify-center gap-0 px-4">
+      <div className="w-full max-w-sm">
+        <PendingShareBanner where="login" />
+      </div>
       <Card className="w-full max-w-sm text-center shadow-sm">
         <h1 className="mb-2 text-2xl font-semibold">Printio</h1>
         <p className="mb-4 text-sm text-[var(--color-muted)]">Sign in to upload and track print jobs.</p>

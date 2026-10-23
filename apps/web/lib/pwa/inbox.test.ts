@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { INBOX_MAX_AGE_MS, purgeOldEntries, takeSharedEntry, type InboxEntry, type InboxStore } from "./inbox";
+import { INBOX_MAX_AGE_MS, peekLatestEntry, purgeOldEntries, takeSharedEntry, type InboxEntry, type InboxStore } from "./inbox";
 
 function memoryStore(initial: InboxEntry[] = []): InboxStore & { rows: Map<string, InboxEntry> } {
   const rows = new Map(initial.map((e) => [e.id, e]));
@@ -67,5 +67,26 @@ describe("purgeOldEntries", () => {
     };
     await expect(purgeOldEntries(store, NOW)).resolves.toBe(0);
     await expect(purgeOldEntries(null, NOW)).resolves.toBe(0);
+  });
+});
+
+describe("peekLatestEntry", () => {
+  it("returns the newest fresh entry without removing it", async () => {
+    const store = memoryStore([entry("a", 5000), entry("b", 1000), entry("c", INBOX_MAX_AGE_MS + 1)]);
+    expect(await peekLatestEntry(store, NOW)).toEqual({ id: "b", name: "b.pdf" });
+    expect(store.rows.size).toBe(3);
+  });
+  it("returns null when nothing is waiting, the only entry is stale, or the store fails", async () => {
+    expect(await peekLatestEntry(memoryStore(), NOW)).toBeNull();
+    expect(await peekLatestEntry(memoryStore([entry("old", INBOX_MAX_AGE_MS + 1)]), NOW)).toBeNull();
+    expect(await peekLatestEntry(null, NOW)).toBeNull();
+    const broken: InboxStore = {
+      get: async () => undefined,
+      delete: async () => {},
+      list: async () => {
+        throw new Error("x");
+      },
+    };
+    expect(await peekLatestEntry(broken, NOW)).toBeNull();
   });
 });
