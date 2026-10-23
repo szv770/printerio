@@ -3,7 +3,7 @@ import net from "node:net";
 import { mkdtempSync, readdirSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createOrchestrator } from "../src/orchestrator.js";
 import { createJobQueue } from "../src/job-queue.js";
 import { createLogger } from "../src/logger.js";
@@ -63,6 +63,8 @@ interface CloudOpts {
   /** What getDownloadUrl says the job's status is ("claimed" = current server, "downloading" = old server). */
   jobStatus?: "claimed" | "downloading";
   rawPort: number;
+  /** The raw host the cloud names (default 127.0.0.1, the in-process test printer). */
+  rawHost?: string;
   profile?: string;
   releaseResult?: unknown | (() => unknown);
   claim?: () => unknown;
@@ -100,7 +102,7 @@ function fakeCloud(o: CloudOpts) {
           duplex: false,
           paperSize: "letter",
           finishing: o.finishing ?? { staple: false, booklet: false, punch: false },
-          raw: { host: "127.0.0.1", port: o.rawPort, staplePosition: "top-left" as const, bindingSide: "left" as const, jobName: "a" },
+          raw: { host: o.rawHost ?? "127.0.0.1", port: o.rawPort, staplePosition: "top-left" as const, bindingSide: "left" as const, jobName: "a" },
         },
       };
     },
@@ -140,6 +142,9 @@ function makeOrchestrator(
     spoolerMonitor: {} as never,
     healthMonitor: { isPaused: () => false, sendHeartbeat: async () => true } as never,
     logger,
+    // These tests send to an in-process printer on 127.0.0.1, which the real raw-host policy (F8) refuses; the
+    // policy has its own describe at the bottom of this file that turns it back on.
+    checkRawTarget: async (t: { host: string; port: number }) => ({ ok: true as const, ...t }),
     ...extra,
   } as never);
   return { orch, jobQueue };
@@ -511,5 +516,49 @@ describe("a clean send whose status reports could not be delivered (must never t
     await orch.recoverInFlightJobs();
     expect(fns(second.calls)).not.toContain("releaseJob");
     expect(second.reported).toEqual(CHAIN.map((x) => `job-1:${x}`));
+  });
+});
+
+describe("raw host policy (security review F8): the agent only sends to private-LAN printers", () => {
+  const policyOn = { checkRawTarget: undefined };
+
+  it.each(["127.0.0.1", "169.254.169.254", "8.8.8.8", "224.0.0.1"])("%s: the job is failed in plain words and nothing is sent or connected to", async (rawHost) => {
+    const rawPrint = vi.fn();
+    const { client, calls } = fakeCloud({ rawPort: 9100, rawHost });
+    const { orch, jobQueue } = makeOrchestrator(client, { ...policyOn, rawPrint });
+    await orch.processJob(job(1));
+    expect(rawPrint).not.toHaveBeenCalled();
+    expect(fns(calls)).not.toContain("releaseJob"); // permanent: it will never be allowed, so it must not wait forever
+    const failed = calls.find((c) => c.fn === "reportStatus" && c.args[1] === "failed");
+    expect(failed?.args[2]).toMatch(/private network address/i);
+    expect(jobQueue.getJob("job-1")?.state).toBe("failed");
+  });
+
+  it("a port outside 1-65535 is refused", async () => {
+    const rawPrint = vi.fn();
+    const { client, calls } = fakeCloud({ rawPort: 70000, rawHost: "192.168.100.168" });
+    const { orch } = makeOrchestrator(client, { ...policyOn, rawPrint });
+    await orch.processJob(job(1));
+    expect(rawPrint).not.toHaveBeenCalled();
+    expect(calls.find((c) => c.fn === "reportStatus" && c.args[1] === "failed")?.args[2]).toMatch(/port/i);
+  });
+
+  it("the owner's printer 192.168.100.168:9100 is allowed and reaches the sender with the checked address", async () => {
+    const rawPrint = vi.fn(async () => ({ ok: true as const, bytesSent: 10 }));
+    const { client } = fakeCloud({ rawPort: 9100, rawHost: "192.168.100.168" });
+    const { orch } = makeOrchestrator(client, { ...policyOn, rawPrint });
+    await orch.processJob(job(1));
+    expect(rawPrint).toHaveBeenCalledTimes(1);
+    expect((rawPrint.mock.calls[0] as unknown as [{ raw: { host: string; port: number } }])[0].raw).toMatchObject({ host: "192.168.100.168", port: 9100 });
+  });
+
+  it("PRINTIO_RAW_ALLOWED_HOSTS narrows it further: another private address is refused", async () => {
+    const rawPrint = vi.fn();
+    const { client, calls } = fakeCloud({ rawPort: 9100, rawHost: "10.0.0.5" });
+    const cfg = { localStoragePath: h.dir, pollIntervalSeconds: 1, maxPollIntervalSeconds: 2, rawAllowedHosts: ["192.168.100.168"] };
+    const { orch } = makeOrchestrator(client, { ...policyOn, rawPrint, config: cfg });
+    await orch.processJob(job(1));
+    expect(rawPrint).not.toHaveBeenCalled();
+    expect(calls.find((c) => c.fn === "reportStatus" && c.args[1] === "failed")?.args[2]).toMatch(/PRINTIO_RAW_ALLOWED_HOSTS/);
   });
 });

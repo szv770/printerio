@@ -9,12 +9,17 @@
  * allow-list rather than a remote-execution backdoor:
  *
  * - **Nothing is interpolated.** The two commands are hardcoded argv arrays -
- *   `git pull --ff-only` and `<pnpm> install` - spawned with `shell: false`,
+ *   `git pull --ff-only` and `<pnpm> install --frozen-lockfile --ignore-scripts` - spawned with `shell: false`,
  *   in one fixed working directory the Agent computes from its own module
  *   path. The CHECK_FOR_UPDATE payload is empty by contract
  *   (`RemoteCommandPayload` in @printio/shared) and this module never reads
  *   it: there is no branch name, remote, path, flag, or command string that
  *   can travel from the cloud into a process invocation here.
+ * - **Install is reproducible and runs no dependency scripts.** `--frozen-lockfile`
+ *   installs exactly what pnpm-lock.yaml pins (and fails instead of resolving
+ *   newer versions); `--ignore-scripts` stops any dependency's install /
+ *   postinstall script from running as the service account (LocalSystem).
+ *   Nothing the Agent or gateway needs is built by a dependency script.
  * - **`--ff-only`, not a bare `pull`.** setup-agent.ps1's plain `git pull`
  *   can, in principle, produce a merge commit on a machine with local
  *   commits. Unattended and unwatched, the honest outcome there is to refuse
@@ -199,6 +204,9 @@ function envGet(env: NodeJS.ProcessEnv, name: string): string | undefined {
   return v && v.trim() ? v.trim() : undefined;
 }
 
+/** The only install invocation (security review F5): exact lockfile, no dependency lifecycle scripts. */
+export const PNPM_INSTALL_ARGS = ["install", "--frozen-lockfile", "--ignore-scripts"] as const;
+
 /**
  * Finds a way to run `pnpm install` that works from a Windows service and on
  * Linux/mac, without a shell wherever possible. Everything comes from the
@@ -239,7 +247,7 @@ export function resolvePnpmLauncher(opts: {
     }
     return {
       command: "cmd.exe",
-      args: ["/d", "/s", "/c", `""${shim}" install"`],
+      args: ["/d", "/s", "/c", `""${shim}" ${PNPM_INSTALL_ARGS.join(" ")}"`],
       kind: "cmd-shim",
       env: childEnv(),
       windowsVerbatimArguments: true,
@@ -253,9 +261,9 @@ export function resolvePnpmLauncher(opts: {
     let found: PnpmLauncher | null = null;
     if (!P.isAbsolute(override)) rejected.push("PRINTIO_PNPM_PATH is not an absolute path");
     else if (!fs.exists(override)) rejected.push("PRINTIO_PNPM_PATH does not exist");
-    else if (base === "pnpm.cjs") found = viaNode(override, "node-cjs", ["install"]);
+    else if (base === "pnpm.cjs") found = viaNode(override, "node-cjs", [...PNPM_INSTALL_ARGS]);
     else if (base === "pnpm.exe" || (!win && base === "pnpm")) {
-      found = { command: override, args: ["install"], kind: "exe", env: childEnv() };
+      found = { command: override, args: [...PNPM_INSTALL_ARGS], kind: "exe", env: childEnv() };
     } else if (base === "pnpm.cmd" && win) found = cmdShim(override);
     if (found) return { launcher: found, rejected };
     if (rejected.length === 0) {
@@ -267,7 +275,7 @@ export function resolvePnpmLauncher(opts: {
     for (const dir of (envGet(env, "PATH") ?? "").split(":")) {
       if (!dir || !P.isAbsolute(dir)) continue;
       const exe = P.join(dir, "pnpm");
-      if (fs.exists(exe)) return { launcher: { command: exe, args: ["install"], kind: "exe", env: childEnv() }, rejected };
+      if (fs.exists(exe)) return { launcher: { command: exe, args: [...PNPM_INSTALL_ARGS], kind: "exe", env: childEnv() }, rejected };
     }
     return { launcher: null, rejected };
   }
@@ -287,7 +295,7 @@ export function resolvePnpmLauncher(opts: {
 
   for (const prefix of prefixes) {
     const cjs = P.join(prefix, "node_modules", "pnpm", "bin", "pnpm.cjs");
-    if (fs.exists(cjs)) return { launcher: viaNode(cjs, "node-cjs", ["install"]), rejected };
+    if (fs.exists(cjs)) return { launcher: viaNode(cjs, "node-cjs", [...PNPM_INSTALL_ARGS]), rejected };
   }
   // only a .cmd shim exists
   for (const prefix of prefixes) {
@@ -297,7 +305,7 @@ export function resolvePnpmLauncher(opts: {
   // corepack, last resort (ships next to node.exe)
   const corepack = P.join(nodeDir, "node_modules", "corepack", "dist", "corepack.js");
   if (fs.exists(corepack)) {
-    const l = viaNode(corepack, "corepack", ["pnpm", "install"]);
+    const l = viaNode(corepack, "corepack", ["pnpm", ...PNPM_INSTALL_ARGS]);
     l.env = { ...(l.env ?? {}), COREPACK_ENABLE_DOWNLOAD_PROMPT: "0" };
     return { launcher: l, rejected };
   }

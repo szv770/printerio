@@ -6,7 +6,7 @@ import { requireOrgRole } from "@/lib/auth/session";
 import { describeDatabaseError } from "@/lib/action-errors";
 import { routes } from "@/lib/routes";
 import { normalizeUserCode } from "@/lib/jobs/user-code";
-import { assertCanDisableSelf, assertCanRemoveMember } from "@/lib/member-safety";
+import { assertCanDemoteMember, assertCanDisableMember, assertCanDisableSelf, assertCanRemoveMember } from "@/lib/member-safety";
 import type { OrgRole } from "@printio/shared";
 
 export interface InviteState {
@@ -47,6 +47,17 @@ export async function createInvitationAction(_prev: InviteState, formData: FormD
   return { code };
 }
 
+/** How many ACTIVE org_admins this organization has (the number the last-admin guards compare against). */
+async function countActiveAdmins(supabase: Awaited<ReturnType<typeof createClient>>, organizationId: string): Promise<number> {
+  const { count } = await supabase
+    .from("organization_members")
+    .select("user_id", { count: "exact", head: true })
+    .eq("organization_id", organizationId)
+    .eq("role", "org_admin")
+    .eq("status", "active");
+  return count ?? 0;
+}
+
 export interface RoleChangeState {
   error?: string;
 }
@@ -58,6 +69,26 @@ export async function changeMemberRoleAction(_prev: RoleChangeState, formData: F
   if (!VALID_ROLES.includes(role as OrgRole)) return { error: "Invalid role." };
 
   const supabase = await createClient();
+
+  // Demoting the only active org_admin would leave the organization with nobody who can manage it (same rule as
+  // removing them; lib/member-safety.ts). Not atomic: two admins demoting each other in the same instant could
+  // both pass - that needs a database-level guard, and is far less likely than the single-admin mistake caught here.
+  const { data: target } = await supabase
+    .from("organization_members")
+    .select("user_id, role, status")
+    .eq("organization_id", session.membership.organization_id)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!target) return { error: "That member is no longer in this organization." };
+  if (target.role === "org_admin" && target.status === "active" && role !== "org_admin") {
+    const safetyError = assertCanDemoteMember(
+      { userId: target.user_id, role: target.role, status: target.status },
+      role,
+      await countActiveAdmins(supabase, session.membership.organization_id),
+    );
+    if (safetyError) return { error: safetyError };
+  }
+
   const { error } = await supabase
     .from("organization_members")
     .update({ role })
@@ -162,6 +193,24 @@ export async function toggleMemberStatusAction(_prev: StatusChangeState, formDat
   }
 
   const supabase = await createClient();
+
+  // Disabling the last active org_admin locks the organization out of its own admin tools (lib/member-safety.ts).
+  if (status === "disabled") {
+    const { data: target } = await supabase
+      .from("organization_members")
+      .select("user_id, role, status")
+      .eq("organization_id", session.membership.organization_id)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (target && target.role === "org_admin" && target.status === "active") {
+      const safetyError = assertCanDisableMember(
+        { userId: target.user_id, role: target.role, status: target.status },
+        await countActiveAdmins(supabase, session.membership.organization_id),
+      );
+      if (safetyError) return { error: safetyError };
+    }
+  }
+
   const { error } = await supabase
     .from("organization_members")
     .update({ status })

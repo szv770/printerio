@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PDFDocument, PDFName, PDFString } from "pdf-lib";
+import { containsPjlEscape } from "@printio/shared";
 import { findActiveContent } from "./active-content";
 import { preflightPdf } from "./preflight";
 
@@ -95,5 +96,76 @@ describe("preflightPdf", () => {
     const result = await preflightPdf(bytes, { maxSizeBytes: 10 * 1024 * 1024 });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.pageCount).toBe(3); // not whatever a caller might have claimed
+  });
+
+  describe("printer control codes (PJL escape)", () => {
+    const MSG = "This PDF contains printer control codes, so it can't be printed. Open it, choose Print, then Save as PDF, and upload that copy.";
+    const uel = (s = "") => new TextEncoder().encode("\x1b%-12345X@PJL " + s);
+    async function withTrailing(extra: Uint8Array, at: "end" | "middle"): Promise<Uint8Array> {
+      const base = await makeValidPdf(2);
+      const out = new Uint8Array(base.length + extra.length);
+      if (at === "end") {
+        out.set(base, 0);
+        out.set(extra, base.length);
+      } else {
+        const cut = Math.floor(base.length / 2);
+        out.set(base.subarray(0, cut), 0);
+        out.set(extra, cut);
+        out.set(base.subarray(cut), cut + extra.length);
+      }
+      return out;
+    }
+
+    it("rejects a PDF with the escape sequence after %%EOF, with the plain message", async () => {
+      const result = await preflightPdf(await withTrailing(uel("INFO ID"), "end"), { maxSizeBytes: 10 * 1024 * 1024 });
+      expect(result).toEqual({ ok: false, reason: MSG });
+    });
+
+    it("rejects it in the middle of the file and straight after the header", async () => {
+      expect(await preflightPdf(await withTrailing(uel(), "middle"), { maxSizeBytes: 10 * 1024 * 1024 })).toEqual({ ok: false, reason: MSG });
+      const base = await makeValidPdf(1);
+      const head = new Uint8Array([...base.subarray(0, 5), ...uel(), ...base.subarray(5)]);
+      expect(await preflightPdf(head, { maxSizeBytes: 10 * 1024 * 1024 })).toEqual({ ok: false, reason: MSG });
+    });
+
+    it("rejects a lowercase variant and ESC followed by @PJL", async () => {
+      const lower = new TextEncoder().encode("\x1b%-12345x");
+      expect(await preflightPdf(await withTrailing(lower, "end"), { maxSizeBytes: 10 * 1024 * 1024 })).toEqual({ ok: false, reason: MSG });
+      const esc = new TextEncoder().encode("\x1b@PJL ECHO");
+      expect(await preflightPdf(await withTrailing(esc, "end"), { maxSizeBytes: 10 * 1024 * 1024 })).toEqual({ ok: false, reason: MSG });
+    });
+
+    it("an attachment carrying it is compressed by pdf-lib (not raw bytes) and is stripped by the sanitizer, so the copy that prints is clean", async () => {
+      const doc = await PDFDocument.create();
+      doc.addPage([612, 792]);
+      await doc.attach(uel("INFO ID"), "payload.bin", { mimeType: "application/octet-stream" });
+      const result = await preflightPdf(await doc.save({ useObjectStreams: false }), { maxSizeBytes: 10 * 1024 * 1024 });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.sanitizedBytes).toBeInstanceOf(Uint8Array);
+        expect(containsPjlEscape(result.sanitizedBytes!)).toBe(false);
+      }
+    });
+
+    it("leaves a clean PDF alone", async () => {
+      expect((await preflightPdf(await makeValidPdf(2), { maxSizeBytes: 10 * 1024 * 1024 })).ok).toBe(true);
+    });
+  });
+
+  describe("page-count cap", () => {
+    it("rejects a PDF over the cap with a plain message", async () => {
+      const result = await preflightPdf(await makeValidPdf(6), { maxSizeBytes: 10 * 1024 * 1024, maxPages: 5 });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toBe("This PDF has 6 pages, which is more than the 5-page limit. Split it into smaller files and upload them separately.");
+    });
+    it("accepts exactly the cap", async () => {
+      expect((await preflightPdf(await makeValidPdf(5), { maxSizeBytes: 10 * 1024 * 1024, maxPages: 5 })).ok).toBe(true);
+    });
+    it("defaults to 500 pages", async () => {
+      expect((await preflightPdf(await makeValidPdf(500), { maxSizeBytes: 50 * 1024 * 1024 })).ok).toBe(true);
+      const r = await preflightPdf(await makeValidPdf(501), { maxSizeBytes: 50 * 1024 * 1024 });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toMatch(/501 pages.*500-page limit/);
+    }, 30000);
   });
 });

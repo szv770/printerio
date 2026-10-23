@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import { version } from "./package.json";
+import { buildSecurityHeaders } from "./lib/security-headers";
 
 /**
  * Build-time deployment stamp, read back by lib/build-info.ts and shown in
@@ -34,6 +35,18 @@ const nextConfig: NextConfig = {
   // out of the server bundle and resolve it from node_modules instead.
   serverExternalPackages: ["pdfjs-dist"],
   env: buildStamp,
+  // Hardening headers on every route (lib/security-headers.ts). The CSP in there is report-only on purpose.
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: buildSecurityHeaders({
+          supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+          dev: process.env.NODE_ENV === "development",
+        }),
+      },
+    ];
+  },
 };
 
 export default nextConfig;

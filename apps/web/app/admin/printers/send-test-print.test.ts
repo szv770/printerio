@@ -22,8 +22,11 @@ vi.mock("@/lib/remote-commands", () => ({ issueRemoteCommand: vi.fn() }));
 const profile = { id: "p1", label: "Office", agent_id: "ag1", declared_paper_sizes: ["letter"], windows_queue_name: "Q", raw_host: null, raw_port: null, pricing: null, printers: { id: "pr1", name: "Kyocera", organization_id: "org1" } };
 let profileRow: unknown;
 const memberWrites: string[] = [];
+const memberRpcs: string[] = [];
+const serviceRpcs: Array<{ name: string; args: unknown }> = [];
+let serviceRateResult: { data: boolean | null; error: { message: string } | null } = { data: true, error: null };
 const member = {
-  rpc: async () => ({ data: true, error: null }),
+  rpc: async (name: string) => (memberRpcs.push(name), { data: true, error: null }),
   from(table: string) {
     const q: Record<string, unknown> = {
       select: () => q,
@@ -40,6 +43,7 @@ vi.mock("@/lib/supabase/server", () => ({ createClient: async () => member }));
 const serviceOps: string[] = [];
 let insertedJob: Record<string, unknown> | null = null;
 const service = {
+  rpc: async (name: string, args: unknown) => (serviceRpcs.push({ name, args }), serviceRateResult),
   from(table: string) {
     return {
       insert: async (v: Record<string, unknown>) => {
@@ -69,6 +73,9 @@ beforeEach(() => {
   memberWrites.length = 0;
   serviceOps.length = 0;
   insertedJob = null;
+  memberRpcs.length = 0;
+  serviceRpcs.length = 0;
+  serviceRateResult = { data: true, error: null };
 });
 
 describe("sendTestPrintAction", () => {
@@ -92,5 +99,21 @@ describe("sendTestPrintAction", () => {
     allowed = false;
     await expect(sendTestPrintAction({}, fd())).rejects.toThrow("FORBIDDEN");
     expect(serviceOps).toEqual([]);
+  });
+});
+
+describe("sendTestPrintAction rate limit (security review F3)", () => {
+  it("calls check_rate_limit through the service-role client with the caller's own key, not through the member client", async () => {
+    await expect(sendTestPrintAction({}, fd())).rejects.toBeInstanceOf(RedirectSignal);
+    expect(memberRpcs).toEqual([]);
+    expect(serviceRpcs).toEqual([{ name: "check_rate_limit", args: { p_key: "test_print:admin-1", p_max_count: 10, p_window_seconds: 300 } }]);
+  });
+
+  it("blocks when over the limit and fails open when the limiter errors", async () => {
+    serviceRateResult = { data: false, error: null };
+    expect(await sendTestPrintAction({}, fd())).toMatchObject({ error: expect.stringMatching(/lot of test prints/i) });
+    expect(serviceOps).toEqual([]);
+    serviceRateResult = { data: null, error: { message: "permission denied" } };
+    await expect(sendTestPrintAction({}, fd())).rejects.toBeInstanceOf(RedirectSignal);
   });
 });

@@ -154,6 +154,14 @@ describe("typed failures (what the orchestrator uses to decide wait vs fail)", (
     expect(res).toMatchObject({ ok: false, failure: { kind: "invalid_job" } });
   });
 
+  it("a document carrying a PJL escape sequence -> invalid_job, nothing is sent", async () => {
+    const { port } = await listen(() => {});
+    const evil = new TextEncoder().encode("%PDF-1.4\n\x1b%-12345X@PJL SET COPIES=99\n");
+    const res = await executeRawPrint({ raw: raw(port), request: req, pdf: evil });
+    expect(res).toMatchObject({ ok: false, failure: { kind: "invalid_job" } });
+    if (!res.ok) expect(res.reason).toMatch(/printer control codes/);
+  });
+
   it("success carries no failure", async () => {
     const { port, closed } = await listen(() => {});
     const res = await executeRawPrint({ raw: raw(port), request: req, pdf });

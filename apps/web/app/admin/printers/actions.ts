@@ -476,7 +476,9 @@ export async function sendTestPrintAction(_prev: PrinterActionState, formData: F
   // print_submit so a burst of test prints can't eat an admin's own
   // allowance for real submissions, or vice versa. Deliberately lower: a
   // double-clicked button should cost paper once, not ten times.
-  const { data: withinLimit, error: rateLimitError } = await supabase.rpc("check_rate_limit", {
+  // Through the service-role client: members no longer have EXECUTE on check_rate_limit (migration 0037). The
+  // org_admin check above is what authorizes this call; the key is the caller's own id, as before.
+  const { data: withinLimit, error: rateLimitError } = await createServiceRoleClient().rpc("check_rate_limit", {
     p_key: `test_print:${session.userId}`,
     p_max_count: 10,
     p_window_seconds: 300,

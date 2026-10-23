@@ -1,5 +1,6 @@
 import "server-only";
 import { PDFDocument } from "pdf-lib";
+import { containsPjlEscape, PJL_ESCAPE_MESSAGE } from "@printio/shared";
 import { findActiveContent } from "./active-content";
 import { isEncryptedError, sanitizePdf } from "./sanitize";
 
@@ -23,7 +24,10 @@ export type PreflightResult =
     }
   | { ok: false; reason: string };
 
-export async function preflightPdf(bytes: Uint8Array, opts: { maxSizeBytes: number }): Promise<PreflightResult> {
+/** Most pages a single upload may have unless the caller says otherwise (security review F9). */
+export const DEFAULT_MAX_PDF_PAGES = 500;
+
+export async function preflightPdf(bytes: Uint8Array, opts: { maxSizeBytes: number; maxPages?: number }): Promise<PreflightResult> {
   if (bytes.byteLength === 0) {
     return { ok: false, reason: "That file is empty." };
   }
@@ -40,11 +44,22 @@ export async function preflightPdf(bytes: Uint8Array, opts: { maxSizeBytes: numb
     return { ok: false, reason: "This file doesn't look like a PDF. Choose a PDF file." };
   }
 
+  // A PDF that carries the printer's escape sequence could run its own PJL commands when streamed to the
+  // printer's raw port (security review F1). There is no legitimate reason for one to be in a document.
+  if (containsPjlEscape(bytes)) return { ok: false, reason: PJL_ESCAPE_MESSAGE };
+
   try {
     const doc = await PDFDocument.load(bytes, { updateMetadata: false });
     const pageCount = doc.getPageCount();
     if (pageCount === 0) {
       return { ok: false, reason: "This PDF has no pages." };
+    }
+    const maxPages = opts.maxPages ?? DEFAULT_MAX_PDF_PAGES;
+    if (pageCount > maxPages) {
+      return {
+        ok: false,
+        reason: `This PDF has ${pageCount} pages, which is more than the ${maxPages}-page limit. Split it into smaller files and upload them separately.`,
+      };
     }
 
     // Structural validity is not the same as harmlessness: a perfectly valid PDF can still carry embedded
@@ -56,6 +71,8 @@ export async function preflightPdf(bytes: Uint8Array, opts: { maxSizeBytes: numb
       if (!clean.ok) {
         return { ok: false, reason: "This PDF has extra content Printio can't remove. Open it, choose Print, then Save as PDF, and upload that copy." };
       }
+      // The sanitizer re-saves the file; make sure what comes out is clean too, since that copy is what prints.
+      if (containsPjlEscape(clean.bytes)) return { ok: false, reason: PJL_ESCAPE_MESSAGE };
       return { ok: true, pageCount, fileSizeBytes: bytes.byteLength, sanitizedBytes: clean.bytes };
     }
 
