@@ -183,6 +183,25 @@ describe("handleCommand - fixed allow-list", () => {
     expect(deps.scheduleServiceRestart).toHaveBeenCalled();
   });
 
+  it("CHECK_FOR_UPDATE schedules the Agent's own restart LAST, after the update (and its gateway restart) has fully finished", async () => {
+    const events: string[] = [];
+    const deps = makeDeps(dir, {
+      runSelfUpdate: vi.fn(async () => {
+        events.push("update-started");
+        await Promise.resolve();
+        events.push("update-finished");
+        return { updated: true, reason: "updated" as const, message: "Updated.", repoRoot: dir };
+      }),
+      scheduleServiceRestart: vi.fn(() => {
+        events.push("agent-restart-scheduled");
+      }),
+    });
+
+    await handleCommand({ id: "c1", command: "CHECK_FOR_UPDATE", payload: {} }, deps);
+
+    expect(events).toEqual(["update-started", "update-finished", "agent-restart-scheduled"]);
+  });
+
   it("CHECK_FOR_UPDATE never restarts when the update failed partway (pulled, but dependencies failed to install)", async () => {
     const deps = makeDeps(dir, {
       runSelfUpdate: vi.fn(async () => ({

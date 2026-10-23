@@ -20,15 +20,44 @@ function ok(stdout = ""): CommandOutcome {
   return { exitCode: 0, stdout, stderr: "" };
 }
 
+const GATEWAY_ARGS = [
+  "-NoProfile",
+  "-NonInteractive",
+  "-Command",
+  "Restart-Service -Name printioippgateway.exe -ErrorAction Stop",
+];
+
+/** Dispatches by argv, like the real world: rev-parse reports a hash, pull/install/powershell as configured. */
+function scripted(opts: {
+  pull?: CommandOutcome;
+  install?: CommandOutcome;
+  gateway?: CommandOutcome | Error;
+}) {
+  const hashes = ["3f2a1b9", "8c4d0e2"];
+  return vi.fn<SelfUpdateDeps["run"]>(async (command: string, args: readonly string[]) => {
+    if (command === "git" && args[0] === "rev-parse") return ok(`${hashes.shift() ?? "8c4d0e2"}\n`);
+    if (command === "git") return opts.pull ?? ok("Updating 3f2a1b9..8c4d0e2\nFast-forward\n");
+    if (command === "powershell.exe") {
+      const g = opts.gateway ?? ok();
+      if (g instanceof Error) throw g;
+      return g;
+    }
+    return opts.install ?? ok("Done");
+  });
+}
+
 function makeDeps(overrides: Partial<SelfUpdateDeps> = {}): SelfUpdateDeps {
   return {
     repoRoot: "/fake/repo",
     logger,
     hasGitCheckout: () => true,
-    run: vi.fn(async () => ok("Already up to date.\n")),
+    platform: "win32",
+    run: scripted({ pull: ok("Already up to date.\n") }),
     ...overrides,
   };
 }
+
+const callsOf = (run: ReturnType<typeof scripted>, command: string) => run.mock.calls.filter((c) => c[0] === command);
 
 describe("performSelfUpdate", () => {
   it("refuses, with an actionable message, when the Agent is not a git checkout - and runs nothing at all", async () => {
@@ -41,78 +70,132 @@ describe("performSelfUpdate", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
-  it("reports 'already up to date' without reinstalling dependencies or restarting", async () => {
-    const run = vi.fn<SelfUpdateDeps["run"]>(async () => ok("Already up to date.\n"));
+  it("reports 'already up to date' without reinstalling dependencies or restarting the gateway", async () => {
+    const run = scripted({ pull: ok("Already up to date.\n") });
     const result = await performSelfUpdate(makeDeps({ run }));
 
     expect(result.updated).toBe(false);
     expect(result.reason).toBe("already_up_to_date");
-    expect(run).toHaveBeenCalledTimes(1);
+    expect(callsOf(run, "powershell.exe")).toHaveLength(0);
+    expect(callsOf(run, pnpmExecutable())).toHaveLength(0);
   });
 
   it("uses a hardcoded, fast-forward-only git argv in the Agent's own checkout directory", async () => {
-    const run = vi.fn<SelfUpdateDeps["run"]>(async () => ok("Already up to date.\n"));
+    const run = scripted({ pull: ok("Already up to date.\n") });
     await performSelfUpdate(makeDeps({ repoRoot: "/opt/printio", run }));
 
-    const [command, args, cwd] = run.mock.calls[0]!;
-    expect(command).toBe("git");
+    const pull = callsOf(run, "git").find((c) => c[1][0] === "pull")!;
     // --ff-only specifically: an unattended update must never invent a merge
     // commit on a machine nobody is watching.
-    expect(args).toEqual(["pull", "--ff-only"]);
-    expect(cwd).toBe("/opt/printio");
+    expect(pull[1]).toEqual(["pull", "--ff-only"]);
+    expect(pull[2]).toBe("/opt/printio");
+    const revParse = callsOf(run, "git").find((c) => c[1][0] === "rev-parse")!;
+    expect(revParse[1]).toEqual(["rev-parse", "--short", "HEAD"]);
   });
 
-  it("pulls, then reinstalls dependencies, and only then reports an update that warrants a restart", async () => {
-    const run = vi.fn<SelfUpdateDeps["run"]>(async (command: string) =>
-      command === "git" ? ok("Updating a1b2c3d..e4f5g6h\nFast-forward\n") : ok("Done"),
-    );
+  it("pulls, reinstalls dependencies, then restarts the gateway, and says which versions", async () => {
+    const run = scripted({});
     const result = await performSelfUpdate(makeDeps({ run }));
 
     expect(result.updated).toBe(true);
     expect(result.reason).toBe("updated");
-    expect(run).toHaveBeenCalledTimes(2);
-    const [installCommand, installArgs] = run.mock.calls[1]!;
-    expect(installCommand).toBe(pnpmExecutable());
-    expect(installArgs).toEqual(["install"]);
+    expect(result.gatewayRestarted).toBe(true);
+    expect(result.message).toBe(
+      "Updated 3f2a1b9 -> 8c4d0e2. Restarted the gateway. The print server is restarting and will be back in about a minute.",
+    );
+    const order = run.mock.calls.map((c) => (c[0] === "git" ? `git ${c[1][0]}` : c[0]));
+    expect(order).toEqual(["git rev-parse", "git pull", "git rev-parse", pnpmExecutable(), "powershell.exe"]);
+    expect(callsOf(run, pnpmExecutable())[0]![1]).toEqual(["install"]);
   });
 
-  it("does NOT report an update (so nothing restarts) when the dependency install fails after a successful pull", async () => {
-    const run = vi.fn<SelfUpdateDeps["run"]>(async (command: string) =>
-      command === "git"
-        ? ok("Fast-forward\n")
-        : ({ exitCode: 1, stdout: "", stderr: "ERR_PNPM_LOCKFILE_MISMATCH" } satisfies CommandOutcome),
-    );
+  it("restarts the gateway with one fixed argv and a timeout, nothing variable in it", async () => {
+    const run = scripted({});
+    await performSelfUpdate(makeDeps({ repoRoot: "/evil; calc", run }));
+
+    const ps = callsOf(run, "powershell.exe");
+    expect(ps).toHaveLength(1);
+    expect(ps[0]![1]).toEqual(GATEWAY_ARGS);
+    expect(ps[0]![3]).toBeGreaterThan(0);
+    expect(JSON.stringify(ps[0]![1])).not.toContain("evil");
+  });
+
+  it("does NOT restart the gateway when the install fails after a successful pull", async () => {
+    const run = scripted({ install: { exitCode: 1, stdout: "", stderr: "ERR_PNPM_LOCKFILE_MISMATCH" } });
     const result = await performSelfUpdate(makeDeps({ run }));
 
     expect(result.updated).toBe(false);
     expect(result.reason).toBe("install_failed");
     expect(result.message).toMatch(/NOT restarted/);
+    expect(callsOf(run, "powershell.exe")).toHaveLength(0);
   });
 
-  it("reports git_failed, changing nothing, when the pull itself is rejected (e.g. local commits block a fast-forward)", async () => {
-    const run = vi.fn(async () => ({
-      exitCode: 1,
-      stdout: "",
-      stderr: "fatal: Not possible to fast-forward, aborting.",
-    }));
-    const result = await performSelfUpdate(makeDeps({ run }));
+  it("does NOT restart the gateway when git pull fails or git is missing", async () => {
+    const failed = scripted({ pull: { exitCode: 1, stdout: "", stderr: "fatal: Not possible to fast-forward, aborting." } });
+    const r1 = await performSelfUpdate(makeDeps({ run: failed }));
+    expect(r1.reason).toBe("git_failed");
+    expect(r1.message).toContain("fast-forward");
+    expect(callsOf(failed, "powershell.exe")).toHaveLength(0);
+    expect(callsOf(failed, pnpmExecutable())).toHaveLength(0);
 
-    expect(result.updated).toBe(false);
-    expect(result.reason).toBe("git_failed");
-    expect(result.message).toContain("fast-forward");
-    // The pull failed, so the install must never have been attempted.
-    expect(run).toHaveBeenCalledTimes(1);
-  });
-
-  it("reports git_unavailable rather than throwing when git cannot be started at all", async () => {
-    const run = vi.fn(async () => {
+    const missing = vi.fn(async () => {
       throw new Error("spawn git ENOENT");
+    });
+    const r2 = await performSelfUpdate(makeDeps({ run: missing }));
+    expect(r2.updated).toBe(false);
+    expect(r2.reason).toBe("git_unavailable");
+    expect(r2.message).toMatch(/git isn't available/i);
+  });
+
+  it("still reports a successful update, with a plain note, when the gateway service is not installed", async () => {
+    const run = scripted({
+      gateway: {
+        exitCode: 1,
+        stdout: "",
+        stderr: "Restart-Service : Cannot find any service with service name 'printioippgateway.exe'.",
+      },
     });
     const result = await performSelfUpdate(makeDeps({ run }));
 
-    expect(result.updated).toBe(false);
-    expect(result.reason).toBe("git_unavailable");
-    expect(result.message).toMatch(/git isn't available/i);
+    expect(result.updated).toBe(true);
+    expect(result.reason).toBe("updated");
+    expect(result.gatewayRestarted).toBe(false);
+    expect(result.message).toContain("Updated 3f2a1b9 -> 8c4d0e2.");
+    expect(result.message).toContain("The phone/print-dialog gateway was not restarted: it is not installed on this machine");
+    expect(result.message).toContain("The print server is restarting");
+  });
+
+  it("still reports a successful update when the gateway restart fails, times out, or cannot be started", async () => {
+    for (const gateway of [
+      { exitCode: 1, stdout: "", stderr: "Service cannot be stopped" } satisfies CommandOutcome,
+      { exitCode: null, stdout: "", stderr: "[timed out after 60000ms]" } satisfies CommandOutcome,
+      new Error("spawn powershell.exe ENOENT"),
+    ]) {
+      const result = await performSelfUpdate(makeDeps({ run: scripted({ gateway }) }));
+      expect(result.updated).toBe(true);
+      expect(result.gatewayRestarted).toBe(false);
+      expect(result.message).toContain("The phone/print-dialog gateway was not restarted:");
+    }
+  });
+
+  it("skips the gateway restart entirely on non-Windows, and says so", async () => {
+    const run = scripted({});
+    const result = await performSelfUpdate(makeDeps({ run, platform: "linux" }));
+
+    expect(callsOf(run, "powershell.exe")).toHaveLength(0);
+    expect(result.updated).toBe(true);
+    expect(result.gatewayRestarted).toBe(false);
+    expect(result.message).toContain("The phone/print-dialog gateway was not restarted: only Windows");
+  });
+
+  it("falls back to 'unknown' for a version it cannot read, rather than failing the update", async () => {
+    const run = vi.fn<SelfUpdateDeps["run"]>(async (command, args) => {
+      if (command === "git" && args[0] === "rev-parse") return { exitCode: 128, stdout: "", stderr: "fatal" };
+      if (command === "git") return ok("Fast-forward\n");
+      return ok();
+    });
+    const result = await performSelfUpdate(makeDeps({ run }));
+    expect(result.updated).toBe(true);
+    expect(result.message).toContain("Updated unknown -> unknown.");
   });
 });
 

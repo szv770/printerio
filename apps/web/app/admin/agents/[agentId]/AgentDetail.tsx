@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -116,7 +116,7 @@ export function AgentDetail({
     <div className="flex flex-col gap-4">
       <ConnectionCard agent={agent} connection={connection} activity={activity} />
       <MachineCard agent={agent} />
-      <VersionCard agent={agent} version={version} canManage={canManage} />
+      <VersionCard agent={agent} version={version} canManage={canManage} recentCommands={recentCommands} />
       {canManage && <PauseCard agent={agent} pausedByLabel={pausedByLabel} />}
       <QueuesCard agent={agent} queues={queues} canManage={canManage} />
       {canManage && <MaintenanceCard agent={agent} />}
@@ -230,13 +230,19 @@ function VersionCard({
   agent,
   version,
   canManage,
+  recentCommands,
 }: {
   agent: Tables<"agents">;
   version: AgentVersionStatus;
   canManage: boolean;
+  recentCommands: CommandRow[];
 }) {
   const [state, action, pending] = useActionState(checkAgentForUpdateAction, initialAgentActionState);
+  const [confirming, setConfirming] = useState(false);
   const canSelfUpdate = agent.is_git_checkout === true;
+  // recentCommands arrives newest-first; the first CHECK_FOR_UPDATE is the last update request.
+  const lastUpdate = recentCommands.find((c) => c.command === "CHECK_FOR_UPDATE") ?? null;
+  const lastUpdateMessage = lastUpdate ? commandResultMessage(lastUpdate.result) : null;
 
   return (
     <Collapsible
@@ -258,18 +264,57 @@ function VersionCard({
             </p>
           ) : canSelfUpdate ? (
             <>
-              <form action={action}>
-                <input type="hidden" name="agentId" value={agent.id} />
-                <Button type="submit" variant="outline" size="sm" pending={pending} pendingLabel="Requesting...">
-                  <span className="flex items-center gap-1">
-                    <RefreshCw className="h-3.5 w-3.5" /> Check for updates
-                  </span>
-                </Button>
-              </form>
-              <p className="mt-2 text-[13px] text-[var(--color-muted)]">
-                Asks the print server to update itself and restart. If anything was changed on that computer by hand, it
-                tells you and changes nothing. The answer shows under &ldquo;Recent requests&rdquo; within a minute.
+              <p className="text-sm text-[var(--color-text-2)]">
+                Gets the latest Printio code, then restarts the print agent and the phone gateway.
               </p>
+              {confirming ? (
+                <form
+                  action={(formData) => {
+                    setConfirming(false);
+                    action(formData);
+                  }}
+                  className="mt-2 flex flex-col gap-2 rounded-[var(--radius-control)] border border-[var(--color-border)] bg-[var(--color-surface-2)]/50 p-3"
+                >
+                  <input type="hidden" name="agentId" value={agent.id} />
+                  <p className="text-sm">
+                    Update this print server now? It will restart and be unavailable for about a minute, so
+                    avoid doing this while a big job is printing.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="submit" variant="outline" size="sm" pending={pending} pendingLabel="Requesting...">
+                      Yes, update it
+                    </Button>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setConfirming(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <div className="mt-2">
+                  <Button type="button" variant="outline" size="sm" pending={pending} pendingLabel="Requesting..." onClick={() => setConfirming(true)}>
+                    <span className="flex items-center gap-1">
+                      <RefreshCw className="h-3.5 w-3.5" /> Update this server
+                    </span>
+                  </Button>
+                </div>
+              )}
+              {state.error ? null : pending ? (
+                <p className="mt-2 text-[13px] text-[var(--color-muted)]">Update requested. The result shows below within a minute.</p>
+              ) : null}
+              <div className="mt-3 text-[13px] text-[var(--color-muted)]" aria-live="polite">
+                {lastUpdate ? (
+                  <>
+                    <span className="font-medium text-[var(--color-text-2)]">Last update request:</span>{" "}
+                    {lastUpdate.status === "pending" || lastUpdate.status === "acknowledged"
+                      ? `sent ${formatTimestamp(lastUpdate.createdAt)}, waiting for the print server to answer.`
+                      : `${formatTimestamp(lastUpdate.completedAt ?? lastUpdate.createdAt)}. ${
+                          lastUpdateMessage ?? (lastUpdate.status === "failed" ? "It did not complete." : "Done.")
+                        }`}
+                  </>
+                ) : (
+                  "No update has been requested from here yet."
+                )}
+              </div>
             </>
           ) : (
             <p className="text-sm text-[var(--color-muted)]">

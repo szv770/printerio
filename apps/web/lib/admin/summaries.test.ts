@@ -53,7 +53,7 @@ describe("print server summaries", () => {
   });
   it("commands", () => {
     expect(agentCommandsSummary([])).toBe("Nothing sent yet");
-    expect(agentCommandsSummary([{ command: "CHECK_FOR_UPDATE", status: "completed" }])).toBe("Last: Check for update, done");
+    expect(agentCommandsSummary([{ command: "CHECK_FOR_UPDATE", status: "completed" }])).toBe("Last: Update server, done");
     expect(agentCommandsSummary([{ command: "RESTART_SERVICE", status: "failed" }])).toBe("Last: Restart service, failed");
     expect(agentCommandsSummary([{ command: "CLEAR_TEMP_FILES", status: "pending" }])).toBe("Last: Clear temp files, waiting");
   });
