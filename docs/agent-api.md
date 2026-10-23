@@ -181,6 +181,12 @@ When `since + window` has passed (default **2 hours**, `PRINTIO_WAITING_WINDOW_M
 fails the job instead: `claimed -> failed` with `error_message = "[printio:gave-up] The printer was not available for 2 hours ..."`,
 `attempt_count` unchanged and the reservation kept, so the owner's **Try again** works; it is never auto-requeued.
 Response: `200 { "ok": true, "outcome": "waiting", "tries": n, "retryAt": "<ISO>" }` or `200 { "ok": true, "outcome": "failed" }`.
+Agent-side safeguards against a second print: (1) a raw write that times out AFTER every byte was handed to the network (only the
+printer's close is missing - it may already have the whole job) is reported `failed` with "all data was sent but the printer did not
+confirm", NOT released; (2) once the bytes are sent the Agent persists the remaining status reports (`sentUnreported` in its local job
+queue) BEFORE reporting, and re-drives them on the next poll / after a restart, so an outage right after the send can never turn into a
+release (and a re-send); (3) while a printer profile's job was released as `unavailable`, the Agent leaves that profile's other queued
+jobs alone for 30 s and then probes with the oldest one only.
 `404` = an older web app without this endpoint: the Agent then reports `failed` exactly as before. Truly permanent problems (the
 job cannot be built, the document is missing or not a PDF) are still reported with `status: failed` at once.
 

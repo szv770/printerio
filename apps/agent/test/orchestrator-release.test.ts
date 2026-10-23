@@ -68,10 +68,14 @@ interface CloudOpts {
   claim?: () => unknown;
   finishing?: { staple: boolean; booklet: boolean; punch: boolean };
   downloadUrlPath?: string;
+  /** While set, reportStatus throws it (a network outage / a 409), without recording the report as delivered. */
+  failReports?: { current: unknown | null };
 }
 
 function fakeCloud(o: CloudOpts) {
   const calls: Array<{ fn: string; args: unknown[] }> = [];
+  /** Status reports the web app actually received, in order. */
+  const reported: string[] = [];
   const log = (fn: string, ...args: unknown[]) => calls.push({ fn, args });
   const client = {
     async claimJob(jobId: string) {
@@ -102,6 +106,8 @@ function fakeCloud(o: CloudOpts) {
     },
     async reportStatus(jobId: string, status: string, message?: string) {
       log("reportStatus", jobId, status, message);
+      if (o.failReports?.current) throw o.failReports.current;
+      reported.push(`${jobId}:${status}`);
     },
     async releaseJob(jobId: string, kind: string, detail?: string) {
       log("releaseJob", jobId, kind, detail);
@@ -113,7 +119,7 @@ function fakeCloud(o: CloudOpts) {
       return [];
     },
   };
-  return { client: client as unknown as CloudClient, calls };
+  return { client: client as unknown as CloudClient, calls, reported };
 }
 
 const statuses = (calls: Array<{ fn: string; args: unknown[] }>) => calls.filter((c) => c.fn === "reportStatus").map((c) => c.args[1]);
@@ -183,15 +189,15 @@ describe("raw job, current server (job stays claimed while it is sent)", () => {
     expect(existsSync(path.join(h.dir, "downloads")) ? readdirSync(path.join(h.dir, "downloads")) : []).toEqual([]);
   });
 
-  it("the printer stops reading (write stall): released as 'unavailable', not failed", async () => {
-    h.fileBody = Buffer.concat([PDF_BYTES, Buffer.alloc(64 * 1024 * 1024)]);
-    const printer = await startPrinter((s) => s.pause());
-    const { client, calls } = fakeCloud({ rawPort: printer.port });
-    const { orch } = makeOrchestrator(client, { rawTimeouts: { writeTimeoutMs: 300, connectTimeoutMs: 300 } });
+  it("the printer stops reading and not everything left this machine (write stall): released as 'unavailable', not failed", async () => {
+    const { client, calls } = fakeCloud({ rawPort: 1 });
+    const { orch } = makeOrchestrator(client, {
+      rawPrint: async () => ({ ok: false as const, reason: "raw print write timed out", failure: { kind: "write_timeout" as const, bytesWritten: 65536, flushed: false } }),
+    });
     await orch.processJob(job(1));
     expect(calls.filter((c) => c.fn === "releaseJob").map((c) => c.args[1])).toEqual(["unavailable"]);
     expect(statuses(calls)).toEqual([]);
-  }, 30_000);
+  });
 
   const failures: Array<[string, { kind: string; code?: string }, "unavailable" | "unknown" | "FAIL"]> = [
     ["connect timeout", { kind: "connect_timeout" }, "unavailable"],
@@ -214,6 +220,22 @@ describe("raw job, current server (job stays claimed while it is sent)", () => {
       expect(calls.filter((c) => c.fn === "releaseJob").map((c) => c.args[1])).toEqual([expected]);
       expect(statuses(calls)).toEqual([]);
     }
+  });
+
+  it("every byte was sent but the printer never closed the connection: NOT released (a re-send could print twice), failed with an honest message", async () => {
+    const server = net.createServer({ allowHalfOpen: true }, (s) => {
+      sockets.add(s);
+      s.on("data", () => {});
+      s.on("error", () => {});
+    });
+    h.printerServers.push(server);
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const { client, calls } = fakeCloud({ rawPort: (server.address() as net.AddressInfo).port });
+    const { orch } = makeOrchestrator(client, { rawTimeouts: { writeTimeoutMs: 300, connectTimeoutMs: 300 } });
+    await orch.processJob(job(1));
+    expect(fns(calls)).not.toContain("releaseJob");
+    const failed = calls.find((c) => c.fn === "reportStatus" && c.args[1] === "failed");
+    expect(String(failed?.args[2])).toMatch(/did not confirm/);
   });
 
   it("an impossible job (booklet + separate staple) fails immediately with its message and opens no connection", async () => {
@@ -420,5 +442,74 @@ describe("restart recovery", () => {
     await orch.recoverInFlightJobs();
     expect(fns(calls)).not.toContain("releaseJob");
     expect(statuses(calls)).toEqual(["failed"]);
+  });
+});
+
+describe("a clean send whose status reports could not be delivered (must never turn into a second print)", () => {
+  const CHAIN = ["downloading", "downloaded", "printing", "submitted_to_spooler", "completed"];
+
+  it("the web app is unreachable right after the send: nothing is released or re-sent, the chain is kept and re-driven on the next poll", async () => {
+    const printer = await startPrinter((s) => s.on("end", () => s.end()));
+    const failReports = { current: new CloudNetworkError("down") as unknown };
+    const { client, calls, reported } = fakeCloud({ rawPort: printer.port, failReports });
+    const { orch, jobQueue } = makeOrchestrator(client);
+    await orch.processJob(job(1));
+    expect(fns(calls)).not.toContain("releaseJob");
+    expect(reported).toEqual([]);
+    expect(jobQueue.getJob("job-1")?.sentUnreported).toEqual(CHAIN);
+
+    failReports.current = null;
+    await orch.pollClaimableJobs(); // empty list: the re-drive happens before anything is claimed
+    expect(reported).toEqual(CHAIN.map((x) => `job-1:${x}`));
+    expect(jobQueue.getJob("job-1")).toBeUndefined();
+    expect(Buffer.concat(printer.received).toString("latin1").split("%PDF-1.4").length - 1).toBe(1); // sent exactly once
+    expect(fns(calls).filter((f) => f === "claimJob")).toHaveLength(1);
+  });
+
+  it("part of the chain delivered, then the outage: only the rest is re-driven, in order", async () => {
+    const printer = await startPrinter((s) => s.on("end", () => s.end()));
+    const failReports = { current: null as unknown };
+    const { client, reported } = fakeCloud({ rawPort: printer.port, failReports });
+    let tripped = false;
+    const origReport = (client as unknown as { reportStatus: (...a: unknown[]) => Promise<void> }).reportStatus.bind(client);
+    (client as unknown as { reportStatus: (...a: unknown[]) => Promise<void> }).reportStatus = async (...a: unknown[]) => {
+      if (a[1] === "printing" && !tripped) {
+        tripped = true;
+        failReports.current = new CloudNetworkError("down");
+      }
+      return origReport(...a);
+    };
+    const { orch, jobQueue } = makeOrchestrator(client);
+    await orch.processJob(job(1));
+    expect(reported).toEqual(["job-1:downloading", "job-1:downloaded"]);
+    expect(jobQueue.getJob("job-1")?.sentUnreported).toEqual(["printing", "submitted_to_spooler", "completed"]);
+    failReports.current = null;
+    await orch.pollClaimableJobs();
+    expect(reported).toEqual(CHAIN.map((x) => `job-1:${x}`));
+  });
+
+  it("the web app answers 409 (the job is no longer ours, e.g. the sweep re-queued it): the record is dropped, nothing is retried for ever", async () => {
+    const printer = await startPrinter((s) => s.on("end", () => s.end()));
+    const failReports = { current: new CloudApiError("illegal", "illegal_transition", 409) as unknown };
+    const { client, calls } = fakeCloud({ rawPort: printer.port, failReports });
+    const { orch, jobQueue } = makeOrchestrator(client);
+    await orch.processJob(job(1));
+    expect(jobQueue.getJob("job-1")).toBeUndefined();
+    const before = calls.filter((c) => c.fn === "reportStatus").length;
+    await orch.pollClaimableJobs();
+    expect(calls.filter((c) => c.fn === "reportStatus").length).toBe(before);
+  });
+
+  it("the agent restarts between the send and the reports: startup re-drives the chain instead of releasing the job to be printed again", async () => {
+    const printer = await startPrinter((s) => s.on("end", () => s.end()));
+    const failReports = { current: new CloudNetworkError("down") as unknown };
+    const first = fakeCloud({ rawPort: printer.port, failReports });
+    await makeOrchestrator(first.client).orch.processJob(job(1));
+
+    const second = fakeCloud({ rawPort: printer.port });
+    const { orch } = makeOrchestrator(second.client); // new process: reloads the job queue from disk
+    await orch.recoverInFlightJobs();
+    expect(fns(second.calls)).not.toContain("releaseJob");
+    expect(second.reported).toEqual(CHAIN.map((x) => `job-1:${x}`));
   });
 });

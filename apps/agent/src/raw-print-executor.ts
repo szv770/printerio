@@ -53,6 +53,13 @@ export interface RawFailure {
   code?: string;
   /** Bytes that left this machine before it failed (write phase only). */
   bytesWritten?: number;
+  /**
+   * write_timeout only: every byte was handed to the network and the connection was half-closed (FIN sent), and
+   * what never happened is the printer closing its side. The printer may well HAVE the whole job (a Kyocera that
+   * keeps port 9100 open while it works on it), so re-sending it could print it twice: such a job is failed with an
+   * honest message instead of being released (retry-policy.ts).
+   */
+  flushed?: boolean;
 }
 
 export class RawSendError extends Error {
@@ -95,6 +102,7 @@ export function sendRawBytes(
     const socket = new net.Socket();
     let settled = false;
     let connected = false;
+    let flushed = false;
     let timer: NodeJS.Timeout | undefined;
 
     const finish = (err?: RawSendError) => {
@@ -123,6 +131,9 @@ export function sendRawBytes(
         }),
       ),
     );
+    socket.once("finish", () => {
+      flushed = true;
+    });
     socket.once("close", (hadError) => {
       if (!hadError) finish();
       else finish(new RawSendError(`raw print connection to ${host}:${port} closed with an error`, { kind: classifySocketError(undefined, connected) }));
@@ -132,7 +143,15 @@ export function sendRawBytes(
       connected = true;
       if (timer) clearTimeout(timer);
       timer = setTimeout(
-        () => finish(new RawSendError(`raw print write to ${host}:${port} timed out after ${writeMs}ms`, { kind: "write_timeout" })),
+        () =>
+          finish(
+            new RawSendError(
+              flushed
+                ? `raw print write to ${host}:${port} timed out after ${writeMs}ms (all data was sent but the printer did not confirm)`
+                : `raw print write to ${host}:${port} timed out after ${writeMs}ms`,
+              { kind: "write_timeout", flushed },
+            ),
+          ),
         writeMs,
       );
       // end() flushes pending data then sends FIN; "close" then means done.

@@ -14,6 +14,7 @@ describe("decideRawFailure", () => {
     ["host unreachable (EHOSTUNREACH)", { kind: "connect_unreachable", code: "EHOSTUNREACH" }, { action: "release", kind: "unavailable" }],
     ["network unreachable (ENETUNREACH)", { kind: "connect_unreachable", code: "ENETUNREACH" }, { action: "release", kind: "unavailable" }],
     ["write stalled (printer buffer full / jam)", { kind: "write_timeout", bytesWritten: 1000 }, { action: "release", kind: "unavailable" }],
+    ["every byte was sent and only the printer's close is missing (it may have the whole job: a re-send could print twice)", { kind: "write_timeout", bytesWritten: 5000, flushed: true }, { action: "fail" }],
     ["write stalled before a single byte went out", { kind: "write_timeout", bytesWritten: 0 }, { action: "release", kind: "unavailable" }],
     ["unknown socket error while connecting", { kind: "connect_error", code: "EWHATEVER" }, { action: "release", kind: "unknown" }],
     ["connection reset mid-write (ECONNRESET)", { kind: "write_error", code: "ECONNRESET", bytesWritten: 5 }, { action: "release", kind: "unknown" }],

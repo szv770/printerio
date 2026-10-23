@@ -173,3 +173,34 @@ describe("RAW_DEFERRED_STATUSES", () => {
     expect(current).toBe("completed");
   });
 });
+
+describe("write timeout: did everything go out?", () => {
+  it("peer that reads it all but never closes -> write_timeout with flushed=true (the printer may have the whole job)", async () => {
+    const server = net.createServer({ allowHalfOpen: true }, (s) => {
+      sockets.push(s);
+      s.on("data", () => {});
+      s.on("error", () => {});
+    });
+    servers.push(server);
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as net.AddressInfo).port;
+    const res = await executeRawPrint({ raw: raw(port), request: req, pdf, timeouts: { writeTimeoutMs: 300 } });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.failure).toMatchObject({ kind: "write_timeout", flushed: true });
+      expect(res.reason).toMatch(/all data was sent but the printer did not confirm/);
+    }
+  });
+
+  it("peer that stops reading a big job -> write_timeout, and 'flushed' says whether the OS took every byte", async () => {
+    // Whether 64 MB fits in the loopback buffers is up to the OS (Windows swallows it), so only the shape is asserted here;
+    // retry-policy.test.ts covers both values of `flushed`.
+    const { port } = await listen((s) => s.pause());
+    const res = await executeRawPrint({ raw: raw(port), request: req, pdf: new Uint8Array(64 * 1024 * 1024), timeouts: { writeTimeoutMs: 300 } });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.failure.kind).toBe("write_timeout");
+      expect(typeof res.failure.flushed).toBe("boolean");
+    }
+  });
+});

@@ -37,6 +37,11 @@ const RULES: readonly Rule[] = [
     say: () => "The print computer restarted while this job was printing, so it did not finish.",
   },
   {
+    test: /all data was sent but the printer did not confirm/i,
+    say: () =>
+      "The document was sent, but the printer did not confirm that it received it. Look at the printer first; press Try again only if nothing came out.",
+  },
+  {
     test: /timed out|timeout/i,
     say: () => "The printer took too long to accept this job. It may be busy, offline or out of paper.",
   },

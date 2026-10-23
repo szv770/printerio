@@ -8,6 +8,8 @@
  *   cause                                      -> decision
  *   connect timed out / refused / unreachable  -> release "unavailable"  (printer off, offline, network)
  *   write stalled (buffer full, jam)           -> release "unavailable"
+ *   ...but every byte was already sent and only
+ *   the printer's close is missing             -> FAIL (it may have the whole job; a re-send could print twice)
  *   other socket error / reset mid-write       -> release "unknown"
  *   fetching the document failed (network/5xx) -> release "unknown"
  *   job cannot be built, document missing/bad  -> FAIL now with its message (permanent)
@@ -25,10 +27,14 @@ export function decideRawFailure(failure: RawFailure): Decision {
   switch (failure.kind) {
     case "invalid_job":
       return { action: "fail" };
+    case "write_timeout":
+      // Everything was sent and only the printer's close is missing: it may already have the job, and sending it
+      // again could print it twice. Fail with an honest message (Try again is one tap) rather than risk paper.
+      if (failure.flushed) return { action: "fail" };
+      return { action: "release", kind: "unavailable" };
     case "connect_timeout":
     case "connect_refused":
     case "connect_unreachable":
-    case "write_timeout":
       return { action: "release", kind: "unavailable" };
     case "connect_error":
     case "write_error":

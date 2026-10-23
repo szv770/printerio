@@ -80,6 +80,11 @@ describe("failure wording", () => {
     expect(m).toContain("Try again");
     expect(m).not.toContain("[printio");
   });
+  it("'all data was sent but the printer did not confirm' says so, and does not claim nothing was received", () => {
+    const m = friendlyFailureMessage("raw print: raw print write to 10.0.0.5:9100 timed out after 120000ms (all data was sent but the printer did not confirm)");
+    expect(m).toContain("did not confirm");
+    expect(m).toContain("press Try again only if nothing came out");
+  });
   it("a stray waiting marker on a failed job never leaks the raw marker", () => {
     const m = friendlyFailureMessage(unavailable);
     expect(m).not.toContain("[printio");

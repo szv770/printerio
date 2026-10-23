@@ -254,6 +254,53 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     }
   }
 
+  /**
+   * Reports the remaining statuses of a job whose document has already been sent, in order, persisting progress after
+   * each one. Stops quietly on a network/server problem (the next poll tries again); drops the record when the web app
+   * says the job is no longer ours (409/403/404: e.g. the sweep re-queued it), so it is never retried for ever.
+   */
+  async function driveSentReports(jobId: string, jobLogger: Logger): Promise<void> {
+    for (;;) {
+      const rec = jobQueue.getJob(jobId);
+      const next = rec?.sentUnreported?.[0];
+      if (!rec || !next) return;
+      const sentChain = next === "submitted_to_spooler" || next === "completed";
+      try {
+        await cloudClient.reportStatus(
+          jobId,
+          next as Parameters<CloudClient["reportStatus"]>[1],
+          sentChain ? "sent to printer raw port" : undefined,
+          sentChain ? { bytesSent: rec.bytesSent } : undefined,
+        );
+      } catch (err) {
+        if (err instanceof CloudApiError && err.status >= 400 && err.status < 500 && err.status !== 408 && err.status !== 429) {
+          jobLogger.warn("web app no longer accepts reports for a job that was already sent - dropping the local record", { status: err.status, code: err.code, next });
+          jobQueue.removeJob(jobId);
+        } else {
+          jobLogger.warn("could not report a job that was already sent - will try again on the next poll", {
+            next,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return;
+      }
+      const rest = (rec.sentUnreported ?? []).slice(1);
+      if (rest.length === 0) {
+        jobQueue.upsertJob(jobId, { state: "completed", sentUnreported: [] }); // completed prunes the record
+        return;
+      }
+      jobQueue.upsertJob(jobId, { sentUnreported: rest });
+    }
+  }
+
+  async function redriveUnreported(): Promise<void> {
+    for (const record of jobQueue.listActiveJobs()) {
+      if (record.sentUnreported && record.sentUnreported.length > 0) {
+        await driveSentReports(record.jobId, logger.child({ jobId: record.jobId }));
+      }
+    }
+  }
+
   async function processJob(claimable: ClaimableJob): Promise<ProcessOutcome> {
     const procOutcome: ProcessOutcome = {};
     const jobLogger = logger.child({ jobId: claimable.jobId, printerProfileId: claimable.printerProfileId });
@@ -348,19 +395,16 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           return procOutcome;
         }
         procOutcome.sent = true;
-        jobQueue.upsertJob(claimable.jobId, { state: "completed" });
-        // Kept-claimed jobs report the whole chain now that the bytes are out; legacy jobs already reported
+        // The bytes are at the printer. Record that BEFORE the first report, so that if the web app cannot be
+        // reached (or this process dies) the job is never released or sent again - only the reports are re-driven
+        // (driveSentReports). Kept-claimed jobs report the whole chain now; legacy jobs already reported
         // downloaded + printing before the send.
-        for (const status of holdsClaim ? RAW_DEFERRED_STATUSES : RAW_SUCCESS_STATUSES) {
-          const sentChain = status === "submitted_to_spooler" || status === "completed";
-          await safeReportStatus(
-            claimable.jobId,
-            status,
-            sentChain ? "sent to printer raw port" : undefined,
-            sentChain ? { bytesSent: result.bytesSent } : undefined,
-          );
-        }
-        jobLogger.info("job completed (raw port)", { bytesSent: result.bytesSent });
+        jobQueue.upsertJob(claimable.jobId, {
+          sentUnreported: [...(holdsClaim ? RAW_DEFERRED_STATUSES : RAW_SUCCESS_STATUSES)],
+          bytesSent: result.bytesSent,
+        });
+        await driveSentReports(claimable.jobId, jobLogger);
+        jobLogger.info("job sent to the printer (raw port)", { bytesSent: result.bytesSent });
         return procOutcome;
       }
 
@@ -486,6 +530,12 @@ export function createOrchestrator(deps: OrchestratorDeps) {
   async function recoverInFlightJobs(): Promise<void> {
     for (const record of jobQueue.listActiveJobs()) {
       const jobLogger = logger.child({ jobId: record.jobId });
+      // Sent to the printer before we died: only the reports are missing. Never release or fail it (a re-send prints twice).
+      if (record.sentUnreported && record.sentUnreported.length > 0) {
+        jobLogger.info("a job that was already sent to the printer is missing its status reports - sending them now");
+        await driveSentReports(record.jobId, jobLogger);
+        continue;
+      }
       if (record.state === "printing" || record.state === "submitted_to_spooler") {
         if (record.windowsQueueName && record.spoolerJobId !== undefined) {
           jobLogger.info("resuming spooler monitoring for an in-flight job found on restart", {
@@ -541,6 +591,8 @@ export function createOrchestrator(deps: OrchestratorDeps) {
    * `getClaimableJobs()` itself failed after cloud-client.ts's own retries.
    */
   async function pollClaimableJobs(): Promise<boolean> {
+    // First, finish reporting any job that was already sent to the printer (before anything new is claimed).
+    await redriveUnreported();
     // Defense in depth on top of the cloud's own refusal (see
     // HeartbeatResponse.paused / docs/agent-api.md): while an admin has this
     // Agent paused, don't even ask for work. Returns `true` because nothing
