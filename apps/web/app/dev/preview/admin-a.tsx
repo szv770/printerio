@@ -5,6 +5,7 @@ import { peopleTabs, printerTabs } from "@/lib/admin/tabs";
 import { describeAgentConnection, describeAgentVersion } from "@/lib/agent-detail";
 import { UnmatchedSignups } from "@/app/admin/users/UnmatchedSignups";
 import { MembersTable } from "@/app/admin/users/MembersTable";
+import { MemberAccessCard } from "@/app/admin/users/[userId]/MemberAccessCard";
 import { InvitesPanel } from "@/app/admin/users/InvitesPanel";
 import { GroupsPanel } from "@/app/admin/groups/GroupsPanel";
 import { PrintersPanel } from "@/app/admin/printers/PrintersPanel";
@@ -275,6 +276,37 @@ export function UserDevicesPreview({ variant }: { variant?: string }) {
       />
       <Tabs label="Printers and devices" items={printerTabs("devices", true)} />
       <DevicesAdmin devices={variant === "empty" ? [] : DEVICES} />
+    </Frame>
+  );
+}
+
+export function MemberAccessPreview({ variant }: { variant?: string }) {
+  const empty = variant === "empty";
+  return (
+    <Frame path="/admin/users/u1">
+      <div className="mx-auto max-w-2xl">
+        <PageHeader title="Moshe Levi" description="moshe@school.org" />
+        <MemberAccessCard
+          firstName="Moshe"
+          groups={empty ? [] : ["Grade 5 teachers", "Science department"]}
+          access={
+            variant === "approver"
+              ? null
+              : {
+                  groups: [],
+                  adminBypass: false,
+                  jobDependent: !empty,
+                  printers: empty
+                    ? []
+                    : [
+                        { id: "p1", name: "Main office Kyocera", outcome: "allowed", why: "Teachers may print on the main printer." },
+                        { id: "p2", name: "Library printer", outcome: "approval", why: "No rule covers this, so the organization default applies (needs approval)." },
+                        { id: "p3", name: "Teachers room", outcome: "blocked", why: "Students cannot use the teachers room printer." },
+                      ],
+                }
+          }
+        />
+      </div>
     </Frame>
   );
 }
