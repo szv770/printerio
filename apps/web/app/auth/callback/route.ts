@@ -6,6 +6,9 @@ import { emailDomain } from "@/lib/auth/domains";
 import { isGoogleSignIn } from "@/lib/auth/provider";
 import { routes } from "@/lib/routes";
 import { logger } from "@/lib/logger";
+import { redeemInvitation } from "@/lib/auth/invitations";
+import { isPlausibleInviteCode } from "@/lib/auth/invite-link";
+import { clientIpFrom } from "@/lib/auth/invite-rate-limit";
 
 /** Redirect target for both sign-in methods - Google OAuth and Supabase
  *  magic-link (email OTP, app/login/MagicLinkForm.tsx). Establishes a session
@@ -36,6 +39,7 @@ async function finishSignIn(
   user: SessionUser,
   email: string,
   origin: string,
+  invite?: { code: string; ip: string },
 ): Promise<NextResponse> {
   const userId = user.id;
 
@@ -113,7 +117,27 @@ async function finishSignIn(
     logger.error("failed to stamp last_authenticated_at", { userId, error: touchError.message });
   }
 
+  // Invite link (/join?code=...): the code travelled through the emailed
+  // link (or a cookie set on the join page), so the person never types it.
+  if (invite) {
+    const result = await redeemInvitation(invite.code, userId, email, { ip: invite.ip });
+    if (!result.ok && result.reason !== "already_member") {
+      const url = new URL(`${origin}${routes.noAccess}`);
+      url.searchParams.set("code", invite.code);
+      url.searchParams.set("invite_error", result.reason);
+      return NextResponse.redirect(url);
+    }
+  }
+
   return NextResponse.redirect(`${origin}${routes.home}`);
+}
+
+/** The invite code for this sign-in: ?invite= wins, else the join-page cookie. */
+function inviteFromRequest(request: Request, searchParams: URLSearchParams): { code: string; ip: string } | undefined {
+  const fromQuery = searchParams.get("invite");
+  const cookie = /(?:^|;\s*)printio_invite=([^;]+)/.exec(request.headers.get("cookie") ?? "")?.[1];
+  const code = fromQuery ?? (cookie ? decodeURIComponent(cookie) : null);
+  return isPlausibleInviteCode(code) ? { code, ip: clientIpFrom(request.headers) } : undefined;
 }
 
 function loginLinkInvalid(origin: string): NextResponse {
@@ -126,6 +150,7 @@ export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
+  const invite = inviteFromRequest(request, searchParams);
 
   // Cross-browser magic link: verified server-side, so it does not need the
   // PKCE code-verifier cookie (which is missing when the email link opens in
@@ -136,14 +161,14 @@ export async function GET(request: Request) {
     const supabase = await createClient();
     const { data, error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
     if (error || !data.user?.email) return loginLinkInvalid(origin);
-    return finishSignIn(supabase, data.user, data.user.email, origin);
+    return finishSignIn(supabase, data.user, data.user.email, origin, invite);
   }
 
   if (code) {
     const supabase = await createClient();
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error && data.user?.email) {
-      return finishSignIn(supabase, data.user, data.user.email, origin);
+      return finishSignIn(supabase, data.user, data.user.email, origin, invite);
     }
   }
 

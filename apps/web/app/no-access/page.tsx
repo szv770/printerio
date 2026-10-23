@@ -10,9 +10,16 @@ import { RedeemForm } from "./RedeemForm";
 export default async function NoAccessPage({
   searchParams,
 }: {
-  searchParams: Promise<{ reason?: string; domain?: string }>;
+  searchParams: Promise<{ reason?: string; domain?: string; code?: string; invite_error?: string }>;
 }) {
-  const { reason, domain } = await searchParams;
+  const { reason, domain, code, invite_error } = await searchParams;
+  const inviteMessages: Record<string, string> = {
+    not_found: "That invite isn't valid.",
+    expired: "That invite has expired. Ask for a new one.",
+    exhausted: "That invite has already been used the maximum number of times.",
+    email_mismatch: "That invitation was made for a different email address.",
+    rate_limited: "Too many tries. Please wait a few minutes and try again.",
+  };
 
   // Domain-restriction rejection (docs/architecture.md sec 19): the user was
   // already signed back out in app/auth/callback/route.ts before landing
@@ -159,7 +166,7 @@ export default async function NoAccessPage({
           enter one below.
         </p>
       </div>
-      <RedeemForm />
+      <RedeemForm defaultCode={code && /^[A-Za-z0-9_-]{4,64}$/.test(code) ? code : ""} initialError={invite_error ? inviteMessages[invite_error] : undefined} />
       <div className="border-t border-[var(--color-border)] pt-4">
         <p className="text-xs text-[var(--color-muted)]">
           Wrong account, or expecting to be set up as the first admin instead? You can sign out and try

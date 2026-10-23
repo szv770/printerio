@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { DevicesPreview, JobListPreview, JobPreview, PrintPreview, ProfilePreview, UsagePreview } from "./member-pages";
 import { GroupsPreview, InvitesPreview, PrintersPreview, ServerDetailPreview, ServersPreview, UserDevicesPreview, UsersPreview } from "./admin-a";
 import { ActivityPreview, AllJobsPreview, ApprovalsPreview, FilesPreview, LimitsPreview, ReportsPreview, RulesPreview } from "./admin-b";
+import { JoinCard } from "@/app/join/JoinCard";
 import { BookletPreviewSection } from "./booklet";
 import { AdminHomeSection, TeacherHomeSection } from "./homes";
 import {
@@ -27,6 +28,8 @@ export default async function PreviewPage({
   if (process.env.NODE_ENV !== "development") notFound();
   const { section = "admin", path, shell, variant, side } = await searchParams;
   switch (section) {
+    case "join":
+      return <JoinCard code="a1b2c3d4e5f6" orgName="Beth Rivkah" problem={variant} />;
     case "booklet":
       return <BookletPreviewSection side={side === "right" ? "right" : "left"} />;
     case "print":

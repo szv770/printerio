@@ -1,9 +1,10 @@
 import "server-only";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { checkInviteRateLimit } from "@/lib/auth/invite-rate-limit";
 
 export type RedeemInvitationResult =
   | { ok: true; organizationId: string; role: string }
-  | { ok: false; reason: "not_found" | "expired" | "exhausted" | "email_mismatch" | "already_member" };
+  | { ok: false; reason: "not_found" | "expired" | "exhausted" | "email_mismatch" | "already_member" | "rate_limited" };
 
 /**
  * Redeems an enrollment code or targeted-email invitation, inserting the
@@ -18,8 +19,14 @@ export async function redeemInvitation(
   code: string,
   userId: string,
   email: string,
+  opts: { ip?: string } = {},
 ): Promise<RedeemInvitationResult> {
   const supabase = createServiceRoleClient();
+
+  // Security review F13: stop code guessing (per user and per IP).
+  if (!(await checkInviteRateLimit(supabase, { userId, ip: opts.ip }))) {
+    return { ok: false, reason: "rate_limited" };
+  }
 
   const { data: invitation, error } = await supabase
     .from("organization_invitations")

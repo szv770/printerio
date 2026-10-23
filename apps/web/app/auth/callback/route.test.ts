@@ -17,6 +17,9 @@ const maybeBootstrapOrganization = vi.fn();
 vi.mock("@/lib/auth/bootstrap", () => ({ maybeBootstrapOrganization: (...a: unknown[]) => maybeBootstrapOrganization(...a) }));
 vi.mock("@/lib/logger", () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
 
+const redeemInvitation = vi.fn();
+vi.mock("@/lib/auth/invitations", () => ({ redeemInvitation: (...a: unknown[]) => redeemInvitation(...a) }));
+
 import { GET } from "./route";
 
 const ORIGIN = "https://printio.test";
@@ -31,8 +34,8 @@ const googleUser = {
   identities: [{ provider: "google", last_sign_in_at: "2026-01-01T00:00:00Z" }],
 };
 
-function call(query: string) {
-  return GET(new Request(`${ORIGIN}/auth/callback?${query}`));
+function call(query: string, headers?: Record<string, string>) {
+  return GET(new Request(`${ORIGIN}/auth/callback?${query}`, { headers }));
 }
 function location(res: Response) {
   return new URL(res.headers.get("location")!);
@@ -43,6 +46,7 @@ beforeEach(() => {
   eq.mockResolvedValue({ error: null });
   rpc.mockResolvedValue({ data: true, error: null });
   maybeBootstrapOrganization.mockResolvedValue(undefined);
+  redeemInvitation.mockResolvedValue({ ok: true, organizationId: "o1", role: "staff" });
   exchangeCodeForSession.mockResolvedValue({ data: { user: googleUser }, error: null });
   verifyOtp.mockResolvedValue({ data: { user: emailUser }, error: null });
 });
@@ -109,5 +113,43 @@ describe("auth callback: token_hash (cross-browser magic link) path", () => {
     expect(url.pathname).toBe("/login");
     expect(url.searchParams.get("reason")).toBe("link_invalid");
     expect(from).not.toHaveBeenCalled();
+  });
+});
+
+describe("auth callback: invite link carried through sign-in", () => {
+  it("redeems the invite from ?invite= after sign-in and lands home", async () => {
+    const res = await call("token_hash=th1&type=email&invite=a1b2c3d4e5f6", { "x-forwarded-for": "5.6.7.8" });
+    expect(redeemInvitation).toHaveBeenCalledWith("a1b2c3d4e5f6", "u1", "a@school.org", { ip: "5.6.7.8" });
+    expect(location(res).pathname).toBe("/");
+  });
+
+  it("falls back to the printio_invite cookie", async () => {
+    await call("token_hash=th1&type=email", { cookie: "printio_invite=cafe1234beef" });
+    expect(redeemInvitation).toHaveBeenCalledWith("cafe1234beef", "u1", "a@school.org", expect.anything());
+  });
+
+  it("does nothing when there is no invite", async () => {
+    await call("token_hash=th1&type=email");
+    expect(redeemInvitation).not.toHaveBeenCalled();
+  });
+
+  it("ignores a garbage invite value", async () => {
+    await call("token_hash=th1&type=email&invite=bad%20code!");
+    expect(redeemInvitation).not.toHaveBeenCalled();
+  });
+
+  it("sends the person to the code screen with a reason when redeeming fails", async () => {
+    redeemInvitation.mockResolvedValue({ ok: false, reason: "expired" });
+    const res = await call("token_hash=th1&type=email&invite=a1b2c3d4e5f6");
+    const loc = location(res);
+    expect(loc.pathname).toBe("/no-access");
+    expect(loc.searchParams.get("code")).toBe("a1b2c3d4e5f6");
+    expect(loc.searchParams.get("invite_error")).toBe("expired");
+  });
+
+  it("treats already_member as success", async () => {
+    redeemInvitation.mockResolvedValue({ ok: false, reason: "already_member" });
+    const res = await call("token_hash=th1&type=email&invite=a1b2c3d4e5f6");
+    expect(location(res).pathname).toBe("/");
   });
 });

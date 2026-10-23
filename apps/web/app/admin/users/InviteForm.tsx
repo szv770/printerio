@@ -4,17 +4,18 @@ import { useActionState } from "react";
 import { Button, Field, FormError, Input, Select } from "@/components/ui";
 import { createInvitationAction, type InviteState } from "./actions";
 import { CopyCodeButton } from "./CopyCodeButton";
+import { ShareInviteButton } from "./ShareInviteButton";
 import { roleChoices } from "@/lib/admin/members";
 
 const initialState: InviteState = {};
 
-export function InviteForm() {
+export function InviteForm({ orgName }: { orgName: string }) {
   const [state, formAction, pending] = useActionState(createInvitationAction, initialState);
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
       <p className="text-sm text-[var(--color-text-2)]">
-        Make a code and share it with the person joining. They enter it the first time they sign in.
+        Make an invite and share the link. When they open it the code is already filled in, so they only type their email.
       </p>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Field label="They join as" htmlFor="role">
@@ -35,7 +36,7 @@ export function InviteForm() {
       </div>
       <div>
         <Button type="submit" pending={pending} pendingLabel="Creating..." className="w-full sm:w-auto">
-          Create code
+          Create invite
         </Button>
       </div>
       <FormError message={state.error} />
@@ -45,10 +46,13 @@ export function InviteForm() {
           className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-control)] bg-[var(--color-success-soft)] px-4 py-3"
         >
           <div className="min-w-0">
-            <p className="text-[13px] text-[var(--color-success-ink)]">Your new code. Share it with the person joining.</p>
+            <p className="text-[13px] text-[var(--color-success-ink)]">Your invite is ready. Share it with the person joining.</p>
             <code className="font-mono text-xl font-semibold tracking-widest break-all text-[var(--color-success-ink)]">{state.code}</code>
           </div>
-          <CopyCodeButton code={state.code} />
+          <div className="flex flex-wrap gap-2">
+            <ShareInviteButton code={state.code} orgName={orgName} />
+            <CopyCodeButton code={state.code} />
+          </div>
         </div>
       )}
     </form>
