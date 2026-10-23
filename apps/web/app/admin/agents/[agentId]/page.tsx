@@ -12,6 +12,7 @@ import {
   summarizeUsageByProfile,
 } from "@/lib/agent-detail";
 import { hasActiveCommand } from "@/lib/command-result";
+import { deriveUpdateView, isUpdateLive } from "@/lib/update-progress";
 import { AgentDetail } from "./AgentDetail";
 import { CommandAutoRefresh } from "./CommandAutoRefresh";
 
@@ -84,7 +85,7 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
       .limit(1),
     supabase
       .from("remote_commands")
-      .select("id, command, status, result, created_at, completed_at")
+      .select("id, command, status, payload, result, created_at, completed_at")
       .eq("organization_id", orgId)
       .eq("agent_id", agentId)
       .order("created_at", { ascending: false })
@@ -112,6 +113,13 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
     createdAt: command.created_at,
     completedAt: command.completed_at,
     result: command.result,
+    // The quiet "is there an update?" check carries exactly this literal payload (nothing else can).
+    checkOnly:
+      command.command === "CHECK_FOR_UPDATE" &&
+      typeof command.payload === "object" &&
+      command.payload !== null &&
+      !Array.isArray(command.payload) &&
+      (command.payload as Record<string, unknown>).mode === "check_only",
   }));
   // Only the newest GET_LOGS keeps its (large) log text; older ones keep just their small summary, so the page
   // payload stays small however many times logs were requested.
@@ -119,7 +127,9 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
   const shippedCommands = recentCommands.map((c) =>
     c.command === "GET_LOGS" && c.id !== newestLogsId ? { ...c, result: null } : c,
   );
-  const live = hasActiveCommand(recentCommands, nowMs);
+  const updateView = deriveUpdateView({ commands: recentCommands, lastSeenAt: agent.last_seen_at, nowMs });
+  const updateLive = isUpdateLive(updateView);
+  const live = hasActiveCommand(recentCommands, nowMs) || updateLive;
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -131,7 +141,7 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
         Back to print servers
       </Link>
 
-      <CommandAutoRefresh active={live} />
+      <CommandAutoRefresh active={live} everyMs={updateLive ? 2_000 : undefined} />
 
       <PageHeader
         title={agent.name}

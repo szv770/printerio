@@ -12,7 +12,7 @@ vi.mock("@/lib/supabase/server", () => ({ createClient: async () => ({}) }));
 const issue = vi.fn(async (..._a: unknown[]) => ({ ok: true, commandId: "c1" }) as { ok: true; commandId: string } | { ok: false; error: string });
 vi.mock("@/lib/remote-commands", () => ({ issueRemoteCommand: (...a: unknown[]) => issue(...a) }));
 
-import { getAgentLogsAction, checkAgentForUpdateAction } from "./actions";
+import { getAgentLogsAction, checkAgentForUpdateAction, checkAgentUpdateAvailableAction } from "./actions";
 
 const form = (agentId = "agent1") => {
   const f = new FormData();
@@ -63,5 +63,17 @@ describe("checkAgentForUpdateAction", () => {
     expect(issue.mock.calls[0]![1]).toEqual({ organizationId: "org1", issuedBy: "admin-1", agentId: "agent1", command: "CHECK_FOR_UPDATE" });
     role = "approver";
     await expect(checkAgentForUpdateAction({}, form())).rejects.toThrow("FORBIDDEN");
+  });
+});
+
+describe("checkAgentUpdateAvailableAction", () => {
+  it("issues CHECK_FOR_UPDATE with only the fixed check_only mode, admin only, ignoring form extras", async () => {
+    const f = form();
+    f.set("mode", "pull --force");
+    const r = await checkAgentUpdateAvailableAction({}, f);
+    expect(r).toEqual({});
+    expect(issue.mock.calls[0]![1]).toEqual({ organizationId: "org1", issuedBy: "admin-1", agentId: "agent1", command: "CHECK_FOR_UPDATE", payload: { mode: "check_only" } });
+    role = "member";
+    await expect(checkAgentUpdateAvailableAction({}, form())).rejects.toThrow("FORBIDDEN");
   });
 });

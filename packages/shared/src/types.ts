@@ -96,10 +96,12 @@ export interface RemoteCommandPayload {
   REFRESH_PRINTER_STATUS: Record<string, never>;
   RESTART_AGENT_SERVICE: Record<string, never>;
   CLEAR_AGENT_TEMP_FILES: Record<string, never>;
-  /** Deliberately payload-free: the Agent runs one hardcoded update sequence
-   *  in its own checkout (apps/agent/src/self-update.ts) and takes no branch,
-   *  remote, path, or command string from the cloud. */
-  CHECK_FOR_UPDATE: Record<string, never>;
+  /** The Agent runs one hardcoded update sequence in its own checkout
+   *  (apps/agent/src/self-update.ts) and takes no branch, remote, path, or
+   *  command string from the cloud. The ONLY thing a payload can do is pick
+   *  the literal mode "check_only" (git fetch + compare, nothing pulled or
+   *  installed); anything else, including no payload, is the full update. */
+  CHECK_FOR_UPDATE: { mode?: "check_only" };
   /** Payload-free: the Agent reads the tail of its OWN fixed log files (never a path from the cloud) and returns them secret-masked. */
   GET_LOGS: Record<string, never>;
 }

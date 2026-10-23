@@ -14,7 +14,7 @@ import type { SpoolerMonitor } from "./spooler-monitor.js";
 import type { PrinterManager } from "./printer-manager.js";
 import type { JobQueue } from "./job-queue.js";
 import type { Logger } from "./logger.js";
-import { resolveRepoRoot, type SelfUpdateResult } from "./self-update.js";
+import { resolveRepoRoot, type SelfUpdateResult, type UpdateCheckResult, type UpdateProgress } from "./self-update.js";
 import { collectLogs, type CollectedLogs } from "./log-collector.js";
 
 export interface CommandResult {
@@ -38,7 +38,11 @@ export interface CommandHandlerDeps {
    * checkout, git missing, pull failed, already up to date, updated) without a
    * real git remote or a real `pnpm install`.
    */
-  runSelfUpdate: () => Promise<SelfUpdateResult>;
+  runSelfUpdate: (onProgress?: (progress: UpdateProgress) => void | Promise<void>) => Promise<SelfUpdateResult>;
+  /** CHECK_FOR_UPDATE with mode "check_only": fetch + compare only, nothing pulled or installed. Injected for tests. */
+  runUpdateCheck?: () => Promise<UpdateCheckResult>;
+  /** Writes a live progress step into the running command's row so the admin page can show it. Best effort; never throws. */
+  reportProgress?: (commandId: string, result: Record<string, unknown>) => Promise<void>;
   /** GET_LOGS: reads the tails of this machine's own fixed log files (log-collector.ts). Injected for tests; defaults to the real reader. Takes no input. */
   collectLogs?: () => CollectedLogs;
 }
@@ -189,7 +193,21 @@ export async function handleCommand(
       // sequence self-update.ts runs is entirely hardcoded, in the Agent's
       // own checkout directory, with no value from the cloud reaching a
       // process invocation. See that module's header.
-      const update = await deps.runSelfUpdate();
+      //
+      // The one thing a payload can do: the literal string "check_only" asks
+      // for fetch + compare with nothing pulled or installed. Anything else
+      // (empty, wrong type, any other string) is the full update, and no
+      // payload value is ever passed on.
+      const checkOnly =
+        typeof envelope.payload === "object" && envelope.payload !== null && (envelope.payload as Record<string, unknown>).mode === "check_only";
+      if (checkOnly && deps.runUpdateCheck) {
+        const check = await deps.runUpdateCheck();
+        return { status: "completed", result: { ...check } };
+      }
+      const report = deps.reportProgress;
+      const update = report
+        ? await deps.runSelfUpdate((p) => report(envelope.id, { step: p.step, message: p.message, updated: false }))
+        : await deps.runSelfUpdate();
 
       // Every outcome - including "can't self-update at all" - acks as
       // `completed` with a specific reason, because the command DID run to a
@@ -205,7 +223,15 @@ export async function handleCommand(
       }
       return {
         status: "completed",
-        result: { updated: update.updated, reason: update.reason, message: update.message },
+        result: {
+          updated: update.updated,
+          reason: update.reason,
+          message: update.message,
+          ...(update.from ? { from: update.from } : {}),
+          ...(update.to ? { to: update.to } : {}),
+          ...(update.updated ? { step: "restarting" } : {}),
+          ...(update.failedStep ? { step: update.failedStep } : {}),
+        },
       };
     }
   }
