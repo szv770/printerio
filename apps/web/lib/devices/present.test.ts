@@ -47,8 +47,23 @@ describe("setupSteps", () => {
     expect(text).not.toContain("https://");
     expect(s.note).toMatch(/bare hostname/i);
   });
+  it("mac has Terminal and Settings steps, an ipps command, and is honestly labelled untested", () => {
+    const s = setupSteps("mac", addr)!;
+    expect(s.needs).toBe("url");
+    expect(s.command).toBe("lpadmin -p Printio -E -v ipps://u-abc.szvtech.org/ipp/print -m everywhere");
+    const text = s.steps.join(" ");
+    expect(text).toContain("Terminal");
+    expect(text).toContain("Add Printer");
+    expect(text).toContain("IP tab");
+    expect(s.testStatus).toMatch(/Not tested yet - being worked on/);
+    expect(s.testStatus).not.toMatch(/works/i);
+  });
+  it("only mac carries a command and a test status", () => {
+    expect(setupSteps("windows", addr)!.command).toBeUndefined();
+    expect(setupSteps("android", addr)!.testStatus).toBeUndefined();
+  });
   it("other types have no steps yet", () => {
-    for (const t of ["chromebook", "iphone", "mac", "other"] as const) expect(setupSteps(t, addr)).toBeNull();
+    for (const t of ["chromebook", "iphone", "other"] as const) expect(setupSteps(t, addr)).toBeNull();
   });
 });
 
