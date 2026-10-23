@@ -5,7 +5,7 @@ Print Agent (`apps/agent`, polls the cloud, prints via SumatraPDF to Windows que
 MZ8500i) + shared logic (`packages/shared`: policy engine, job state machine, print math).
 Currently a single-org prototype on a full multi-tenant schema. Start at `README.md` and `docs/`.
 
-## Commands (pnpm 10, Node 20+)
+## Commands (pnpm 10, Node 22.13+; pdfjs-dist needs it)
 - `pnpm install --frozen-lockfile`, then `pnpm -r typecheck | lint | test | build` (CI runs exactly these).
 - One package: `pnpm --filter @printio/web test` (also `@printio/agent`, `@printio/shared`).
 - New dependencies change `pnpm-lock.yaml`; CI uses `--frozen-lockfile`. Keep experiments outside
