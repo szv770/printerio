@@ -25,8 +25,16 @@ export default async function PreviewPage({
   switch (section) {
     case "adminhome":
       return <AdminHomeSection />;
+    case "adminclear":
+      return <AdminHomeSection variant="clear" />;
+    case "adminsetup":
+      return <AdminHomeSection variant="setup" />;
     case "teacher":
       return <TeacherHomeSection />;
+    case "teachernoquota":
+      return <TeacherHomeSection variant="noquota" />;
+    case "teacherempty":
+      return <TeacherHomeSection variant="empty" />;
     case "member":
       return <MemberSection path={path ?? "/jobs"} />;
     case "settings":

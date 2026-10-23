@@ -1,34 +1,29 @@
-import Link from "next/link";
-import { Printer as PrinterIcon } from "lucide-react";
 import { JOB_STATES, isTerminalState, type QuotaBasis } from "@printio/shared";
 import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { currentPeriod, getApplicableQuotaLimit, getUsageSnapshot, usageForBasis } from "@/lib/quota";
 import { routes } from "@/lib/routes";
-import { JobStatusBadge } from "../jobs/JobStatusBadge";
-import { Card, EmptyState } from "@/components/ui";
-
-const BASIS_LABEL: Record<QuotaBasis, string> = {
-  pdf_pages: "PDF pages",
-  printed_sides: "printed sides",
-  physical_sheets: "physical sheets",
-  color_weighted: "color-weighted sheets",
-};
+import { ButtonLink } from "@/components/ui";
+import { firstName, jobMetaLine, quotaCard, statusCards, teacherEmptyText } from "@/lib/home/teacher-home";
+import { AutoRefresh } from "@/components/home/AutoRefresh";
+import { BigPrintCard } from "@/components/home/BigPrintCard";
+import { StatusCards } from "@/components/home/StatusCards";
+import { RecentJobs } from "@/components/home/RecentJobs";
 
 const RECENT_JOBS_LIMIT = 5;
+const COUNT_CAP = 100;
 
-// Derived from the state machine itself (not a hand-maintained list) so a
-// future addition to JOB_STATES can't silently fall out of sync here:
-// "in progress" = has left draft but hasn't reached a terminal state yet.
-const ACTIVE_JOB_STATUSES = JOB_STATES.filter((s) => s !== "draft" && !isTerminalState(s));
+// Derived from the state machine (not a hand-kept list): "printing now" = left
+// the approval stage but not yet finished.
+const PRINTING_STATUSES = JOB_STATES.filter(
+  (s) => !isTerminalState(s) && !["draft", "held", "pending_approval", "approved"].includes(s),
+);
+const COUNTED_STATUSES = [...PRINTING_STATUSES, "approved", "pending_approval"];
 
 /**
- * The actual landing screen for student/staff users (org_admin/approver land
- * on /admin instead - see app/page.tsx). Previously "/" was pure redirect
- * logic straight into the print form with no status view at all - a
- * returning user had no way to see "can I still print" or "did my last job
- * go through" without an extra navigation. This page answers both, then
- * gets out of the way: primary action first, status strip, recent jobs.
+ * The landing screen for staff/students (admins land on /admin). Mobile
+ * first: greeting, one big Print button, a small status strip, and the last
+ * few jobs. Reads only this person's own rows with the session client.
  */
 export default async function DashboardHomePage() {
   const session = await requireSessionOrRedirect();
@@ -42,21 +37,24 @@ export default async function DashboardHomePage() {
 
   const supabase = await createClient();
   const orgId = session.membership.organization_id;
+  const now = new Date();
 
-  const [{ data: settings }, { data: groupRows }, { data: recentJobs }, { count: activeJobCount }] = await Promise.all([
+  const [{ data: settings }, { data: groupRows }, { data: recentJobs }, { data: openJobs }] = await Promise.all([
     supabase.from("organization_settings").select("quota_basis").eq("organization_id", orgId).single(),
     supabase.from("group_members").select("group_id").eq("user_id", session.userId),
     supabase
       .from("print_jobs")
-      .select("id, job_number, original_file_name, status, created_at")
+      .select("id, original_file_name, status, created_at, source_pdf_pages, copies")
       .eq("created_by", session.userId)
       .order("created_at", { ascending: false })
       .limit(RECENT_JOBS_LIMIT),
+    // One small query for both counts (printing now / waiting for approval).
     supabase
       .from("print_jobs")
-      .select("id", { count: "exact", head: true })
+      .select("status")
       .eq("created_by", session.userId)
-      .in("status", ACTIVE_JOB_STATUSES),
+      .in("status", COUNTED_STATUSES)
+      .limit(COUNT_CAP),
   ]);
 
   const basis = (settings?.quota_basis ?? "physical_sheets") as QuotaBasis;
@@ -71,65 +69,39 @@ export default async function DashboardHomePage() {
     getApplicableQuotaLimit(supabase, ctx),
     getUsageSnapshot(supabase, orgId, session.userId, currentPeriod()),
   ]);
-  const used = usageForBasis(usage, basis);
-  const remaining = limit === null ? null : Math.max(0, limit - used);
+
+  const open = openJobs ?? [];
+  const cards = statusCards({
+    quota: quotaCard({ limit, used: usageForBasis(usage, basis), basis }),
+    printing: open.filter((j) => PRINTING_STATUSES.includes(j.status as never)).length,
+    waiting: open.filter((j) => j.status === "pending_approval").length,
+  });
+
+  const rows = (recentJobs ?? []).map((j) => ({
+    id: j.id,
+    href: routes.job(j.id),
+    name: j.original_file_name,
+    status: j.status,
+    meta: jobMetaLine({ pages: j.source_pdf_pages, copies: j.copies, createdAt: j.created_at }, now),
+  }));
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-10">
-      {/* Primary action - this is what most visits are for, so it comes
-       *  first and is the single most visually prominent element. */}
-      <Link
-        href={routes.print}
-        data-tour="home-print-cta"
-        className="mb-6 flex items-center gap-4 rounded-[var(--radius-card)] bg-[var(--color-primary)] p-5 text-[var(--color-primary-fg)] shadow-[inset_0_1px_0_rgb(255_255_255/0.2),var(--shadow-card)] transition-colors hover:bg-[var(--color-primary-hover)] focus-visible:outline-none focus-visible:shadow-[var(--ring)] sm:p-6"
-      >
-        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/15">
-          <PrinterIcon className="h-7 w-7" />
-        </span>
-        <div>
-          <p className="text-xl font-bold tracking-[-0.02em]">Print a document</p>
-          <p className="mt-0.5 text-sm opacity-90">Upload a PDF and choose your printer and options.</p>
-        </div>
-      </Link>
-
-      {/* Status strip - "can I still print" / "is anything waiting on me" at
-       *  a glance, no click required. */}
-      <div className="mb-6 grid grid-cols-2 gap-4">
-        <Card className="p-4" data-tour="home-quota">
-          <p className="text-sm text-[var(--color-muted)]">Quota remaining ({BASIS_LABEL[basis]})</p>
-          <p className="mt-1 text-2xl font-semibold">{remaining === null ? "Unlimited" : remaining.toLocaleString()}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-sm text-[var(--color-muted)]">Jobs in progress</p>
-          <p className="mt-1 text-2xl font-semibold">{activeJobCount ?? 0}</p>
-        </Card>
+    <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
+      <AutoRefresh />
+      <h1 className="mb-4 text-2xl font-bold tracking-[-0.03em]">Hi {firstName(session.profile.display_name, session.email)}</h1>
+      <div className="mb-5">
+        <BigPrintCard hint="Upload a PDF and choose your options." tourId="home-print-cta" />
       </div>
-
+      <StatusCards cards={cards} />
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="font-medium">Recent jobs</h2>
-        <Link href={routes.jobs} className="text-sm text-[var(--color-primary)]">
-          View all
-        </Link>
+        <h2 className="text-base font-bold tracking-[-0.01em]">Your last jobs</h2>
+        {rows.length > 0 && (
+          <ButtonLink href={routes.jobs} variant="ghost" size="sm">
+            View all
+          </ButtonLink>
+        )}
       </div>
-      {!recentJobs || recentJobs.length === 0 ? (
-        <EmptyState message="No print jobs yet." />
-      ) : (
-        <ul className="flex flex-col gap-2">
-          {recentJobs.map((job) => {
-            return (
-              <li key={job.id}>
-                <Link
-                  href={routes.job(job.id)}
-                  className="flex min-h-14 items-center justify-between gap-3 rounded-[var(--radius-control)] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 shadow-[var(--shadow-xs)] hover:border-[var(--color-border-strong)]"
-                >
-                  <span className="min-w-0 truncate font-medium">{job.original_file_name}</span>
-                  <JobStatusBadge status={job.status} />
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      <RecentJobs jobs={rows} emptyText={teacherEmptyText()} />
     </main>
   );
 }
