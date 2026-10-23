@@ -44,6 +44,8 @@ export interface NavItem {
   icon: NavIcon;
   /** Only an exact pathname match is active (/admin is a prefix of every admin page). */
   exact?: boolean;
+  /** Other pages that belong to this item (shown as tabs on it), so it stays current there. */
+  also?: string[];
   tourAnchor?: string;
   /** Show the pending-approvals count next to the label. */
   badge?: "pendingApprovals";
@@ -86,7 +88,7 @@ export function adminMenu(isOrgAdmin: boolean): NavGroup[] {
       id: "people",
       title: "People",
       items: [
-        { href: routes.adminUsers, label: "Users", icon: "users" },
+        { href: routes.adminUsers, label: "Users", icon: "users", also: [routes.adminInvites] },
         { href: routes.adminGroups, label: "Groups", icon: "groups" },
       ],
     },
@@ -165,7 +167,7 @@ export function activeItemHref(groups: NavGroup[], pathname: string): string | n
   const items = [PRINT_ITEM, ...groups.flatMap((g) => g.items)];
   let best: NavItem | null = null;
   for (const item of items) {
-    if (!isActiveHref(item.href, pathname, item.exact)) continue;
+    if (!isActiveHref(item.href, pathname, item.exact) && !item.also?.some((h) => isActiveHref(h, pathname))) continue;
     // Longest matching href wins, so /admin/printers beats a shorter prefix.
     if (!best || item.href.length > best.href.length) best = item;
   }

@@ -15,9 +15,18 @@ import {
   Printer as PrinterIcon,
   RefreshCw,
   Terminal,
+  Wrench,
 } from "lucide-react";
 import type { Tables } from "@/lib/database.types";
-import { Badge, Button, Card, EmptyState, FormError } from "@/components/ui";
+import { Badge, Button, Collapsible, EmptyState, FormError, StatusDot } from "@/components/ui";
+import {
+  agentCommandsSummary,
+  agentMachineSummary,
+  agentQueuesSummary,
+  agentVersionSummary,
+  printerStatusWord,
+  printerTone,
+} from "@/lib/admin/summaries";
 import type { AgentActivity, AgentVersionStatus, QueueUsage } from "@/lib/agent-detail";
 // "Send test print" is deliberately the SAME server action the Printers page
 // binds its own button to, imported rather than re-implemented here: one
@@ -61,13 +70,6 @@ interface CommandRow {
   completedAt: string | null;
   result: unknown;
 }
-
-const PRINTER_STATUS_TONE: Record<string, "success" | "warning" | "danger" | "neutral"> = {
-  online: "success",
-  offline: "neutral",
-  error: "danger",
-  unknown: "warning",
-};
 
 const COMMAND_STATUS_TONE: Record<string, "success" | "warning" | "danger" | "neutral"> = {
   completed: "success",
@@ -136,14 +138,19 @@ function ConnectionCard({
   activity: AgentActivity;
 }) {
   return (
-    <Card>
-      <div className="mb-3 flex items-center gap-2">
-        <Cpu className="h-5 w-5 text-[var(--color-muted)]" />
-        <h2 className="font-medium">Connection</h2>
-        <Badge tone={connection.tone}>{connection.label}</Badge>
-        {agent.status !== "active" && <Badge tone="neutral">{agent.status}</Badge>}
-      </div>
-      <p className="mb-4 text-sm text-[var(--color-muted)]">{connection.detail}</p>
+    <Collapsible
+      id="connection"
+      title="Connection"
+      icon={<Cpu className="h-4 w-4" />}
+      summary={connection.label}
+      badge={<StatusDot tone={connection.tone}>{connection.label}</StatusDot>}
+      defaultOpen
+    >
+      {agent.status !== "active" && (
+        <p className="mb-4">
+          <Badge tone="neutral">{agent.status}</Badge>
+        </p>
+      )}
 
       <dl className="grid gap-4 text-sm sm:grid-cols-3">
         <div>
@@ -152,7 +159,7 @@ function ConnectionCard({
           </dt>
           <dd className="font-medium">{formatTimestamp(activity.lastSyncedAt)}</dd>
           <p className="mt-1 text-xs text-[var(--color-muted)]">
-            Its most recent check-in. Happens every few seconds while it&apos;s running, even when it&apos;s idle.
+            Its latest check-in. It checks in every few seconds while running, even when idle.
           </p>
         </div>
         <div>
@@ -161,20 +168,20 @@ function ConnectionCard({
           </dt>
           <dd className="font-medium">{formatTimestamp(activity.lastJobActivityAt)}</dd>
           <p className="mt-1 text-xs text-[var(--color-muted)]">
-            The last time this machine actually picked up and worked on a job — not just checked in.
+            The last time it picked up a job, not just checked in.
           </p>
         </div>
         <div>
           <dt className="flex items-center gap-1 text-[var(--color-muted)]">
-            <Terminal className="h-3.5 w-3.5" /> Last command carried out
+            <Terminal className="h-3.5 w-3.5" /> Last request done
           </dt>
           <dd className="font-medium">{formatTimestamp(activity.lastCommandAt)}</dd>
           <p className="mt-1 text-xs text-[var(--color-muted)]">
-            The last time it finished something requested from this page.
+            The last time it finished something you asked it to do here.
           </p>
         </div>
       </dl>
-    </Card>
+    </Collapsible>
   );
 }
 
@@ -182,11 +189,7 @@ function ConnectionCard({
 function MachineCard({ agent }: { agent: Tables<"agents"> }) {
   const ipAddresses = agent.ip_addresses ?? [];
   return (
-    <Card>
-      <div className="mb-3 flex items-center gap-2">
-        <Monitor className="h-5 w-5 text-[var(--color-muted)]" />
-        <h2 className="font-medium">This machine</h2>
-      </div>
+    <Collapsible id="machine" title="This computer" icon={<Monitor className="h-4 w-4" />} summary={agentMachineSummary(agent)}>
       <dl className="grid gap-4 text-sm sm:grid-cols-2">
         <div>
           <dt className="text-[var(--color-muted)]">Computer name</dt>
@@ -204,7 +207,7 @@ function MachineCard({ agent }: { agent: Tables<"agents"> }) {
             {ipAddresses.length > 0 ? (
               <span className="flex flex-wrap gap-2">
                 {ipAddresses.map((address) => (
-                  <code key={address} className="rounded bg-gray-100 px-2 py-0.5 font-mono text-xs">
+                  <code key={address} className="rounded bg-[var(--color-surface-2)] px-2 py-0.5 font-mono text-xs">
                     {address}
                   </code>
                 ))}
@@ -215,11 +218,10 @@ function MachineCard({ agent }: { agent: Tables<"agents"> }) {
           </dd>
         </div>
       </dl>
-      <p className="mt-3 text-xs text-[var(--color-muted)]">
-        Reported by the Agent itself each time it checks in. It&apos;s shown here so you can tell which physical
-        computer this is — nothing in Printio uses it to decide what this Agent is allowed to do.
+      <p className="mt-3 text-[13px] text-[var(--color-muted)]">
+        The print server reports this itself, so you can tell which computer it is. Printio does not use it for anything else.
       </p>
-    </Card>
+    </Collapsible>
   );
 }
 
@@ -237,25 +239,22 @@ function VersionCard({
   const canSelfUpdate = agent.is_git_checkout === true;
 
   return (
-    <Card>
-      <div className="mb-3 flex items-center gap-2">
-        <Download className="h-5 w-5 text-[var(--color-muted)]" />
-        <h2 className="font-medium">Version</h2>
-        <Badge tone={version.state === "outdated" ? "warning" : version.state === "unknown" ? "neutral" : "success"}>
-          {version.reported ? `v${version.reported}` : "unknown"}
-        </Badge>
-        {version.state === "outdated" && <Badge tone="warning">update available</Badge>}
-      </div>
-      <p className="text-sm text-[var(--color-muted)]">{version.summary}</p>
+    <Collapsible
+      id="version"
+      title="Version"
+      icon={<Download className="h-4 w-4" />}
+      summary={agentVersionSummary(version)}
+      badge={version.state === "outdated" ? <Badge tone="warning">Update available</Badge> : undefined}
+      forceOpen={!!state.error}
+    >
+      <p className="text-sm text-[var(--color-text-2)]">{version.summary}</p>
 
       {canManage && (
         <div className="mt-4">
           {agent.is_git_checkout === null ? (
             <p className="text-sm text-[var(--color-muted)]">
-              This Agent hasn&apos;t told us yet whether it can update itself — that information arrives with its next
-              check-in (or after it&apos;s upgraded to a build that reports it). Until then, update it by running{" "}
-              <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-xs">setup-agent.bat</code> on that
-              machine.
+              It has not said yet whether it can update itself. That arrives with its next check-in. Until then, update it by
+              running <code className="rounded bg-[var(--color-surface-2)] px-1 py-0.5 font-mono text-xs">setup-agent.bat</code> on that computer.
             </p>
           ) : canSelfUpdate ? (
             <>
@@ -267,25 +266,21 @@ function VersionCard({
                   </span>
                 </Button>
               </form>
-              <p className="mt-2 text-xs text-[var(--color-muted)]">
-                Asks the Agent to pull the latest code into its own copy of the repository, reinstall its
-                dependencies, and restart itself. It only does this if nothing has been changed locally — otherwise
-                it reports back and changes nothing. The answer appears under &ldquo;Recent commands&rdquo; below
-                within a minute or so.
+              <p className="mt-2 text-[13px] text-[var(--color-muted)]">
+                Asks the print server to update itself and restart. If anything was changed on that computer by hand, it
+                tells you and changes nothing. The answer shows under &ldquo;Recent requests&rdquo; within a minute.
               </p>
             </>
           ) : (
             <p className="text-sm text-[var(--color-muted)]">
-              This Agent can&apos;t update itself: it isn&apos;t running from a git clone (most likely it was
-              extracted from a downloaded ZIP). To update it, run{" "}
-              <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-xs">setup-agent.bat</code> on that
-              machine — see docs/agent-install.md.
+              This print server cannot update itself. To update it, run{" "}
+              <code className="rounded bg-[var(--color-surface-2)] px-1 py-0.5 font-mono text-xs">setup-agent.bat</code> on that computer.
             </p>
           )}
           <FormError message={state.error} />
         </div>
       )}
-    </Card>
+    </Collapsible>
   );
 }
 
@@ -295,22 +290,19 @@ function PauseCard({ agent, pausedByLabel }: { agent: Tables<"agents">; pausedBy
   const [resumeState, resumeAction, resumePending] = useActionState(resumeAgentAction, initialAgentActionState);
 
   return (
-    <Card>
-      <div className="mb-3 flex items-center gap-2">
-        {agent.paused ? (
-          <Pause className="h-5 w-5 text-[var(--color-warning)]" />
-        ) : (
-          <Play className="h-5 w-5 text-[var(--color-muted)]" />
-        )}
-        <h2 className="font-medium">Taking new print jobs</h2>
-        <Badge tone={agent.paused ? "warning" : "success"}>{agent.paused ? "Paused" : "Active"}</Badge>
-      </div>
+    <Collapsible
+      id="taking-jobs"
+      title="Taking new jobs"
+      icon={agent.paused ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+      summary={agent.paused ? "No, paused" : "Yes"}
+      badge={agent.paused ? <Badge tone="warning">Paused</Badge> : undefined}
+      forceOpen={!!(pauseState.error || resumeState.error)}
+    >
 
       {agent.paused ? (
         <>
-          <p className="text-sm text-[var(--color-muted)]">
-            This Agent is paused, so it won&apos;t pick up any new print jobs. Jobs stay queued and will print once
-            it&apos;s resumed. Anything it had already started printing when you paused it finished normally.
+          <p className="text-sm text-[var(--color-text-2)]">
+            This print server is paused, so it will not pick up new jobs. They wait in line and print once you resume it.
             {pausedByLabel ? ` Paused by ${pausedByLabel}` : " Paused"}
             {agent.paused_at ? ` on ${new Date(agent.paused_at).toLocaleString()}.` : "."}
           </p>
@@ -325,10 +317,8 @@ function PauseCard({ agent, pausedByLabel }: { agent: Tables<"agents">; pausedBy
         </>
       ) : (
         <>
-          <p className="text-sm text-[var(--color-muted)]">
-            Pause this Agent while you change toner, clear a jam, or work on the printer. It stays connected and
-            visible here, but stops picking up new jobs — those simply wait in the queue instead of failing. This is
-            enforced by Printio itself, not just shown here: a paused Agent is refused if it asks for work.
+          <p className="text-sm text-[var(--color-text-2)]">
+            Pause it while you change toner or clear a jam. New jobs wait in line instead of failing.
           </p>
           <form action={pauseAction} className="mt-3">
             <input type="hidden" name="agentId" value={agent.id} />
@@ -341,7 +331,7 @@ function PauseCard({ agent, pausedByLabel }: { agent: Tables<"agents">; pausedBy
         </>
       )}
       <FormError message={pauseState.error ?? resumeState.error} />
-    </Card>
+    </Collapsible>
   );
 }
 
@@ -356,15 +346,16 @@ function QueuesCard({
   canManage: boolean;
 }) {
   return (
-    <Card>
-      <div className="mb-3 flex items-center gap-2">
-        <PrinterIcon className="h-5 w-5 text-[var(--color-muted)]" />
-        <h2 className="font-medium">Print queues on this machine</h2>
-        <Badge tone="neutral">{queues.length}</Badge>
-      </div>
+    <Collapsible
+      id="queues"
+      title="Print queues"
+      icon={<PrinterIcon className="h-4 w-4" />}
+      summary={agentQueuesSummary(queues.length)}
+      badge={<Badge tone="neutral">{queues.length}</Badge>}
+    >
 
       {queues.length === 0 ? (
-        <EmptyState message="No print queues are mapped to this Agent yet." icon={PrinterIcon} />
+        <EmptyState message="No print queues use this print server yet." icon={PrinterIcon} />
       ) : (
         <>
           <ul className="flex flex-col gap-3">
@@ -373,16 +364,14 @@ function QueuesCard({
             ))}
           </ul>
           {canManage && (
-            <p className="mt-3 text-xs text-[var(--color-muted)]">
-              &ldquo;Send test print&rdquo; puts one real page through the whole pipeline to that queue — the same
-              upload, the same agent claim, the same Windows queue a user&apos;s job uses — and opens its status page
-              so you can watch it. It skips print rules, approval and quota, and is left out of the usage reports. The
-              job counts above do include test prints, since they really were sent to that queue.
+            <p className="mt-3 text-[13px] text-[var(--color-muted)]">
+              &ldquo;Send test print&rdquo; sends one real page to that queue, the way a user&apos;s job goes, and opens its status
+              page. It skips print rules, approval and limits, and is left out of usage reports. Job counts above include it.
             </p>
           )}
         </>
       )}
-    </Card>
+    </Collapsible>
   );
 }
 
@@ -399,15 +388,15 @@ function QueueRowItem({
   const [testState, testAction, testPending] = useActionState(sendTestPrintAction, initialPrinterActionState);
 
   return (
-    <li className="rounded-lg border border-[var(--color-border)] p-3">
+    <li className="rounded-[var(--radius-control)] border border-[var(--color-border)] bg-[var(--color-surface-2)]/50 p-3.5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="font-medium">
             {queue.printerName} — {queue.label}
           </p>
           <p className="mt-0.5 text-xs text-[var(--color-muted)]">
-            {queue.rawTarget ? "Direct to printer" : "Windows queue"}{" "}
-            <code className="rounded bg-gray-100 px-1 py-0.5 font-mono">{queue.rawTarget ?? queue.windowsQueueName}</code>
+            {queue.rawTarget ? "Straight to" : "Windows queue"}{" "}
+            <code className="rounded bg-[var(--color-surface)] px-1 py-0.5 font-mono">{queue.rawTarget ?? queue.windowsQueueName}</code>
           </p>
           <p className="mt-2 text-xs text-[var(--color-muted)]">
             {queue.usage.totalJobs === 0
@@ -415,12 +404,12 @@ function QueueRowItem({
               : `${queue.usage.totalJobs} job${queue.usage.totalJobs === 1 ? "" : "s"} sent (${queue.usage.printedJobs} reached the printer) • last used ${formatTimestamp(queue.usage.lastUsedAt)}`}
           </p>
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-2">
-          <Badge tone={agent.paused ? "warning" : (PRINTER_STATUS_TONE[queue.printerStatus] ?? "neutral")}>
-            {agent.paused ? "Paused by admin" : queue.printerStatus}
-          </Badge>
+        <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+          <StatusDot tone={agent.paused ? "warning" : printerTone(queue.printerStatus)}>
+            {agent.paused ? "Paused" : printerStatusWord(queue.printerStatus)}
+          </StatusDot>
           {canManage && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {/* One real page through the real pipeline to THIS queue - the
                *  fastest way to answer "does this machine actually print?"
                *  without waiting for someone to submit a job. */}
@@ -446,7 +435,7 @@ function QueueRowItem({
       </div>
       {agent.paused && canManage && (
         <p className="mt-2 text-xs text-[var(--color-muted)]">
-          This Agent is paused, so a test print will queue up and only print once you resume it.
+          This print server is paused, so a test print waits until you resume it.
         </p>
       )}
       <FormError message={testState.error ?? state.error} />
@@ -468,15 +457,16 @@ function MaintenanceCard({ agent }: { agent: Tables<"agents"> }) {
   const [clearState, clearAction, clearPending] = useActionState(clearAgentTempFilesAction, initialAgentActionState);
 
   return (
-    <Card>
-      <div className="mb-3 flex items-center gap-2">
-        <Terminal className="h-5 w-5 text-[var(--color-muted)]" />
-        <h2 className="font-medium">Maintenance</h2>
-      </div>
-      <p className="mb-3 text-sm text-[var(--color-muted)]">
-        Each of these sends one specific, pre-defined instruction to this Agent — Printio can never send a machine an
-        arbitrary command. The Agent picks it up on its next check-in (within about 15 seconds) and reports the
-        outcome under &ldquo;Recent commands&rdquo; below.
+    <Collapsible
+      id="maintenance"
+      title="Maintenance"
+      icon={<Wrench className="h-4 w-4" />}
+      summary="Refresh, restart, clear temp files"
+      forceOpen={!!(refreshState.error || restartState.error || clearState.error)}
+    >
+      <p className="mb-3 text-sm text-[var(--color-text-2)]">
+        Each button sends one fixed request. The print server picks it up within about 15 seconds and reports back under
+        &ldquo;Recent requests&rdquo;.
       </p>
       <div className="flex flex-wrap gap-2">
         <form action={refreshAction}>
@@ -488,7 +478,7 @@ function MaintenanceCard({ agent }: { agent: Tables<"agents"> }) {
         <form action={restartAction}>
           <input type="hidden" name="agentId" value={agent.id} />
           <Button type="submit" variant="outline" size="sm" pending={restartPending} pendingLabel="…">
-            Restart the Agent
+            Restart the print server
           </Button>
         </form>
         <form action={clearAction}>
@@ -498,13 +488,12 @@ function MaintenanceCard({ agent }: { agent: Tables<"agents"> }) {
           </Button>
         </form>
       </div>
-      <p className="mt-3 text-xs text-[var(--color-muted)]">
-        &ldquo;Restart queue&rdquo; (above, per queue) restarts the Windows Print Spooler service on that machine,
-        which clears a stuck queue — note it affects every printer queue on that computer, not just the one you
-        clicked.
+      <p className="mt-3 text-[13px] text-[var(--color-muted)]">
+        &ldquo;Restart queue&rdquo; on a queue restarts Windows printing on that computer. It clears a stuck queue but affects every
+        printer queue on it.
       </p>
       <FormError message={refreshState.error ?? restartState.error ?? clearState.error} />
-    </Card>
+    </Collapsible>
   );
 }
 
@@ -512,19 +501,20 @@ function MaintenanceCard({ agent }: { agent: Tables<"agents"> }) {
  *  answered. Without this, every remote command is fire-and-forget. */
 function CommandHistoryCard({ commands }: { commands: CommandRow[] }) {
   return (
-    <Card>
-      <div className="mb-3 flex items-center gap-2">
-        <Terminal className="h-5 w-5 text-[var(--color-muted)]" />
-        <h2 className="font-medium">Recent commands</h2>
-      </div>
+    <Collapsible
+      id="requests"
+      title="Recent requests"
+      icon={<Terminal className="h-4 w-4" />}
+      summary={agentCommandsSummary(commands)}
+    >
       {commands.length === 0 ? (
-        <EmptyState message="Nothing has been sent to this Agent yet." icon={Terminal} />
+        <EmptyState message="Nothing has been sent to this print server yet." icon={Terminal} />
       ) : (
         <ul className="flex flex-col gap-2 text-sm">
           {commands.map((command) => {
             const message = commandResultMessage(command.result);
             return (
-              <li key={command.id} className="rounded-lg border border-[var(--color-border)] p-3">
+              <li key={command.id} className="rounded-[var(--radius-control)] border border-[var(--color-border)] bg-[var(--color-surface-2)]/50 p-3.5">
                 <div className="flex flex-wrap items-center gap-2">
                   {command.status === "completed" ? (
                     <CheckCircle2 className="h-4 w-4 text-[var(--color-success)]" />
@@ -543,7 +533,7 @@ function CommandHistoryCard({ commands }: { commands: CommandRow[] }) {
                 {message && <p className="mt-2 text-sm text-[var(--color-muted)]">{message}</p>}
                 {command.status === "pending" && (
                   <p className="mt-2 text-xs text-[var(--color-muted)]">
-                    Waiting for the Agent to pick this up — it will if it&apos;s online.
+                    Waiting for the print server to pick this up. It will if it is online.
                   </p>
                 )}
               </li>
@@ -551,6 +541,6 @@ function CommandHistoryCard({ commands }: { commands: CommandRow[] }) {
           })}
         </ul>
       )}
-    </Card>
+    </Collapsible>
   );
 }

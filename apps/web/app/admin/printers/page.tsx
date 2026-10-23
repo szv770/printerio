@@ -1,9 +1,7 @@
-import Link from "next/link";
-import { Wand2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
-import { PageHeader } from "@/components/ui";
-import { routes } from "@/lib/routes";
+import { PageHeader, Tabs } from "@/components/ui";
+import { printerTabs } from "@/lib/admin/tabs";
 import { PrintersPanel } from "./PrintersPanel";
 
 export default async function PrintersPage() {
@@ -18,27 +16,17 @@ export default async function PrintersPage() {
     supabase.from("organization_settings").select("default_booklet_binding_side").eq("organization_id", orgId).single(),
   ]);
 
+  const isOrgAdmin = session.membership.role === "org_admin";
+
   return (
     <div>
-      <PageHeader
-        title="Printers"
-        action={
-          session.membership.role === "org_admin" && (
-            <Link
-              href={routes.adminPrintersSetup}
-              data-tour="admin-printers-wizard-link"
-              className="flex items-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-4 py-3 text-sm font-medium text-[var(--color-primary-fg)] hover:opacity-90"
-            >
-              <Wand2 className="h-4 w-4" /> Guided setup wizard
-            </Link>
-          )
-        }
-      />
+      <PageHeader title="Printers" description="Your printers and the print queues people can send jobs to." />
+      <Tabs label="Printers and devices" items={printerTabs("printers", isOrgAdmin)} />
       <PrintersPanel
         printers={printers ?? []}
         profiles={(profiles ?? []).map(({ printers: _p, ...rest }) => rest)}
         agents={agents ?? []}
-        canManage={session.membership.role === "org_admin"}
+        canManage={isOrgAdmin}
         defaultBookletBindingSide={settings?.default_booklet_binding_side === "right" ? "right" : "left"}
       />
     </div>

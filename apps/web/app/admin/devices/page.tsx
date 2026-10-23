@@ -2,7 +2,8 @@ import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
 import { listDevicesForAdmin, listIssuesForDevices } from "@/lib/devices/devices";
 import { sortStuckFirst, stuckReason } from "@/lib/devices/admin";
-import { PageHeader } from "@/components/ui";
+import { PageHeader, Tabs } from "@/components/ui";
+import { printerTabs } from "@/lib/admin/tabs";
 import { DevicesAdmin, type AdminDevice } from "./DevicesAdmin";
 
 export default async function AdminDevicesPage() {
@@ -55,10 +56,11 @@ export default async function AdminDevicesPage() {
 
   return (
     <div>
-      <PageHeader title="Devices" />
-      <p className="mb-4 text-sm text-[var(--color-muted)]">
-        Devices people use to print from their phone or laptop. Ones that need a look are at the top.
-      </p>
+      <PageHeader
+        title="User devices"
+        description="Phones and laptops people print from. The ones that need a look are at the top."
+      />
+      <Tabs label="Printers and devices" items={printerTabs("devices", true)} />
       <DevicesAdmin devices={items} />
     </div>
   );

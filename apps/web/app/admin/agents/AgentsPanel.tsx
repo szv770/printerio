@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useState, useActionState } from "react";
-import { ChevronRight, Cpu, Pause, Pencil, Wifi, WifiOff } from "lucide-react";
+import { ChevronRight, Cpu, Pencil, Plus } from "lucide-react";
 import type { Tables } from "@/lib/database.types";
-import { Button, Input, FieldLabel, FormError, EmptyState, Card, Badge } from "@/components/ui";
+import { Button, Collapsible, EmptyState, Field, FormError, Input, StatusDot, buttonClass } from "@/components/ui";
 import { routes } from "@/lib/routes";
+import { describeAgentConnection } from "@/lib/agent-detail";
 import {
   createAgentAction,
   rotateAgentAction,
@@ -23,34 +24,47 @@ export function AgentsPanel({ agents, canManage }: { agents: Tables<"agents">[];
   const [createState, createAction, createPending] = useActionState(createAgentAction, initialState);
 
   return (
-    <div>
+    <div className="flex flex-col gap-4">
+      {agents.length === 0 ? (
+        <EmptyState
+          title="No print servers yet"
+          message="A print server is the small program on the Windows computer that sends jobs to your printers."
+          icon={Cpu}
+        />
+      ) : (
+        <ul className="flex flex-col gap-4">
+          {agents.map((agent) => (
+            <AgentRow key={agent.id} agent={agent} canManage={canManage} />
+          ))}
+        </ul>
+      )}
+
       {canManage && (
-        <Card className="mb-8">
-          <form action={createAction} className="flex flex-wrap items-end gap-3">
+        <Collapsible
+          id="add-server"
+          title="Add a print server"
+          icon={<Plus className="h-4 w-4" />}
+          summary="Register another Windows computer"
+          forceOpen={!!createState.error}
+        >
+          <form action={createAction} className="flex flex-col gap-4 sm:max-w-md">
+            <Field label="Name" htmlFor="agentName" hint="for example the room it is in">
+              <Input id="agentName" name="name" required placeholder="Main office PC" />
+            </Field>
             <div>
-              <FieldLabel htmlFor="agentName">Agent name</FieldLabel>
-              <Input id="agentName" name="name" required placeholder="Main Office PC" />
+              <Button type="submit" pending={createPending} pendingLabel="Creating..." className="w-full sm:w-auto">
+                Add print server
+              </Button>
             </div>
-            <Button type="submit" size="sm" pending={createPending} pendingLabel="Creating...">
-              Register new agent
-            </Button>
             <FormError message={createState.error} />
             {createState.enrollmentCode && (
-              <p className="w-full text-sm text-[var(--color-muted)]">
-                Created — its enrollment code is shown on its row in the list below (not repeated here, so
-                there&apos;s only ever one place to look for it).
+              <p className="text-sm text-[var(--color-text-2)]">
+                Added. Its setup code is on its card in the list above.
               </p>
             )}
           </form>
-        </Card>
+        </Collapsible>
       )}
-
-      <ul className="flex flex-col gap-3">
-        {agents.map((agent) => (
-          <AgentRow key={agent.id} agent={agent} canManage={canManage} />
-        ))}
-        {agents.length === 0 && <EmptyState message="No agents registered yet." icon={Cpu} />}
-      </ul>
     </div>
   );
 }
@@ -67,124 +81,103 @@ function AgentRow({ agent, canManage }: { agent: Tables<"agents">; canManage: bo
   // Deliberately impure (Date.now()) - "online" is a snapshot at render time,
   // not a value that needs to stay referentially stable across re-renders.
   // eslint-disable-next-line react-hooks/purity
-  const online = agent.last_seen_at && Date.now() - new Date(agent.last_seen_at).getTime() < 5 * 60_000;
+  const connection = describeAgentConnection(agent, Date.now());
+  const tone = connection.tone;
   // Only ever true for a status the server-side deleteAgentAction would
   // actually accept (never "active") - keeps the button from appearing
   // somewhere it's guaranteed to just bounce back with an error.
   const canDelete = canManage && agent.status !== "active";
+  const error =
+    rotateState.error ?? disableState.error ?? restartState.error ?? clearState.error ?? renameState.error ?? deleteState.error;
+  const setupCode = rotateState.enrollmentCode ?? (agent.status === "pending" ? agent.enrollment_code : null);
 
   return (
     <li>
-      <Card>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-3">
-            {/* Leading device icon, tinted by online status - gives each row a
-             *  visual identity beyond its name string, and reads faster than
-             *  scanning meta-line text in a long agent list. */}
-            <Cpu className={`mt-0.5 h-6 w-6 shrink-0 ${online ? "text-[var(--color-success)]" : "text-[var(--color-muted)]"}`} />
-            <div className="min-w-0">
-              {isRenaming ? (
-                <form
-                  action={(formData) => {
-                    renameAction(formData);
-                    setIsRenaming(false);
-                  }}
-                  className="flex flex-wrap items-center gap-2"
-                >
-                  <input type="hidden" name="agentId" value={agent.id} />
-                  <Input name="name" defaultValue={agent.name} required autoFocus className="h-7 py-1 text-sm" />
-                  <Button type="submit" size="sm" pending={renamePending} pendingLabel="…">
-                    Save
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={() => setIsRenaming(false)}>
-                    Cancel
-                  </Button>
-                </form>
-              ) : (
-                <p className="flex items-center gap-1 font-medium">
-                  {agent.name}
-                  {canManage && (
-                    <button
-                      type="button"
-                      onClick={() => setIsRenaming(true)}
-                      aria-label="Rename agent"
-                      className="text-[var(--color-muted)] hover:text-[var(--color-text)]"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </p>
-              )}
-              <p className="flex flex-wrap items-center gap-1 text-xs text-[var(--color-muted)]">
-                {agent.status} •{" "}
-                {online ? (
-                  <>
-                    <Wifi className="h-3.5 w-3.5 text-[var(--color-success)]" /> online
-                  </>
-                ) : (
-                  <>
-                    <WifiOff className="h-3.5 w-3.5" /> offline
-                  </>
-                )}{" "}
-                • v{agent.version ?? "?"}
-                {agent.hostname && <> • {agent.hostname}</>}
-                {/* Paused is deliberately its own badge rather than folded into
-                 *  the online/offline word: a paused Agent is connected and
-                 *  healthy, it is just deliberately not taking work, and
-                 *  reading that as "offline" is exactly the confusion this
-                 *  whole feature exists to remove. */}
-                {agent.paused && (
-                  <Badge tone="warning">
-                    <span className="flex items-center gap-1">
-                      <Pause className="h-3 w-3" /> paused
-                    </span>
-                  </Badge>
-                )}
-              </p>
-              <Link
-                href={routes.adminAgentDetail(agent.id)}
-                className="mt-1 inline-flex items-center gap-0.5 text-xs text-[var(--color-primary)] hover:underline"
-              >
-                View details
-                <ChevronRight className="h-3.5 w-3.5" />
-              </Link>
-            </div>
+      <Collapsible
+        id={`server-${agent.id}`}
+        title={agent.name}
+        icon={<Cpu className="h-4 w-4" />}
+        summary={[connection.label, agent.version ? `version ${agent.version}` : null, agent.hostname].filter(Boolean).join(", ")}
+        badge={<StatusDot tone={tone}>{connection.label}</StatusDot>}
+        forceOpen={!!error || !!setupCode}
+      >
+        <p className="mb-4 text-sm text-[var(--color-text-2)]">{connection.detail}</p>
+
+        {setupCode && (
+          <div className="mb-4 rounded-[var(--radius-control)] bg-[var(--color-warning-soft)] px-4 py-3 text-sm text-[var(--color-warning-ink)]">
+            <p className="font-medium">Setup code</p>
+            <code className="font-mono text-lg font-semibold tracking-widest break-all">{setupCode}</code>
+            {!rotateState.enrollmentCode && agent.enrollment_code_expires_at && (
+              <p className="mt-1 text-[13px]">Works until {new Date(agent.enrollment_code_expires_at).toLocaleString()}.</p>
+            )}
+            <p className="mt-1 text-[13px]">
+              Enter this code on the Windows computer: run the print server&apos;s <code>register</code> command, or use the prompt in{" "}
+              <code>setup-agent.bat</code>.
+            </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {canManage && agent.status !== "disabled" && (
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href={routes.adminAgentDetail(agent.id)} className={buttonClass("primary", "sm")}>
+            Open details <ChevronRight className="h-4 w-4" aria-hidden="true" />
+          </Link>
+          {canManage && !isRenaming && (
+            <Button type="button" variant="secondary" size="sm" onClick={() => setIsRenaming(true)}>
+              <Pencil className="h-3.5 w-3.5" aria-hidden="true" /> Rename
+            </Button>
+          )}
+        </div>
+
+        {isRenaming && (
+          <form
+            action={(formData) => {
+              renameAction(formData);
+              setIsRenaming(false);
+            }}
+            className="mt-3 flex flex-wrap items-center gap-2"
+          >
+            <input type="hidden" name="agentId" value={agent.id} />
+            <Input name="name" defaultValue={agent.name} required autoFocus aria-label="New name" className="w-full sm:w-64" />
+            <Button type="submit" size="sm" pending={renamePending} pendingLabel="Saving...">
+              Save name
+            </Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setIsRenaming(false)}>
+              Cancel
+            </Button>
+          </form>
+        )}
+
+        {canManage && (
+          <div className="mt-5 flex flex-wrap gap-2 border-t border-[var(--color-border)] pt-4">
+            {agent.status !== "disabled" && (
               <>
                 <form action={rotateAction}>
                   <input type="hidden" name="agentId" value={agent.id} />
-                  <Button type="submit" variant="outline" size="sm">
-                    Rotate credential
+                  <Button type="submit" variant="secondary" size="sm">
+                    New setup code
                   </Button>
                 </form>
                 <form action={restartAction}>
                   <input type="hidden" name="agentId" value={agent.id} />
-                  <Button type="submit" variant="outline" size="sm" pending={restartPending} pendingLabel="…">
-                    Restart service
+                  <Button type="submit" variant="secondary" size="sm" pending={restartPending} pendingLabel="Sending...">
+                    Restart it
                   </Button>
                 </form>
                 <form action={clearAction}>
                   <input type="hidden" name="agentId" value={agent.id} />
-                  <Button type="submit" variant="outline" size="sm" pending={clearPending} pendingLabel="…">
+                  <Button type="submit" variant="secondary" size="sm" pending={clearPending} pendingLabel="Sending...">
                     Clear temp files
                   </Button>
                 </form>
                 <form action={disableAction}>
                   <input type="hidden" name="agentId" value={agent.id} />
                   <Button type="submit" variant="outline-danger" size="sm">
-                    Disable
+                    Turn off
                   </Button>
                 </form>
               </>
             )}
-            {/* Delete is deliberately separate from the block above: it's the
-             *  one action still available once an agent is "disabled" (which
-             *  used to leave a disabled agent with literally no actions left
-             *  at all - no way to ever remove a mistakenly-created or
-             *  fully-decommissioned row). Never shown for "active" - see
-             *  deleteAgentAction's own comment for why. */}
+            {/* Delete stays available once a server is turned off, and is never shown for an active one. */}
             {canDelete && (
               <form
                 action={deleteAction}
@@ -199,33 +192,11 @@ function AgentRow({ agent, canManage }: { agent: Tables<"agents">; canManage: bo
               </form>
             )}
           </div>
-        </div>
-        <FormError
-          message={
-            rotateState.error ?? disableState.error ?? restartState.error ?? clearState.error ?? renameState.error ?? deleteState.error
-          }
-        />
-        {rotateState.enrollmentCode ? (
-          <p className="mt-2 text-sm">
-            New enrollment code: <code className="rounded bg-gray-100 px-2 py-1 font-mono">{rotateState.enrollmentCode}</code>
-          </p>
-        ) : (
-          agent.status === "pending" &&
-          agent.enrollment_code && (
-            <p className="mt-2 text-sm">
-              Enrollment code: <code className="rounded bg-gray-100 px-2 py-1 font-mono">{agent.enrollment_code}</code>
-              {agent.enrollment_code_expires_at && (
-                <span className="text-[var(--color-muted)]">
-                  {" "}
-                  — valid until {new Date(agent.enrollment_code_expires_at).toLocaleString()}
-                </span>
-              )}
-              . Run the agent&apos;s <code>register</code> command with this code on the Windows machine (or use{" "}
-              <code>setup-agent.bat</code>&apos;s prompt — see docs/agent-install.md).
-            </p>
-          )
         )}
-      </Card>
+        <div className="mt-3">
+          <FormError message={error} />
+        </div>
+      </Collapsible>
     </li>
   );
 }

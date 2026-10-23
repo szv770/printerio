@@ -26,6 +26,7 @@ export const routes = {
   adminUsers: "/admin/users",
   adminUserDetail: (userId: string) => `/admin/users/${userId}`,
   adminGroups: "/admin/groups",
+  adminInvites: "/admin/invites",
   adminQuotas: "/admin/quotas",
   adminSettings: "/admin/settings",
   adminStorage: "/admin/storage",

@@ -145,13 +145,13 @@ export const ADMIN_TOUR: TourSlide[] = [
   },
   {
     title: "Printers",
-    body: "Printers lists every configured printer and its finishing profiles (duplex, booklet, staple, etc.); Agents (in the sidebar) shows the on-site program that actually sends approved jobs to each one.",
+    body: "Printers lists every printer and its print queues (double-sided, booklet, staple and so on). Print servers, in the tabs above, are the Windows computers that send approved jobs to each one.",
     anchor: "admin-printers-panel",
     route: "/admin/printers",
   },
   {
     title: "Setting up printers for the first time",
-    body: "Click here for the guided setup wizard - it walks through a first-time full setup: plan which finishing profiles you need, confirm the Agent is online, then map each profile to a real discovered print queue. (You can still add a single profile directly from this page any time.)",
+    body: "Open Advanced, then the setup wizard. It walks through a first-time setup: plan which print queues you need, check the print server is online, then connect each one to a real Windows queue. (You can still add a single queue from this page any time.)",
     anchor: "admin-printers-wizard-link",
     route: "/admin/printers",
     clickToAdvance: true,

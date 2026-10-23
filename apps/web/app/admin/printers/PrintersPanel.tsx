@@ -1,10 +1,26 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { FileCheck2, Pause, Pencil, Printer as PrinterIcon, Trash2, Wifi, WifiOff } from "lucide-react";
+import { FileCheck2, Info, Pause, Pencil, Plus, Printer as PrinterIcon, Trash2, Wand2, Wifi, WifiOff } from "lucide-react";
 import type { Tables } from "@/lib/database.types";
 import { isValidRawHost, parseRawPort } from "@/lib/printers/raw-target";
-import { Button, Input, Select, FieldLabel, FormError, FormSuccess, EmptyState, Badge, Card } from "@/components/ui";
+import {
+  Badge,
+  Button,
+  ButtonLink,
+  Collapsible,
+  EmptyState,
+  Field,
+  FieldLabel,
+  FormError,
+  FormSuccess,
+  Input,
+  Select,
+  StatusDot,
+  type StatusTone,
+} from "@/components/ui";
+import { routes } from "@/lib/routes";
+import { printerNeedsAttention, printerStatusWord, printerSummary, printerTone } from "@/lib/admin/summaries";
 import {
   PRINTER_PROFILE_ICON_KEYS,
   PRINTER_PROFILE_ICON_LABELS,
@@ -37,13 +53,6 @@ interface AgentInfo {
    *  taking no new jobs, which must not read as "offline"/broken here. */
   paused: boolean;
 }
-
-const STATUS_TONE: Record<string, "success" | "warning" | "danger" | "neutral"> = {
-  online: "success",
-  offline: "neutral",
-  error: "danger",
-  unknown: "warning",
-};
 
 const AGENT_ONLINE_WINDOW_MS = 5 * 60_000; // same 5-min-without-a-heartbeat rule as admin/page.tsx and AgentsPanel
 
@@ -83,32 +92,53 @@ export function PrintersPanel({
   const [createPrinterState, createPrinterAct, creatingPrinter] = useActionState(createPrinterAction, initialPrinterActionState);
 
   return (
-    <div className="flex flex-col gap-6" data-tour="admin-printers-panel">
+    <div className="flex flex-col gap-4" data-tour="admin-printers-panel">
+      {printers.length === 0 ? (
+        <EmptyState
+          title="No printers yet"
+          message={canManage ? "Add your first printer below." : "An admin needs to add a printer."}
+          icon={PrinterIcon}
+        />
+      ) : (
+        <ul className="flex flex-col gap-4">
+          {printers.map((printer) => (
+            <PrinterCard
+              key={printer.id}
+              printer={printer}
+              profiles={profiles.filter((p) => p.printer_id === printer.id)}
+              agents={agents}
+              canManage={canManage}
+              defaultBookletBindingSide={defaultBookletBindingSide}
+            />
+          ))}
+        </ul>
+      )}
+
       {canManage && (
-        <Card>
+        <Collapsible
+          id="add-printer"
+          title="Add a printer"
+          icon={<Plus className="h-4 w-4" />}
+          summary="Give a new printer a name and a place"
+          forceOpen={!!createPrinterState.error}
+        >
           {/* Mobile-first: every field is full width and stacked, and only
-           *  pairs up once there is room for it (sm:). The previous single
-           *  flex row put four inputs plus a button side by side, which on a
-           *  phone squeezed each one down to a few characters wide. */}
-          <form action={createPrinterAct} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <FieldLabel htmlFor="name">Name</FieldLabel>
-              <Input id="name" name="name" required placeholder="Main Office Kyocera" />
-            </div>
-            <div>
-              <FieldLabel htmlFor="vendor">Vendor</FieldLabel>
+           *  pairs up once there is room for it (sm:). */}
+          <form action={createPrinterAct} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Name" htmlFor="name">
+              <Input id="name" name="name" required placeholder="Main office printer" />
+            </Field>
+            <Field label="Maker" htmlFor="vendor" hint="optional">
               <Input id="vendor" name="vendor" placeholder="Kyocera" />
-            </div>
-            <div>
-              <FieldLabel htmlFor="model">Model</FieldLabel>
+            </Field>
+            <Field label="Model" htmlFor="model" hint="optional">
               <Input id="model" name="model" placeholder="TASKalfa MZ8500i" />
-            </div>
-            <div>
-              <FieldLabel htmlFor="location">Location</FieldLabel>
+            </Field>
+            <Field label="Where it is" htmlFor="location" hint="optional">
               <Input id="location" name="location" placeholder="Front office" />
-            </div>
+            </Field>
             <div className="sm:col-span-2">
-              <Button type="submit" size="sm" pending={creatingPrinter} pendingLabel="Adding...">
+              <Button type="submit" pending={creatingPrinter} pendingLabel="Adding..." className="w-full sm:w-auto">
                 Add printer
               </Button>
             </div>
@@ -116,33 +146,61 @@ export function PrintersPanel({
               <FormError message={createPrinterState.error} />
             </div>
           </form>
-        </Card>
+        </Collapsible>
       )}
 
-      <ul className="flex flex-col gap-4">
-        {printers.map((printer) => (
-          <PrinterCard
-            key={printer.id}
-            printer={printer}
-            profiles={profiles.filter((p) => p.printer_id === printer.id)}
-            agents={agents}
-            canManage={canManage}
-            defaultBookletBindingSide={defaultBookletBindingSide}
-          />
-        ))}
-        {printers.length === 0 && <EmptyState message="No printers yet." icon={PrinterIcon} />}
-      </ul>
+      {canManage && (
+        <div data-tour="admin-printers-wizard-link">
+          <Collapsible
+            id="advanced"
+            title="Advanced"
+            icon={<Wand2 className="h-4 w-4" />}
+            summary="Step-by-step setup for Windows print queues"
+          >
+            <div className="flex flex-col items-start gap-3">
+              <p className="text-sm text-[var(--color-text-2)]">
+                The guided wizard plans which print queues you need, checks the print server is online, and connects each one to
+                a real queue on that computer. Use it the first time, or when you move printers to a new computer.
+              </p>
+              <ButtonLink href={routes.adminPrintersSetup} variant="secondary" className="w-full sm:w-auto">
+                <Wand2 className="h-4 w-4" aria-hidden="true" /> Open the setup wizard
+              </ButtonLink>
+            </div>
+          </Collapsible>
+        </div>
+      )}
 
-      <p className="text-xs text-[var(--color-muted)]">
-        Capabilities and paper sizes above are administrator-declared, not verified against the physical device by
-        Printio - see docs/printer-setup.md for how to actually configure a Windows queue&apos;s finishing defaults before
-        declaring them here. Status only ever reflects what the Agent last reported at heartbeat time (docs/architecture.md
-        sec 11) - it is not polled live. That is what &ldquo;Send test print&rdquo; is for: it puts one real page through
-        the whole pipeline to that queue - same upload, same agent, same Windows queue as a user&apos;s job - and opens
-        its status page so you can watch it. It skips print rules, approval and quota, and is excluded from usage reports.
-      </p>
+      <Collapsible
+        id="about-status"
+        title="About status and test prints"
+        icon={<Info className="h-4 w-4" />}
+        summary="What the dots mean and what a test print does"
+      >
+        <div className="flex flex-col gap-2 text-sm text-[var(--color-text-2)]">
+          <p>
+            Paper sizes and finishing options are what you tell Printio. It does not check them against the real printer, so set
+            up each Windows queue first.
+          </p>
+          <p>Status is what the print server last reported. It is not checked live.</p>
+          <p>
+            &ldquo;Send test print&rdquo; sends one real page the same way a user&apos;s job goes, to that queue, and opens its
+            status page so you can watch it. It skips print rules, approval and limits, and is left out of usage reports.
+          </p>
+        </div>
+      </Collapsible>
     </div>
   );
+}
+
+function StatusDotOnly({ tone }: { tone: StatusTone }) {
+  const color: Record<StatusTone, string> = {
+    neutral: "bg-[var(--color-faint)]",
+    live: "bg-[var(--ink-c)]",
+    success: "bg-[var(--color-success)]",
+    warning: "bg-[var(--ink-y)]",
+    danger: "bg-[var(--ink-m)]",
+  };
+  return <span aria-hidden="true" className={`block h-3 w-3 rounded-full ${color[tone]}`} />;
 }
 
 function PrinterCard({
@@ -162,61 +220,46 @@ function PrinterCard({
   const [editingPrinter, setEditingPrinter] = useState(false);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
 
+  const serverIds = new Set(profiles.map((p) => p.agent_id));
+  const servers = agents.filter((a) => serverIds.has(a.id));
+  const where = [printer.vendor, printer.model].filter(Boolean).join(" ");
+
   return (
     <li>
-      <Card>
-        {/* flex-wrap, not a fixed two-column row: the name/meta block and the
-         *  action links can't both fit on one line on a phone, and without
-         *  wrapping the links used to be pushed off the card. */}
-        <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
-          <div className="flex min-w-0 items-start gap-3">
-            {/* Leading printer icon, tinted by status - a list of many
-             *  printers scans faster with a per-row visual identity
-             *  than a plain name + text badge alone. */}
-            <PrinterIcon
-              className={`mt-0.5 h-6 w-6 shrink-0 ${
-                printer.status === "online"
-                  ? "text-[var(--color-success)]"
-                  : printer.status === "error"
-                    ? "text-[var(--color-danger)]"
-                    : "text-[var(--color-muted)]"
-              }`}
-            />
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="font-medium">{printer.name}</p>
-                <Badge tone={STATUS_TONE[printer.status] ?? "neutral"}>{printer.status}</Badge>
-              </div>
-              <p className="text-xs text-[var(--color-muted)]">
-                {printer.vendor} {printer.model} {printer.location ? `• ${printer.location}` : ""}
-                {printer.last_status_at && ` • last reported ${new Date(printer.last_status_at).toLocaleString()}`}
-              </p>
-            </div>
+      <Collapsible
+        id={`printer-${printer.id}`}
+        title={printer.name}
+        icon={<PrinterIcon className="h-4 w-4" />}
+        summary={printerSummary({ status: printer.status, queues: profiles.length, serverName: servers[0]?.name ?? null })}
+        badge={<StatusDotOnly tone={printerTone(printer.status)} />}
+        forceOpen={printerNeedsAttention(printer.status)}
+      >
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <StatusDot tone={printerTone(printer.status)}>{printerStatusWord(printer.status)}</StatusDot>
+            <p className="mt-1 text-[13px] text-[var(--color-muted)]">
+              {[where, printer.location].filter(Boolean).join(" · ") || "No details added"}
+              {printer.last_status_at && ` · last heard from ${new Date(printer.last_status_at).toLocaleString()}`}
+            </p>
           </div>
           {canManage && (
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setEditingPrinter((v) => !v)}
-                className="flex items-center gap-1 text-xs font-medium text-[var(--color-primary)]"
-              >
-                <Pencil className="h-3.5 w-3.5" />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="secondary" size="sm" onClick={() => setEditingPrinter((v) => !v)}>
+                <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
                 {editingPrinter ? "Close" : "Edit printer"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowNewProfile((v) => !v)}
-                className="text-xs font-medium text-[var(--color-primary)]"
-              >
-                + Add finishing profile
-              </button>
+              </Button>
+              <Button type="button" variant="secondary" size="sm" onClick={() => setShowNewProfile((v) => !v)}>
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                {showNewProfile ? "Close" : "Add a print queue"}
+              </Button>
             </div>
           )}
         </div>
 
         {editingPrinter && <EditPrinterForm printer={printer} />}
 
-        <ul className="flex flex-col gap-1 text-sm">
+        <h3 className="mb-2 text-sm font-semibold">Print queues</h3>
+        <ul className="flex flex-col gap-2 text-sm">
           {profiles.map((p) => {
             const owningAgent = agents.find((a) => a.id === p.agent_id);
             const ProfileIcon =
@@ -225,59 +268,56 @@ function PrinterCard({
                 : null;
             const capabilities = readCapabilities(p.declared_capabilities);
             return (
-              <li key={p.id} className="rounded bg-gray-50 px-3 py-2">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <span className="flex min-w-0 items-start gap-2">
-                    {ProfileIcon && <ProfileIcon className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-muted)]" />}
-                    <span className="min-w-0 break-words">
-                      <span className="font-medium">{p.label}</span> ({p.key}) —{" "}
+              <li key={p.id} className="rounded-[var(--radius-control)] border border-[var(--color-border)] bg-[var(--color-surface-2)]/50 p-3.5">
+                <span className="flex min-w-0 items-start gap-2">
+                  {ProfileIcon && <ProfileIcon className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-muted)]" />}
+                  <span className="min-w-0 break-words">
+                    <span className="font-semibold">{p.label}</span>
+                    <span className="block text-[13px] text-[var(--color-muted)]">
                       {p.output_mode === "raw" ? (
                         <>
-                          direct to{" "}
-                          <code>
+                          Straight to{" "}
+                          <code className="font-mono">
                             {p.raw_host}:{p.raw_port}
                           </code>
                         </>
                       ) : (
                         <>
-                          queue <code>{p.windows_queue_name}</code>
+                          Windows queue <code className="font-mono">{p.windows_queue_name}</code>
                         </>
                       )}
                     </span>
                   </span>
-                  {canManage && (
-                    <ProfileRowActions
-                      printer={printer}
-                      profile={p}
-                      isEditing={editingProfileId === p.id}
-                      onToggleEdit={() => setEditingProfileId(editingProfileId === p.id ? null : p.id)}
-                    />
-                  )}
-                </div>
-                {p.description && <p className="mt-1 text-xs text-[var(--color-text)]">{p.description}</p>}
-                <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--color-muted)]">
+                </span>
+                {p.description && <p className="mt-1.5 text-[13px] text-[var(--color-text-2)]">{p.description}</p>}
+                <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-[var(--color-muted)]">
                   <span>
-                    Declared: {p.declared_paper_sizes.join(", ")} •{" "}
-                    {CAPABILITY_KEYS.filter((k) => capabilities[k]).join(", ") || "no special capabilities"}
+                    Paper: {p.declared_paper_sizes.join(", ") || "not set"} · Can do:{" "}
+                    {CAPABILITY_KEYS.filter((k) => capabilities[k]).join(", ") || "nothing special"}
                   </span>
-                  {/* Diagnosing a printer error usually starts with "is its agent even
-                   *  online" - shown inline so that doesn't require a separate trip to
-                   *  /admin/agents. */}
                   {owningAgent && <AgentOnlineBadge agent={owningAgent} />}
                 </p>
+                {canManage && (
+                  <ProfileRowActions
+                    printer={printer}
+                    profile={p}
+                    isEditing={editingProfileId === p.id}
+                    onToggleEdit={() => setEditingProfileId(editingProfileId === p.id ? null : p.id)}
+                  />
+                )}
                 {canManage && editingProfileId === p.id && (
                   <EditProfileForm profile={p} agents={agents} onClose={() => setEditingProfileId(null)} />
                 )}
               </li>
             );
           })}
-          {profiles.length === 0 && <p className="text-xs text-[var(--color-muted)]">No finishing profiles yet.</p>}
+          {profiles.length === 0 && <li className="text-[13px] text-[var(--color-muted)]">No print queues yet. Add one so people can print here.</li>}
         </ul>
 
         {canManage && showNewProfile && (
           <NewProfileForm printerId={printer.id} agents={agents} defaultBookletBindingSide={defaultBookletBindingSide} />
         )}
-      </Card>
+      </Collapsible>
     </li>
   );
 }
@@ -296,7 +336,7 @@ function AgentOnlineBadge({ agent }: { agent: AgentInfo }) {
       <Badge tone="warning">
         <span className="flex items-center gap-1">
           <Pause className="h-3.5 w-3.5" />
-          Agent: {agent.name} • paused by admin
+          Server {agent.name}, paused
         </span>
       </Badge>
     );
@@ -305,7 +345,7 @@ function AgentOnlineBadge({ agent }: { agent: AgentInfo }) {
     <Badge tone={online ? "success" : "neutral"}>
       <span className="flex items-center gap-1">
         {online ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
-        Agent: {agent.name} • {online ? "online" : "offline"}
+        Server {agent.name}, {online ? "online" : "offline"}
       </span>
     </Badge>
   );
@@ -339,7 +379,7 @@ function ProfileRowActions({
     // Wraps rather than staying on one line: five small buttons never fit on
     // a phone, and `shrink-0` on a non-wrapping row made them overflow the
     // card entirely instead of moving onto a second line.
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="mt-3 flex flex-wrap items-center gap-2">
       <Button
         type="button"
         variant="outline"
@@ -386,7 +426,7 @@ function ProfileRowActions({
       <form
         action={deleteAction}
         onSubmit={(e) => {
-          if (!confirm(`Delete the "${profile.label}" profile? Users will no longer be able to pick it.`)) {
+          if (!confirm(`Delete the "${profile.label}" print queue? People will no longer be able to pick it.`)) {
             e.preventDefault();
           }
         }}
@@ -415,7 +455,7 @@ function EditPrinterForm({ printer }: { printer: Printer }) {
   return (
     <form
       action={formAction}
-      className="mb-3 grid grid-cols-1 gap-3 rounded-lg border border-[var(--color-border)] p-3 text-sm sm:grid-cols-2"
+      className="mb-3 grid grid-cols-1 gap-3 rounded-[var(--radius-control)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-sm sm:grid-cols-2"
     >
       <input type="hidden" name="printerId" value={printer.id} />
       <div>
@@ -435,7 +475,7 @@ function EditPrinterForm({ printer }: { printer: Printer }) {
         <Input id={`printerLocation-${printer.id}`} name="location" defaultValue={printer.location ?? ""} />
       </div>
       <p className="text-xs text-[var(--color-muted)] sm:col-span-2">
-        Status is reported by this printer&apos;s Agent, not set here - see docs/architecture.md sec 11.
+        Status comes from the print server, so it cannot be set here.
       </p>
       <div className="sm:col-span-2">
         <Button type="submit" size="sm" pending={pending} pendingLabel="Saving..." className="w-full sm:w-auto">
@@ -500,7 +540,7 @@ function ProfileFields({
   return (
     <>
       <div>
-        <FieldLabel htmlFor={`${idPrefix}Key`} hint="internal only, never shown to users">
+        <FieldLabel htmlFor={`${idPrefix}Key`} hint="internal, users never see it">
           Key
         </FieldLabel>
         <Input id={`${idPrefix}Key`} name="key" placeholder="booklet_saddle" defaultValue={defaults.key} required />
@@ -557,7 +597,7 @@ function ProfileFields({
       </div>
 
       <div className="sm:col-span-2">
-        <FieldLabel hint="how Printio gets the job onto the printer">Send jobs to</FieldLabel>
+        <FieldLabel  >How jobs reach the printer</FieldLabel>
         <Select
           id={`${idPrefix}OutputMode`}
           name="outputMode"
@@ -565,7 +605,7 @@ function ProfileFields({
           onChange={(e) => setOutputMode(e.target.value === "raw" ? "raw" : "queue")}
         >
           <option value="queue">Windows queue</option>
-          <option value="raw">Direct to printer (raw port 9100)</option>
+          <option value="raw">Straight to the printer (port 9100)</option>
         </Select>
       </div>
 
@@ -573,7 +613,7 @@ function ProfileFields({
         <div className="sm:col-span-2">
           <FieldLabel
             htmlFor={`${idPrefix}QueueName`}
-            hint="must exactly match the queue name in Windows on that machine - case-sensitive"
+            hint="must match the name in Windows exactly, capitals included"
           >
             Windows queue name
           </FieldLabel>
@@ -585,17 +625,15 @@ function ProfileFields({
             required
           />
           <p className="mt-1 text-xs text-[var(--color-muted)]">
-            On the Agent&apos;s Windows machine: Devices and Printers → right-click the queue →
-            Printer properties → the name at the top. Copy it exactly - a typo here means the
-            Agent can never find this queue.
+            On the print server computer: Devices and Printers, right-click the queue, Printer properties, and copy the name at the top exactly. A typo means the queue can never be found.
           </p>
         </div>
       ) : (
         <>
           <p className="text-xs text-[var(--color-muted)] sm:col-span-2">
-            The Agent sends the finished PDF straight to the printer over the network, with the
-            stapling and booklet settings added by Printio itself. No Windows print queue or driver
-            is involved. The printer must be reachable from the Agent&apos;s machine.
+            The print server sends the finished file straight to the printer over the network, with stapling and booklet
+            settings added by Printio. No Windows queue or driver is involved. The printer must be reachable from the print
+            server computer.
           </p>
           <div>
             <FieldLabel htmlFor={`${idPrefix}RawHost`} hint="the printer's IP address or network name">
@@ -611,7 +649,7 @@ function ProfileFields({
               aria-invalid={rawHostError ? true : undefined}
               required
             />
-            {rawHostError && <p className="mt-1 text-xs text-red-600">{rawHostError}</p>}
+            {rawHostError && <p className="mt-1 text-[13px] text-[var(--color-danger)]">{rawHostError}</p>}
           </div>
           <div>
             <FieldLabel htmlFor={`${idPrefix}RawPort`} hint="almost always 9100">
@@ -626,7 +664,7 @@ function ProfileFields({
               onChange={(e) => setRawPort(e.target.value)}
               aria-invalid={rawPortError ? true : undefined}
             />
-            {rawPortError && <p className="mt-1 text-xs text-red-600">{rawPortError}</p>}
+            {rawPortError && <p className="mt-1 text-[13px] text-[var(--color-danger)]">{rawPortError}</p>}
           </div>
           <div className="sm:col-span-2">
             <FieldLabel
@@ -651,11 +689,11 @@ function ProfileFields({
       </div>
 
       <div className="sm:col-span-2">
-        <FieldLabel htmlFor={`${idPrefix}AgentId`} hint="which registered Agent's machine this Windows queue lives on">
-          Agent
+        <FieldLabel htmlFor={`${idPrefix}AgentId`} hint="the computer this queue lives on">
+          Print server
         </FieldLabel>
         <Select id={`${idPrefix}AgentId`} name="agentId" defaultValue={defaults.agentId} required>
-          <option value="">Choose the agent that owns this queue…</option>
+          <option value="">Choose the print server for this queue…</option>
           {agents.map((a) => (
             <option key={a.id} value={a.id}>
               {a.name}
@@ -665,8 +703,8 @@ function ProfileFields({
       </div>
 
       <div className="sm:col-span-2">
-        <FieldLabel hint="check only what this queue's own Printing Defaults actually do (docs/printer-setup.md §3) - Printio never programs these itself, it only ever picks which queue to use">
-          Capabilities
+        <FieldLabel hint="tick only what this queue really does when it prints">
+          What it can do
         </FieldLabel>
         <div className="flex flex-wrap gap-3">
           {CAPABILITY_KEYS.map((cap) =>
@@ -687,7 +725,7 @@ function ProfileFields({
         <div className="sm:col-span-2">
           <FieldLabel
             htmlFor={`${idPrefix}BindingSide`}
-            hint='matches the Kyocera KX driver’s own booklet "Left edge binding"/"Right edge binding" terminology (docs/printer-setup.md)'
+            hint='same as the Kyocera driver: "Left edge binding" or "Right edge binding"'
           >
             Booklet binding side
           </FieldLabel>
@@ -699,7 +737,7 @@ function ProfileFields({
       )}
 
       <label className="flex items-center gap-1 sm:col-span-2">
-        <input type="checkbox" name="isDefault" defaultChecked={defaults.isDefault} /> Pre-select this profile in the print form
+        <input type="checkbox" name="isDefault" defaultChecked={defaults.isDefault} /> Pick this one first when someone prints
       </label>
     </>
   );
@@ -720,13 +758,12 @@ function NewProfileForm({
     // One column on a phone, two once there's room. `col-span-2` on a
     // single-column grid would create a phantom second track, which is why
     // every wide field below uses `sm:col-span-2` instead.
-    <form action={formAction} className="mt-3 grid grid-cols-1 gap-3 rounded-lg border border-[var(--color-border)] p-3 text-sm sm:grid-cols-2">
+    <form action={formAction} className="mt-3 grid grid-cols-1 gap-3 rounded-[var(--radius-control)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-sm sm:grid-cols-2">
       <input type="hidden" name="printerId" value={printerId} />
 
       <p className="text-xs text-[var(--color-muted)] sm:col-span-2">
-        One profile per Windows print queue (or per direct-to-printer destination). Set up the queue itself first (driver, finishing
-        defaults) per <code>docs/printer-setup.md</code> - this form just registers a queue
-        that already exists, it doesn&apos;t create one.
+        One entry per Windows print queue (or per direct-to-printer address). Set the queue up in Windows first, with its driver and finishing
+        defaults. This form only connects Printio to a queue that already exists.
       </p>
 
       <ProfileFields
@@ -752,7 +789,7 @@ function NewProfileForm({
 
       <div className="sm:col-span-2">
         <Button type="submit" size="sm" pending={pending} pendingLabel="Saving..." className="w-full">
-          Save profile
+          Save print queue
         </Button>
       </div>
       <div className="sm:col-span-2">
@@ -786,14 +823,13 @@ function EditProfileForm({
   return (
     <form
       action={formAction}
-      className="mt-3 grid grid-cols-1 gap-3 rounded-lg border border-[var(--color-border)] bg-white p-3 text-sm sm:grid-cols-2"
+      className="mt-3 grid grid-cols-1 gap-3 rounded-[var(--radius-control)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-sm sm:grid-cols-2"
     >
       <input type="hidden" name="printerProfileId" value={profile.id} />
 
       <p className="text-xs text-[var(--color-muted)] sm:col-span-2">
-        Editing <span className="font-medium">{profile.label}</span>. Re-pointing &ldquo;Windows queue name&rdquo; or
-        &ldquo;Agent&rdquo; changes where every future job on this profile physically prints - existing jobs already
-        sent are unaffected.
+        Editing <span className="font-medium">{profile.label}</span>. Changing the Windows queue name or the print server changes where every future job on this queue prints. Jobs already
+        sent are not affected.
       </p>
 
       <ProfileFields
