@@ -106,3 +106,9 @@ LATER: email alerts (agent/printer offline), onboarding tour that really opens p
 - Booklet from the print dialog: the job is held and the member picks Left or Right in one tap.
 - Plain "staple" means top-left, but the owner mostly uses top-right. Bottom-left staple: not needed. Short-edge flip from the dialog stays held until tested.
 - The Raspberry Pi is retired.
+
+## Install as an app + share into Printio (branch claude/wow-pwa-share) - status
+
+Done: manifest (share_target, icons, shortcuts), minimal no-cache service worker (/sw.js) that takes a shared PDF into IndexedDB and 303s to /print?shared=id, fallback /share-target route, Print-page handoff banner (fills the existing file input, never auto-submits), install card (home, Me sheet, admin sidebar; iOS hint). Vitest tests for the pure parts; production-build Playwright checks of manifest, icons, sw.js headers, SW activation, simulated share (303 + IndexedDB entry), fallback route, kill switch.
+
+Not proven: real Android share sheet / WebAPK install (install once from Chrome menu 'Install app', then share a PDF from Files), Chromebook, iPhone, Vercel production behaviour of /sw.js. The screenshots in printio-screens/pwa-*.png were taken but not visually reviewed. The dev preview showed 2 'Install Printio' buttons after opening the Me sheet (unchecked why). The SW limit is the 50 MB default, not the org's setting. A share made while logged out loses ?shared on the login redirect (file stays in the inbox for 1 hour). Full pnpm -r typecheck/lint/build not re-run after the last preview edit; web tsc, eslint and vitest (1263) passed before it.
