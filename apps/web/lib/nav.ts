@@ -101,7 +101,7 @@ export function adminMenu(isOrgAdmin: boolean): NavGroup[] {
         { href: routes.adminPrinters, label: "Printers", icon: "printers" },
         { href: routes.adminAgents, label: "Print servers", icon: "agents" },
         // Devices / Activity log / Storage require org_admin on their own pages.
-        ...(isOrgAdmin ? [{ href: routes.adminDevices, label: "User devices", icon: "devices" as const }] : []),
+        ...(isOrgAdmin ? [{ href: routes.adminDevices, label: "All devices", icon: "devices" as const }] : []),
       ],
     },
     {

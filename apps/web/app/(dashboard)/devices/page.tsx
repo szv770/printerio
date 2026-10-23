@@ -4,7 +4,8 @@ import { listDevicesForMember, listIssuesForDevices } from "@/lib/devices/device
 import { PageHeader } from "@/components/ui";
 import { DevicesView } from "./DevicesView";
 
-export default async function DevicesPage() {
+export default async function DevicesPage({ searchParams }: { searchParams: Promise<{ add?: string }> }) {
+  const { add } = await searchParams;
   const session = await requireSessionOrRedirect();
   if (!session.membership) return null; // the dashboard layout already redirects members without an organization
   const supabase = await createClient();
@@ -21,6 +22,7 @@ export default async function DevicesPage() {
         description="Add your phone, tablet or laptop to print from its normal Print button. Each device gets its own private address."
       />
       <DevicesView
+        startAdding={add === "1"}
         devices={devices.map((d) => ({
           id: d.id,
           name: d.name,

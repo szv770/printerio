@@ -77,3 +77,24 @@ export function setupSteps(type: string, addr: DeviceAddress): SetupSteps | null
   }
   return null;
 }
+
+/** Best guess of the device type from a browser user agent (the person can change it). */
+export function detectDeviceType(userAgent: string | undefined | null, maxTouchPoints = 0): DeviceTypeKey {
+  const ua = userAgent ?? "";
+  if (/CrOS/i.test(ua)) return "chromebook";
+  if (/Android/i.test(ua)) return "android";
+  if (/iPhone|iPad|iPod/i.test(ua)) return "iphone";
+  // iPadOS 13+ reports itself as a Mac; a Mac with a touch screen is an iPad.
+  if (/Macintosh|Mac OS X/i.test(ua)) return maxTouchPoints > 1 ? "iphone" : "mac";
+  if (/Windows/i.test(ua)) return "windows";
+  return "other";
+}
+
+/** What to tell someone when we have no step-by-step help for their device type. */
+export function noStepsMessage(type: string): string {
+  if (type === "iphone") {
+    return "iPhone and iPad: coming later. We do not expect printing from the Print button to work yet. For now, upload from the website (Print a document).";
+  }
+  if (type === "other") return "We don't have steps for this kind of device yet. It may not work.";
+  return `We don't have steps for ${deviceTypeLabel(type)} yet. It may not work, so ask your administrator if you get stuck.`;
+}

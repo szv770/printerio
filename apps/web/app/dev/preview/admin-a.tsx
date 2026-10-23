@@ -194,7 +194,11 @@ const DEVICES: AdminDevice[] = [
 export function UserDevicesPreview({ variant }: { variant?: string }) {
   return (
     <Frame path="/admin/devices">
-      <PageHeader title="User devices" description="Phones and laptops people print from. The ones that need a look are at the top." />
+      <PageHeader
+        title="All devices"
+        description="Phones and laptops people print from. The ones that need a look are at the top."
+        action={<span className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-3 text-sm font-medium text-white">+ Add device</span>}
+      />
       <Tabs label="Printers and devices" items={printerTabs("devices", true)} />
       <DevicesAdmin devices={variant === "empty" ? [] : DEVICES} />
     </Frame>

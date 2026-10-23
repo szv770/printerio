@@ -2,7 +2,9 @@ import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
 import { listDevicesForAdmin, listIssuesForDevices } from "@/lib/devices/devices";
 import { sortStuckFirst, stuckReason } from "@/lib/devices/admin";
-import { PageHeader, Tabs } from "@/components/ui";
+import { Plus } from "lucide-react";
+import { ButtonLink, PageHeader, Tabs } from "@/components/ui";
+import { routes } from "@/lib/routes";
 import { printerTabs } from "@/lib/admin/tabs";
 import { DevicesAdmin, type AdminDevice } from "./DevicesAdmin";
 
@@ -57,8 +59,14 @@ export default async function AdminDevicesPage() {
   return (
     <div>
       <PageHeader
-        title="User devices"
+        title="All devices"
         description="Phones and laptops people print from. The ones that need a look are at the top."
+        action={
+          <ButtonLink href={`${routes.devices}?add=1`} size="sm" className="shrink-0">
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Add device
+          </ButtonLink>
+        }
       />
       <Tabs label="Printers and devices" items={printerTabs("devices", true)} />
       <DevicesAdmin devices={items} />

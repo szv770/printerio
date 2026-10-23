@@ -14,13 +14,13 @@ export function peopleTabs(active: PeopleTab, isOrgAdmin: boolean): TabItem[] {
   return tabs;
 }
 
-/** Printers | Print servers | User devices (the last is admin only, like the page). */
+/** Printers | Print servers | All devices (the last is admin only, like the page). */
 export function printerTabs(active: PrinterTab, isOrgAdmin: boolean): TabItem[] {
   const tabs: TabItem[] = [
     { href: routes.adminPrinters, label: "Printers", active: active === "printers" },
     { href: routes.adminAgents, label: "Print servers", active: active === "agents" },
   ];
-  if (isOrgAdmin) tabs.push({ href: routes.adminDevices, label: "User devices", active: active === "devices" });
+  if (isOrgAdmin) tabs.push({ href: routes.adminDevices, label: "All devices", active: active === "devices" });
   return tabs;
 }
 
