@@ -170,7 +170,7 @@ export const ADMIN_TOUR: TourSlide[] = [
   },
   {
     title: "Reports",
-    body: "Reports shows usage by user/department/printer and recently denied/failed jobs. Audit log (org admins only, in the sidebar) is a full record of every administrative action.",
+    body: "Reports shows usage by user/department/printer and recently denied/failed jobs. Activity log (org admins only, in the sidebar) is a full record of every administrative action.",
     anchor: "admin-reports-stats",
     route: "/admin/reports",
   },

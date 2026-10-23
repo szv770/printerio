@@ -17,7 +17,7 @@ export default async function SuperAdminsPage() {
     <div>
       <PageHeader
         title="Super admins"
-        description="Platform-level access only - a super admin has no implicit access to any organization's print jobs or files until they explicitly join it (see Overview - Join as admin), which is itself audit-logged."
+        description="Platform-level access only - a super admin has no implicit access to any organization's print jobs or files until they explicitly join it (see Overview - Join as admin), which is itself recorded in the activity log."
       />
       <SuperAdminsPanel
         currentUserId={session.userId}

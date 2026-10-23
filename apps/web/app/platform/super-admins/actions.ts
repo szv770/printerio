@@ -75,7 +75,7 @@ export async function promoteSuperAdminAction(
     metadata: { email: lookup.profile.email },
   });
   if (auditError) {
-    return { error: describeDatabaseError(auditError, "Promoted the account, but couldn't record the audit log entry.") };
+    return { error: describeDatabaseError(auditError, "Promoted the account, but couldn't record it in the activity log.") };
   }
 
   revalidatePath(routes.platformSuperAdmins);
@@ -127,7 +127,7 @@ export async function demoteSuperAdminAction(
     metadata: { email: target.email },
   });
   if (auditError) {
-    return { error: describeDatabaseError(auditError, "Demoted the account, but couldn't record the audit log entry.") };
+    return { error: describeDatabaseError(auditError, "Demoted the account, but couldn't record it in the activity log.") };
   }
 
   revalidatePath(routes.platformSuperAdmins);

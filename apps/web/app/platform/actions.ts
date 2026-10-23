@@ -73,7 +73,7 @@ export async function joinOrganizationAsAdminAction(
     target_id: organizationId,
     metadata: { role: "org_admin" },
   });
-  if (auditError) return { error: describeDatabaseError(auditError, "Joined the organization, but couldn't record the audit log entry.") };
+  if (auditError) return { error: describeDatabaseError(auditError, "Joined the organization, but couldn't record it in the activity log.") };
 
   revalidatePath(routes.platform);
   return { success: `Joined ${org.name} as org_admin.` };
