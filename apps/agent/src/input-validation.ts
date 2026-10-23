@@ -32,7 +32,6 @@ export function validateQueueName(name: unknown): name is string {
   const t = name.trim();
   if (!t || t.length > 256) return false;
   if (t.startsWith("-")) return false;
-  // eslint-disable-next-line no-control-regex
   return !/[\x00-\x1f\x7f]/.test(name);
 }
 
