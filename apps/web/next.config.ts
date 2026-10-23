@@ -30,6 +30,9 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "100mb",
     },
   },
+  // pdfjs-dist is loaded at request time to find where a booklet's content is (lib/pdf/content-analysis.ts); keep it
+  // out of the server bundle and resolve it from node_modules instead.
+  serverExternalPackages: ["pdfjs-dist"],
   env: buildStamp,
 };
 

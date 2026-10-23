@@ -7,6 +7,9 @@ import { fakeSupabase, failure, ok, type FakeCall, type FakeResult } from "@/tes
 const evaluateJobPolicy = vi.fn();
 vi.mock("@/lib/policy/build-facts", () => ({ evaluateJobPolicy: (...a: unknown[]) => evaluateJobPolicy(...a) }));
 
+// The pipeline's own tests do not need pdfjs (content analysis has its own tests): no analysis = pages stay whole.
+vi.mock("@/lib/pdf/content-analysis", () => ({ analyzePdfContent: async () => null }));
+
 import { createPrintJob, type JobOptions, type JobSession } from "./create-print-job";
 
 const ORG = "org-1";
@@ -261,6 +264,16 @@ describe("createPrintJob: error path", () => {
     expect(res).toMatchObject({ ok: true, status: "approved" });
     expect(insertedJob()).toMatchObject({ booklet_binding_side: "left", booklet_padding_added: 1, finishing: { staple: false, booklet: true, punch: false } });
     expect(insertedJob().derived_file_path).toEqual(expect.stringMatching(/derived\.pdf$/));
+    // A booklet defaults to "fill the page" and records it, so a re-print repeats it.
+    expect(insertedJob().finishing).toMatchObject({ bookletFit: "fill" });
+  });
+
+  it("keeps the member's 'keep original margins' choice on the job; non-booklets store no fit", async () => {
+    await run(pdf3, baseOpts({ choices: { sides: "two", staple: "none", booklet: "left", copies: 1, pageRange: "" }, confirmBookletPadding: true, bookletFit: "keep" }));
+    expect(insertedJob().finishing).toMatchObject({ booklet: true, bookletFit: "keep" });
+    use();
+    await run(pdf3, baseOpts());
+    expect(insertedJob().finishing).toEqual({ staple: false, booklet: false, punch: false });
   });
 });
 

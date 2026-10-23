@@ -1,8 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
 import { preflightPdf } from "@/lib/pdf/preflight";
-import { createBookletPaddedPdf } from "@/lib/pdf/booklet";
-import { imposeBookletPdf, resolvePaperSizePoints } from "@/lib/pdf/imposition";
+import { padAndImposeBooklet } from "@/lib/pdf/booklet-build";
+import type { BookletFit } from "@/lib/pdf/imposition";
 import { computePrintMath, computeCostCents, computeBookletPadding, type PolicyAction, type PricingConfig, type OrgRole } from "@printio/shared";
 import { createPageSubsetPdf } from "@/lib/pdf/page-subset";
 import { stampFirstPage } from "@/lib/pdf/stamp";
@@ -38,6 +38,8 @@ export interface JobOptions {
   paperSize: string;
   punch: boolean;
   confirmBookletPadding: boolean;
+  /** Booklet jobs only. "fill" (default; also what IPP / gateway jobs get) crops the document's own blank margins so the content fills the page; "keep" scales the whole page as before. Stored in print_jobs.finishing. */
+  bookletFit?: BookletFit;
   /** Create the job as held with this plain-language reason (wins over the printer's own held reason). */
   forcedHeldReason?: string;
   /** Where the job came from. Default "web". */
@@ -110,6 +112,7 @@ export async function createPrintJob(
   const organizationId = session.membership.organization_id;
   const { printerProfileId, choices, confirmBookletPadding } = opts;
   const source = opts.source ?? "web";
+  const bookletFit: BookletFit = opts.bookletFit === "keep" ? "keep" : "fill";
   // Reads go through `supabase`; every WRITE (quota reserve/release, storage upload/remove, the print_jobs insert,
   // the event trail) goes through `writer`. The website passes the service-role client here after its own session
   // checks, so members need no INSERT/UPDATE rights on print_jobs, monthly_usage or the print-jobs bucket
@@ -297,13 +300,16 @@ export async function createPrintJob(
     // anywhere saying which document or profile did it. Nothing has been
     // reserved or uploaded at this point, so returning is a clean stop.
     try {
-      const padded = await createBookletPaddedPdf(workingBytes);
-      effectivePageCount = padded.paddedPages;
-      blankPagesAdded = padded.blankPagesAdded;
-
-      // The side the member chose for this booklet (else the printer's own default, resolved above) is
-      // also stored on the job, so imposition, the Agent and a re-print all agree on it.
-      derivedBytes = await imposeBookletPdf(padded.bytes, resolvePaperSizePoints(paperSize), bindingSide ?? profileBindingSide);
+      const built = await padAndImposeBooklet(workingBytes, {
+        paperSize,
+        // The side the member chose for this booklet (else the printer's own default, resolved above) is also stored
+        // on the job, so imposition, the Agent and a re-print all agree on it.
+        bindingSide: bindingSide ?? profileBindingSide,
+        fit: bookletFit,
+      });
+      effectivePageCount = built.paddedPages;
+      blankPagesAdded = built.blankPagesAdded;
+      derivedBytes = built.bytes;
     } catch (err) {
       logger.error("booklet imposition failed", {
         organizationId,
@@ -531,7 +537,7 @@ export async function createPrintJob(
     color_mode: colorMode,
     duplex,
     paper_size: paperSize,
-    finishing: { staple, booklet, punch },
+    finishing: { staple, booklet, punch, ...(booklet ? { bookletFit } : {}) },
     // Per-job choices (migrations 0028 + 0030). staple_position is non-null exactly for a stapled raw job; a
     // booklet always records which edge it is bound on, so imposition, the Agent and a re-print agree.
     staple_position: staple ? staplePosition : null,

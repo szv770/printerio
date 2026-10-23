@@ -5,7 +5,7 @@
   "description": "Printio - multi-tenant print management platform (cloud web app + on-prem Windows print agent)",
   "packageManager": "pnpm@10.33.0",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "scripts": {
     "dev:web": "pnpm --filter @printio/web dev",

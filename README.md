@@ -66,7 +66,7 @@ booklet/punch cannot be controlled from software — see architecture.md sec 9).
 - A [Supabase](https://supabase.com/) project (Postgres + Auth + Storage +
   Realtime).
 - A host for `apps/web` — [Vercel](https://vercel.com/) is what
-  [docs/deployment.md](./docs/deployment.md) documents, but any Node 20+ host that
+  [docs/deployment.md](./docs/deployment.md) documents, but any Node 22.13+ host that
   can run a Next.js app works.
 - A Windows 10/11 or Windows Server machine to run `apps/agent`, network-reachable
   from at least one configured printer.
