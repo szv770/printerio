@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentSupportsCheckOnly, deriveUpdateView, isUpdateLive, shouldAutoCheck, UPDATE_STEPS, type UpdateCommandRow } from "./update-progress";
+import { agentSupportsCheckOnly, deriveUpdateView, formatElapsed, installingHint, isUpdateLive, shouldAutoCheck, UPDATE_STEPS, type UpdateCommandRow } from "./update-progress";
 
 const NOW = Date.parse("2026-10-23T12:00:00Z");
 const ago = (s: number) => new Date(NOW - s * 1000).toISOString();
@@ -208,5 +208,28 @@ describe("restart-only path (RESTART_AGENT_SERVICE) for a downloaded-but-not-run
   });
   it("is live while restarting", () => {
     expect(isUpdateLive(v([rs({ status: "pending", createdAt: ago(10) })], "0.1.0", ago(20)))).toBe(true);
+  });
+});
+
+describe("update progress - elapsed time and the Installing hint", () => {
+  it("formats elapsed time as m:ss and never goes negative", () => {
+    expect(formatElapsed(0)).toBe("0:00");
+    expect(formatElapsed(9_000)).toBe("0:09");
+    expect(formatElapsed(72_000)).toBe("1:12");
+    expect(formatElapsed(600_000)).toBe("10:00");
+    expect(formatElapsed(-5_000)).toBe("0:00");
+    expect(formatElapsed(Number.NaN)).toBe("0:00");
+  });
+  it("the updating view remembers when the update was requested", () => {
+    const v = view([row({ status: "acknowledged", createdAt: ago(42), result: { step: "installing" } })]);
+    expect(v.kind).toBe("updating");
+    if (v.kind === "updating") expect(v.startedAt).toBe(ago(42));
+  });
+  it("only the Installing step gets the 'about a minute' hint", () => {
+    const installing = view([row({ status: "acknowledged", result: { step: "installing" } })]);
+    const downloading = view([row({ status: "acknowledged", result: { step: "downloading" } })]);
+    if (installing.kind !== "updating" || downloading.kind !== "updating") throw new Error("expected updating");
+    expect(installingHint(installing.steps)).toBe("Installing - this can take about a minute");
+    expect(installingHint(downloading.steps)).toBeNull();
   });
 });

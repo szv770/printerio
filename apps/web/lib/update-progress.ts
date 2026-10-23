@@ -51,7 +51,7 @@ export type UpdateView =
   /** The newest code is already on the machine but the running build is old: only a restart is needed. */
   | { kind: "restart_needed"; running: string | null; latest: string }
   | { kind: "check_failed"; message: string }
-  | { kind: "updating"; steps: StepView[]; message: string | null }
+  | { kind: "updating"; steps: StepView[]; message: string | null; /** When Update now was pressed (ISO), for the elapsed clock. */ startedAt: string | null }
   | { kind: "restarting"; steps: StepView[]; to: string | null }
   | { kind: "done"; steps: StepView[]; from: string | null; to: string | null }
   | { kind: "failed"; steps: StepView[]; message: string };
@@ -130,13 +130,13 @@ function deriveFromUpdate(row: UpdateCommandRow, lastSeenAt: string | null, nowM
     if (age > UPDATE_PICKUP_GIVE_UP_MS) {
       return failed("The print server did not pick this up. It may be switched off or offline. Switch it on and try again.", "checking");
     }
-    return { kind: "updating", steps: buildSteps("checking"), message: "Waiting for the print server to pick this up..." };
+    return { kind: "updating", steps: buildSteps("checking"), message: "Waiting for the print server to pick this up...", startedAt: row.createdAt };
   }
   if (row.status === "acknowledged") {
     if (age > UPDATE_RUN_GIVE_UP_MS) {
       return failed("The update is taking much longer than expected, so it is probably stuck. Try again, or check the print server computer.", step ?? "checking");
     }
-    return { kind: "updating", steps: buildSteps(step && step !== "done" ? step : "checking"), message: str(r.message, 200) };
+    return { kind: "updating", steps: buildSteps(step && step !== "done" ? step : "checking"), message: str(r.message, 200), startedAt: row.createdAt };
   }
   if (row.status === "failed") {
     return failed(str(r.message, 400) ?? "The update did not complete. Try again.", step ?? "checking");
@@ -158,6 +158,17 @@ function deriveFromUpdate(row: UpdateCommandRow, lastSeenAt: string | null, nowM
   }
   if (r.reason === "already_up_to_date") return { kind: "up_to_date", checkedAt: row.completedAt ?? row.createdAt };
   return failed(str(r.message, 400) ?? "The update did not complete. Try again.", step ?? "checking");
+}
+
+/** "m:ss" for the elapsed clock on the update banner. */
+export function formatElapsed(ms: number): string {
+  const total = Number.isFinite(ms) && ms > 0 ? Math.floor(ms / 1000) : 0;
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+/** Extra reassurance while the slow Installing step is the active one (null on every other step). */
+export function installingHint(steps: StepView[]): string | null {
+  return steps.some((s) => s.id === "installing" && s.state === "active") ? "Installing - this can take about a minute" : null;
 }
 
 /** A restart request this recent is part of the update story; an older one is just history. */

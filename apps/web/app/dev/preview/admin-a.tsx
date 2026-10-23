@@ -211,6 +211,7 @@ export function UpdateBannerPreview() {
               <UpdateBanner
                 view={deriveUpdateView({ commands: v === "legacy_none" ? [] : commands, lastSeenAt, nowMs: NOW, agentVersion: legacy ? "0.1.0" : "0.2.0", latestVersion: "0.2.0" })}
                 canCheckAgain={!legacy}
+                elapsedNow={NOW}
               />
             </div>
           );

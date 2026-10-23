@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 import { Check, CircleArrowUp, CircleCheck, RefreshCw, TriangleAlert, X } from "lucide-react";
 import { Button, Spinner } from "@/components/ui";
 import { LocalTime } from "@/components/LocalTime";
-import type { StepView, UpdateView } from "@/lib/update-progress";
+import { installingHint, type StepView, type UpdateView } from "@/lib/update-progress";
+import { ElapsedClock } from "./ElapsedClock";
 
 type Tone = "primary" | "success" | "warning" | "danger" | "neutral";
 
@@ -29,6 +30,8 @@ export interface UpdateBannerProps {
   onCheckAgain?: () => void;
   /** Whether the print server can do a look-only check. Without it "Check again" is not offered at all. */
   canCheckAgain?: boolean;
+  /** Fixed "now" (ms) for the elapsed clock; only the dev preview sets it so screenshots are steady. */
+  elapsedNow?: number;
 }
 
 function StepIcon({ state }: { state: StepView["state"] }) {
@@ -130,7 +133,7 @@ const sub = "mt-0.5 text-sm text-[var(--color-text-2)] [overflow-wrap:anywhere]"
  * The calm update banner on the print server page. Purely presentational: it renders exactly the state it is
  * given (see lib/update-progress.ts), so every state can be shown in the dev preview without a server.
  */
-export function UpdateBanner({ view, situation = "normal", busy = false, error, onUpdate, onRestart, onCheckAgain, canCheckAgain = false }: UpdateBannerProps) {
+export function UpdateBanner({ view, situation = "normal", busy = false, error, onUpdate, onRestart, onCheckAgain, canCheckAgain = false, elapsedNow }: UpdateBannerProps) {
   if (situation === "cannot_update") {
     return (
       <Shell tone="neutral" icon={<CircleArrowUp className="h-5 w-5" aria-hidden="true" />} title="This print server cannot update itself">
@@ -296,9 +299,16 @@ export function UpdateBanner({ view, situation = "normal", busy = false, error, 
     case "updating":
       return (
         <Shell tone="primary" icon={<Spinner className="h-5 w-5" />} title="Updating the print server...">
-          {view.message ? <p className={sub}>{view.message}</p> : null}
+          {installingHint(view.steps) ? (
+            <p className="mt-0.5 text-sm font-medium text-[var(--color-text)]">{installingHint(view.steps)}</p>
+          ) : view.message ? (
+            <p className={sub}>{view.message}</p>
+          ) : null}
           <UpdateSteps steps={view.steps} />
-          <p className="mt-3 text-[13px] text-[var(--color-muted)]">You can keep this page open. It updates by itself.</p>
+          <p className="mt-3 text-[13px] text-[var(--color-muted)]">
+            <ElapsedClock since={view.startedAt} now={elapsedNow} />
+            {view.startedAt ? " - " : ""}You can keep this page open. It updates by itself.
+          </p>
         </Shell>
       );
 
