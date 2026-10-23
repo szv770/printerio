@@ -1,9 +1,18 @@
 "use client";
 
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useId, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { ChevronDown } from "lucide-react";
-import { readOpenState, resolveOpen, writeOpenState } from "@/lib/ui/collapsible-storage";
+import {
+  COLLAPSIBLE_OPEN_EVENT,
+  groupKey,
+  resolveInitialOpen,
+  shouldCloseOnOtherOpen,
+  type CollapsibleOpenDetail,
+} from "@/lib/ui/accordion";
+
+/** The id of the Collapsible a section is nested in (null at the top level), so a child never closes its parent. */
+const ParentSectionContext = createContext<string | null>(null);
 
 export interface CollapsibleProps {
   /** Stable, unique per page: used for the #hash, the DOM ids and remembered state. */
@@ -19,6 +28,8 @@ export interface CollapsibleProps {
   /** Error / needs-attention: opens the section (the user can still close it afterwards). */
   forceOpen?: boolean;
   headingLevel?: 2 | 3;
+  /** Opt out of "one open at a time" (rare: only when sections must be compared side by side). */
+  independent?: boolean;
   onOpenChange?: (open: boolean) => void;
   children: ReactNode;
 }
@@ -28,9 +39,11 @@ export interface CollapsibleProps {
  * button (aria-expanded / aria-controls, 56px tall); the body stays mounted
  * while closed so half-typed fields are not lost, and is hidden from the tab
  * order and screen readers by `visibility: hidden` + `inert`. Opens by itself
- * for `forceOpen` or when the URL hash equals `id`. Open state is remembered
- * per page in localStorage (read after mount, never during render). The height
+ * for `forceOpen` or when the URL hash equals `id`. The height
  * animates with grid rows and is instant under prefers-reduced-motion.
+ *
+ * Accordion: opening a section closes the other sections on the same page (see lib/ui/accordion.ts); a section
+ * nested inside another is left alone. Nothing is remembered between visits, so a page always starts closed.
  */
 export function Collapsible({
   id,
@@ -41,10 +54,13 @@ export function Collapsible({
   defaultOpen = false,
   forceOpen = false,
   headingLevel = 2,
+  independent = false,
   onOpenChange,
   children,
 }: CollapsibleProps) {
   const pathname = usePathname();
+  const parentId = useContext(ParentSectionContext);
+  const group = groupKey(pathname, parentId);
   const uid = useId();
   const buttonId = `${uid}-btn`;
   const panelId = `${uid}-panel`;
@@ -57,18 +73,11 @@ export function Collapsible({
     if (forceOpen) setOpen(true);
   }
 
-  // Remembered state and #hash are browser-only, so they are read after mount.
+  // The #hash is browser-only, so it is read after mount (never during render).
   useEffect(() => {
-    let storage: Storage | null = null;
-    try {
-      storage = window.localStorage;
-    } catch {
-      storage = null;
-    }
-    const stored = readOpenState(storage, pathname);
     const hash = window.location.hash;
-    const next = resolveOpen({ id, stored, defaultOpen, forceOpen, hash });
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- reading browser storage is the reason this is an effect
+    const next = resolveInitialOpen({ id, defaultOpen, forceOpen, hash });
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reading window.location is the reason this is an effect
     setOpen(next);
     if (hash.replace(/^#/, "") === id) {
       document.getElementById(`${id}`)?.scrollIntoView({ block: "start" });
@@ -77,13 +86,24 @@ export function Collapsible({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, id]);
 
+  // Accordion: close when another section in the same group opens.
+  useEffect(() => {
+    function onOtherOpen(event: Event) {
+      const detail = (event as CustomEvent<CollapsibleOpenDetail>).detail;
+      if (!detail) return;
+      if (shouldCloseOnOtherOpen({ selfId: id, openedId: detail.id, selfGroup: group, openedGroup: detail.group, forceOpen, independent })) {
+        setOpen(false);
+      }
+    }
+    window.addEventListener(COLLAPSIBLE_OPEN_EVENT, onOtherOpen);
+    return () => window.removeEventListener(COLLAPSIBLE_OPEN_EVENT, onOtherOpen);
+  }, [id, group, forceOpen, independent]);
+
   function toggle() {
     const next = !open;
     setOpen(next);
-    try {
-      writeOpenState(window.localStorage, pathname, id, next);
-    } catch {
-      /* storage blocked: stays in memory only */
+    if (next && !independent) {
+      window.dispatchEvent(new CustomEvent<CollapsibleOpenDetail>(COLLAPSIBLE_OPEN_EVENT, { detail: { group, id } }));
     }
     onOpenChange?.(next);
   }
@@ -134,7 +154,9 @@ export function Collapsible({
         }`}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className="border-t border-[var(--color-border)] px-4 py-4 sm:px-5 sm:py-5">{children}</div>
+          <div className="border-t border-[var(--color-border)] px-4 py-4 sm:px-5 sm:py-5">
+            <ParentSectionContext.Provider value={id}>{children}</ParentSectionContext.Provider>
+          </div>
         </div>
       </div>
     </section>
