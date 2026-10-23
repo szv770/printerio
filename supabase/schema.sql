@@ -2931,3 +2931,204 @@ grant execute on function public.adjust_monthly_usage(uuid, uuid, text, int, int
   to service_role;
 
 -- 0038_backfill_device_first_printed.sql is a data-only back-fill (no schema change).
+
+-- ===================================================================
+-- Source: migrations/0039_join_policy.sql
+-- ===================================================================
+-- Printio: "Who can join" (security review F4).
+--
+-- Model (see docs/BACKLOG.md "Security: who can join"):
+--   * Anyone can still get a Supabase auth account (magic link). An auth account
+--     alone gives ZERO access: every org table is behind a membership-based RLS
+--     policy and organization_members can only be inserted by an org admin or the
+--     service role (proved by apps/web/lib/db-test/join-policy.db.test.ts).
+--   * Membership is created only by (a) redeeming an invitation (service role,
+--     apps/web/lib/auth/invitations.ts) or (b) THIS migration's
+--     join_org_by_domain(), and only when an org admin chose
+--     join_mode = 'invite_or_domain'.
+--
+-- Default for every existing organization: 'invite_only'. That changes nothing
+-- for anyone today (nobody joined by domain before; the old allowed_domains list
+-- only decided who reached the enter-a-code screen). Existing members and admins
+-- are never touched by this function.
+--
+-- Not done on purpose: a Supabase "before user created" hook. An invited person
+-- may legitimately use any email, and the hook cannot know about the invite at
+-- sign-up time, so it would lock invited outsiders out. Instead unmatched
+-- accounts exist but are inert, which the tests prove.
+--
+-- Re-runnable: every statement is idempotent.
+
+alter table public.organizations
+  add column if not exists join_mode text not null default 'invite_only',
+  add column if not exists domain_join_role text not null default 'student';
+
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'organizations_join_mode_check') then
+    alter table public.organizations
+      add constraint organizations_join_mode_check check (join_mode in ('invite_only', 'invite_or_domain'));
+  end if;
+  -- Domain joiners may only ever become staff or students, never admin/approver.
+  if not exists (select 1 from pg_constraint where conname = 'organizations_domain_join_role_check') then
+    alter table public.organizations
+      add constraint organizations_domain_join_role_check check (domain_join_role in ('staff', 'student'));
+  end if;
+  -- Every entry must be a lower-case bare domain. NOT VALID: checks new/updated rows
+  -- only, so a legacy odd value cannot make this migration fail or lock anyone out.
+  if not exists (select 1 from pg_constraint where conname = 'organizations_allowed_domains_valid') then
+    alter table public.organizations
+      add constraint organizations_allowed_domains_valid check (
+        cardinality(allowed_domains) = 0
+        or (
+          array_position(allowed_domains, null) is null
+          and array_to_string(allowed_domains, ',') ~
+            '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+(,[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+)*$'
+        )
+      ) not valid;
+  end if;
+  -- Domain mode with no domains would silently mean "nobody", so refuse it.
+  if not exists (select 1 from pg_constraint where conname = 'organizations_domain_mode_needs_domains') then
+    alter table public.organizations
+      add constraint organizations_domain_mode_needs_domains check (
+        join_mode = 'invite_only' or cardinality(allowed_domains) > 0
+      );
+  end if;
+end $$;
+
+comment on column public.organizations.join_mode is
+  'invite_only: only invitations create members. invite_or_domain: additionally, a person whose VERIFIED sign-in email is on an allowed_domains domain (exact match, case-insensitive, no subdomains unless listed) becomes a member with domain_join_role on first sign-in. Enforced by public.join_org_by_domain().';
+comment on column public.organizations.domain_join_role is
+  'Role given to people who join by email domain. Only staff or student; admins/approvers are always assigned by an admin or invitation.';
+comment on column public.organizations.allowed_domains is
+  'Lower-case bare domains that may join automatically when join_mode = invite_or_domain. Grants nothing in invite_only mode. magic_link_requires_allowed_domain and the email_domain_allowed*() functions from 0013/0014 are superseded by join_mode and no longer used by the app.';
+
+-- ============================================================================
+-- join_org_by_domain(user): the only domain-based way to become a member.
+-- Service role only. Reads the user's email from auth.users (never from a
+-- client-supplied value) and requires it to be verified.
+-- Returns the organization id when a NEW membership was created, else null.
+-- ============================================================================
+create or replace function public.join_org_by_domain(p_user_id uuid)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_email text;
+  v_confirmed timestamptz;
+  v_domain text;
+  v_org_ids uuid[];
+  v_org uuid;
+  v_role text;
+begin
+  select lower(email), email_confirmed_at into v_email, v_confirmed
+  from auth.users where id = p_user_id;
+  if v_email is null or v_confirmed is null then
+    return null;
+  end if;
+
+  -- Exactly one '@', non-empty local part; domain is everything after it.
+  v_domain := substring(v_email from '^[^@[:space:]]+@([^@[:space:]]+)$');
+  if v_domain is null then
+    return null;
+  end if;
+
+  -- Anyone who has EVER had a membership row (active or disabled) is never
+  -- auto-(re)added: an admin's decision to disable someone must stick.
+  if exists (select 1 from public.organization_members where user_id = p_user_id) then
+    return null;
+  end if;
+
+  select array_agg(o.id) into v_org_ids
+  from public.organizations o
+  where o.join_mode = 'invite_or_domain'
+    and v_domain = any (o.allowed_domains);
+
+  -- Ambiguous (several orgs claim the domain): do nothing; an invitation decides.
+  if v_org_ids is null or cardinality(v_org_ids) <> 1 then
+    return null;
+  end if;
+  v_org := v_org_ids[1];
+
+  select o.domain_join_role into v_role from public.organizations o where o.id = v_org;
+
+  insert into public.organization_members (user_id, organization_id, role, status)
+  values (p_user_id, v_org, v_role, 'active')
+  on conflict do nothing;
+
+  if not found then
+    return null;
+  end if;
+
+  insert into public.audit_logs (organization_id, actor_id, action, target_type, target_id, metadata)
+  values (v_org, p_user_id, 'member.joined_by_domain', 'organization', v_org,
+          jsonb_build_object('role', v_role, 'domain', v_domain));
+
+  return v_org;
+end;
+$$;
+
+comment on function public.join_org_by_domain(uuid) is
+  'Adds the user to the single organization whose join_mode is invite_or_domain and whose allowed_domains contains the user''s verified email domain. Service role only. Never re-adds someone who had a membership before.';
+
+revoke all on function public.join_org_by_domain(uuid) from public, anon, authenticated;
+grant execute on function public.join_org_by_domain(uuid) to service_role;
+
+-- ===================================================================
+-- Source: migrations/0040_grants_cleanup.sql
+-- ===================================================================
+-- Printio: least-privilege grants on public tables, sequences and functions
+-- (security review F11).
+--
+-- Why: Supabase's default privileges gave anon AND authenticated ALL privileges
+-- (including TRUNCATE, REFERENCES, TRIGGER) on every public table, and 0031 only
+-- made the authenticated/service_role grants explicit. Today RLS alone stops
+-- misuse (every public table has RLS on, no policy applies to anon), so this is
+-- defence in depth: one future table created without RLS, or one overly broad
+-- policy, must not be an open door.
+--
+-- What the app really needs (checked against apps/web: browser/server clients use
+-- the `authenticated` role through RLS; everything else uses service_role):
+--   anon              nothing at all on tables or sequences.
+--   authenticated     SELECT/INSERT/UPDATE/DELETE only where an RLS policy for that command
+--                     exists. Never TRUNCATE, REFERENCES, TRIGGER. No sequences.
+--   service_role      unchanged (full access; it bypasses RLS by design).
+--   functions         anon / authenticated need EXECUTE on no function in `public`: every
+--                     rpc() the app makes uses the service-role client.
+--
+-- Safe to re-run: REVOKE of a privilege that is not held is a no-op. Nothing here
+-- adds a privilege. Verify before/after with supabase/verify/grants_audit.sql
+-- (zero rows = clean). Apply AFTER the web deploy that contains this change
+-- (the new sign-in code no longer calls email_domain_allowed*).
+
+-- 1. anon: nothing on public tables/sequences, now and for future tables.
+revoke all on all tables in schema public from anon;
+revoke all on all sequences in schema public from anon;
+alter default privileges in schema public revoke all on tables from anon;
+alter default privileges in schema public revoke all on sequences from anon;
+alter default privileges in schema public revoke all on functions from anon;
+
+-- 2. authenticated: never TRUNCATE / REFERENCES / TRIGGER; no sequences
+--    (the only sequence is print_jobs_number_seq, used by service-role inserts).
+revoke truncate, references, trigger on all tables in schema public from authenticated;
+revoke all on all sequences in schema public from authenticated;
+alter default privileges in schema public revoke truncate, references, trigger on tables from authenticated;
+alter default privileges in schema public revoke all on sequences from authenticated;
+alter default privileges in schema public revoke all on functions from authenticated;
+
+-- 3. authenticated: drop write privileges that no RLS policy can ever use
+--    (policy list in 0006/0033/0034; re-derived by the grants test).
+revoke update, delete on public.approval_actions from authenticated;   -- policies: select, insert
+revoke update, delete on public.audit_logs from authenticated;         -- immutable trail: select, insert
+revoke update, delete on public.print_job_events from authenticated;   -- policies: select, insert
+revoke insert, delete on public.organizations from authenticated;      -- policies: select, update
+revoke insert, delete on public.profiles from authenticated;           -- rows come from the auth trigger
+revoke delete on public.remote_commands from authenticated;            -- policies: select, insert, update
+
+-- 4. Functions: nothing in `public` is for browser roles.
+--    email_domain_allowed*() were the old sign-in gate (superseded by join_mode, 0039).
+revoke execute on function public.email_domain_allowed() from public, anon, authenticated;
+revoke execute on function public.email_domain_allowed_for_magic_link() from public, anon, authenticated;
+revoke execute on all functions in schema public from anon;

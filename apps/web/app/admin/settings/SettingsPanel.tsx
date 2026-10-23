@@ -15,7 +15,6 @@ import {
 } from "@/components/ui";
 import {
   updateAllowedDomainsAction,
-  updateMagicLinkDomainToggleAction,
   updateDefaultBookletBindingSideAction,
   updateAdminsBypassRestrictionsAction,
   updateStampSettingsAction,
@@ -41,7 +40,6 @@ import {
 // that has changes, in this order, with exactly the form fields it always read.
 const ACTIONS: Record<SettingsActionId, (prev: SettingsActionState, fd: FormData) => Promise<SettingsActionState>> = {
   domains: updateAllowedDomainsAction,
-  magicLink: updateMagicLinkDomainToggleAction,
   bindingSide: updateDefaultBookletBindingSideAction,
   adminBypass: updateAdminsBypassRestrictionsAction,
   autoRetry: updateAutoRetryFailedPrintsAction,
@@ -49,8 +47,7 @@ const ACTIONS: Record<SettingsActionId, (prev: SettingsActionState, fd: FormData
 };
 
 const ACTION_LABEL: Record<SettingsActionId, string> = {
-  domains: "Allowed email domains",
-  magicLink: "Email sign-in links",
+  domains: "Who can join",
   bindingSide: "Booklet binding side",
   adminBypass: "Admin exceptions",
   autoRetry: "Automatic retry",
@@ -61,7 +58,8 @@ type Errors = Partial<Record<SettingsActionId, string>>;
 
 export function SettingsPanel({
   allowedDomains,
-  magicLinkRequiresAllowedDomain,
+  joinMode,
+  domainJoinRole,
   defaultBookletBindingSide,
   adminsBypassRestrictions,
   autoRetryFailedPrints,
@@ -69,7 +67,8 @@ export function SettingsPanel({
   canManage,
 }: {
   allowedDomains: string[];
-  magicLinkRequiresAllowedDomain: boolean;
+  joinMode: "invite_only" | "invite_or_domain";
+  domainJoinRole: "student" | "staff";
   defaultBookletBindingSide: "left" | "right";
   adminsBypassRestrictions: boolean;
   autoRetryFailedPrints: boolean;
@@ -78,7 +77,8 @@ export function SettingsPanel({
 }) {
   const form = useDirtyForm<SettingsValues>({
     domains: allowedDomains.join("\n"),
-    magicLinkRequiresAllowedDomain,
+    joinMode,
+    domainJoinRole,
     bindingSide: defaultBookletBindingSide,
     adminsBypass: adminsBypassRestrictions,
     autoRetry: autoRetryFailedPrints,
@@ -161,41 +161,83 @@ export function SettingsPanel({
 
       <Collapsible
         id="signin"
-        title="Who can sign in"
+        title="Who can join"
         icon={<LogIn className="h-4 w-4" />}
         summary={signInSummary(v)}
         forceOpen={sectionErrors.has("signin")}
       >
         <div className="flex flex-col gap-5">
+          <fieldset className="flex flex-col gap-2" aria-describedby="joinMode-desc">
+            <legend className="mb-1.5 text-[13px] font-medium leading-5 text-[var(--color-text)]">Who can join this organization</legend>
+            <JoinChoice
+              value="invite_only"
+              checked={v.joinMode === "invite_only"}
+              onChange={() => change("joinMode", "invite_only")}
+              disabled={dis}
+              title="Invitation only"
+              description="Only people you invite (a link or a code) can join. Safest."
+            />
+            <JoinChoice
+              value="invite_or_domain"
+              checked={v.joinMode === "invite_or_domain"}
+              onChange={() => change("joinMode", "invite_or_domain")}
+              disabled={dis}
+              title="Invitation, or a school email"
+              description="Anyone who signs in with a verified email on a domain below joins automatically. Everyone else still needs an invitation."
+            />
+            <div id="joinMode-desc">
+              <FieldError message={errors.domains} />
+            </div>
+          </fieldset>
+
           <Field
-            label="Allowed email domains"
+            label="School email domains"
             hint="one per line"
             htmlFor="domains"
-            help="Only people with an email on one of these domains can sign in for the first time. People who already belong can always sign in. Leave this empty to allow any domain; a person still needs an invitation or code to join."
-            error={errors.domains}
+            help={
+              v.joinMode === "invite_or_domain"
+                ? "Only the exact domain matches: lecfl.com does not include mail.lecfl.com or evil-lecfl.com, so list each one you want. Others can still be let in with an invitation."
+                : "Saved for later. These only take effect if you choose \"Invitation, or a school email\" above."
+            }
           >
             <Textarea
               id="domains"
               name="domains"
-              rows={4}
+              rows={3}
               value={v.domains}
               onChange={(e) => change("domains", e.target.value)}
-              placeholder={"lecfl.com\nstaff.lecfl.com"}
+              placeholder={"lecfl.com"}
               disabled={dis}
               invalid={!!errors.domains}
               aria-describedby="domains-desc"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
             />
           </Field>
-          <div>
-            <Switch
-              label="Email sign-in links use the same list"
-              description="Turn this off to let anyone request an email sign-in link. They still need an invitation or code to join."
-              checked={v.magicLinkRequiresAllowedDomain}
-              onChange={(e) => change("magicLinkRequiresAllowedDomain", e.target.checked)}
-              disabled={dis}
-            />
-            <FieldError message={errors.magicLink} />
-          </div>
+
+          <Field
+            label="People who join by school email become"
+            htmlFor="domainJoinRole"
+            help="Admins and approvers are never created this way; you promote them yourself."
+          >
+            <Select
+              id="domainJoinRole"
+              name="domainJoinRole"
+              value={v.domainJoinRole}
+              onChange={(e) => change("domainJoinRole", e.target.value === "staff" ? "staff" : "student")}
+              disabled={dis || v.joinMode !== "invite_or_domain"}
+              aria-describedby="domainJoinRole-desc"
+            >
+              <option value="student">Students</option>
+              <option value="staff">Staff</option>
+            </Select>
+          </Field>
+
+          <p className="rounded-[var(--radius-control)] bg-[var(--color-surface-2)] px-3 py-2.5 text-[13px] text-[var(--color-text-2)]">
+            Someone outside these rules can still create a sign-in, but they see nothing and can&apos;t print until you invite them
+            (Users &rarr; Invite). People who are already members are never affected by this setting.
+          </p>
         </div>
       </Collapsible>
 
@@ -323,5 +365,43 @@ export function SettingsPanel({
         />
       )}
     </form>
+  );
+}
+
+function JoinChoice({
+  value,
+  checked,
+  onChange,
+  disabled,
+  title,
+  description,
+}: {
+  value: string;
+  checked: boolean;
+  onChange: () => void;
+  disabled: boolean;
+  title: string;
+  description: string;
+}) {
+  return (
+    <label
+      className={`flex min-h-11 cursor-pointer items-start gap-3 rounded-[var(--radius-control)] border px-3 py-3 transition-colors has-[:focus-visible]:shadow-[var(--ring)] has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60 ${
+        checked ? "border-[var(--color-primary)] bg-[var(--color-surface-2)]" : "border-[var(--color-border-strong)] hover:border-[var(--color-faint)]"
+      }`}
+    >
+      <input
+        type="radio"
+        name="joinMode"
+        value={value}
+        checked={checked}
+        onChange={onChange}
+        disabled={disabled}
+        className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer accent-[var(--color-primary)] disabled:cursor-not-allowed"
+      />
+      <span className="min-w-0">
+        <span className="block text-sm font-medium leading-5 text-[var(--color-text)]">{title}</span>
+        <span className="mt-0.5 block text-[13px] text-[var(--color-muted)]">{description}</span>
+      </span>
+    </label>
   );
 }

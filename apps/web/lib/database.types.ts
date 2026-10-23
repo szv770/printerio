@@ -617,6 +617,8 @@ export type Database = {
           created_at: string
           id: string
           magic_link_requires_allowed_domain: boolean
+          join_mode: string
+          domain_join_role: string
           name: string
           slug: string
         }
@@ -625,6 +627,8 @@ export type Database = {
           created_at?: string
           id?: string
           magic_link_requires_allowed_domain?: boolean
+          join_mode?: string
+          domain_join_role?: string
           name: string
           slug: string
         }
@@ -633,6 +637,8 @@ export type Database = {
           created_at?: string
           id?: string
           magic_link_requires_allowed_domain?: boolean
+          join_mode?: string
+          domain_join_role?: string
           name?: string
           slug?: string
         }
@@ -1229,6 +1235,10 @@ export type Database = {
       check_rate_limit: {
         Args: { p_key: string; p_max_count: number; p_window_seconds: number }
         Returns: boolean
+      }
+      join_org_by_domain: {
+        Args: { p_user_id: string }
+        Returns: string | null
       }
       claim_invitation_use: {
         Args: { p_invitation_id: string }

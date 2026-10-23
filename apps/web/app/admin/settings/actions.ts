@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
-import { parseAllowedDomainsInput } from "@/lib/auth/domains";
+import { isDomainJoinRole, validateJoinSettings } from "@/lib/auth/join-policy";
 import { describeDatabaseError } from "@/lib/action-errors";
 import { routes } from "@/lib/routes";
 import { normalizeStampSettings } from "@/lib/jobs/user-code";
@@ -17,36 +17,36 @@ export interface SettingsActionState {
   success?: string;
 }
 
-/** Updates organizations.allowed_domains - the sign-in domain gate for
- *  brand-new users (docs/architecture.md sec 19, email_domain_allowed() in
- *  supabase/migrations/0013_*.sql). An empty list means unrestricted. */
+/** "Who can join" (security review F4, migration 0039): join_mode + allowed_domains +
+ *  domain_join_role saved in ONE update, because the database refuses domain mode with
+ *  an empty list. Matching itself is enforced in Postgres (join_org_by_domain), on the
+ *  verified sign-in email. Only org admins (RLS: "org_admins can update their organization"). */
 export async function updateAllowedDomainsAction(
   _prev: SettingsActionState,
   formData: FormData,
 ): Promise<SettingsActionState> {
   const session = await requireOrgRole(["org_admin"]);
-  const raw = String(formData.get("domains") ?? "");
-
-  const { domains, invalid } = parseAllowedDomainsInput(raw);
-  if (invalid.length > 0) {
-    return {
-      error: `Enter bare domains only (e.g. "lecfl.com"), not an email or URL. Couldn't parse: ${invalid.join(", ")}`,
-    };
-  }
+  const parsed = validateJoinSettings({
+    mode: String(formData.get("joinMode") ?? ""),
+    domainsInput: String(formData.get("domains") ?? ""),
+  });
+  if (!parsed.ok) return { error: parsed.error };
+  const role = formData.get("domainJoinRole");
+  if (!isDomainJoinRole(role)) return { error: "Choose whether people who join by email become students or staff." };
 
   const supabase = await createClient();
   const { error } = await supabase
     .from("organizations")
-    .update({ allowed_domains: domains })
+    .update({ allowed_domains: parsed.domains, join_mode: parsed.mode, domain_join_role: role })
     .eq("id", session.membership.organization_id);
-  if (error) return { error: describeDatabaseError(error, "Couldn't save the allowed sign-in domains.") };
+  if (error) return { error: describeDatabaseError(error, "Couldn't save who can join.") };
 
   revalidatePath(routes.adminSettings);
   return {
     success:
-      domains.length === 0
-        ? "Saved. Sign-in is no longer restricted by email domain."
-        : `Saved. New users may now sign in from: ${domains.join(", ")}.`,
+      parsed.mode === "invite_only"
+        ? "Saved. Only people you invite can join."
+        : `Saved. People can join with an invitation, or by signing in with a verified email at ${parsed.domains.join(", ")} (they join as ${role === "staff" ? "staff" : "students"}).`,
   };
 }
 
@@ -75,35 +75,6 @@ export async function updateDefaultBookletBindingSideAction(
     success: `Saved. New booklet-capable printer profiles will default to ${
       bindingSide === "right" ? "right edge binding (RTL)" : "left edge binding (LTR)"
     }.`,
-  };
-}
-
-/** Updates organizations.magic_link_requires_allowed_domain - whether
- *  magic-link (email OTP) sign-in is subject to the same allowed_domains
- *  gate Google OAuth always enforces, or open to any email address
- *  (docs/architecture.md sec 19.3, email_domain_allowed_for_magic_link() in
- *  supabase/migrations/0014_*.sql). Never touches Google OAuth's gate, which
- *  has no toggle at all. A checked checkbox submits "on"; an unchecked one
- *  submits nothing, so its absence from formData means false. */
-export async function updateMagicLinkDomainToggleAction(
-  _prev: SettingsActionState,
-  formData: FormData,
-): Promise<SettingsActionState> {
-  const session = await requireOrgRole(["org_admin"]);
-  const requireAllowedDomain = formData.get("magicLinkRequiresAllowedDomain") === "on";
-
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("organizations")
-    .update({ magic_link_requires_allowed_domain: requireAllowedDomain })
-    .eq("id", session.membership.organization_id);
-  if (error) return { error: describeDatabaseError(error, "Couldn't save the magic-link sign-in setting.") };
-
-  revalidatePath(routes.adminSettings);
-  return {
-    success: requireAllowedDomain
-      ? "Saved. Magic-link sign-in is now restricted to the allowed domains above."
-      : "Saved. Magic-link sign-in is now open to any email domain.",
   };
 }
 

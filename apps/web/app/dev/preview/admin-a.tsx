@@ -3,6 +3,7 @@ import { PageHeader, Tabs } from "@/components/ui";
 import type { Tables } from "@/lib/database.types";
 import { peopleTabs, printerTabs } from "@/lib/admin/tabs";
 import { describeAgentConnection, describeAgentVersion } from "@/lib/agent-detail";
+import { UnmatchedSignups } from "@/app/admin/users/UnmatchedSignups";
 import { MembersTable } from "@/app/admin/users/MembersTable";
 import { InvitesPanel } from "@/app/admin/users/InvitesPanel";
 import { GroupsPanel } from "@/app/admin/groups/GroupsPanel";
@@ -41,6 +42,12 @@ export function UsersPreview({ variant }: { variant?: string }) {
       <PageHeader title="Users" description="Everyone who can print here. Change a role, department or print code, then save." />
       <Tabs label="People" items={peopleTabs("users", true)} />
       <MembersTable members={variant === "empty" ? [] : MEMBERS} canEdit />
+      <UnmatchedSignups
+        signups={[
+          { userId: "s1", email: "someone.long.address.for.wrapping@gmail.com", signedUpAt: "2026-10-22T10:00:00Z", lastSignInAt: "2026-10-22T10:05:00Z" },
+          { userId: "s2", email: "kid@yahoo.com", signedUpAt: "2026-10-20T10:00:00Z", lastSignInAt: null },
+        ]}
+      />
     </Frame>
   );
 }

@@ -11,7 +11,8 @@ export default async function SettingsPage() {
   const [{ data: org }, { data: settings }] = await Promise.all([
     supabase
       .from("organizations")
-      .select("allowed_domains, magic_link_requires_allowed_domain")
+      // select("*"): join_mode / domain_join_role (migration 0039) may not exist yet; naming them would fail the whole read.
+      .select("*")
       .eq("id", session.membership.organization_id)
       .single(),
     supabase
@@ -26,11 +27,12 @@ export default async function SettingsPage() {
     <div>
       <PageHeader
         title="Settings"
-        description="Who can sign in, how printing behaves by default, and the print stamp. Open a section to change it, then save."
+        description="Who can join, how printing behaves by default, and the print stamp. Open a section to change it, then save."
       />
       <SettingsPanel
         allowedDomains={org?.allowed_domains ?? []}
-        magicLinkRequiresAllowedDomain={org?.magic_link_requires_allowed_domain ?? true}
+        joinMode={org?.join_mode === "invite_or_domain" ? "invite_or_domain" : "invite_only"}
+        domainJoinRole={org?.domain_join_role === "staff" ? "staff" : "student"}
         defaultBookletBindingSide={settings?.default_booklet_binding_side === "right" ? "right" : "left"}
         adminsBypassRestrictions={settings?.admins_bypass_restrictions ?? true}
         autoRetryFailedPrints={(settings as Record<string, unknown> | null)?.auto_retry_failed_prints === true}

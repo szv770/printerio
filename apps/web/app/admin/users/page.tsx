@@ -6,6 +6,8 @@ import { MembersTable } from "./MembersTable";
 import { ensureMemberUserCode } from "@/lib/jobs/ensure-user-code";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { logger } from "@/lib/logger";
+import { findUnmatchedSignups, type UnmatchedSignup } from "@/lib/admin/unmatched-signups";
+import { UnmatchedSignups } from "./UnmatchedSignups";
 
 export default async function UsersPage() {
   const session = await requireOrgRole(["org_admin", "approver"]);
@@ -46,6 +48,16 @@ export default async function UsersPage() {
 
   const isOrgAdmin = session.membership.role === "org_admin";
 
+  // Admin-only: accounts with a sign-in but no membership anywhere (service role, after the org_admin check).
+  let signups: UnmatchedSignup[] = [];
+  if (isOrgAdmin) {
+    try {
+      signups = await findUnmatchedSignups(createServiceRoleClient());
+    } catch (err) {
+      logger.error("could not list sign-ups without access", { error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
   return (
     <div>
       <PageHeader title="Users" description="Everyone who can print here. Change a role, department or print code, then save." />
@@ -64,6 +76,7 @@ export default async function UsersPage() {
         }))}
         canEdit={isOrgAdmin}
       />
+      {isOrgAdmin && <UnmatchedSignups signups={signups} />}
     </div>
   );
 }
