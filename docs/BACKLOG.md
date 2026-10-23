@@ -68,6 +68,28 @@ A dedicated security agent reviews the WHOLE setup (web app, gateway, agent upda
 - How is "Update this server" secure? Only an admin can press it. The website sends only a fixed "update" signal with no data. The server then runs fixed steps: `git pull --ff-only` (only fast-forwards from the repo already checked out there), `pnpm install`, restart the gateway, restart the agent. No command text ever comes from the website. Remaining risk: whoever can push to the GitHub default branch controls what the server runs, so protect GitHub with 2FA and branch protection.
 - Why do jobs fail on a jam? They should not (see item 7).
 
+## Work plan agreed 2026-10-23 (reliability, scale, settings) - do ONE batch at a time, pro-level, tested, honest about what is unproven
+Scale: fewer than 45 teachers now, about 120 users if students join. Free Supabase/Vercel plans stay (owner: no paid plans). A lost job is acceptable (reprint). Email alerts later.
+
+BATCH 0 (running first): booklets fill the statement-size page (content-aware crop, uniform per document), 'Booklet fit' setting, in-page preview. Owner prints one left + one right test booklet.
+
+BATCH 1 - server-side reliability (web + gateway + agent):
+1. A failure that cannot be proven real shows 'Waiting for the printer - status unknown' (never a plain 'failed'). Raw-port connect/write timeouts and 'printer busy' requeue with backoff and a clear message ('The printer is not available (off, offline or network). It will print when it is back.'). A jam/toner change must NOT fail a job: the printer buffers the data. Real failure only after a long window (configurable) and always with a Try again button.
+2. Claim order: oldest first (ORDER BY created_at) in /api/agents/jobs/claimable.
+3. Duplicate protection (idempotency) in gateway finalize: same device + same file hash within a few minutes returns the existing job instead of creating another.
+4. Gateway caches per-job status for ~3 s (Android polls once a second).
+5. Gateway concurrency guard: cap total in-flight upload bytes (~150 MB); beyond it answer a temporary 'The server is busy, try again in a moment' (IPP server-error-busy) with Retry-After; log it.
+6. Lease sweep every 15 minutes (the GitHub workflow .github/workflows/cron-sweep.yml has the schedule ready/commented out; Vercel Hobby crons are daily only).
+7. Server logs: gateway + agent logs rotate on the server disk (30 days / size cap); admin button 'Get recent logs' on the Print server page (fixed remote command, no payload, admin only); important server-side events (failures, updates, sign-in problems) are also recorded in the database because Vercel keeps only 1 hour of logs.
+
+BATCH 2 - printer probing: the agent probes each raw printer every poll (TCP connect to host:9100, then PJL INFO STATUS / SNMP if available) and reports online/offline plus status text (paper out, jam, toner low, door open, busy) and what it is holding; fix 'not reported yet' on printer cards and print queues; show it on the Overview and the printer pages; 'waiting for printer' jobs mention the printer's real status.
+
+BATCH 3 - security review of the whole setup by a dedicated agent (read-only report first, then fixes).
+
+BATCH 4 - print settings expansion + TEST LAB: trays 1-4 + multipurpose, paper size and type, and many Kyocera options as PJL settings. Every setting is labelled 'Not tested yet - may not work' until confirmed. Admin 'Test lab': each test print carries a short code (like AW32) that decodes to the exact settings (store code -> settings JSON in a table, print the plain-words settings on the page too); the owner reports 'AW32 worked / came out wrong' and the label turns green for everyone. Also: dual-staple left/right on full-size Letter (edge staple, left/right choice for Hebrew), long/short-edge duplex choice, odd/even page selection, multi-file merge with page order and preview.
+
+LATER: email alerts (agent/printer offline), onboarding tour that really opens pages and waits for clicks, cancel after the printer has the job, Google sign-in, iPhone, students/Chromebooks design, a free 'Download backup' (users, settings, rules) button.
+
 ## Original priorities
 
 1. **Make the server run by itself.** Gateway and Print Agent as Windows services (auto start at boot, restart on crash), plus `cloudflared` (already a service). The agent's credentials may be stored per Windows user; if the service cannot read them, re-enroll it under the service account.
