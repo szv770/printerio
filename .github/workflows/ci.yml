@@ -9,6 +9,11 @@ on:
     branches: [main]
   pull_request:
 
+# Least privilege: the job token can only read the repo. The trigger is pull_request (never pull_request_target), so
+# fork PRs get no secrets; the build env below holds placeholders only.
+permissions:
+  contents: read
+
 # Cancel superseded runs on the same branch/PR so pushing twice in a row
 # doesn't burn double the CI minutes.
 concurrency:
@@ -21,16 +26,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # pnpm/action-setup reads the "packageManager" field in package.json
       # (pnpm@10.33.0) when no explicit version is given, so this stays in
       # sync with root package.json automatically.
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: "pnpm"
