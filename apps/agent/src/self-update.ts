@@ -42,12 +42,20 @@
  *   The Agent's own restart is scheduled by the caller only after this
  *   function returns, so it always happens last (it is the process that
  *   reports the result).
+ * - **pnpm is found on the local disk, never from the cloud.** The Agent runs
+ *   as a Windows service (LocalSystem): no user npm folder on PATH, and Node
+ *   >= 20 cannot spawn a `.cmd` shim with shell:false. `resolvePnpmLauncher`
+ *   looks for `pnpm.cjs` (run as `<node.exe> <pnpm.cjs> install`, no shell)
+ *   via PRINTIO_PNPM_PATH, then the global npm prefixes (Program Files\nodejs,
+ *   %APPDATA%\npm, every C:\Users\*\AppData\Roaming\npm), then a validated
+ *   pnpm.cmd shim via `cmd.exe /d /s /c`, then corepack. It runs BEFORE the
+ *   pull, so a missing pnpm never leaves half-updated code behind.
  * - **`git rev-parse --short HEAD`** (fixed argv) is run before and after the
  *   pull purely to tell the admin which version it moved from and to.
  */
 
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Logger } from "./logger.js";
@@ -77,7 +85,8 @@ export type SelfUpdateReason =
   | "not_a_git_checkout"
   | "git_unavailable"
   | "git_failed"
-  | "install_failed";
+  | "install_failed"
+  | "pnpm_not_found";
 
 export interface SelfUpdateResult {
   /** True only when the checkout actually advanced AND dependencies were re-installed successfully - i.e. a restart is warranted. */
@@ -90,11 +99,31 @@ export interface SelfUpdateResult {
   gatewayRestarted?: boolean;
 }
 
+/** Extra spawn options; the only ones the updater ever sets. */
+export interface RunOptions {
+  /** Complete environment for the child (already merged with process.env). */
+  env?: Record<string, string>;
+  /** Pass the single cmd.exe /c argument through untouched (needed for the quoted .cmd form). */
+  windowsVerbatimArguments?: boolean;
+}
+
+/** The small slice of the filesystem pnpm discovery needs - injected for tests. */
+export interface SelfUpdateFs {
+  exists: (p: string) => boolean;
+  listDir: (p: string) => string[];
+}
+
 export interface SelfUpdateDeps {
   repoRoot: string;
   logger: Logger;
   /** Injected so tests can drive every branch without a real git remote; production passes `runCommand`. */
-  run: (command: string, args: readonly string[], cwd: string, timeoutMs: number) => Promise<CommandOutcome>;
+  run: (command: string, args: readonly string[], cwd: string, timeoutMs: number, options?: RunOptions) => Promise<CommandOutcome>;
+  /** Filesystem used to find pnpm; defaults to the real one. */
+  fs?: SelfUpdateFs;
+  /** Environment used to find pnpm (PRINTIO_PNPM_PATH, ProgramFiles, APPDATA, PATH); defaults to process.env. */
+  env?: NodeJS.ProcessEnv;
+  /** The node binary that runs pnpm.cjs; defaults to process.execPath. */
+  execPath?: string;
   /** Injected for the same reason; production passes `isGitCheckout`. */
   hasGitCheckout: (repoRoot: string) => boolean;
   /** Injected so tests can exercise the non-Windows path; defaults to process.platform. */
@@ -123,17 +152,177 @@ export function pnpmExecutable(platform: string = process.platform): string {
   return platform === "win32" ? "pnpm.cmd" : "pnpm";
 }
 
+export const realFs: SelfUpdateFs = {
+  exists: (p) => existsSync(p),
+  listDir: (p) => {
+    try {
+      return readdirSync(p);
+    } catch {
+      return [];
+    }
+  },
+};
+
+export interface PnpmLauncher {
+  command: string;
+  /** Full argv including "install". */
+  args: string[];
+  kind: "node-cjs" | "exe" | "cmd-shim" | "corepack";
+  /** Environment for the child (PATH with node's directory first). */
+  env?: Record<string, string>;
+  windowsVerbatimArguments?: boolean;
+}
+
+export interface PnpmResolution {
+  launcher: PnpmLauncher | null;
+  /** Plain reasons something configured was refused (e.g. an unusable PRINTIO_PNPM_PATH). */
+  rejected: string[];
+}
+
+/** Characters that must never appear in a path that ends up inside the cmd.exe command line. */
+const CMD_UNSAFE = /["&|^%<>\r\n\0]/;
+
+function cleanEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) if (typeof v === "string") out[k] = v;
+  return out;
+}
+
+/** Case-insensitive env key lookup (Windows spells it "Path"; a spread copy of process.env loses the case-insensitivity). */
+function envKey(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  return Object.keys(env).find((k) => k.toLowerCase() === name.toLowerCase());
+}
+
+function envGet(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const k = envKey(env, name);
+  const v = k ? env[k] : undefined;
+  return v && v.trim() ? v.trim() : undefined;
+}
+
+/**
+ * Finds a way to run `pnpm install` that works from a Windows service and on
+ * Linux/mac, without a shell wherever possible. Everything comes from the
+ * local filesystem and environment; no cloud value is involved. Pure apart
+ * from the injected `fs`.
+ */
+export function resolvePnpmLauncher(opts: {
+  platform: NodeJS.Platform;
+  env: NodeJS.ProcessEnv;
+  execPath: string;
+  fs: SelfUpdateFs;
+}): PnpmResolution {
+  const { platform, env, execPath, fs } = opts;
+  const win = platform === "win32";
+  const P = win ? path.win32 : path.posix;
+  const rejected: string[] = [];
+  const nodeDir = P.dirname(execPath);
+
+  const childEnv = (): Record<string, string> => {
+    const e = cleanEnv(env);
+    const key = envKey(env, "PATH") ?? (win ? "Path" : "PATH");
+    const sep = win ? ";" : ":";
+    const existing = e[key];
+    e[key] = existing ? `${nodeDir}${sep}${existing}` : nodeDir;
+    return e;
+  };
+
+  const viaNode = (script: string, kind: PnpmLauncher["kind"], argv: string[]): PnpmLauncher => ({
+    command: execPath,
+    args: [script, ...argv],
+    kind,
+    env: childEnv(),
+  });
+
+  const cmdShim = (shim: string): PnpmLauncher | null => {
+    if (!P.isAbsolute(shim) || P.basename(shim).toLowerCase() !== "pnpm.cmd" || CMD_UNSAFE.test(shim) || !fs.exists(shim)) {
+      return null;
+    }
+    return {
+      command: "cmd.exe",
+      args: ["/d", "/s", "/c", `""${shim}" install"`],
+      kind: "cmd-shim",
+      env: childEnv(),
+      windowsVerbatimArguments: true,
+    };
+  };
+
+  // (a) explicit override
+  const override = envGet(env, "PRINTIO_PNPM_PATH");
+  if (override) {
+    const base = P.basename(override).toLowerCase();
+    let found: PnpmLauncher | null = null;
+    if (!P.isAbsolute(override)) rejected.push("PRINTIO_PNPM_PATH is not an absolute path");
+    else if (!fs.exists(override)) rejected.push("PRINTIO_PNPM_PATH does not exist");
+    else if (base === "pnpm.cjs") found = viaNode(override, "node-cjs", ["install"]);
+    else if (base === "pnpm.exe" || (!win && base === "pnpm")) {
+      found = { command: override, args: ["install"], kind: "exe", env: childEnv() };
+    } else if (base === "pnpm.cmd" && win) found = cmdShim(override);
+    if (found) return { launcher: found, rejected };
+    if (rejected.length === 0) {
+      rejected.push("PRINTIO_PNPM_PATH must point at pnpm.cjs, pnpm.cmd or pnpm.exe, with no quotes or shell characters");
+    }
+  }
+
+  if (!win) {
+    for (const dir of (envGet(env, "PATH") ?? "").split(":")) {
+      if (!dir || !P.isAbsolute(dir)) continue;
+      const exe = P.join(dir, "pnpm");
+      if (fs.exists(exe)) return { launcher: { command: exe, args: ["install"], kind: "exe", env: childEnv() }, rejected };
+    }
+    return { launcher: null, rejected };
+  }
+
+  // (b) global npm prefixes
+  const prefixes: string[] = [];
+  const add = (d: string | undefined) => {
+    if (d && !prefixes.some((x) => x.toLowerCase() === d.toLowerCase())) prefixes.push(d);
+  };
+  add(P.join(envGet(env, "ProgramFiles") ?? "C:\\Program Files", "nodejs"));
+  add(nodeDir);
+  const appData = envGet(env, "APPDATA");
+  if (appData) add(P.join(appData, "npm"));
+  const usersDir = P.join(envGet(env, "SystemDrive") ?? "C:", "Users");
+  for (const name of fs.listDir(usersDir)) add(P.join(usersDir, name, "AppData", "Roaming", "npm"));
+  for (const dir of (envGet(env, "PATH") ?? "").split(";")) if (dir && P.isAbsolute(dir)) add(dir);
+
+  for (const prefix of prefixes) {
+    const cjs = P.join(prefix, "node_modules", "pnpm", "bin", "pnpm.cjs");
+    if (fs.exists(cjs)) return { launcher: viaNode(cjs, "node-cjs", ["install"]), rejected };
+  }
+  // only a .cmd shim exists
+  for (const prefix of prefixes) {
+    const launcher = cmdShim(P.join(prefix, "pnpm.cmd"));
+    if (launcher) return { launcher, rejected };
+  }
+  // corepack, last resort (ships next to node.exe)
+  const corepack = P.join(nodeDir, "node_modules", "corepack", "dist", "corepack.js");
+  if (fs.exists(corepack)) {
+    const l = viaNode(corepack, "corepack", ["pnpm", "install"]);
+    l.env = { ...(l.env ?? {}), COREPACK_ENABLE_DOWNLOAD_PROMPT: "0" };
+    return { launcher: l, rejected };
+  }
+  return { launcher: null, rejected };
+}
+
 /** spawn with an argv array and no shell - same rule the SumatraPDF and PowerShell invocations follow (docs/architecture.md sec 10). */
 export function runCommand(
   command: string,
   args: readonly string[],
   cwd: string,
   timeoutMs: number,
+  options: RunOptions = {},
 ): Promise<CommandOutcome> {
   return new Promise((resolve, reject) => {
     let child;
     try {
-      child = spawn(command, [...args], { cwd, shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+      child = spawn(command, [...args], {
+        cwd,
+        shell: false,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+        ...(options.env ? { env: options.env } : {}),
+        ...(options.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+      });
     } catch (err) {
       reject(err instanceof Error ? err : new Error(String(err)));
       return;
@@ -224,6 +413,28 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
     };
   }
 
+  // Find pnpm BEFORE touching anything: a missing pnpm must not leave newly
+  // pulled code behind (the next press would then say "already up to date").
+  const resolution = resolvePnpmLauncher({
+    platform: deps.platform ?? process.platform,
+    env: deps.env ?? process.env,
+    execPath: deps.execPath ?? process.execPath,
+    fs: deps.fs ?? realFs,
+  });
+  const launcher = resolution.launcher;
+  if (!launcher) {
+    logger.warn("CHECK_FOR_UPDATE: pnpm was not found", { rejected: resolution.rejected });
+    return {
+      updated: false,
+      reason: "pnpm_not_found",
+      message:
+        "pnpm was not found on that machine; set PRINTIO_PNPM_PATH in apps/agent/.env (the full path to pnpm.cjs, pnpm.cmd or pnpm.exe) and press Update again. " +
+        "Nothing was changed." +
+        (resolution.rejected.length ? ` (${resolution.rejected.join("; ")}.)` : ""),
+      repoRoot,
+    };
+  }
+
   const before = await currentVersion(deps);
 
   let pull: CommandOutcome;
@@ -275,7 +486,10 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
   // "$repoWasUpdated -> re-run pnpm install". A no-op when nothing changed.
   let install: CommandOutcome;
   try {
-    install = await deps.run(pnpmExecutable(), ["install"], repoRoot, INSTALL_TIMEOUT_MS);
+    install = await deps.run(launcher.command, launcher.args, repoRoot, INSTALL_TIMEOUT_MS, {
+      ...(launcher.env ? { env: launcher.env } : {}),
+      ...(launcher.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+    });
   } catch (err) {
     logger.warn("CHECK_FOR_UPDATE: could not run pnpm install after pulling", {
       error: err instanceof Error ? err.message : String(err),
@@ -284,8 +498,8 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
       updated: false,
       reason: "install_failed",
       message:
-        "New code was pulled, but pnpm couldn't be started to re-install dependencies, so the Agent was NOT restarted. " +
-        "Run setup-agent.ps1 on that machine to finish the update.",
+        `New code was pulled, but pnpm couldn't be started (${(err instanceof Error ? err.message : String(err)).slice(0, 160)}), so the Agent was NOT restarted. ` +
+        "Set PRINTIO_PNPM_PATH in apps/agent/.env or run setup-agent.ps1 on that machine to finish the update.",
       repoRoot,
     };
   }

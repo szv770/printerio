@@ -3,8 +3,8 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { adjustMonthlyUsage } from "@/lib/quota";
 import { sweepRetention } from "@/lib/retention";
 import { logger } from "@/lib/logger";
-import { isAutoRetryEnabled, requeueFailedJob } from "@/lib/jobs/lifecycle";
-import { filterAffectedRows, groupJobsByAttemptCount, groupQuotaReleases, jobsHoldingQuota } from "@/lib/cron-sweep";
+import { recoverExpiredLeases } from "@/lib/lease-recovery";
+import { filterAffectedRows, groupQuotaReleases, jobsHoldingQuota } from "@/lib/cron-sweep";
 
 /**
  * Cap on every main selection query below (~200-500 is the reasonable band
@@ -126,156 +126,18 @@ export async function GET(request: Request) {
     }
   }
 
-  // 2. Claimed-but-untouched leases simply return to the pool for reclaim.
-  //    Select the capped candidate set first (PostgREST doesn't support
-  //    LIMIT on UPDATE), then one batched UPDATE ... WHERE id IN (...), then
-  //    one bulk event insert from the rows it actually affected.
-  const { data: releaseCandidates } = await supabase
-    .from("print_jobs")
-    .select("id")
-    .eq("status", "claimed")
-    .lt("lease_expires_at", nowIso)
-    .order("lease_expires_at", { ascending: true })
-    .limit(SELECTION_LIMIT);
-  const releaseCandidateIds = (releaseCandidates ?? []).map((j) => j.id);
-  if (releaseCandidateIds.length === SELECTION_LIMIT) {
-    logger.info("cron sweep: released-lease cap hit, will continue next tick", {
-      step: "release_leases",
-      limit: SELECTION_LIMIT,
-    });
-  }
-
-  if (releaseCandidateIds.length > 0) {
-    const { data: released } = await supabase
-      .from("print_jobs")
-      .update({ status: "approved", lease_owner_agent_id: null, lease_expires_at: null })
-      .in("id", releaseCandidateIds)
-      .eq("status", "claimed")
-      .lt("lease_expires_at", nowIso)
-      .select("id");
-    const releasedRows = released ?? [];
-    results.releasedLeases = releasedRows.length;
-    if (releasedRows.length > 0) {
-      await supabase.from("print_job_events").insert(
-        releasedRows.map((job) => ({
-          job_id: job.id,
-          event_type: "LEASE_EXPIRED" as const,
-          actor_type: "system" as const,
-          metadata: {},
-        })),
-      );
-    }
-  }
-
-  // 3. Jobs interrupted mid-flight (downloading/downloaded/printing/
-  //    submitted_to_spooler) whose lease expired - the agent likely crashed
-  //    or disconnected. Mark failed (a valid transition from all four states)
-  //    rather than leaving them stuck forever; release quota if retries are
-  //    exhausted. attempt_count varies per job, so it can't be set to one
-  //    literal in a single UPDATE across every stuck job - instead, group by
-  //    each job's *current* attempt_count (bounded by max_attempts, so only a
-  //    handful of distinct values exist in practice) and issue one UPDATE per
-  //    group, each guarded by `attempt_count = <that value>` so a job whose
-  //    attempt_count changed in between is excluded rather than double-bumped.
-  for (const midFlightStatus of ["downloading", "downloaded", "printing", "submitted_to_spooler"] as const) {
-    const { data: stuck } = await supabase
-      .from("print_jobs")
-      .select("*")
-      .eq("status", midFlightStatus)
-      .lt("lease_expires_at", nowIso)
-      .order("lease_expires_at", { ascending: true })
-      .limit(SELECTION_LIMIT);
-    const stuckJobs = stuck ?? [];
-    if (stuckJobs.length === 0) continue;
-    if (stuckJobs.length === SELECTION_LIMIT) {
-      logger.info("cron sweep: mid-flight-lease cap hit, will continue next tick", {
-        step: "fail_stale_lease",
-        status: midFlightStatus,
-        limit: SELECTION_LIMIT,
-      });
-    }
-
-    const errorMessage = "Agent lease expired mid-operation (agent likely disconnected or crashed).";
-    const attemptGroups = groupJobsByAttemptCount(
-      stuckJobs.map((job) => ({ id: job.id, attemptCount: job.attempt_count })),
-    );
-
-    const updatedIds: string[] = [];
-    await Promise.all(
-      attemptGroups.map(async (group) => {
-        const { data } = await supabase
-          .from("print_jobs")
-          .update({
-            status: "failed",
-            attempt_count: group.currentAttemptCount + 1,
-            error_message: errorMessage,
-          })
-          .in("id", group.ids)
-          .eq("status", midFlightStatus)
-          .eq("attempt_count", group.currentAttemptCount)
-          .select("id");
-        for (const row of data ?? []) updatedIds.push(row.id);
-      }),
-    );
-
-    const affected = filterAffectedRows(stuckJobs, updatedIds);
-    results.failedFromStaleLease += affected.length;
-    if (affected.length > 0) {
-      await supabase.from("print_job_events").insert(
-        affected.map((job) => ({
-          job_id: job.id,
-          event_type: "LEASE_EXPIRED" as const,
-          actor_type: "system" as const,
-          metadata: { previousStatus: midFlightStatus },
-        })),
-      );
-
-      // A test print never reserved quota (app/admin/printers/actions.ts), so
-      // releasing for one would subtract from the sending admin's *shared*
-      // monthly_usage reservation counters and quietly free quota held by one
-      // of their real pending jobs. Excluded here, not deeper inside
-      // groupQuotaReleases, so that helper stays a pure grouping function.
-      const exhausted = affected.filter((job) => !job.is_test_print && job.attempt_count + 1 >= job.max_attempts);
-      const releaseGroups = groupQuotaReleases(
-        exhausted.map((job) => ({
-          organizationId: job.organization_id,
-          userId: job.created_by,
-          sourcePdfPages: job.source_pdf_pages,
-          copies: job.copies,
-          estimatedPrintedSides: job.estimated_printed_sides,
-          estimatedPhysicalSheets: job.estimated_physical_sheets,
-          colorMode: job.color_mode,
-        })),
-      );
-      await Promise.all(
-        releaseGroups.map((group) =>
-          adjustMonthlyUsage(
-            supabase,
-            { organizationId: group.organizationId, userId: group.userId },
-            group.amounts,
-            "physical_sheets",
-            null,
-            "release",
-          ),
-        ),
-      );
-      // Automatic retry (organization setting, default OFF): a job that is not out of attempts goes straight back to
-      // the claim pool, keeping its reservation. Test prints are never auto-retried (an admin re-sends them).
-      const retryable = affected.filter((job) => !job.is_test_print && job.attempt_count + 1 < job.max_attempts);
-      if (retryable.length > 0) {
-        const enabledByOrg = new Map<string, boolean>();
-        for (const orgId of new Set(retryable.map((j) => j.organization_id))) {
-          enabledByOrg.set(orgId, await isAutoRetryEnabled(supabase, orgId));
-        }
-        for (const job of retryable) {
-          if (!enabledByOrg.get(job.organization_id)) continue;
-          if (await requeueFailedJob(supabase, { ...job, attempt_count: job.attempt_count + 1 }, { type: "system" })) {
-            results.autoRetried += 1;
-          }
-        }
-      }
-    }
-  }
+  // 2 + 3. Lease recovery (claimed -> back to the pool; mid-flight -> failed, quota released when attempts are
+  //    exhausted, optional auto-retry). The implementation lives in lib/lease-recovery.ts because the Agent's own
+  //    claimable poll runs the SAME function (scoped to its profiles) - one copy of the quota accounting.
+  const recovery = await recoverExpiredLeases(supabase, {
+    nowIso,
+    limit: SELECTION_LIMIT,
+    onCapHit: (step, status) =>
+      logger.info("cron sweep: lease-recovery cap hit, will continue next tick", { step, status, limit: SELECTION_LIMIT }),
+  });
+  results.releasedLeases = recovery.releasedLeases;
+  results.failedFromStaleLease = recovery.failedFromStaleLease;
+  results.autoRetried = recovery.autoRetried;
 
   // 3b. Abandon failed jobs nobody retried. A failed job with attempts left keeps its quota reservation so the owner
   //     can press Try again; after this long we treat it as given up: cancel it and release exactly once.

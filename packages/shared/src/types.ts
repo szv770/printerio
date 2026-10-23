@@ -85,6 +85,7 @@ export const REMOTE_COMMANDS = [
   "RESTART_AGENT_SERVICE",
   "CLEAR_AGENT_TEMP_FILES",
   "CHECK_FOR_UPDATE",
+  "GET_LOGS",
 ] as const;
 
 export type RemoteCommand = (typeof REMOTE_COMMANDS)[number];
@@ -99,6 +100,8 @@ export interface RemoteCommandPayload {
    *  in its own checkout (apps/agent/src/self-update.ts) and takes no branch,
    *  remote, path, or command string from the cloud. */
   CHECK_FOR_UPDATE: Record<string, never>;
+  /** Payload-free: the Agent reads the tail of its OWN fixed log files (never a path from the cloud) and returns them secret-masked. */
+  GET_LOGS: Record<string, never>;
 }
 
 /**

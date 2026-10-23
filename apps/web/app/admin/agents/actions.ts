@@ -253,6 +253,26 @@ export async function checkAgentForUpdateAction(
   return {};
 }
 
+/** "Get recent logs" - issues the fixed GET_LOGS command (no payload). The Agent reads the tail of its OWN fixed log
+ *  files (apps/agent/src/log-collector.ts), masks secrets and answers; nothing about which files to read is sent from
+ *  here. Admin only; audited by issueRemoteCommand (who asked, which agent). */
+export async function getAgentLogsAction(_prev: AgentActionState, formData: FormData): Promise<AgentActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const agentId = String(formData.get("agentId") ?? "");
+
+  const supabase = await createClient();
+  const result = await issueRemoteCommand(supabase, {
+    organizationId: session.membership.organization_id,
+    issuedBy: session.userId,
+    agentId,
+    command: "GET_LOGS",
+  });
+  if (!result.ok) return { error: result.error };
+
+  revalidatePath(routes.adminAgentDetail(agentId));
+  return {};
+}
+
 /** "Refresh printer status" from the detail page - asks the Agent to
  *  re-enumerate its Windows queues and heartbeat immediately, rather than
  *  waiting out the poll interval. */

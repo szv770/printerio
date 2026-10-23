@@ -1,10 +1,12 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  Check,
+  Copy,
   Cpu,
   Download,
   FileCheck2,
@@ -14,6 +16,7 @@ import {
   Play,
   Printer as PrinterIcon,
   RefreshCw,
+  ScrollText,
   Terminal,
   Wrench,
 } from "lucide-react";
@@ -28,6 +31,8 @@ import {
   printerTone,
 } from "@/lib/admin/summaries";
 import type { AgentActivity, AgentVersionStatus, QueueUsage } from "@/lib/agent-detail";
+import { commandPhase, parseCommandResult } from "@/lib/command-result";
+import { LocalTime } from "@/components/LocalTime";
 // "Send test print" is deliberately the SAME server action the Printers page
 // binds its own button to, imported rather than re-implemented here: one
 // authorization check, one pipeline, one place to change.
@@ -35,6 +40,7 @@ import { sendTestPrintAction, type PrinterActionState } from "../../printers/act
 import {
   checkAgentForUpdateAction,
   clearAgentTempFilesAction,
+  getAgentLogsAction,
   pauseAgentAction,
   refreshAgentPrinterStatusAction,
   restartAgentPrintQueueAction,
@@ -78,21 +84,6 @@ const COMMAND_STATUS_TONE: Record<string, "success" | "warning" | "danger" | "ne
   acknowledged: "warning",
 };
 
-function formatTimestamp(value: string | null): string {
-  if (!value) return "Never";
-  return new Date(value).toLocaleString();
-}
-
-/** Pulls the Agent's own plain-English answer out of a remote_commands.result
- *  blob, when it left one (CHECK_FOR_UPDATE always does). Defensive by design:
- *  this is a jsonb column written by the Agent, so it is treated as unknown
- *  data, never as a trusted shape. */
-function commandResultMessage(result: unknown): string | null {
-  if (!result || typeof result !== "object") return null;
-  const message = (result as { message?: unknown }).message;
-  return typeof message === "string" && message.trim() ? message : null;
-}
-
 export function AgentDetail({
   agent,
   connection,
@@ -101,6 +92,7 @@ export function AgentDetail({
   pausedByLabel,
   queues,
   recentCommands,
+  nowMs,
   canManage,
 }: {
   agent: Tables<"agents">;
@@ -110,17 +102,20 @@ export function AgentDetail({
   pausedByLabel: string | null;
   queues: QueueRow[];
   recentCommands: CommandRow[];
+  /** Server time of this render; used for the plain "waiting" wording without a client/server clock mismatch. */
+  nowMs: number;
   canManage: boolean;
 }) {
   return (
     <div className="flex flex-col gap-4">
       <ConnectionCard agent={agent} connection={connection} activity={activity} />
       <MachineCard agent={agent} />
-      <VersionCard agent={agent} version={version} canManage={canManage} recentCommands={recentCommands} />
+      <VersionCard agent={agent} version={version} canManage={canManage} recentCommands={recentCommands} nowMs={nowMs} />
       {canManage && <PauseCard agent={agent} pausedByLabel={pausedByLabel} />}
       <QueuesCard agent={agent} queues={queues} canManage={canManage} />
       {canManage && <MaintenanceCard agent={agent} />}
-      <CommandHistoryCard commands={recentCommands} />
+      {canManage && <LogsCard agent={agent} commands={recentCommands} nowMs={nowMs} />}
+      <CommandHistoryCard commands={recentCommands} nowMs={nowMs} />
     </div>
   );
 }
@@ -157,7 +152,7 @@ function ConnectionCard({
           <dt className="flex items-center gap-1 text-[var(--color-muted)]">
             <Clock className="h-3.5 w-3.5" /> Last synced
           </dt>
-          <dd className="font-medium">{formatTimestamp(activity.lastSyncedAt)}</dd>
+          <dd className="font-medium"><LocalTime value={activity.lastSyncedAt} /></dd>
           <p className="mt-1 text-xs text-[var(--color-muted)]">
             Its latest check-in. It checks in every few seconds while running, even when idle.
           </p>
@@ -166,7 +161,7 @@ function ConnectionCard({
           <dt className="flex items-center gap-1 text-[var(--color-muted)]">
             <PrinterIcon className="h-3.5 w-3.5" /> Last print job
           </dt>
-          <dd className="font-medium">{formatTimestamp(activity.lastJobActivityAt)}</dd>
+          <dd className="font-medium"><LocalTime value={activity.lastJobActivityAt} /></dd>
           <p className="mt-1 text-xs text-[var(--color-muted)]">
             The last time it picked up a job, not just checked in.
           </p>
@@ -175,7 +170,7 @@ function ConnectionCard({
           <dt className="flex items-center gap-1 text-[var(--color-muted)]">
             <Terminal className="h-3.5 w-3.5" /> Last request done
           </dt>
-          <dd className="font-medium">{formatTimestamp(activity.lastCommandAt)}</dd>
+          <dd className="font-medium"><LocalTime value={activity.lastCommandAt} /></dd>
           <p className="mt-1 text-xs text-[var(--color-muted)]">
             The last time it finished something you asked it to do here.
           </p>
@@ -231,18 +226,20 @@ function VersionCard({
   version,
   canManage,
   recentCommands,
+  nowMs,
 }: {
   agent: Tables<"agents">;
   version: AgentVersionStatus;
   canManage: boolean;
   recentCommands: CommandRow[];
+  nowMs: number;
 }) {
   const [state, action, pending] = useActionState(checkAgentForUpdateAction, initialAgentActionState);
   const [confirming, setConfirming] = useState(false);
   const canSelfUpdate = agent.is_git_checkout === true;
   // recentCommands arrives newest-first; the first CHECK_FOR_UPDATE is the last update request.
   const lastUpdate = recentCommands.find((c) => c.command === "CHECK_FOR_UPDATE") ?? null;
-  const lastUpdateMessage = lastUpdate ? commandResultMessage(lastUpdate.result) : null;
+  const lastUpdatePhase = lastUpdate ? commandPhase(lastUpdate, nowMs) : null;
 
   return (
     <Collapsible
@@ -302,14 +299,11 @@ function VersionCard({
                 <p className="mt-2 text-[13px] text-[var(--color-muted)]">Update requested. The result shows below within a minute.</p>
               ) : null}
               <div className="mt-3 text-[13px] text-[var(--color-muted)]" aria-live="polite">
-                {lastUpdate ? (
+                {lastUpdate && lastUpdatePhase ? (
                   <>
                     <span className="font-medium text-[var(--color-text-2)]">Last update request:</span>{" "}
-                    {lastUpdate.status === "pending" || lastUpdate.status === "acknowledged"
-                      ? `sent ${formatTimestamp(lastUpdate.createdAt)}, waiting for the print server to answer.`
-                      : `${formatTimestamp(lastUpdate.completedAt ?? lastUpdate.createdAt)}. ${
-                          lastUpdateMessage ?? (lastUpdate.status === "failed" ? "It did not complete." : "Done.")
-                        }`}
+                    <LocalTime value={lastUpdate.completedAt ?? lastUpdate.createdAt} />. {lastUpdatePhase.text}
+                    {lastUpdatePhase.kind === "waiting" || lastUpdatePhase.kind === "running" ? " This page updates by itself." : ""}
                   </>
                 ) : (
                   "No update has been requested from here yet."
@@ -323,6 +317,16 @@ function VersionCard({
             </p>
           )}
           <FormError message={state.error} />
+          <details className="mt-3 text-[13px] text-[var(--color-muted)]">
+            <summary className="cursor-pointer font-medium text-[var(--color-text-2)]">How does this work, and is it safe?</summary>
+            <p className="mt-1">
+              Only an admin can press it. The website sends only a fixed &ldquo;update&rdquo; signal with no data in it. The print
+              server then runs the same fixed steps every time: get the newest code that is already on GitHub (fast-forward only),
+              install its packages, restart the phone gateway, then restart itself. No command text ever comes from the website.
+              The one thing to protect is GitHub itself (two-step sign-in and a protected main branch), because whatever is pushed
+              there is what the server will run.
+            </p>
+          </details>
         </div>
       )}
     </Collapsible>
@@ -349,7 +353,13 @@ function PauseCard({ agent, pausedByLabel }: { agent: Tables<"agents">; pausedBy
           <p className="text-sm text-[var(--color-text-2)]">
             This print server is paused, so it will not pick up new jobs. They wait in line and print once you resume it.
             {pausedByLabel ? ` Paused by ${pausedByLabel}` : " Paused"}
-            {agent.paused_at ? ` on ${new Date(agent.paused_at).toLocaleString()}.` : "."}
+            {agent.paused_at ? (
+              <>
+                {" "}on <LocalTime value={agent.paused_at} />.
+              </>
+            ) : (
+              "."
+            )}
           </p>
           <form action={resumeAction} className="mt-3">
             <input type="hidden" name="agentId" value={agent.id} />
@@ -446,7 +456,12 @@ function QueueRowItem({
           <p className="mt-2 text-xs text-[var(--color-muted)]">
             {queue.usage.totalJobs === 0
               ? "No print jobs have ever been sent to this queue."
-              : `${queue.usage.totalJobs} job${queue.usage.totalJobs === 1 ? "" : "s"} sent (${queue.usage.printedJobs} reached the printer) • last used ${formatTimestamp(queue.usage.lastUsedAt)}`}
+              : (
+                  <>
+                    {queue.usage.totalJobs} job{queue.usage.totalJobs === 1 ? "" : "s"} sent ({queue.usage.printedJobs} reached the printer) •
+                    last used <LocalTime value={queue.usage.lastUsedAt} />
+                  </>
+                )}
           </p>
         </div>
         <div className="flex shrink-0 flex-col gap-2 sm:items-end">
@@ -543,8 +558,8 @@ function MaintenanceCard({ agent }: { agent: Tables<"agents"> }) {
 }
 
 /** Proof that the buttons above are real: what was asked, and what the machine
- *  answered. Without this, every remote command is fire-and-forget. */
-function CommandHistoryCard({ commands }: { commands: CommandRow[] }) {
+ *  answered. Shows plain phase text while a request is waiting or running. */
+function CommandHistoryCard({ commands, nowMs }: { commands: CommandRow[]; nowMs: number }) {
   return (
     <Collapsible
       id="requests"
@@ -555,36 +570,138 @@ function CommandHistoryCard({ commands }: { commands: CommandRow[] }) {
       {commands.length === 0 ? (
         <EmptyState message="Nothing has been sent to this print server yet." icon={Terminal} />
       ) : (
-        <ul className="flex flex-col gap-2 text-sm">
+        <ul className="flex flex-col gap-2 text-sm" aria-live="polite">
           {commands.map((command) => {
-            const message = commandResultMessage(command.result);
+            const phase = commandPhase(command, nowMs);
             return (
               <li key={command.id} className="rounded-[var(--radius-control)] border border-[var(--color-border)] bg-[var(--color-surface-2)]/50 p-3.5">
                 <div className="flex flex-wrap items-center gap-2">
-                  {command.status === "completed" ? (
+                  {phase.kind === "done" ? (
                     <CheckCircle2 className="h-4 w-4 text-[var(--color-success)]" />
-                  ) : command.status === "failed" ? (
+                  ) : phase.kind === "failed" ? (
                     <AlertTriangle className="h-4 w-4 text-[var(--color-danger)]" />
+                  ) : phase.kind === "running" ? (
+                    <RefreshCw className="h-4 w-4 animate-spin text-[var(--color-muted)] motion-reduce:animate-none" />
                   ) : (
                     <Clock className="h-4 w-4 text-[var(--color-muted)]" />
                   )}
                   <code className="font-mono text-xs">{command.command}</code>
                   <Badge tone={COMMAND_STATUS_TONE[command.status] ?? "neutral"}>{command.status}</Badge>
                   <span className="text-xs text-[var(--color-muted)]">
-                    sent {formatTimestamp(command.createdAt)}
-                    {command.completedAt ? ` • answered ${formatTimestamp(command.completedAt)}` : ""}
+                    sent <LocalTime value={command.createdAt} />
+                    {command.completedAt ? (
+                      <>
+                        {" "}
+                        • answered <LocalTime value={command.completedAt} />
+                      </>
+                    ) : null}
                   </span>
                 </div>
-                {message && <p className="mt-2 text-sm text-[var(--color-muted)]">{message}</p>}
-                {command.status === "pending" && (
-                  <p className="mt-2 text-xs text-[var(--color-muted)]">
-                    Waiting for the print server to pick this up. It will if it is online.
-                  </p>
-                )}
+                <p className="mt-2 text-sm text-[var(--color-muted)]">{phase.text}</p>
               </li>
             );
           })}
         </ul>
+      )}
+    </Collapsible>
+  );
+}
+
+/** "Get recent logs": one fixed request; the print server answers with the tails of its own log files (secrets masked). */
+function LogsCard({ agent, commands, nowMs }: { agent: Tables<"agents">; commands: CommandRow[]; nowMs: number }) {
+  const [state, action, pending] = useActionState(getAgentLogsAction, initialAgentActionState);
+  const [copied, setCopied] = useState<"idle" | "ok" | "failed">("idle");
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  const lastRequest = commands.find((c) => c.command === "GET_LOGS") ?? null;
+  const lastReceived =
+    commands.find((c) => c.command === "GET_LOGS" && c.status === "completed" && parseCommandResult(c.result).files.length > 0) ?? null;
+  const received = lastReceived ? parseCommandResult(lastReceived.result) : null;
+  const phase = lastRequest ? commandPhase(lastRequest, nowMs) : null;
+  const text = received
+    ? [
+        ...received.notes.map((n) => `# ${n}`),
+        ...received.files.map((f) => `===== ${f.name} =====\n${f.lines.join("\n")}`),
+      ].join("\n\n")
+    : "";
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied("ok");
+    } catch {
+      setCopied("failed");
+    }
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied("idle"), 2500);
+  };
+
+  return (
+    <Collapsible
+      id="logs"
+      title="Logs"
+      icon={<ScrollText className="h-4 w-4" />}
+      summary="Get recent logs from the print server"
+      forceOpen={!!state.error}
+    >
+      <p className="mb-3 text-sm text-[var(--color-text-2)]">
+        Asks the print server for the last few hundred lines of its own log files (the print agent and the phone gateway), so you can
+        see what happened without going to that computer. Passwords, keys and device tokens are hidden before anything is sent. It can
+        take up to 15 seconds.
+      </p>
+      <form action={action}>
+        <input type="hidden" name="agentId" value={agent.id} />
+        <Button type="submit" variant="outline" size="sm" pending={pending} pendingLabel="Requesting...">
+          <span className="flex items-center gap-1">
+            <ScrollText className="h-3.5 w-3.5" /> Get recent logs
+          </span>
+        </Button>
+      </form>
+      <FormError message={state.error} />
+      {phase && lastRequest && (
+        <p className="mt-3 text-[13px] text-[var(--color-muted)]" aria-live="polite">
+          <span className="font-medium text-[var(--color-text-2)]">Last request:</span> <LocalTime value={lastRequest.createdAt} />. {phase.text}
+        </p>
+      )}
+      {received && lastReceived && (
+        <div className="mt-3">
+          <Collapsible
+            id="last-logs"
+            title="Last logs received"
+            headingLevel={3}
+            summary={<LocalTime value={lastReceived.completedAt ?? lastReceived.createdAt} />}
+          >
+            <div className="mb-2 flex items-center gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={copy}>
+                <span className="flex items-center gap-1">
+                  {copied === "ok" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  {copied === "ok" ? "Copied" : copied === "failed" ? "Copy failed - select the text instead" : "Copy"}
+                </span>
+              </Button>
+            </div>
+            {received.notes.length > 0 && (
+              <ul className="mb-2 list-disc pl-5 text-[13px] text-[var(--color-muted)]">
+                {received.notes.map((n) => (
+                  <li key={n}>{n}</li>
+                ))}
+              </ul>
+            )}
+            {received.files.map((f) => (
+              <div key={f.name} className="mb-3">
+                <p className="mb-1 font-mono text-xs font-medium">{f.name}</p>
+                <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-[var(--radius-control)] bg-[var(--color-surface-2)] p-3 font-mono text-xs">
+                  {f.lines.join("\n")}
+                </pre>
+              </div>
+            ))}
+          </Collapsible>
+        </div>
       )}
     </Collapsible>
   );

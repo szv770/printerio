@@ -8,6 +8,7 @@ import {
   performSelfUpdate,
   pnpmExecutable,
   resolveRepoRoot,
+  type SelfUpdateFs,
   type CommandOutcome,
   type SelfUpdateDeps,
 } from "../src/self-update.js";
@@ -46,12 +47,27 @@ function scripted(opts: {
   });
 }
 
+const NODE_EXE = "C:\\Program Files\\nodejs\\node.exe";
+const PNPM_CJS_PF = "C:\\Program Files\\nodejs\\node_modules\\pnpm\\bin\\pnpm.cjs";
+
+/** In-memory filesystem: a set of existing absolute paths + directory listings. */
+function fakeFs(files: string[], dirs: Record<string, string[]> = {}): SelfUpdateFs {
+  const set = new Set(files.map((f) => f.toLowerCase()));
+  return {
+    exists: (p) => set.has(p.toLowerCase()),
+    listDir: (p) => dirs[p] ?? [],
+  };
+}
+
 function makeDeps(overrides: Partial<SelfUpdateDeps> = {}): SelfUpdateDeps {
   return {
     repoRoot: "/fake/repo",
     logger,
     hasGitCheckout: () => true,
     platform: "win32",
+    execPath: NODE_EXE,
+    env: { ProgramFiles: "C:\\Program Files", SystemDrive: "C:", Path: "C:\\Windows\\System32" },
+    fs: fakeFs([PNPM_CJS_PF]),
     run: scripted({ pull: ok("Already up to date.\n") }),
     ...overrides,
   };
@@ -77,7 +93,7 @@ describe("performSelfUpdate", () => {
     expect(result.updated).toBe(false);
     expect(result.reason).toBe("already_up_to_date");
     expect(callsOf(run, "powershell.exe")).toHaveLength(0);
-    expect(callsOf(run, pnpmExecutable())).toHaveLength(0);
+    expect(callsOf(run, NODE_EXE)).toHaveLength(0);
   });
 
   it("uses a hardcoded, fast-forward-only git argv in the Agent's own checkout directory", async () => {
@@ -104,8 +120,8 @@ describe("performSelfUpdate", () => {
       "Updated 3f2a1b9 -> 8c4d0e2. Restarted the gateway. The print server is restarting and will be back in about a minute.",
     );
     const order = run.mock.calls.map((c) => (c[0] === "git" ? `git ${c[1][0]}` : c[0]));
-    expect(order).toEqual(["git rev-parse", "git pull", "git rev-parse", pnpmExecutable(), "powershell.exe"]);
-    expect(callsOf(run, pnpmExecutable())[0]![1]).toEqual(["install"]);
+    expect(order).toEqual(["git rev-parse", "git pull", "git rev-parse", NODE_EXE, "powershell.exe"]);
+    expect(callsOf(run, NODE_EXE)[0]![1]).toEqual([PNPM_CJS_PF, "install"]);
   });
 
   it("restarts the gateway with one fixed argv and a timeout, nothing variable in it", async () => {
@@ -135,7 +151,7 @@ describe("performSelfUpdate", () => {
     expect(r1.reason).toBe("git_failed");
     expect(r1.message).toContain("fast-forward");
     expect(callsOf(failed, "powershell.exe")).toHaveLength(0);
-    expect(callsOf(failed, pnpmExecutable())).toHaveLength(0);
+    expect(callsOf(failed, NODE_EXE)).toHaveLength(0);
 
     const missing = vi.fn(async () => {
       throw new Error("spawn git ENOENT");
@@ -179,7 +195,9 @@ describe("performSelfUpdate", () => {
 
   it("skips the gateway restart entirely on non-Windows, and says so", async () => {
     const run = scripted({});
-    const result = await performSelfUpdate(makeDeps({ run, platform: "linux" }));
+    const result = await performSelfUpdate(
+      makeDeps({ run, platform: "linux", execPath: "/usr/bin/node", env: { PATH: "/usr/bin" }, fs: fakeFs(["/usr/bin/pnpm"]) }),
+    );
 
     expect(callsOf(run, "powershell.exe")).toHaveLength(0);
     expect(result.updated).toBe(true);

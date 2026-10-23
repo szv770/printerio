@@ -14,7 +14,8 @@ import type { SpoolerMonitor } from "./spooler-monitor.js";
 import type { PrinterManager } from "./printer-manager.js";
 import type { JobQueue } from "./job-queue.js";
 import type { Logger } from "./logger.js";
-import type { SelfUpdateResult } from "./self-update.js";
+import { resolveRepoRoot, type SelfUpdateResult } from "./self-update.js";
+import { collectLogs, type CollectedLogs } from "./log-collector.js";
 
 export interface CommandResult {
   status: "completed" | "failed";
@@ -38,6 +39,8 @@ export interface CommandHandlerDeps {
    * real git remote or a real `pnpm install`.
    */
   runSelfUpdate: () => Promise<SelfUpdateResult>;
+  /** GET_LOGS: reads the tails of this machine's own fixed log files (log-collector.ts). Injected for tests; defaults to the real reader. Takes no input. */
+  collectLogs?: () => CollectedLogs;
 }
 
 const REMOTE_COMMAND_SET = new Set<string>(REMOTE_COMMANDS);
@@ -165,6 +168,19 @@ export async function handleCommand(
       const removed = clearFilesUnder(downloadsDir, logger) + clearFilesUnder(tmpDir, logger);
       logger.info("CLEAR_AGENT_TEMP_FILES completed", { removed, downloadsDir, tmpDir });
       return { status: "completed", result: { filesRemoved: removed } };
+    }
+
+    case "GET_LOGS": {
+      // No payload is read and no path comes from the cloud: the files are fixed in log-collector.ts.
+      try {
+        const read = deps.collectLogs ?? (() => collectLogs({ localStoragePath: deps.localStoragePath, repoRoot: resolveRepoRoot() }));
+        const logs = read();
+        logger.info("GET_LOGS completed", { files: logs.files.length });
+        return { status: "completed", result: { files: logs.files, notes: logs.notes, generatedAt: new Date().toISOString() } };
+      } catch (err) {
+        logger.error("GET_LOGS failed", { error: err instanceof Error ? err.message : String(err) });
+        return { status: "failed", result: { reason: "could_not_read_logs" } };
+      }
     }
 
     case "CHECK_FOR_UPDATE": {

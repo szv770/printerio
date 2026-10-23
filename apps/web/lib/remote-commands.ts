@@ -52,6 +52,14 @@ export async function issueRemoteCommand(
     })
     .select("id")
     .single();
+  if (error?.code === "23514") {
+    // check_violation on remote_commands_command_check: the code knows this command but the database has not
+    // been told yet (a newer command name than the applied migrations). Say so plainly instead of "failed".
+    return {
+      ok: false,
+      error: "That request is not available yet: the database needs one update first (migration 0036_remote_command_get_logs.sql). Ask whoever manages Printio to apply it, then try again.",
+    };
+  }
   if (error || !inserted) return { ok: false, error: "Failed to issue command." };
 
   await supabase.from("audit_logs").insert({
