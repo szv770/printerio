@@ -92,7 +92,7 @@ export async function createOrganizationAction(
     metadata: { name: parsed.name, slug: parsed.slug, allowed_domains: domains },
   });
   if (auditError) {
-    return { error: describeDatabaseError(auditError, "Created the organization, but couldn't record the audit log entry.") };
+    return { error: describeDatabaseError(auditError, "Created the organization, but couldn't record it in the activity log.") };
   }
 
   revalidatePath(routes.platform);

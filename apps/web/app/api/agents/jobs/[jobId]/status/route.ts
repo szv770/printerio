@@ -5,6 +5,7 @@ import { adjustMonthlyUsage, usageAmountsForJob } from "@/lib/quota";
 import { canTransition, type JobState } from "@printio/shared";
 import { isAutoRetryEnabled, requeueFailedJob } from "@/lib/jobs/lifecycle";
 import { logger } from "@/lib/logger";
+import { markDevicePrinted } from "@/lib/devices/devices";
 import type { TablesUpdate } from "@/lib/database.types";
 
 const REPORTABLE_STATUSES: JobState[] = ["downloading", "downloaded", "printing", "submitted_to_spooler", "completed", "failed"];
@@ -75,6 +76,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ job
     actor_id: agent.id,
     metadata: { message: body.message ?? null, ...body.metadata },
   });
+
+  // A job from a member device reached the printed state: the device has now really printed (first time only).
+  if (newStatus === "completed" && job.device_id) await markDevicePrinted(supabase, job.device_id);
 
   // Convert the submission-time reservation into recorded usage (completed),
   // or release it once retries are exhausted (failed for good) - see

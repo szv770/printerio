@@ -24,7 +24,7 @@ const LOOKS_LIKE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  *  Plain client component (not a Server Action) - same as SignInButton.tsx,
  *  and for the same reason: this only calls supabase.auth.signInWithOtp()
  *  with the anon client, no server secret involved. */
-export function MagicLinkForm() {
+export function MagicLinkForm({ inviteCode }: { inviteCode?: string } = {}) {
   const [email, setEmail] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -40,7 +40,7 @@ export function MagicLinkForm() {
     setPending(true);
     setError(undefined);
     const supabase = createClient();
-    const redirectTo = `${window.location.origin}${routes.authCallback}`;
+    const redirectTo = `${window.location.origin}${routes.authCallback}${inviteCode ? `?invite=${encodeURIComponent(inviteCode)}` : ""}`;
     const { error: otpError } = await supabase.auth.signInWithOtp({
       email: email.trim(),
       options: { emailRedirectTo: redirectTo },
@@ -81,7 +81,7 @@ export function MagicLinkForm() {
         />
       </div>
       <FormError message={error} />
-      <Button type="submit" variant="outline" className="w-full" pending={pending} pendingLabel="Sending...">
+      <Button type="submit" variant={inviteCode ? "primary" : "outline"} className="w-full" pending={pending} pendingLabel="Sending...">
         Email me a sign-in link
       </Button>
     </form>

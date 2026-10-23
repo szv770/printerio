@@ -70,13 +70,16 @@ export function GroupsPreview() {
 export function InvitesPreview() {
   return (
     <Frame path="/admin/invites">
-      <PageHeader title="Invites" description="Give someone a code so they can join. Turn a code off any time." />
+      <PageHeader title="Invites" description="Invite someone with a link. Turn an invite off any time." />
       <Tabs label="People" items={peopleTabs("invites", true)} />
       <InvitesPanel
         invitations={[
           { id: "i1", code: "a1b2c3d4e5f6", role: "staff", usesCount: 3, maxUses: 10, expiresAt: ago(-60 * 24 * 14) },
           { id: "i2", code: "9f8e7d6c5b4a", role: "student", usesCount: 0, maxUses: null, expiresAt: null },
+          { id: "i3", code: "00aa11bb22cc", role: "student", usesCount: 1, maxUses: 1, expiresAt: null },
+          { id: "i4", code: "ffeedd998877", role: "staff", usesCount: 0, maxUses: null, expiresAt: ago(60 * 24 * 2) },
         ]}
+        orgName="Beth Rivkah"
       />
     </Frame>
   );
@@ -191,7 +194,11 @@ const DEVICES: AdminDevice[] = [
 export function UserDevicesPreview({ variant }: { variant?: string }) {
   return (
     <Frame path="/admin/devices">
-      <PageHeader title="User devices" description="Phones and laptops people print from. The ones that need a look are at the top." />
+      <PageHeader
+        title="All devices"
+        description="Phones and laptops people print from. The ones that need a look are at the top."
+        action={<span className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-3 text-sm font-medium text-white">+ Add device</span>}
+      />
       <Tabs label="Printers and devices" items={printerTabs("devices", true)} />
       <DevicesAdmin devices={variant === "empty" ? [] : DEVICES} />
     </Frame>

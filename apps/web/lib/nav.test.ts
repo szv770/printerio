@@ -27,6 +27,11 @@ describe("adminMenu", () => {
     expect(hrefs).toContain(routes.adminApprovals);
     expect(hrefs).toContain(routes.adminUsers);
   });
+  it("calls the log 'Activity log' everywhere (never 'Audit log')", () => {
+    const labels = flat(adminMenu(true)).map((i) => i.label);
+    expect(labels).toContain("Activity log");
+    expect(labels).not.toContain("Audit log");
+  });
   it("shows everything to org admins", () => {
     const hrefs = flat(adminMenu(true)).map((i) => i.href);
     for (const h of [routes.adminDevices, routes.adminAudit, routes.adminStorage]) {

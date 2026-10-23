@@ -107,6 +107,11 @@ LATER: email alerts (agent/printer offline), onboarding tour that really opens p
 - Plain "staple" means top-left, but the owner mostly uses top-right. Bottom-left staple: not needed. Short-edge flip from the dialog stays held until tested.
 - The Raspberry Pi is retired.
 
+## Status: Batch 2 invites/devices PR (claude/batch2-invites)
+Done: invite share link (/join?code=..., code carried through the magic link via ?invite= and a 1h cookie, auto-redeemed in the auth callback), invite states (active/used up/expired) + copy link/code + turn off, join page, redeem rate limit (per user 10 and per IP 30 per 15 min via check_rate_limit, no migration; F13); Google button greyed "Coming soon"; "Activity log" everywhere + Show/Hide details; "All devices" + Add device (opens /devices?add=1), device type auto-detected from the browser, clearer Other/iPhone copy; setup wizard Cancel/Back; first_printed_at now set when a device's job completes.
+Untested on real devices: share sheet on Pixel/Windows, magic-link round trip with the invite (Supabase redirect allow-list must accept /auth/callback?invite=...; the cookie is the fallback but only works in the same browser), device type detection on real phones.
+Migration 0038 (back-fill of first_printed_at) was applied to prod 2026-10-23.
+
 ## Install as an app + share into Printio (branch claude/wow-pwa-share) - status
 
 Done: manifest (share_target, icons, shortcuts), minimal no-cache service worker (/sw.js) that takes a shared PDF into IndexedDB and 303s to /print?shared=id, fallback /share-target route, Print-page handoff banner (fills the existing file input, never auto-submits), install card (home, Me sheet, admin sidebar; iOS hint). Vitest tests for the pure parts; production-build Playwright checks of manifest, icons, sw.js headers, SW activation, simulated share (303 + IndexedDB entry), fallback route, kill switch.

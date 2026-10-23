@@ -105,7 +105,7 @@ export function DevicesAdmin({ devices }: { devices: AdminDevice[] }) {
         columns={columns}
         rows={devices}
         rowKey={(d) => d.id}
-        caption="User devices"
+        caption="All devices"
         rowClassName={(d) =>
           d.issues.some((i) => i.status === "open")
             ? "bg-[var(--color-danger-soft)]/40 ring-1 ring-[var(--color-danger)]/30"

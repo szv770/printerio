@@ -1,6 +1,6 @@
 import { Card } from "@/components/ui";
+import { GoogleComingSoon } from "./GoogleComingSoon";
 import { PendingShareBanner } from "@/components/pwa/PendingShareBanner";
-import { SignInButton } from "./SignInButton";
 import { MagicLinkForm } from "./MagicLinkForm";
 
 export default async function LoginPage({
@@ -28,7 +28,7 @@ export default async function LoginPage({
             That sign-in link did not work or has expired. Request a new one.
           </p>
         )}
-        <SignInButton />
+        <GoogleComingSoon />
         <div className="my-4 flex items-center gap-3 text-xs text-[var(--color-muted)]">
           <div className="h-px flex-1 bg-[var(--color-border)]" />
           or

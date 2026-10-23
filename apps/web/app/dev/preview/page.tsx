@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import { DevicesPreview, JobListPreview, JobPreview, PrintPreview, ProfilePreview, UsagePreview } from "./member-pages";
 import { GroupsPreview, InvitesPreview, PrintersPreview, ServerDetailPreview, ServersPreview, UserDevicesPreview, UsersPreview } from "./admin-a";
 import { ActivityPreview, AllJobsPreview, ApprovalsPreview, FilesPreview, LimitsPreview, ReportsPreview, RulesPreview } from "./admin-b";
+import { SetupWizard } from "@/app/admin/printers/setup/SetupWizard";
+import { JoinCard } from "@/app/join/JoinCard";
 import { PwaPreviewSection } from "./pwa";
 import { BookletPreviewSection } from "./booklet";
 import { AdminHomeSection, TeacherHomeSection } from "./homes";
@@ -28,6 +30,14 @@ export default async function PreviewPage({
   if (process.env.NODE_ENV !== "development") notFound();
   const { section = "admin", path, shell, variant, side } = await searchParams;
   switch (section) {
+    case "wizard":
+      return (
+        <div className="mx-auto max-w-3xl p-4">
+          <SetupWizard printers={[]} agents={[{ id: "a1", name: "MLM Office", status: "active", lastSeenAt: new Date().toISOString(), discoveredQueues: [] }]} claimedQueues={{}} defaultBookletBindingSide="left" />
+        </div>
+      );
+    case "join":
+      return <JoinCard code="a1b2c3d4e5f6" orgName="Beth Rivkah" problem={variant} />;
     case "pwa":
       return <PwaPreviewSection variant={variant} />;
     case "booklet":

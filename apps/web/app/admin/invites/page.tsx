@@ -14,11 +14,18 @@ export default async function InvitesPage() {
     .eq("organization_id", session.membership.organization_id)
     .order("created_at", { ascending: false });
 
+  const { data: org } = await supabase
+    .from("organizations")
+    .select("name")
+    .eq("id", session.membership.organization_id)
+    .maybeSingle();
+
   return (
     <div>
-      <PageHeader title="Invites" description="Give someone a code so they can join. Turn a code off any time." />
+      <PageHeader title="Invites" description="Invite someone with a link. Turn an invite off any time." />
       <Tabs label="People" items={peopleTabs("invites", true)} />
       <InvitesPanel
+        orgName={org?.name ?? ""}
         invitations={(invitations ?? []).map((inv) => ({
           id: inv.id,
           code: inv.code,
