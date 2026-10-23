@@ -8,7 +8,8 @@ import { JobStatusLive } from "@/app/(dashboard)/jobs/[id]/JobStatusLive";
 import { CancelJobButton } from "@/app/(dashboard)/jobs/[id]/CancelJobButton";
 import { RetryJobButton } from "@/app/(dashboard)/jobs/[id]/RetryJobButton";
 import { ReprintButton } from "@/app/(dashboard)/jobs/[id]/ReprintButton";
-import { DevicesView, type DeviceItem } from "@/app/(dashboard)/devices/DevicesView";
+import { SetupFeedbackCard } from "@/components/devices/SetupFeedbackCard";
+import { AddressCardPreview, DevicesView, type DeviceItem } from "@/app/(dashboard)/devices/DevicesView";
 import { UsageView } from "@/app/(dashboard)/usage/UsageView";
 import { ProfileView } from "@/app/(dashboard)/profile/ProfileView";
 import { JobListItem } from "@/app/(dashboard)/jobs/JobListItem";
@@ -188,7 +189,15 @@ export function DevicesPreview({ shell, variant }: { shell?: string; variant?: s
           title="My devices"
           description="Add your phone, tablet or laptop to print from its normal Print button. Each device gets its own private address."
         />
-        <DevicesView devices={variant === "empty" ? [] : DEVICES} />
+        {variant?.startsWith("address-") ? (
+          <AddressCardPreview deviceType={variant.slice(8)} />
+        ) : (
+          <>
+            {variant === "feedback" && <SetupFeedbackCard devices={[{ id: "d2", name: "Classroom laptop", device_type: "windows" }]} />}
+            {variant === "feedback-mac" && <SetupFeedbackCard devices={[{ id: "d9", name: "My MacBook", device_type: "mac" }]} />}
+            <DevicesView devices={variant === "empty" ? [] : DEVICES} />
+          </>
+        )}
       </main>
     </Framed>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Check, Copy, Laptop, Monitor, MonitorSmartphone, Plus, Smartphone, Tablet, TriangleAlert, type LucideIcon } from "lucide-react";
+import { Check, Copy, FlaskConical, Laptop, Monitor, MonitorSmartphone, Plus, Smartphone, Tablet, TriangleAlert, type LucideIcon } from "lucide-react";
 import {
   Button,
   Card,
@@ -54,7 +54,7 @@ const TYPE_OPTIONS: { value: string; label: string; Icon: LucideIcon }[] = [
 ];
 
 const noopSubscribe = () => () => {};
-const NO_STEPS_TYPES = new Set(["iphone", "mac", "chromebook", "other"]);
+const NO_STEPS_TYPES = new Set(["iphone", "chromebook", "other"]);
 
 function DeviceTypeIcon({ type, className }: { type: string; className?: string }) {
   const Icon = TYPE_OPTIONS.find((o) => o.value === type)?.Icon ?? MonitorSmartphone;
@@ -146,6 +146,12 @@ function AddFlow({ onClose }: { onClose: () => void }) {
             ))}
           </div>
           {guessed && <p className="mt-2 text-[13px] text-[var(--color-muted)]">We picked the one that matches this device. Change it if you are adding a different one.</p>}
+          {type === "mac" && (
+            <p className="mt-2 flex items-start gap-2 rounded-xl bg-[var(--color-warning-soft)] p-3 text-sm text-[var(--color-warning-ink)]">
+              <FlaskConical className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>Mac: not tested yet - being worked on. You can still set it up, but it may not work.</span>
+            </p>
+          )}
           {NO_STEPS_TYPES.has(type) && <p className="mt-2 rounded-xl bg-[var(--color-surface-2)] p-3 text-sm">{noStepsMessage(type)}</p>}
           <FieldError message={state.fieldErrors?.deviceType} />
         </fieldset>
@@ -200,6 +206,16 @@ function CopyButton({ value, label }: { value: string; label: string }) {
   );
 }
 
+/** Dev preview only: the step-2 card with a fake address, no server call. */
+export function AddressCardPreview({ deviceType }: { deviceType: string }) {
+  return (
+    <AddressCard
+      created={{ deviceId: "dx", name: "My MacBook", deviceType, hostname: "u-3kq9x7m2v5p8d4n6h1j0b7c2w9t5r8y4e6a1sz3.szvtech.org", url: "" }}
+      onDone={() => {}}
+    />
+  );
+}
+
 function AddressCard({ created, onDone }: { created: NonNullable<AddDeviceState["created"]>; onDone: () => void }) {
   const addr = deviceAddress(created.hostname);
   const guide = setupSteps(created.deviceType, addr);
@@ -208,7 +224,7 @@ function AddressCard({ created, onDone }: { created: NonNullable<AddDeviceState[
 
   const urlBlock = <AddressBlock title="Full address (Windows needs this one)" value={addr.url} copyLabel="Copy full address" highlight={guide?.needs === "url"} />;
   const hostBlock = (
-    <AddressBlock title="Hostname only (Android needs this one)" value={addr.hostname} copyLabel="Copy hostname" highlight={guide?.needs === "hostname"} />
+    <AddressBlock title="Hostname only (Android and Mac Settings need this one)" value={addr.hostname} copyLabel="Copy hostname" highlight={guide?.needs === "hostname"} />
   );
 
   return (
@@ -245,6 +261,12 @@ function AddressCard({ created, onDone }: { created: NonNullable<AddDeviceState[
       {guide ? (
         <div>
           <h3 className="mb-3 text-base font-semibold">Then, on your {deviceTypeLabel(created.deviceType)}</h3>
+          {guide.testStatus && (
+            <p className="mb-3 inline-flex items-center gap-2 rounded-full bg-[var(--color-warning-soft)] px-3 py-1 text-[13px] font-semibold text-[var(--color-warning-ink)]">
+              <FlaskConical className="h-3.5 w-3.5" aria-hidden="true" />
+              {guide.testStatus}
+            </p>
+          )}
           {guide.note && <p className="mb-3 rounded-xl bg-[var(--color-surface-2)] p-3 text-sm font-medium">{guide.note}</p>}
           <ol className="flex flex-col gap-3">
             {guide.steps.map((s, i) => (
@@ -259,6 +281,13 @@ function AddressCard({ created, onDone }: { created: NonNullable<AddDeviceState[
               </li>
             ))}
           </ol>
+          {guide.command && (
+            <div className="mt-4 rounded-xl border-2 border-[var(--color-border)] p-3.5">
+              <p className="mb-1 text-[13px] font-medium text-[var(--color-muted)]">Line to paste into Terminal</p>
+              <p className="mb-3 break-all font-mono text-sm leading-6">{guide.command}</p>
+              <CopyButton value={guide.command} label="Copy line" />
+            </div>
+          )}
         </div>
       ) : (
         <p className="text-sm text-[var(--color-muted)]">

@@ -5,6 +5,9 @@ import { peopleTabs, printerTabs } from "@/lib/admin/tabs";
 import { describeAgentConnection, describeAgentVersion } from "@/lib/agent-detail";
 import { UnmatchedSignups } from "@/app/admin/users/UnmatchedSignups";
 import { MembersTable } from "@/app/admin/users/MembersTable";
+import { MemberAccessCard } from "@/app/admin/users/[userId]/MemberAccessCard";
+import { SetupStatusPanel } from "@/app/admin/devices/SetupStatusPanel";
+import { summarizeSetups } from "@/lib/devices/setup-feedback";
 import { InvitesPanel } from "@/app/admin/users/InvitesPanel";
 import { GroupsPanel } from "@/app/admin/groups/GroupsPanel";
 import { PrintersPanel } from "@/app/admin/printers/PrintersPanel";
@@ -83,12 +86,13 @@ export function InvitesPreview() {
       <Tabs label="People" items={peopleTabs("invites", true)} />
       <InvitesPanel
         invitations={[
-          { id: "i1", code: "a1b2c3d4e5f6", role: "staff", usesCount: 3, maxUses: 10, expiresAt: ago(-60 * 24 * 14) },
+          { id: "i1", code: "a1b2c3d4e5f6", role: "staff", groupName: "Grade 5 teachers", usesCount: 3, maxUses: 10, expiresAt: ago(-60 * 24 * 14) },
           { id: "i2", code: "9f8e7d6c5b4a", role: "student", usesCount: 0, maxUses: null, expiresAt: null },
           { id: "i3", code: "00aa11bb22cc", role: "student", usesCount: 1, maxUses: 1, expiresAt: null },
           { id: "i4", code: "ffeedd998877", role: "staff", usesCount: 0, maxUses: null, expiresAt: ago(60 * 24 * 2) },
         ]}
         orgName="Beth Rivkah"
+        groups={[{ id: "g1", name: "Grade 5 teachers" }, { id: "g2", name: "Office" }]}
       />
     </Frame>
   );
@@ -210,6 +214,7 @@ export function UpdateBannerPreview() {
               <UpdateBanner
                 view={deriveUpdateView({ commands: v === "legacy_none" ? [] : commands, lastSeenAt, nowMs: NOW, agentVersion: legacy ? "0.1.0" : "0.2.0", latestVersion: "0.2.0" })}
                 canCheckAgain={!legacy}
+                elapsedNow={NOW}
               />
             </div>
           );
@@ -273,6 +278,58 @@ export function UserDevicesPreview({ variant }: { variant?: string }) {
       />
       <Tabs label="Printers and devices" items={printerTabs("devices", true)} />
       <DevicesAdmin devices={variant === "empty" ? [] : DEVICES} />
+    </Frame>
+  );
+}
+
+export function MemberAccessPreview({ variant }: { variant?: string }) {
+  const empty = variant === "empty";
+  return (
+    <Frame path="/admin/users/u1">
+      <div className="mx-auto max-w-2xl">
+        <PageHeader title="Moshe Levi" description="moshe@school.org" />
+        <MemberAccessCard
+          firstName="Moshe"
+          groups={empty ? [] : ["Grade 5 teachers", "Science department"]}
+          access={
+            variant === "approver"
+              ? null
+              : {
+                  groups: [],
+                  adminBypass: false,
+                  jobDependent: !empty,
+                  printers: empty
+                    ? []
+                    : [
+                        { id: "p1", name: "Main office Kyocera", outcome: "allowed", why: "Teachers may print on the main printer." },
+                        { id: "p2", name: "Library printer", outcome: "approval", why: "No rule covers this, so the organization default applies (needs approval)." },
+                        { id: "p3", name: "Teachers room", outcome: "blocked", why: "Students cannot use the teachers room printer." },
+                      ],
+                }
+          }
+        />
+      </div>
+    </Frame>
+  );
+}
+
+export function SetupStatusPreview() {
+  const fb = (setup_key: string, outcome: "ok" | "problem", user_id: string, note = "") => ({ setup_key, outcome, user_id, note, created_at: "2026-10-23T09:00:00Z" });
+  const setups = summarizeSetups(
+    [
+      fb("windows_manual_wizard", "ok", "u1"),
+      fb("windows_manual_wizard", "ok", "u2"),
+      fb("windows_manual_wizard", "problem", "u3", "It printed on the wrong paper size and the first page was cut off"),
+      fb("android_bare_host", "ok", "u4"),
+      fb("mac_lpadmin", "problem", "u5", "Terminal said the printer was not found"),
+      fb("other_chromebook", "ok", "u6"),
+    ],
+    [{ setup_key: "windows_manual_wizard" }],
+  );
+  return (
+    <Frame path="/admin/devices">
+      <PageHeader title="All devices" description="Phones and laptops people print from. The ones that need a look are at the top." />
+      <SetupStatusPanel setups={setups} canConfirm />
     </Frame>
   );
 }

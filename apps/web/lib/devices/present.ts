@@ -46,6 +46,10 @@ export interface SetupSteps {
   needs: "url" | "hostname";
   steps: string[];
   note?: string;
+  /** A line to paste into a terminal (shown with a Copy button). */
+  command?: string;
+  /** Honest label when this way of setting up has not been proven on a real device yet. */
+  testStatus?: string;
 }
 
 export function setupSteps(type: string, addr: DeviceAddress): SetupSteps | null {
@@ -73,6 +77,21 @@ export function setupSteps(type: string, addr: DeviceAddress): SetupSteps | null
         "Tap Add.",
       ],
       note: "Android needs the bare hostname: no \"https://\" and nothing after it.",
+    };
+  }
+  if (type === "mac") {
+    const ipps = `ipps://${addr.hostname}/ipp/print`;
+    return {
+      needs: "hostname",
+      testStatus: "Not tested yet - being worked on",
+      note: "We have not tried this on a real Mac yet. Earlier tests with other printers suggest it can work, but we cannot promise it. If it does not work, use Print a document on the website.",
+      command: `lpadmin -p Printio -E -v ${ipps} -m everywhere`,
+      steps: [
+        "Recommended: open Terminal (press Command + Space, type Terminal, press Return).",
+        "Paste the line below and press Return. If nothing is printed back, it was added.",
+        "Or, without Terminal: open System Settings > Printers & Scanners > Add Printer, then the IP tab.",
+        `On the IP tab set Address to ${addr.hostname}:443, Protocol to IPPS (secure IPP), and Queue to ipp/print.`,
+      ],
     };
   }
   return null;

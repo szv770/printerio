@@ -5,7 +5,15 @@ import { InviteForm } from "./InviteForm";
 import { InvitationsList, type OpenInvitation } from "./InvitationsList";
 
 /** The two sections of the Invites tab, both closed until opened. */
-export function InvitesPanel({ invitations, orgName }: { invitations: OpenInvitation[]; orgName: string }) {
+export function InvitesPanel({
+  invitations,
+  orgName,
+  groups = [],
+}: {
+  invitations: OpenInvitation[];
+  orgName: string;
+  groups?: { id: string; name: string }[];
+}) {
   const active = invitations.filter((i) => inviteStatus(i) === "active").length;
   return (
     <div className="flex flex-col gap-4">
@@ -15,7 +23,7 @@ export function InvitesPanel({ invitations, orgName }: { invitations: OpenInvita
         icon={<KeyRound className="h-4 w-4" />}
         summary="Make an invite link that lets a person join"
       >
-        <InviteForm orgName={orgName} />
+        <InviteForm orgName={orgName} groups={groups} />
       </Collapsible>
       <Collapsible
         id="open-invites"

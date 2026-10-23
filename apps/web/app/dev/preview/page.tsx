@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { DevicesPreview, JobListPreview, JobPreview, PrintPreview, ProfilePreview, UsagePreview } from "./member-pages";
-import { GroupsPreview, InvitesPreview, PrintersPreview, ServerDetailPreview, ServersPreview, UpdateBannerPreview, UserDevicesPreview, UsersPreview } from "./admin-a";
+import { GroupsPreview, InvitesPreview, SetupStatusPreview, MemberAccessPreview, PrintersPreview, ServerDetailPreview, ServersPreview, UpdateBannerPreview, UserDevicesPreview, UsersPreview } from "./admin-a";
 import { ActivityPreview, AllJobsPreview, ApprovalsPreview, FilesPreview, LimitsPreview, ReportsPreview, RulesPreview } from "./admin-b";
 import { SetupWizard } from "@/app/admin/printers/setup/SetupWizard";
 import { JoinCard } from "@/app/join/JoinCard";
@@ -58,6 +58,10 @@ export default async function PreviewPage({
       return <UsersPreview variant={variant} />;
     case "groups":
       return <GroupsPreview />;
+    case "setupstatus":
+      return <SetupStatusPreview />;
+    case "memberaccess":
+      return <MemberAccessPreview variant={variant} />;
     case "invites":
       return <InvitesPreview />;
     case "printers":
