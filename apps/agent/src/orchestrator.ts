@@ -22,6 +22,7 @@ import type { SpoolerMonitor } from "./spooler-monitor.js";
 import { findNewJobId } from "./spooler-monitor.js";
 import type { HealthMonitor } from "./health-monitor.js";
 import { buildPrintSettingsString, executePrint } from "./print-executor.js";
+import { checkRawTarget as defaultCheckRawTarget, type RawTargetCheck } from "./raw-host-policy.js";
 import { RAW_DEFERRED_STATUSES, RAW_SUCCESS_STATUSES, executeRawPrint, type RawTimeouts } from "./raw-print-executor.js";
 import { PROFILE_COOLDOWN_MS, decideDownloadFailure, decideRawFailure, type WaitKind } from "./retry-policy.js";
 import { handleCommand } from "./commands.js";
@@ -43,6 +44,8 @@ export interface OrchestratorDeps {
   rawPrint?: typeof executeRawPrint;
   /** Raw connect/write timeouts, injectable for tests. */
   rawTimeouts?: RawTimeouts;
+  /** Decides whether a raw target may be sent to (private-LAN only, optional allow-list); injectable for tests. */
+  checkRawTarget?: (target: { host: string; port: number }) => Promise<RawTargetCheck>;
 }
 
 /** What one processJob() call tells its caller (the poll loop). */
@@ -198,6 +201,8 @@ export function createOrchestrator(deps: OrchestratorDeps) {
   const { config, cloudClient, jobQueue, printerManager, spoolerMonitor, healthMonitor, logger } = deps;
   const now = deps.now ?? Date.now;
   const rawPrint = deps.rawPrint ?? executeRawPrint;
+  const checkRawTarget =
+    deps.checkRawTarget ?? ((target: { host: string; port: number }) => defaultCheckRawTarget(target, { allowedHosts: config.rawAllowedHosts }));
   let stopped = false;
   let restartRequested = false;
   /** printerProfileId -> epoch ms until which its queued jobs are left alone (see PROFILE_COOLDOWN_MS). */
@@ -375,8 +380,19 @@ export function createOrchestrator(deps: OrchestratorDeps) {
         // A printer that is off, offline, busy or jammed is NOT a failed job (the raw port buffers data and
         // prints when ready), so while the job is still `claimed` a send that cannot complete is released back
         // to the queue to wait (retry-policy.ts has the decision table). Only a job that can never print fails.
+        //
+        // The host:port came from the cloud; only private-LAN printers are ever written to (raw-host-policy.ts,
+        // security review F8). A refusal is permanent for this job - it fails with the reason - and the address
+        // that was checked is the one connected to, so a DNS answer cannot change in between.
+        const target = await checkRawTarget({ host: dl.printRequest.raw.host, port: dl.printRequest.raw.port });
+        if (!target.ok) {
+          jobLogger.error("raw print refused: target not allowed", { host: dl.printRequest.raw.host, port: dl.printRequest.raw.port, reason: target.reason });
+          jobQueue.upsertJob(claimable.jobId, { state: "failed", lastError: target.reason });
+          await safeReportStatus(claimable.jobId, "failed", `raw print: ${target.reason}`);
+          return procOutcome;
+        }
         const result = await rawPrint({
-          raw: dl.printRequest.raw,
+          raw: { ...dl.printRequest.raw, host: target.host, port: target.port },
           request: dl.printRequest,
           pdf: readFileSync(localFilePath),
           timeouts: deps.rawTimeouts,

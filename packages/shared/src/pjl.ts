@@ -16,6 +16,8 @@ export interface RawPrintOptions {
   bindingSide?: "left" | "right";
 }
 
+import { containsPjlEscape, PJL_ESCAPE_MESSAGE } from "./pjl-escape";
+
 export type PjlSettingsResult = { ok: true; settings: string[] } | { ok: false; reason: string };
 export type RawJobResult = { ok: true; bytes: Uint8Array } | { ok: false; reason: string };
 
@@ -68,6 +70,9 @@ export function buildPjlSettings(o: RawPrintOptions): PjlSettingsResult {
 export function buildRawJob(o: RawPrintOptions, pdf: Uint8Array): RawJobResult {
   const s = buildPjlSettings(o);
   if (!s.ok) return s;
+  // Defence in depth (security review F1): a document carrying a UEL would let its own bytes run PJL on the
+  // printer. Callers already refuse such files earlier; this makes it impossible to build the job at all.
+  if (containsPjlEscape(pdf)) throw new Error(PJL_ESCAPE_MESSAGE);
   const name = sanitizePjlText(o.jobName);
   let head = `${UEL}@PJL\r\n@PJL JOB NAME="${name}"\r\n`;
   for (const line of s.settings) head += `@PJL SET ${line}\r\n`;

@@ -40,3 +40,23 @@ export function assertCanRemoveMember(target: MemberSafetyMember, activeAdminCou
   }
   return null;
 }
+
+/**
+ * Changing an org_admin's role to anything else takes their admin rights away just as surely as removing them, so
+ * the same "never leave the organization without an active org_admin" rule applies (security review F15). Only a
+ * change away from org_admin on an active admin is checked; setting the same role again is a no-op.
+ */
+export function assertCanDemoteMember(target: MemberSafetyMember, newRole: string, activeAdminCount: number): string | null {
+  if (target.role === "org_admin" && target.status === "active" && newRole !== "org_admin" && activeAdminCount <= 1) {
+    return "You can't change the role of the only remaining org admin. Promote someone else to org admin first.";
+  }
+  return null;
+}
+
+/** Disabling the last active org_admin locks the organization out of its own admin tools, same as removing them. */
+export function assertCanDisableMember(target: MemberSafetyMember, activeAdminCount: number): string | null {
+  if (target.role === "org_admin" && target.status === "active" && activeAdminCount <= 1) {
+    return "You can't disable the only remaining org admin. Promote someone else first.";
+  }
+  return null;
+}

@@ -15,6 +15,8 @@ import {
 import { AGENT_VERSION } from "../src/version.js";
 import { createLogger } from "../src/logger.js";
 
+/** The one install argv: reproducible (frozen lockfile) and no dependency lifecycle scripts (security review F5). */
+const INSTALL = ["install", "--frozen-lockfile", "--ignore-scripts"];
 const logger = createLogger({ level: "error" });
 
 function ok(stdout = ""): CommandOutcome {
@@ -121,7 +123,7 @@ describe("performSelfUpdate", () => {
     );
     const order = run.mock.calls.map((c) => (c[0] === "git" ? `git ${c[1][0]}` : c[0]));
     expect(order).toEqual(["git rev-parse", "git pull", "git rev-parse", NODE_EXE, "powershell.exe"]);
-    expect(callsOf(run, NODE_EXE)[0]![1]).toEqual([PNPM_CJS_PF, "install"]);
+    expect(callsOf(run, NODE_EXE)[0]![1]).toEqual([PNPM_CJS_PF, ...INSTALL]);
   });
 
   it("restarts the gateway with one fixed argv and a timeout, nothing variable in it", async () => {

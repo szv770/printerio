@@ -8,6 +8,8 @@ import {
 } from "../src/self-update.js";
 import { createLogger } from "../src/logger.js";
 
+/** The one install argv: reproducible (frozen lockfile) and no dependency lifecycle scripts (security review F5). */
+const INSTALL = ["install", "--frozen-lockfile", "--ignore-scripts"];
 const logger = createLogger({ level: "error" });
 const NODE_EXE = "C:\\Program Files\\nodejs\\node.exe";
 const PNPM_CJS_PF = "C:\\Program Files\\nodejs\\node_modules\\pnpm\\bin\\pnpm.cjs";
@@ -28,13 +30,13 @@ describe("resolvePnpmLauncher (the Agent runs as a Windows service: no user PATH
   it("uses PRINTIO_PNPM_PATH when it points at an existing pnpm.cjs: node + cjs + install", () => {
     const cjs = "D:\\tools\\pnpm\\bin\\pnpm.cjs";
     const r = resolvePnpmLauncher({ ...winBase, env: { ...winBase.env, PRINTIO_PNPM_PATH: cjs }, fs: fakeFs([cjs, PNPM_CJS_PF]) });
-    expect(r.launcher).toMatchObject({ command: NODE_EXE, args: [cjs, "install"], kind: "node-cjs" });
+    expect(r.launcher).toMatchObject({ command: NODE_EXE, args: [cjs, ...INSTALL], kind: "node-cjs" });
   });
 
   it("runs a pnpm.exe from PRINTIO_PNPM_PATH directly", () => {
     const exe = "D:\\tools\\pnpm.exe";
     const r = resolvePnpmLauncher({ ...winBase, env: { ...winBase.env, PRINTIO_PNPM_PATH: exe }, fs: fakeFs([exe]) });
-    expect(r.launcher).toMatchObject({ command: exe, args: ["install"], kind: "exe" });
+    expect(r.launcher).toMatchObject({ command: exe, args: INSTALL, kind: "exe" });
   });
 
   it("runs a pnpm.cmd from PRINTIO_PNPM_PATH only via cmd.exe /d /s /c with the quoted validated path", () => {
@@ -42,7 +44,7 @@ describe("resolvePnpmLauncher (the Agent runs as a Windows service: no user PATH
     const r = resolvePnpmLauncher({ ...winBase, env: { ...winBase.env, PRINTIO_PNPM_PATH: cmd }, fs: fakeFs([cmd]) });
     expect(r.launcher).toMatchObject({
       command: "cmd.exe",
-      args: ["/d", "/s", "/c", `""${cmd}" install"`],
+      args: ["/d", "/s", "/c", `""${cmd}" ${INSTALL.join(" ")}"`],
       kind: "cmd-shim",
       windowsVerbatimArguments: true,
     });
@@ -63,7 +65,7 @@ describe("resolvePnpmLauncher (the Agent runs as a Windows service: no user PATH
         env: { ...winBase.env, PRINTIO_PNPM_PATH: bad },
         fs: fakeFs([...evil, PNPM_CJS_PF]),
       });
-      expect(r.launcher?.args).toEqual([PNPM_CJS_PF, "install"]);
+      expect(r.launcher?.args).toEqual([PNPM_CJS_PF, ...INSTALL]);
       expect(r.rejected.join(" ")).toContain("PRINTIO_PNPM_PATH");
     }
   });
@@ -72,19 +74,19 @@ describe("resolvePnpmLauncher (the Agent runs as a Windows service: no user PATH
     const appdata = `${APPDATA}\\npm\\node_modules\\pnpm\\bin\\pnpm.cjs`;
     expect(resolvePnpmLauncher({ ...winBase, fs: fakeFs([appdata, PNPM_CJS_PF]) }).launcher?.args[0]).toBe(PNPM_CJS_PF);
     const r = resolvePnpmLauncher({ ...winBase, fs: fakeFs([appdata]) });
-    expect(r.launcher).toMatchObject({ command: NODE_EXE, args: [appdata, "install"], kind: "node-cjs" });
+    expect(r.launcher).toMatchObject({ command: NODE_EXE, args: [appdata, ...INSTALL], kind: "node-cjs" });
   });
 
   it("finds pnpm.cjs in ANOTHER user's profile (the service account has none of its own)", () => {
     const other = "C:\\Users\\shneu\\AppData\\Roaming\\npm\\node_modules\\pnpm\\bin\\pnpm.cjs";
     const r = resolvePnpmLauncher({ ...winBase, fs: fakeFs([other], { "C:\\Users": ["Public", "shneu"] }) });
-    expect(r.launcher).toMatchObject({ command: NODE_EXE, args: [other, "install"], kind: "node-cjs" });
+    expect(r.launcher).toMatchObject({ command: NODE_EXE, args: [other, ...INSTALL], kind: "node-cjs" });
   });
 
   it("falls back to a pnpm.cmd shim (via cmd.exe) only when no pnpm.cjs exists anywhere", () => {
     const shim = "C:\\Users\\shneu\\AppData\\Roaming\\npm\\pnpm.cmd";
     const r = resolvePnpmLauncher({ ...winBase, fs: fakeFs([shim], { "C:\\Users": ["shneu"] }) });
-    expect(r.launcher).toMatchObject({ command: "cmd.exe", kind: "cmd-shim", args: ["/d", "/s", "/c", `""${shim}" install"`] });
+    expect(r.launcher).toMatchObject({ command: "cmd.exe", kind: "cmd-shim", args: ["/d", "/s", "/c", `""${shim}" ${INSTALL.join(" ")}"`] });
   });
 
   it("refuses a discovered shim whose path contains shell metacharacters", () => {
@@ -96,7 +98,7 @@ describe("resolvePnpmLauncher (the Agent runs as a Windows service: no user PATH
   it("uses corepack (next to node, run by node itself) as the last resort", () => {
     const corepack = "C:\\Program Files\\nodejs\\node_modules\\corepack\\dist\\corepack.js";
     const r = resolvePnpmLauncher({ ...winBase, fs: fakeFs([corepack]) });
-    expect(r.launcher).toMatchObject({ command: NODE_EXE, args: [corepack, "pnpm", "install"], kind: "corepack" });
+    expect(r.launcher).toMatchObject({ command: NODE_EXE, args: [corepack, "pnpm", ...INSTALL], kind: "corepack" });
   });
 
   it("returns no launcher when nothing exists", () => {
@@ -111,7 +113,7 @@ describe("resolvePnpmLauncher (the Agent runs as a Windows service: no user PATH
   it("on Linux/mac: finds pnpm on PATH and runs it directly with ['install']", () => {
     const linux = { platform: "linux" as NodeJS.Platform, execPath: "/usr/bin/node" };
     const r = resolvePnpmLauncher({ ...linux, env: { PATH: "/usr/local/bin:/usr/bin" }, fs: fakeFs(["/usr/local/bin/pnpm"]) });
-    expect(r.launcher).toMatchObject({ command: "/usr/local/bin/pnpm", args: ["install"], kind: "exe" });
+    expect(r.launcher).toMatchObject({ command: "/usr/local/bin/pnpm", args: INSTALL, kind: "exe" });
     expect(resolvePnpmLauncher({ ...linux, env: { PATH: "/usr/bin" }, fs: fakeFs([]) }).launcher).toBeNull();
   });
 });
@@ -151,7 +153,7 @@ describe("performSelfUpdate - pnpm launcher integration", () => {
     const result = await performSelfUpdate(deps({ run }));
     expect(result.updated).toBe(true);
     const call = run.mock.calls.find((c) => c[0] === NODE_EXE)!;
-    expect(call[1]).toEqual([PNPM_CJS_PF, "install"]);
+    expect(call[1]).toEqual([PNPM_CJS_PF, ...INSTALL]);
     expect(call[4]?.env?.Path?.startsWith("C:\\Program Files\\nodejs;")).toBe(true);
     expect(call[4]?.windowsVerbatimArguments).toBeFalsy();
   });
@@ -180,6 +182,6 @@ describe("performSelfUpdate - pnpm launcher integration", () => {
       deps({ run, platform: "linux", execPath: "/usr/bin/node", env: { PATH: "/usr/bin" }, fs: fakeFs(["/usr/bin/pnpm"]) }),
     );
     expect(result.updated).toBe(true);
-    expect(run.mock.calls.find((c) => c[0] === "/usr/bin/pnpm")![1]).toEqual(["install"]);
+    expect(run.mock.calls.find((c) => c[0] === "/usr/bin/pnpm")![1]).toEqual(INSTALL);
   });
 });

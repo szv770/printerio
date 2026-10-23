@@ -10,6 +10,7 @@ export * from "./job-state";
 export * from "./page-range";
 export * from "./policy-engine";
 export * from "./pjl";
+export * from "./pjl-escape";
 export * from "./print-math";
 export * from "./types";
 export * from "./waiting";

@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { parseChoices, mapRawChoices, mapQueueChoices, type BindingSide } from "@/lib/print-choices";
 import { buildBookletPreviewPdf } from "@/lib/jobs/booklet-preview";
@@ -41,7 +42,9 @@ export async function previewBookletAction(formData: FormData): Promise<BookletP
 
   const supabase = await createClient();
 
-  const { data: withinLimit, error: rateLimitError } = await supabase.rpc("check_rate_limit", {
+  // Through the service-role client: members no longer have EXECUTE on check_rate_limit (migration 0037). The session
+  // and membership checks above authorize this call; the key is the caller's own id, as before.
+  const { data: withinLimit, error: rateLimitError } = await createServiceRoleClient().rpc("check_rate_limit", {
     p_key: `booklet_preview:${session.userId}`,
     p_max_count: 30,
     p_window_seconds: 300,

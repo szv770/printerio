@@ -7,6 +7,13 @@ import { fakeSupabase, failure, ok, type FakeCall, type FakeResult } from "@/tes
 const evaluateJobPolicy = vi.fn();
 vi.mock("@/lib/policy/build-facts", () => ({ evaluateJobPolicy: (...a: unknown[]) => evaluateJobPolicy(...a) }));
 
+// Lets one test make the stamp step hand back poisoned bytes; every other test gets the real stamp.
+let stampOverride: (() => Uint8Array) | null = null;
+vi.mock("@/lib/pdf/stamp", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/pdf/stamp")>();
+  return { ...real, stampFirstPage: (...a: Parameters<typeof real.stampFirstPage>) => (stampOverride ? Promise.resolve(stampOverride()) : real.stampFirstPage(...a)) };
+});
+
 // The pipeline's own tests do not need pdfjs (content analysis has its own tests): no analysis = pages stay whole.
 vi.mock("@/lib/pdf/content-analysis", () => ({ analyzePdfContent: async () => null }));
 
@@ -497,5 +504,53 @@ describe("createPrintJob: PDFs with embedded attachments are sanitized, not reje
   it("still fails a corrupt PDF as bad_pdf with a plain message", async () => {
     const res = await run(new TextEncoder().encode("%PDF-1.4\nnope"));
     expect(res).toMatchObject({ ok: false, code: "bad_pdf", error: expect.stringMatching(/couldn.t read/i) });
+  });
+});
+
+describe("rate limit goes through the service-role (write) client (security review F3)", () => {
+  it("calls check_rate_limit on writeClient, never on the member client, with the unchanged key", async () => {
+    const member = fakeSupabase((c) => defaults()(c));
+    const service = fakeSupabase((c) => defaults()(c));
+    const res = await createPrintJob(member.client as never, session, pdf3, "r.pdf", baseOpts({ writeClient: service.client as never }));
+    expect(res.ok).toBe(true);
+    expect(member.calls.filter((c) => c.table === "check_rate_limit")).toHaveLength(0);
+    const calls = service.calls.filter((c) => c.table === "check_rate_limit");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.values).toEqual({ p_key: `print_submit:${USER}`, p_max_count: 20, p_window_seconds: 300 });
+  });
+
+  it("still fails open (and carries on) when the limiter errors, and blocks when over the limit", async () => {
+    const service = fakeSupabase((c) => (c.table === "check_rate_limit" ? failure("permission denied") : defaults()(c)));
+    const member = fakeSupabase((c) => defaults()(c));
+    const r1 = await createPrintJob(member.client as never, session, pdf3, "r.pdf", baseOpts({ writeClient: service.client as never }));
+    expect(r1.ok).toBe(true);
+    use({ rate: false });
+    const r2 = await run();
+    expect(r2).toMatchObject({ ok: false, code: "rate_limited" });
+  });
+});
+
+describe("printer escape sequences never reach the derived file (security review F1)", () => {
+  it("refuses a derived file that carries a UEL, before any quota is reserved or anything is stored", async () => {
+    respond = (c) => {
+      if (c.table === "organization_settings") return ok({ max_upload_size_bytes: 52428800, quota_basis: "physical_sheets", job_approval_expiry_hours: 72, stamp_enabled: true });
+      if (c.table === "organization_members") return ok({ user_code: "SV42", profiles: { display_name: "S", email: "s@x.org" } });
+      return defaults()(c);
+    };
+    fake = fakeSupabase((c) => respond(c));
+    stampOverride = () => new TextEncoder().encode("%PDF-1.4\n\x1b%-12345X@PJL INFO ID");
+    try {
+      const res = await run();
+      expect(res).toMatchObject({ ok: false, code: "bad_pdf", error: expect.stringMatching(/printer control codes/) });
+    } finally {
+      stampOverride = null;
+    }
+    expect(rpcs("adjust_monthly_usage")).toHaveLength(0);
+    expect(fake.calls.filter((c) => c.op === "upload")).toHaveLength(0);
+  });
+
+  it("refuses an upload that carries a UEL as bad_pdf", async () => {
+    const poisoned = new Uint8Array([...pdf3, ...new TextEncoder().encode("\x1b%-12345X@PJL INFO ID")]);
+    expect(await run(poisoned)).toMatchObject({ ok: false, code: "bad_pdf", error: expect.stringMatching(/printer control codes/) });
   });
 });

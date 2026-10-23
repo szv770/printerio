@@ -3,7 +3,7 @@ import type { Database } from "@/lib/database.types";
 import { preflightPdf } from "@/lib/pdf/preflight";
 import { padAndImposeBooklet } from "@/lib/pdf/booklet-build";
 import type { BookletFit } from "@/lib/pdf/imposition";
-import { computePrintMath, computeCostCents, computeBookletPadding, type PolicyAction, type PricingConfig, type OrgRole } from "@printio/shared";
+import { containsPjlEscape, PJL_ESCAPE_MESSAGE, computePrintMath, computeCostCents, computeBookletPadding, type PolicyAction, type PricingConfig, type OrgRole } from "@printio/shared";
 import { createPageSubsetPdf } from "@/lib/pdf/page-subset";
 import { stampFirstPage } from "@/lib/pdf/stamp";
 import { buildStampText, normalizeStampSettings } from "@/lib/jobs/user-code";
@@ -126,7 +126,9 @@ export async function createPrintJob(
   // this has to be DB-backed rather than in-memory on Vercel. Scoped per
   // user, not per org, so one runaway script/loop can't starve the rest of
   // the organization's submit capacity either.
-  const { data: withinLimit, error: rateLimitError } = await supabase.rpc("check_rate_limit", {
+  // Called through `writer` (the service-role client): migration 0037 takes EXECUTE on check_rate_limit away from
+  // signed-in members, who could otherwise burn another person's allowance. The session was authorized by the caller.
+  const { data: withinLimit, error: rateLimitError } = await writer.rpc("check_rate_limit", {
     p_key: `print_submit:${session.userId}`,
     p_max_count: 20,
     p_window_seconds: 300,
@@ -358,6 +360,10 @@ export async function createPrintJob(
       });
     }
   }
+
+  // Last line of defence (security review F1): nothing that would be streamed to a printer may carry its escape
+  // sequences, whichever step produced it.
+  if (derivedBytes && containsPjlEscape(derivedBytes)) return fail(PJL_ESCAPE_MESSAGE, "bad_pdf");
 
   const printMath = computePrintMath({ pageCount: effectivePageCount, copies, duplex, booklet });
   const pricing = (printerProfile.pricing as unknown as PricingConfig | null) ?? null;

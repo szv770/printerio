@@ -9,6 +9,7 @@
 import os from "node:os";
 import path from "node:path";
 import { ConfigError } from "./errors.js";
+import { parseRawAllowedHosts } from "./raw-host-policy.js";
 import type { LogLevel } from "./logger.js";
 
 export type PrintFitMode = "fit" | "shrink" | "noscale";
@@ -32,6 +33,8 @@ export interface AgentConfig {
   skipDependencyCheck: boolean;
   /** PRINTIO_RAW_ONLY: a missing SumatraPDF is only a startup warning (raw-port jobs do not need it). */
   rawOnly: boolean;
+  /** PRINTIO_RAW_ALLOWED_HOSTS: if set, raw print jobs are only ever sent to these hosts (lower-case, comma separated in the env). Always on top of the private-LAN-only rule. */
+  rawAllowedHosts?: string[];
 }
 
 const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"];
@@ -154,5 +157,6 @@ export function loadConfig(options: LoadConfigOptions = {}): AgentConfig {
       false,
     ),
     rawOnly: parseBool("PRINTIO_RAW_ONLY", env.PRINTIO_RAW_ONLY, false),
+    rawAllowedHosts: parseRawAllowedHosts(env.PRINTIO_RAW_ALLOWED_HOSTS),
   };
 }

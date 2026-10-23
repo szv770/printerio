@@ -176,18 +176,24 @@ export async function executeRawPrint(args: {
   timeouts?: RawTimeouts;
 }): Promise<RawPrintResult> {
   const { raw, request, pdf, timeouts } = args;
-  const job = buildRawJob(
-    {
-      copies: request.copies,
-      colorMode: request.colorMode,
-      duplex: request.duplex,
-      jobName: raw.jobName,
-      staple: request.finishing.staple ? raw.staplePosition : undefined,
-      booklet: request.finishing.booklet,
-      bindingSide: raw.bindingSide,
-    },
-    pdf,
-  );
+  let job: ReturnType<typeof buildRawJob>;
+  try {
+    job = buildRawJob(
+      {
+        copies: request.copies,
+        colorMode: request.colorMode,
+        duplex: request.duplex,
+        jobName: raw.jobName,
+        staple: request.finishing.staple ? raw.staplePosition : undefined,
+        booklet: request.finishing.booklet,
+        bindingSide: raw.bindingSide,
+      },
+      pdf,
+    );
+  } catch (err) {
+    // buildRawJob throws only for a document carrying printer control codes (security review F1).
+    return { ok: false, reason: err instanceof Error ? err.message : String(err), failure: { kind: "invalid_job" } };
+  }
   if (!job.ok) return { ok: false, reason: job.reason, failure: { kind: "invalid_job" } };
   try {
     await sendRawBytes(raw.host, raw.port, job.bytes, timeouts);
