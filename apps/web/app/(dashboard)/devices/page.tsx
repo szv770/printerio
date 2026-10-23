@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { listDevicesForMember, listIssuesForDevices } from "@/lib/devices/devices";
 import { PageHeader } from "@/components/ui";
 import { DevicesView } from "./DevicesView";
+import { SetupFeedbackCard } from "@/components/devices/SetupFeedbackCard";
+import { listFeedbackCardDevices } from "@/lib/devices/setup-feedback-server";
 
 export default async function DevicesPage({ searchParams }: { searchParams: Promise<{ add?: string }> }) {
   const { add } = await searchParams;
@@ -15,12 +17,15 @@ export default async function DevicesPage({ searchParams }: { searchParams: Prom
   const openByDevice = new Map<string, number>();
   for (const i of issues) if (i.status === "open") openByDevice.set(i.device_id, (openByDevice.get(i.device_id) ?? 0) + 1);
 
+  const feedbackDevices = await listFeedbackCardDevices(supabase, { userId: session.userId, organizationId: session.membership.organization_id });
+
   return (
     <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
       <PageHeader
         title="My devices"
         description="Add your phone, tablet or laptop to print from its normal Print button. Each device gets its own private address."
       />
+      <SetupFeedbackCard devices={feedbackDevices} />
       <DevicesView
         startAdding={add === "1"}
         devices={devices.map((d) => ({

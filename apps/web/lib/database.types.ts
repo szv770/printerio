@@ -268,6 +268,68 @@ export type Database = {
           },
         ]
       }
+      device_setup_feedback: {
+        Row: {
+          created_at: string
+          device_id: string
+          id: string
+          note: string
+          organization_id: string
+          outcome: string
+          setup_key: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          device_id: string
+          id?: string
+          note?: string
+          organization_id?: string
+          outcome: string
+          setup_key?: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          device_id?: string
+          id?: string
+          note?: string
+          organization_id?: string
+          outcome?: string
+          setup_key?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_setup_feedback_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: true
+            referencedRelation: "member_devices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      setup_confirmations: {
+        Row: {
+          confirmed_at: string
+          confirmed_by: string
+          organization_id: string
+          setup_key: string
+        }
+        Insert: {
+          confirmed_at?: string
+          confirmed_by: string
+          organization_id: string
+          setup_key: string
+        }
+        Update: {
+          confirmed_at?: string
+          confirmed_by?: string
+          organization_id?: string
+          setup_key?: string
+        }
+        Relationships: []
+      }
       group_members: {
         Row: {
           created_at: string

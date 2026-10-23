@@ -8,6 +8,7 @@ import { JobStatusLive } from "@/app/(dashboard)/jobs/[id]/JobStatusLive";
 import { CancelJobButton } from "@/app/(dashboard)/jobs/[id]/CancelJobButton";
 import { RetryJobButton } from "@/app/(dashboard)/jobs/[id]/RetryJobButton";
 import { ReprintButton } from "@/app/(dashboard)/jobs/[id]/ReprintButton";
+import { SetupFeedbackCard } from "@/components/devices/SetupFeedbackCard";
 import { AddressCardPreview, DevicesView, type DeviceItem } from "@/app/(dashboard)/devices/DevicesView";
 import { UsageView } from "@/app/(dashboard)/usage/UsageView";
 import { ProfileView } from "@/app/(dashboard)/profile/ProfileView";
@@ -191,7 +192,10 @@ export function DevicesPreview({ shell, variant }: { shell?: string; variant?: s
         {variant?.startsWith("address-") ? (
           <AddressCardPreview deviceType={variant.slice(8)} />
         ) : (
-          <DevicesView devices={variant === "empty" ? [] : DEVICES} />
+          <>
+            {variant === "feedback" && <SetupFeedbackCard devices={[{ id: "d2", name: "Classroom laptop", device_type: "windows" }]} />}
+            <DevicesView devices={variant === "empty" ? [] : DEVICES} />
+          </>
         )}
       </main>
     </Framed>

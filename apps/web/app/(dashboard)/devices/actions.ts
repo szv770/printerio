@@ -6,6 +6,7 @@ import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { getGatewayEnv } from "@/lib/env";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { createDevice, deleteDevice, reportIssue, revokeDevice } from "@/lib/devices/devices";
+import { submitSetupFeedback } from "@/lib/devices/setup-feedback-server";
 import { deviceAddress } from "@/lib/devices/present";
 import { routes } from "@/lib/routes";
 
@@ -109,4 +110,30 @@ export async function reportIssueAction(_prev: ReportIssueState, formData: FormD
   if (!res.ok) return res.field ? { error: res.error, fieldErrors: { [res.field]: res.error } } : { error: res.error };
   revalidatePath(routes.devices);
   return { reportedId: deviceId };
+}
+
+export interface SetupFeedbackState {
+  error?: string;
+  answeredId?: string;
+  outcome?: "ok" | "problem";
+}
+
+/** "Did it come out OK?" - Yes, or "Something was wrong" with a short note. */
+export async function submitSetupFeedbackAction(_prev: SetupFeedbackState, formData: FormData): Promise<SetupFeedbackState> {
+  const session = await requireSessionOrRedirect();
+  if (!session.membership) return { error: "Your account is not part of an organization yet." };
+  const deviceId = String(formData.get("deviceId") ?? "");
+  if (!deviceId) return { error: "Device not found." };
+  const supabase = await createClient();
+  const res = await submitSetupFeedback(supabase, {
+    deviceId,
+    userId: session.userId,
+    organizationId: session.membership.organization_id,
+    outcome: String(formData.get("outcome") ?? ""),
+    note: String(formData.get("note") ?? ""),
+  });
+  if (!res.ok) return { error: res.error };
+  revalidatePath(routes.devices);
+  revalidatePath(routes.dashboard);
+  return { answeredId: deviceId, outcome: formData.get("outcome") === "ok" ? "ok" : "problem" };
 }

@@ -6,6 +6,8 @@ import { describeAgentConnection, describeAgentVersion } from "@/lib/agent-detai
 import { UnmatchedSignups } from "@/app/admin/users/UnmatchedSignups";
 import { MembersTable } from "@/app/admin/users/MembersTable";
 import { MemberAccessCard } from "@/app/admin/users/[userId]/MemberAccessCard";
+import { SetupStatusPanel } from "@/app/admin/devices/SetupStatusPanel";
+import { summarizeSetups } from "@/lib/devices/setup-feedback";
 import { InvitesPanel } from "@/app/admin/users/InvitesPanel";
 import { GroupsPanel } from "@/app/admin/groups/GroupsPanel";
 import { PrintersPanel } from "@/app/admin/printers/PrintersPanel";
@@ -307,6 +309,27 @@ export function MemberAccessPreview({ variant }: { variant?: string }) {
           }
         />
       </div>
+    </Frame>
+  );
+}
+
+export function SetupStatusPreview() {
+  const fb = (setup_key: string, outcome: "ok" | "problem", user_id: string, note = "") => ({ setup_key, outcome, user_id, note, created_at: "2026-10-23T09:00:00Z" });
+  const setups = summarizeSetups(
+    [
+      fb("windows_manual_wizard", "ok", "u1"),
+      fb("windows_manual_wizard", "ok", "u2"),
+      fb("windows_manual_wizard", "problem", "u3", "It printed on the wrong paper size and the first page was cut off"),
+      fb("android_bare_host", "ok", "u4"),
+      fb("mac_lpadmin", "problem", "u5", "Terminal said the printer was not found"),
+      fb("other_chromebook", "ok", "u6"),
+    ],
+    [{ setup_key: "windows_manual_wizard" }],
+  );
+  return (
+    <Frame path="/admin/devices">
+      <PageHeader title="All devices" description="Phones and laptops people print from. The ones that need a look are at the top." />
+      <SetupStatusPanel setups={setups} canConfirm />
     </Frame>
   );
 }
