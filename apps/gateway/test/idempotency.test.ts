@@ -58,6 +58,57 @@ describe("duplicate protection: the same device sending the same document again"
     expect(h.web.events.some((e) => e.type === "info" && (e.detail as { reason?: string })?.reason === "duplicate_submission")).toBe(true);
   });
 
+  it("a deliberate reprint after the first job COMPLETED is a new job (never swallowed), even within seconds", async () => {
+    const doc = pdfOf("print-it-again");
+    const first = await h.ipp(printJob(), doc);
+    h.web.jobs.set("web-job-1", { jobId: "web-job-1", status: "completed" });
+    const second = await h.ipp(printJob(), doc); // no clock movement: the lookup must be fresh, not the 3 s cache
+    expect(second.ipp.code).toBe(STATUS.ok);
+    expect(h.web.finalizeCalls).toHaveLength(2);
+    expect(jobIdOf(second.ipp)).not.toBe(jobIdOf(first.ipp));
+    // and the new job is now the remembered one
+    const third = await h.ipp(printJob(), doc);
+    expect(jobIdOf(third.ipp)).toBe(jobIdOf(second.ipp));
+    expect(h.web.finalizeCalls).toHaveLength(2);
+  });
+
+  it.each(["failed", "cancelled", "denied", "rejected", "expired"] as const)("a repeat after the first job ended as %s is a new job", async (status) => {
+    const doc = pdfOf(`ended-${status}`);
+    await h.ipp(printJob(), doc);
+    h.web.jobs.set("web-job-1", { jobId: "web-job-1", status });
+    await h.ipp(printJob(), doc);
+    expect(h.web.finalizeCalls).toHaveLength(2);
+  });
+
+  it.each(["pending_approval", "held", "approved", "claimed", "downloading", "downloaded", "printing", "submitted_to_spooler"] as const)(
+    "a repeat while the first job is still %s (genuinely in flight) is the same job",
+    async (status) => {
+      const doc = pdfOf(`inflight-${status}`);
+      const first = await h.ipp(printJob(), doc);
+      h.web.jobs.set("web-job-1", { jobId: "web-job-1", status });
+      const second = await h.ipp(printJob(), doc);
+      expect(h.web.finalizeCalls).toHaveLength(1);
+      expect(jobIdOf(second.ipp)).toBe(jobIdOf(first.ipp));
+    },
+  );
+
+  it("if the status lookup fails, the repeat is NOT deduplicated: a rare duplicate beats a lost print", async () => {
+    const doc = pdfOf("lookup-fails");
+    await h.ipp(printJob(), doc);
+    h.web.getJobDown = true;
+    const second = await h.ipp(printJob(), doc);
+    expect(second.ipp.code).toBe(STATUS.ok);
+    expect(h.web.finalizeCalls).toHaveLength(2);
+  });
+
+  it("if the earlier job can no longer be found, the repeat is a new job", async () => {
+    const doc = pdfOf("vanished");
+    await h.ipp(printJob(), doc);
+    h.web.jobs.delete("web-job-1");
+    await h.ipp(printJob(), doc);
+    expect(h.web.finalizeCalls).toHaveLength(2);
+  });
+
   it("concurrent identical requests share ONE finalize and get the same job", async () => {
     let open!: () => void;
     h.web.finalizeGate = new Promise<void>((r) => (open = r));

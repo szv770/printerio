@@ -73,7 +73,7 @@ export default async function AdminOverviewPage() {
         .limit(ACTIVE_LIMIT),
       supabase
         .from("print_jobs")
-        .select("id, original_file_name, status, created_at, source_pdf_pages, copies")
+        .select("id, original_file_name, status, error_message, created_at, source_pdf_pages, copies")
         .eq("organization_id", orgId)
         .order("created_at", { ascending: false })
         .limit(RECENT_LIMIT),
@@ -168,6 +168,7 @@ export default async function AdminOverviewPage() {
     href: routes.job(j.id),
     name: j.original_file_name,
     status: j.status,
+    errorMessage: j.error_message,
     meta: jobMetaLine({ pages: j.source_pdf_pages, copies: j.copies, createdAt: j.created_at }, now),
   }));
 

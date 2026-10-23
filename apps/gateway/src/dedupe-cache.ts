@@ -23,7 +23,7 @@ export interface DedupeOptions<T> {
   /** Remember the result for the window? Default: yes. */
   cache?: (value: T) => boolean;
   /** A remembered result that is no longer valid (e.g. its job was cancelled) is replaced by new work. */
-  usable?: (value: T) => boolean;
+  usable?: (value: T) => boolean | Promise<boolean>;
 }
 
 export interface DedupeCacheOptions {
@@ -56,13 +56,18 @@ export class DedupeCache<T> {
         return { value: await existing.promise, deduped: true };
       }
       const fresh = existing.expiresAt > this.now();
-      if (fresh && (!opts.usable || opts.usable(existing.value as T))) {
+      const usable = fresh && (!opts.usable || (await opts.usable(existing.value as T)));
+      if (usable) {
         // Touch: most recently used goes to the end of the Map's insertion order.
-        this.entries.delete(key);
-        this.entries.set(key, existing);
+        if (this.entries.get(key) === existing) {
+          this.entries.delete(key);
+          this.entries.set(key, existing);
+        }
         return { value: existing.value as T, deduped: true };
       }
-      this.entries.delete(key);
+      if (this.entries.get(key) === existing) this.entries.delete(key);
+      // Another identical request may have started new work while we were checking: join it rather than start a second.
+      return this.run(key, work, opts);
     }
 
     const entry: Entry<T> = { promise: undefined as unknown as Promise<T>, settled: false, expiresAt: Number.POSITIVE_INFINITY };

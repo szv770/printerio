@@ -141,3 +141,14 @@ describe("Overview: waiting jobs are NOT failures", () => {
     expect(items[0]?.note).toContain("not available for 2 hours");
   });
 });
+
+describe("every list that shows a status word labels a waiting job as waiting (not 'Approved')", () => {
+  it("jobStatusCell: warning tone, 'Waiting for the printer'; plain approved and other statuses unchanged", async () => {
+    const { jobStatusCell } = await import("./admin/all-jobs");
+    expect(jobStatusCell("approved", unavailable)).toEqual({ label: "Waiting for the printer", tone: "warning" });
+    expect(jobStatusCell("approved", unknown)).toEqual({ label: "Waiting for the printer", tone: "warning" });
+    expect(jobStatusCell("approved", null)).toEqual({ label: "Approved", tone: "warning" });
+    expect(jobStatusCell("failed", unavailable)).toEqual({ label: "Failed", tone: "danger" });
+    expect(jobStatusCell("completed", null)).toEqual({ label: "Completed", tone: "success" });
+  });
+});

@@ -95,8 +95,7 @@ export function dedupeKey(deviceId: string, doc: Buffer, attributes: FlatObject)
   return `${deviceId}:${hash}:${opts}`;
 }
 
-/** Job states that mean "the earlier job will not print": a repeat of the same document is then a genuinely new print. */
-const DEAD_STATES = new Set<JobState>(["cancelled", "failed", "denied", "rejected", "expired"]);
+
 
 export interface RequestContext {
   /** Device token read from the Host header. */
@@ -290,11 +289,20 @@ async function submitDocument(
     () => uploadAndFinalize(deps, ctx, device, p, attributes),
     {
       cache: (v) => v.ok,
-      // A remembered job that has since been cancelled/failed/refused will not print: the repeat is a new print.
-      usable: (v) => {
+      // A hit may only hand back the earlier job while it is genuinely STILL IN FLIGHT. Ask the web app NOW (not the
+      // 3 s cache): a finished job (completed, failed, cancelled, ...) means this is a deliberate reprint and must
+      // print. If the lookup fails or the job is gone we cannot prove a duplicate, so we do not dedupe (a rare
+      // double print is better than a lost one).
+      usable: async (v) => {
         if (!v.ok) return false;
-        const known = statusCache.peek(v.job.jobId)?.status ?? deps.registry.findByWebJobId(device.deviceId, v.job.jobId)?.state ?? v.job.status;
-        return !DEAD_STATES.has(known);
+        try {
+          const now = await deps.web.getJob(v.job.jobId, device.deviceId);
+          if (!now) return false;
+          statusCache.prime(v.job.jobId, now);
+          return !isTerminalState(now.status) && now.status !== "failed";
+        } catch {
+          return false;
+        }
       },
     },
   );

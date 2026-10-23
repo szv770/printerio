@@ -2,8 +2,7 @@ import Link from "next/link";
 import { ChevronLeft, Search, Layers } from "lucide-react";
 import { Button, ButtonLink, EmptyState, Input, PageHeader, Pills, ResponsiveTable, StatusDot, type TableColumn } from "@/components/ui";
 import { LocalTime } from "@/app/(dashboard)/jobs/LocalTime";
-import { jobStatusDisplay } from "@/lib/job-status-labels";
-import { JOB_FILTERS, buildJobsHref, jobStatusTone, type JobsQuery } from "@/lib/admin/all-jobs";
+import { JOB_FILTERS, buildJobsHref, jobStatusCell, type JobsQuery } from "@/lib/admin/all-jobs";
 import { routes } from "@/lib/routes";
 
 export interface JobListRow {
@@ -16,6 +15,7 @@ export interface JobListRow {
   copies: number;
   createdAt: string;
   isTest: boolean;
+  errorMessage?: string | null;
 }
 
 export function JobsView({ rows, query, hasOlder }: { rows: JobListRow[]; query: JobsQuery; hasOlder: boolean }) {
@@ -39,7 +39,7 @@ export function JobsView({ rows, query, hasOlder }: { rows: JobListRow[]; query:
       ),
     },
     { header: "User", cell: (j) => j.who },
-    { header: "Status", cell: (j) => <StatusDot tone={jobStatusTone(j.status)}>{jobStatusDisplay(j.status).label}</StatusDot> },
+    { header: "Status", cell: (j) => <StatusDot tone={jobStatusCell(j.status, j.errorMessage).tone}>{jobStatusCell(j.status, j.errorMessage).label}</StatusDot> },
     {
       header: "Pages",
       align: "right",

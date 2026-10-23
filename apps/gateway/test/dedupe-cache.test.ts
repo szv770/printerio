@@ -142,3 +142,19 @@ describe("DedupeCache", () => {
     expect(c.size).toBeLessThanOrEqual(50);
   });
 });
+
+describe("DedupeCache: async usable()", () => {
+  it("awaits the check; two identical requests that both find an unusable entry start ONE new run, not two", async () => {
+    const c = new DedupeCache<number>();
+    let runs = 0;
+    await c.run("k", async () => ++runs);
+    const usable = async (v: number) => {
+      await new Promise((r) => setTimeout(r, 20));
+      return v !== 1; // the first result is stale; a fresh one is fine
+    };
+    const [a, b] = await Promise.all([c.run("k", async () => ++runs, { usable }), c.run("k", async () => ++runs, { usable })]);
+    expect(runs).toBe(2);
+    expect(a.value).toBe(2);
+    expect(b.value).toBe(2);
+  });
+});

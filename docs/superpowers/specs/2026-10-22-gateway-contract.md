@@ -154,8 +154,11 @@ this job as held with this reason" (`forcedHeldReason`), reusing its existing he
   upload, so a retry that arrives while the first request is still being processed joins the same in-flight work. Within 3 minutes
   an identical request gets the earlier result: no second upload, no second `finalize`, a normal success with the same web job (a
   repeat Print-Job gets the same IPP job-id; a repeat Send-Document fills in its own Create-Job id with the same web job). Only
-  successes are remembered (a refusal or a failed web/storage call is retried for real and never blocks the next retry); a job that is
-  known to be cancelled/failed/denied/rejected/expired is not handed back; Cancel-Job forgets it. Different document, different
+  successes are remembered, and a remembered result is handed back ONLY while that web job is still in flight: on every hit the gateway
+  asks the web app for the job's CURRENT status (a fresh lookup, not the 3 s cache) and treats completed, failed, cancelled, denied,
+  rejected and expired (and "job not found", and a failed lookup) as "not a duplicate", so a deliberate reprint always prints and the
+  new job replaces the cache entry. Identical requests that arrive while the first is still being processed still share one job.
+  Cancel-Job also forgets the entry. Different document, different
   options or a different device are never merged. LRU-capped at 500 entries; the cache holds job ids, never the PDF.
   **Not covered:** a `finalize` that created the job but whose answer was lost (timeout/5xx) cannot be recognised on the retry - the
   web side has no idempotency key or file-hash column (would need a migration) - so that retry creates a second job.

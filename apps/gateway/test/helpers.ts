@@ -44,6 +44,8 @@ export class FakeWeb implements WebApi {
   nextMessage: string | undefined;
   cancelResult: CancelResult = { kind: "ok", status: "cancelled" };
   getJobCalls = 0;
+  /** Only job lookups fail (finalize and device resolution keep working). */
+  getJobDown = false;
   /** While set, finalize waits for it (lets tests hold several uploads in flight at once). */
   finalizeGate: Promise<void> | null = null;
   finalizeInFlight = 0;
@@ -90,6 +92,7 @@ export class FakeWeb implements WebApi {
   }
   async getJob(jobId: string): Promise<JobInfo | null> {
     this.getJobCalls++;
+    if (this.getJobDown) throw new WebUnavailableError("job lookup down");
     if (this.down) throw new WebUnavailableError("down");
     return this.jobs.get(jobId) ?? null;
   }
