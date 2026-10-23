@@ -9,7 +9,7 @@ import { roleChoices } from "@/lib/admin/members";
 
 const initialState: InviteState = {};
 
-export function InviteForm({ orgName }: { orgName: string }) {
+export function InviteForm({ orgName, groups }: { orgName: string; groups: { id: string; name: string }[] }) {
   const [state, formAction, pending] = useActionState(createInvitationAction, initialState);
 
   return (
@@ -17,12 +17,26 @@ export function InviteForm({ orgName }: { orgName: string }) {
       <p className="text-sm text-[var(--color-text-2)]">
         Make an invite and share the link. When they open it the code is already filled in, so they only type their email.
       </p>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="They join as" htmlFor="role">
           <Select id="role" name="role" defaultValue="student">
             {roleChoices().map((r) => (
               <option key={r.value} value={r.value}>
                 {r.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field
+          label="Put them in this group"
+          htmlFor="groupId"
+          hint="optional"
+        >
+          <Select id="groupId" name="groupId" defaultValue="">
+            <option value="">No group</option>
+            {groups.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
               </option>
             ))}
           </Select>

@@ -1,5 +1,6 @@
 import "server-only";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { checkInviteGroup } from "@/lib/auth/invite-group";
 import { checkInviteRateLimit } from "@/lib/auth/invite-rate-limit";
 
 export type RedeemInvitationResult =
@@ -68,6 +69,19 @@ export async function redeemInvitation(
   // express (it only ever sends literal values, never a SQL expression) -
   // hence the RPC, mirroring adjust_monthly_usage's identical shape
   // (supabase/migrations/0010_quota_functions.sql) for the identical reason.
+  // The invite's optional group must belong to the same organization (a deleted group is skipped).
+  let groupId: string | null = null;
+  if (invitation.group_id) {
+    const { data: group } = await supabase.from("groups").select("organization_id").eq("id", invitation.group_id).maybeSingle();
+    const check = checkInviteGroup({
+      inviteOrgId: invitation.organization_id,
+      groupId: invitation.group_id,
+      groupOrgId: group?.organization_id ?? null,
+    });
+    if (!check.ok) return { ok: false, reason: "not_found" };
+    groupId = check.groupId;
+  }
+
   const { data: claimed, error: claimError } = await supabase.rpc("claim_invitation_use", {
     p_invitation_id: invitation.id,
   });
@@ -82,13 +96,21 @@ export async function redeemInvitation(
   });
   if (insertError) throw insertError;
 
+  // Put the person in the invite's group. The membership above is already done, so a failure here must not
+  // lock them out: log it in the audit trail and carry on (an admin can add them from Groups).
+  let groupAdded = false;
+  if (groupId) {
+    const { error: groupError } = await supabase.from("group_members").upsert({ group_id: groupId, user_id: userId });
+    groupAdded = !groupError;
+  }
+
   await supabase.from("audit_logs").insert({
     organization_id: invitation.organization_id,
     actor_id: userId,
     action: "invitation.redeemed",
     target_type: "organization_invitations",
     target_id: invitation.id,
-    metadata: { role: invitation.role },
+    metadata: { role: invitation.role, ...(groupId ? { group_id: groupId, group_added: groupAdded } : {}) },
   });
 
   return { ok: true, organizationId: invitation.organization_id, role: invitation.role };

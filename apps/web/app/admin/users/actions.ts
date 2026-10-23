@@ -34,10 +34,22 @@ export async function createInvitationAction(_prev: InviteState, formData: FormD
   const code = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
 
   const supabase = await createClient();
+  // Optional group: it must be one of THIS organization's groups.
+  const groupId = String(formData.get("groupId") ?? "").trim() || null;
+  if (groupId) {
+    const { data: group } = await supabase
+      .from("groups")
+      .select("id")
+      .eq("id", groupId)
+      .eq("organization_id", session.membership.organization_id)
+      .maybeSingle();
+    if (!group) return { error: "That group was not found. Pick one from the list." };
+  }
   const { error } = await supabase.from("organization_invitations").insert({
     organization_id: session.membership.organization_id,
     code,
     role,
+    group_id: groupId,
     max_uses: maxUses,
     expires_at: expiresInDays ? new Date(Date.now() + expiresInDays * 86_400_000).toISOString() : null,
     created_by: session.userId,

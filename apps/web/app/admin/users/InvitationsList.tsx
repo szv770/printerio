@@ -12,6 +12,8 @@ export interface OpenInvitation {
   id: string;
   code: string | null;
   role: string;
+  /** Name of the group people land in (null = none, or the group was deleted). */
+  groupName?: string | null;
   usesCount: number;
   maxUses: number | null;
   expiresAt: string | null;
@@ -23,7 +25,8 @@ const initialState: RevokeInvitationState = {};
 export function invitationNote(inv: OpenInvitation): string {
   const used = inv.maxUses ? `Used ${inv.usesCount} of ${inv.maxUses}` : `Used ${inv.usesCount} ${inv.usesCount === 1 ? "time" : "times"}`;
   const ends = inv.expiresAt ? `, stops working ${new Date(inv.expiresAt).toLocaleDateString()}` : "";
-  return `Joins as ${roleLabel(inv.role)}. ${used}${ends}.`;
+  const group = inv.groupName ? ` in the group "${inv.groupName}"` : "";
+  return `Joins as ${roleLabel(inv.role)}${group}. ${used}${ends}.`;
 }
 
 const STATUS_STYLE: Record<InviteStatus, { label: string; cls: string }> = {

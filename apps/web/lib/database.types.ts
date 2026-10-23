@@ -451,6 +451,7 @@ export type Database = {
           created_by: string
           email: string | null
           expires_at: string | null
+          group_id: string | null
           id: string
           max_uses: number | null
           organization_id: string
@@ -463,6 +464,7 @@ export type Database = {
           created_by: string
           email?: string | null
           expires_at?: string | null
+          group_id?: string | null
           id?: string
           max_uses?: number | null
           organization_id: string
@@ -475,6 +477,7 @@ export type Database = {
           created_by?: string
           email?: string | null
           expires_at?: string | null
+          group_id?: string | null
           id?: string
           max_uses?: number | null
           organization_id?: string
