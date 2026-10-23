@@ -1,5 +1,7 @@
 # Handoff: IPP gateway (print from the OS print dialog)
 
+> **Current status lives in `docs/BACKLOG.md`** (updated 2026-10-23). This hand-off was written before the first real device test; many "never run" statements below are out of date.
+
 Written 2026-10-22 at the end of a cloud session, for whoever continues (the owner in a terminal CLI, or another Claude session).
 Branch: `claude/wireless-printer-app-tz73ni` (default branch of the repo is `claude/upcoming-large-project-3d2j9p`; there is no `main`).
 Read order: `CLAUDE.md` -> this file -> `docs/superpowers/specs/2026-10-22-gateway-contract.md` (the interface, with a "Web-side details" addendum)

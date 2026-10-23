@@ -3,17 +3,32 @@
 Written 2026-10-22 so nothing is lost between sessions. Read `docs/HANDOFF.md` first for what is built and proven.
 Working rule from the owner: one agent at a time, go step by step, do not burn usage with many agents at once.
 
-## State (updated 2026-10-22, late)
-- PROVEN on real devices: Pixel 8 -> `u-<token>.szvtech.org` -> Cloudflare tunnel -> gateway on the "MLM Office" server -> Supabase intake -> web pipeline -> Print Agent -> Kyocera raw port 9100. The phone showed "printed".
-- Built and merged since: gateway job-number fix, plain-English phone job messages, Windows service launcher fix (services not yet confirmed running on the server), weekly cleanup, user-code stamp (bottom-right, migration 0033 applied), sign-in link fix (owner still has to change the Supabase Magic Link email template), device delete, flaky test fixed.
-- NOT yet proven: Windows 11 client, staples/duplex/booklets from the dialog, the stamp on a real print, the services after a reboot, iPhone.
-- A harsh review of the web app is in `docs/REVIEW-2026-10-22.md` (32 ranked findings). The RLS findings 1-3 were VERIFIED against the live database on 2026-10-22.
+## State (updated 2026-10-23)
+READ THIS FIRST. `docs/HANDOFF.md` is the original design hand-off (partly out of date); this file is the current truth.
 
-## Work order from the review (do ONE step at a time)
-A. SECURITY (verified live): members can write any column of their own print_jobs (self-approve, forge jobs), write their own monthly_usage rows (reset quota; adjust_monthly_usage is SECURITY INVOKER), and read/overwrite every colleague's PDFs in storage (policies check only the org folder). Fix: move those writes server-side (service role, checks in code), deploy that FIRST, THEN apply a migration dropping the member write policies / scoping storage to the job owner and approvers. Re-check pg_policies before and after.
-B. RELIABILITY: failed jobs never retry and keep their quota reserved; sweep only daily (re-enable the 15-minute schedule); members cannot cancel their own job from the website; last admin can demote themselves; held print-dialog jobs other than booklets are a dead end; website uploads over ~4.5 MB likely fail on Vercel (Server Action body cap); agent status route not idempotent; approve/reject can race with the sweep.
-C. QUICK WINS from the review's list (invite defaults 1 use / 7 days, "Show older jobs", aria-labels, OAuth failure redirect, LocalTime in audit log...).
-D. OWNER DECISIONS needed: can members cancel their own jobs; can approvers approve their own jobs; is Staff distinct from User; auto-retry on failure or ask the teacher; school time zone and quota reset day; 30-day forced re-login; restrict sign-in links to approved domains.
+### Proven on the real system
+- Pixel 8 -> `u-<token>.szvtech.org` -> Cloudflare named tunnel -> IPP gateway (Windows service on the "MLM Office" server) -> web app -> Print Agent (Windows service) -> Kyocera raw port 9100. Printed and reported "printed" on the phone. PDFs with attachments now print (they are sanitized).
+- Website upload printed (JOB-2026-000010). Weekly cleanup route, daily sweep, cancel/retry, security tightening (migration 0034) are live and verified in the database.
+- Both services run by themselves (service launcher fix, PR #12). Update-from-the-website button exists (PR #29) but must be used for the first time by the owner; the server had to be updated by hand once to receive it.
+
+### Built and merged (all in the default branch)
+Gateway: finalize refusals, text job numbers + own integer IPP ids, request logging, plain-English phone job messages. Web: user-code stamp (9 pt, bottom-right, unique persistent codes per org, Admin > Settings controls), device delete, cancel own job / failure messages / Try again / auto-retry setting (migration 0035), approvers can approve own, attachment stripping, booklet fills the page + blank-pages answer fixes, server-side writes for print_jobs/usage/storage (migration 0034 applied), weekly cleanup. UI: new design system (phone-app feel with a printer character), one admin shell for all pages, closed-by-default sections, unified Save bar, redone teacher pages, redone admin pages (People, Printers & devices, Rules & limits, Reports, Approvals, Files, All jobs), real admin and teacher homes with 15 s live refresh. Dev-only preview route `/dev/preview` (404 outside development) for Playwright screenshots; Playwright lives OUTSIDE the repo (scratchpad).
+
+### NOT proven yet (needs the owner at a device or printer)
+- Windows 11 print-dialog client (the owner's laptop is behind a content filter whose DNS breaks the address: test from the server PC or another network).
+- Printed output: stamp legibility at 9 pt, one LEFT and one RIGHT booklet (fold/staple after the scale change), staples top-right via the dialog, duplex from the dialog.
+- The new UI with real data and real saves (Users save bar, rule/limit saves, approve/reject, Settings save bar). Only sample-data screenshots were reviewed.
+- The first press of "Update this server".
+- Magic-link sign-in with the new email template (the owner changed it; not confirmed), Google sign-in (never diagnosed).
+
+### Next
+1. Owner: print one left and one right test booklet; try the Windows 11 print dialog; press "Update this server" once; click through the admin pages and report anything off.
+2. Final visual consistency pass over every page (Playwright, 375/768/1280) and fix leftovers (e.g. admin pages still using old patterns, tour anchors that no longer have an element).
+3. Remaining review findings in `docs/REVIEW-2026-10-22.md` (Medium/Low): raw-port printers may show "Offline", reports/quota period timezone (school is Miami / America/New_York), invite defaults (1 use, 7 days), "Show older jobs" on My jobs, Vercel Server Action body size (~4.5 MB) for website uploads, gateway finalize idempotency, audit-event forging by members.
+4. Later features the owner asked for: cancel a job AFTER it reached the printer; long-edge/short-edge and bottom-left staple choices; students on Chromebooks (quotas, Google admin) need their own design; iPhone/AirPrint only after Windows and Android are solid.
+
+### Decisions already made (do not re-ask)
+No per-option Windows printer queues. Booklet from the print dialog is held and the member picks Left or Right in one tap. Staple default top-left but the owner mostly uses top-right. Teachers can cancel their own job; approvers can approve their own; failed prints show what failed + Try again (auto-retry is an admin setting, default off). Time zone Miami; no quotas for staff for now. Stamp: faded but larger, unique codes. UI: simple, closed-by-default sections, excellent on phones, admin never leaves the admin shell. One agent at a time, step by step; owner is not technical: plain language, exact copy-paste steps, say plainly what is untested.
 
 ## Original priorities
 
