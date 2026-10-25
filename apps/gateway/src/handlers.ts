@@ -32,6 +32,8 @@ export interface GatewayDeps {
   storage: IntakeStorage;
   logger: Logger;
   printerName: string;
+  /** Finishings advertised to clients; default all (see ipp/printer-attributes.ts). */
+  finishings?: readonly number[];
   registry: JobRegistry;
   startedAt: number;
   now?: () => number;
@@ -487,6 +489,7 @@ async function dispatch(deps: GatewayDeps, ctx: RequestContext, msg: IppMessage)
         printerName: deps.printerName,
         uuidSeed: ctx.token,
         startedAt: deps.startedAt,
+        finishings: deps.finishings,
       });
       return buildReply(msg, {
         status: STATUS.ok,

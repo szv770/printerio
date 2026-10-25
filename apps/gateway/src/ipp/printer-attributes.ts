@@ -41,6 +41,8 @@ export interface PrinterAttrsInput {
   uuidSeed: string;
   startedAt: number;
   now?: Date;
+  /** Finishing values to advertise (default: all of FINISHINGS_SUPPORTED). */
+  finishings?: readonly number[];
 }
 
 export function uuidFromSeed(seed: string): string {
@@ -104,7 +106,7 @@ export function buildPrinterAttributes(input: PrinterAttrsInput): IppAttr[] {
     // UNVERIFIED: which of these Windows 11 / Android actually draw in their dialog (nothing is captured yet; the
     // OS may show only some, or only the generic "staple"). Whatever arrives that is not listed is held, never guessed.
     attr(TAG.enum, "finishings-default", 3),
-    attr(TAG.enum, "finishings-supported", ...FINISHINGS_SUPPORTED),
+    attr(TAG.enum, "finishings-supported", ...(input.finishings ?? FINISHINGS_SUPPORTED)),
     attr(TAG.resolution, "printer-resolution-default", dpi600),
     attr(TAG.resolution, "printer-resolution-supported", dpi600),
     attr(TAG.keyword, "media-default", letter.key),

@@ -33,7 +33,7 @@ async function start(): Promise<void> {
   });
   const storage = createSupabaseStorage(config.supabaseUrl, config.supabaseServiceRoleKey);
   const server = createGatewayServer({
-    deps: { web, storage, logger, printerName: config.printerName, registry, startedAt: Date.now() },
+    deps: { web, storage, logger, printerName: config.printerName, finishings: config.advertiseFinishings === "basic" ? [3] : undefined, registry, startedAt: Date.now() },
     baseDomain: config.baseDomain,
     maxBodyBytes: config.maxBodyBytes,
     limits: config.limits,

@@ -54,3 +54,24 @@ describe("printer attributes", () => {
     expect(names(["no-such-attribute"])).toEqual([]);
   });
 });
+
+describe("advertised finishings", () => {
+  const finishingsOf = (finishings?: readonly number[]) => {
+    const attrs = buildPrinterAttributes({
+      baseUrl: "https://u-x.example.test",
+      printerName: "Printio",
+      uuidSeed: "seed",
+      startedAt: Date.now(),
+      finishings,
+    });
+    const m = decodeIpp(encodeIpp({ code: 0, requestId: 1, groups: [{ tag: TAG.printer, attrs }] }));
+    return flatten(m.groups[0])["finishings-supported"];
+  };
+
+  it("advertises the full list by default", () => {
+    expect(finishingsOf()).toEqual([3, 4, 20, 22, 8, 13]);
+  });
+  it("can advertise 'none' only, exactly what the spike sent when Windows 11 accepted the printer", () => {
+    expect(finishingsOf([3])).toBe(3);
+  });
+});
