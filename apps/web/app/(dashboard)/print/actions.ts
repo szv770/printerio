@@ -10,6 +10,7 @@ import { PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 import { BOOKLET_BINDING_REASON } from "@/lib/gateway/ipp-choices";
 import { createPrintJob, type JobOptions } from "@/lib/jobs/create-print-job";
+import { bookletSheetChoice } from "@/lib/pdf/booklet-build";
 
 export interface SubmitJobState {
   error?: string;
@@ -87,6 +88,7 @@ export async function submitPrintJobAction(_prev: SubmitJobState, formData: Form
     punch: formData.get("punch") === "on",
     confirmBookletPadding: formData.get("confirmBookletPadding") === "true",
     bookletFit: formData.get("bookletFit") === "keep" ? "keep" : "fill",
+    bookletSheet: bookletSheetChoice(formData.get("bookletSheet")),
   });
 }
 
@@ -136,7 +138,7 @@ export async function reprintJobAction(_prev: SubmitJobState, formData: FormData
   }
   const originalBytes = new Uint8Array(await fileData.arrayBuffer());
 
-  const finishing = job.finishing as { staple: boolean; booklet: boolean; punch: boolean; bookletFit?: string };
+  const finishing = job.finishing as { staple: boolean; booklet: boolean; punch: boolean; bookletFit?: string; bookletSheet?: string };
 
   // The stored per-job choices go back through the same pipeline, applied to the untouched original. An
   // older job that never stored a staple corner / binding side falls back to the printer's own default.
@@ -160,6 +162,7 @@ export async function reprintJobAction(_prev: SubmitJobState, formData: FormData
     punch: finishing.punch,
     confirmBookletPadding: true,
     bookletFit: finishing.bookletFit === "keep" ? "keep" : "fill",
+    bookletSheet: bookletSheetChoice(finishing.bookletSheet),
   });
 }
 
@@ -191,7 +194,7 @@ export async function finishHeldBookletAction(_prev: SubmitJobState, formData: F
     .maybeSingle();
   if (jobError || !job) return { error: "Job not found." };
 
-  const finishing = job.finishing as { booklet?: boolean; punch?: boolean; bookletFit?: string } | null;
+  const finishing = job.finishing as { booklet?: boolean; punch?: boolean; bookletFit?: string; bookletSheet?: string } | null;
   if (job.status !== "held" || !finishing?.booklet || job.held_reason !== BOOKLET_BINDING_REASON) {
     return { error: "This job is no longer waiting for your choice." };
   }
@@ -209,6 +212,7 @@ export async function finishHeldBookletAction(_prev: SubmitJobState, formData: F
     punch: false,
     confirmBookletPadding: true,
     bookletFit: finishing.bookletFit === "keep" ? "keep" : "fill",
+    bookletSheet: bookletSheetChoice(finishing.bookletSheet),
     writeClient: service,
     ...(job.source === "ipp" ? { source: "ipp" as const, deviceId: job.device_id ?? undefined } : {}),
   });

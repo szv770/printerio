@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
 import { preflightPdf } from "@/lib/pdf/preflight";
-import { padAndImposeBooklet } from "@/lib/pdf/booklet-build";
+import { bookletSheetChoice, padAndImposeBooklet, type BookletSheet } from "@/lib/pdf/booklet-build";
 import type { BookletFit } from "@/lib/pdf/imposition";
 import { containsPjlEscape, PJL_ESCAPE_MESSAGE, computePrintMath, computeCostCents, computeBookletPadding, type PolicyAction, type PricingConfig, type OrgRole } from "@printio/shared";
 import { createPageSubsetPdf } from "@/lib/pdf/page-subset";
@@ -40,6 +40,8 @@ export interface JobOptions {
   confirmBookletPadding: boolean;
   /** Booklet jobs only. "fill" (default; also what IPP / gateway jobs get) crops the document's own blank margins so the content fills the page; "keep" scales the whole page as before. Stored in print_jobs.finishing. */
   bookletFit?: BookletFit;
+  /** Booklet jobs only. "tabloid" = Letter pages at full size on an 11x17 sheet (whole page kept, no crop); default "letter" = regular statement-size pages. Stored in print_jobs.finishing; the row's paper_size becomes tabloid. */
+  bookletSheet?: BookletSheet;
   /** Create the job as held with this plain-language reason (wins over the printer's own held reason). */
   forcedHeldReason?: string;
   /** Where the job came from. Default "web". */
@@ -113,6 +115,7 @@ export async function createPrintJob(
   const { printerProfileId, choices, confirmBookletPadding } = opts;
   const source = opts.source ?? "web";
   const bookletFit: BookletFit = opts.bookletFit === "keep" ? "keep" : "fill";
+  const bookletSheet: BookletSheet = bookletSheetChoice(opts.bookletSheet);
   // Reads go through `supabase`; every WRITE (quota reserve/release, storage upload/remove, the print_jobs insert,
   // the event trail) goes through `writer`. The website passes the service-role client here after its own session
   // checks, so members need no INSERT/UPDATE rights on print_jobs, monthly_usage or the print-jobs bucket
@@ -308,6 +311,7 @@ export async function createPrintJob(
         // on the job, so imposition, the Agent and a re-print all agree on it.
         bindingSide: bindingSide ?? profileBindingSide,
         fit: bookletFit,
+        sheet: bookletSheet,
       });
       effectivePageCount = built.paddedPages;
       blankPagesAdded = built.blankPagesAdded;
@@ -542,8 +546,8 @@ export async function createPrintJob(
     copies,
     color_mode: colorMode,
     duplex,
-    paper_size: paperSize,
-    finishing: { staple, booklet, punch, ...(booklet ? { bookletFit } : {}) },
+    paper_size: booklet && bookletSheet === "tabloid" ? "tabloid" : paperSize,
+    finishing: { staple, booklet, punch, ...(booklet ? { bookletFit, ...(bookletSheet === "tabloid" ? { bookletSheet } : {}) } : {}) },
     // Per-job choices (migrations 0028 + 0030). staple_position is non-null exactly for a stapled raw job; a
     // booklet always records which edge it is bound on, so imposition, the Agent and a re-print agree.
     staple_position: staple ? staplePosition : null,

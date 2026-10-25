@@ -282,6 +282,20 @@ describe("createPrintJob: error path", () => {
     await run(pdf3, baseOpts());
     expect(insertedJob().finishing).toEqual({ staple: false, booklet: false, punch: false });
   });
+
+  it("an 11x17 booklet is recorded on the job (finishing + paper size) so a re-print repeats it; a regular one records nothing extra", async () => {
+    await run(pdf3, baseOpts({ choices: { sides: "two", staple: "none", booklet: "right", copies: 1, pageRange: "" }, confirmBookletPadding: true, bookletSheet: "tabloid" }));
+    expect(insertedJob()).toMatchObject({ paper_size: "tabloid", booklet_binding_side: "right", finishing: { booklet: true, bookletSheet: "tabloid" } });
+    use();
+    await run(pdf3, baseOpts({ choices: { sides: "two", staple: "none", booklet: "left", copies: 1, pageRange: "" }, confirmBookletPadding: true }));
+    expect(insertedJob().finishing).not.toHaveProperty("bookletSheet");
+    expect(insertedJob().paper_size).not.toBe("tabloid");
+    use();
+    // the sheet only means something for a booklet
+    await run(pdf3, baseOpts({ bookletSheet: "tabloid" }));
+    expect(insertedJob().paper_size).not.toBe("tabloid");
+    expect(insertedJob().finishing).toEqual({ staple: false, booklet: false, punch: false });
+  });
 });
 
 describe("createPrintJob: user code stamp", () => {

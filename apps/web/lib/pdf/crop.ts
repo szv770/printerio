@@ -35,60 +35,82 @@ export interface CropOptions {
 const clamp0 = (n: number) => (n > 0 ? n : 0);
 
 /**
- * The crop rectangle of every page, or null for "do not crop" (any page that could not be analysed, or no page
- * with content at all). The crop is expressed as per-side insets shared by the whole document: for each side,
- * the smallest gap between the page edge and the content on any page (the union of all content), minus the
- * safety pad. Pages of the same size therefore get the identical crop and, in turn, the identical scale; a page
- * with a header, a footer or a page number keeps them. Blank pages (booklet padding) are cropped like the rest.
+ * The crop rectangle of every page, or null for "do not crop" (nothing could be cropped at all).
  *
- * Safety: the crop never leaves the page box, and never removes more than `maxCropFraction` of a page's width or
- * of its height (when it would, both sides of that axis are reduced in proportion).
+ * Pages are grouped BY SIZE, and each group gets one shared crop: for each side, the smallest gap between the page
+ * edge and the content on any page of that group (the union of the group's content), minus the safety pad. Pages of
+ * the same size therefore get the identical crop and, in turn, the identical scale, so text keeps one size across a
+ * normal document; a page with a header, a footer or a page number keeps them. Blank pages (booklet padding) are
+ * cropped like the rest of their group.
+ *
+ * Why by size: a booklet made from scans or mixed files has pages of different sizes. One shared crop would be
+ * decided by whichever page reaches furthest out (a scan with ink to its edges), and every normal page would lose
+ * its chance to be enlarged. Pages of another size say nothing about this size's margins.
+ *
+ * A group is left WHOLE (its pages come back as their full page box) when any of its pages could not be analysed,
+ * or when none of them has content; nothing is ever guessed. Safety: a crop never leaves the page box, and never
+ * removes more than `maxCropFraction` of a page's width or of its height (when it would, both sides of that axis
+ * are reduced in proportion).
  */
 export function computeUniformCrop(pages: Array<{ page: Box; content: PageContent }>, options: CropOptions = {}): Box[] | null {
   const pad = options.padPt ?? CROP_SAFETY_PAD_PT;
   const maxFraction = options.maxCropFraction ?? MAX_CROP_FRACTION;
   if (pages.length === 0) return null;
-  if (pages.some((p) => p.content.kind === "unknown")) return null;
 
-  let left = Infinity;
-  let bottom = Infinity;
-  let right = Infinity;
-  let top = Infinity;
-  let any = false;
-  for (const { page, content } of pages) {
-    if (content.kind !== "content") continue;
-    any = true;
-    const b = content.box;
-    left = Math.min(left, clamp0(b.x0 - page.x0));
-    bottom = Math.min(bottom, clamp0(b.y0 - page.y0));
-    right = Math.min(right, clamp0(page.x1 - b.x1));
-    top = Math.min(top, clamp0(page.y1 - b.y1));
-  }
-  if (!any) return null;
-  left = clamp0(left - pad);
-  bottom = clamp0(bottom - pad);
-  right = clamp0(right - pad);
-  top = clamp0(top - pad);
-
-  return pages.map(({ page }) => {
-    const w = page.x1 - page.x0;
-    const h = page.y1 - page.y0;
-    let l = left;
-    let r = right;
-    let b = bottom;
-    let t = top;
-    if (l + r > maxFraction * w) {
-      const k = (maxFraction * w) / (l + r);
-      l *= k;
-      r *= k;
-    }
-    if (b + t > maxFraction * h) {
-      const k = (maxFraction * h) / (b + t);
-      b *= k;
-      t *= k;
-    }
-    return { x0: page.x0 + l, y0: page.y0 + b, x1: page.x1 - r, y1: page.y1 - t };
+  const groups = new Map<string, number[]>();
+  pages.forEach(({ page }, i) => {
+    const key = `${Math.round(page.x1 - page.x0)}x${Math.round(page.y1 - page.y0)}`;
+    groups.set(key, [...(groups.get(key) ?? []), i]);
   });
+
+  const out: Box[] = pages.map(({ page }) => ({ ...page }));
+  let croppedAny = false;
+  for (const indices of groups.values()) {
+    const members = indices.map((i) => pages[i]!);
+    if (members.some((m) => m.content.kind === "unknown")) continue;
+    let left = Infinity;
+    let bottom = Infinity;
+    let right = Infinity;
+    let top = Infinity;
+    let any = false;
+    for (const { page, content } of members) {
+      if (content.kind !== "content") continue;
+      any = true;
+      const b = content.box;
+      left = Math.min(left, clamp0(b.x0 - page.x0));
+      bottom = Math.min(bottom, clamp0(b.y0 - page.y0));
+      right = Math.min(right, clamp0(page.x1 - b.x1));
+      top = Math.min(top, clamp0(page.y1 - b.y1));
+    }
+    if (!any) continue;
+    croppedAny = true;
+    left = clamp0(left - pad);
+    bottom = clamp0(bottom - pad);
+    right = clamp0(right - pad);
+    top = clamp0(top - pad);
+
+    for (const i of indices) {
+      const { page } = pages[i]!;
+      const w = page.x1 - page.x0;
+      const h = page.y1 - page.y0;
+      let l = left;
+      let r = right;
+      let b = bottom;
+      let t = top;
+      if (l + r > maxFraction * w) {
+        const k = (maxFraction * w) / (l + r);
+        l *= k;
+        r *= k;
+      }
+      if (b + t > maxFraction * h) {
+        const k = (maxFraction * h) / (b + t);
+        b *= k;
+        t *= k;
+      }
+      out[i] = { x0: page.x0 + l, y0: page.y0 + b, x1: page.x1 - r, y1: page.y1 - t };
+    }
+  }
+  return croppedAny ? out : null;
 }
 
 export interface CellRegion {

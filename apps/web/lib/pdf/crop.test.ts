@@ -63,14 +63,48 @@ describe("computeUniformCrop", () => {
     expect(computeUniformCrop([{ page: LETTER, content: content(0, 0, 612, 792) }])).toEqual([LETTER]);
   });
 
-  it("applies the same per-side insets to pages of different sizes (landscape page)", () => {
+  it("crops each page SIZE on its own: a different-sized page gets its own crop, from its own content", () => {
     const land: Box = { x0: 0, y0: 0, x1: 792, y1: 612 };
     const crops = computeUniformCrop([
       { page: LETTER, content: content(72, 72, 540, 720) },
       { page: land, content: content(72, 72, 720, 540) },
     ])!;
     expect(crops[0]).toEqual({ x0: 68, y0: 68, x1: 544, y1: 724 });
-    expect(crops[1]).toEqual({ x0: 68, y0: 68, x1: 792 - 72 + 4, y1: 612 - 72 + 4 });
+    expect(crops[1]).toEqual({ x0: 68, y0: 68, x1: 724, y1: 544 });
+  });
+
+  it("one full-bleed scan of another size does NOT stop the document's normal pages from being cropped", () => {
+    const a4: Box = { x0: 0, y0: 0, x1: 595, y1: 842 };
+    const crops = computeUniformCrop([
+      { page: LETTER, content: content(72, 72, 540, 720) },
+      { page: LETTER, content: content(72, 90, 540, 700) },
+      { page: a4, content: content(0, 0, 595, 842) }, // a scan: ink everywhere
+    ])!;
+    expect(crops[0]).toEqual(crops[1]); // same size = identical crop (consistent text size)
+    expect(crops[0]).toEqual({ x0: 68, y0: 68, x1: 544, y1: 724 });
+    expect(crops[2]).toEqual(a4); // the scan stays whole, nothing cut off
+  });
+
+  it("pages of the same size share one crop even when interleaved with other sizes", () => {
+    const small: Box = { x0: 0, y0: 0, x1: 400, y1: 600 };
+    const crops = computeUniformCrop([
+      { page: LETTER, content: content(100, 100, 500, 700) },
+      { page: small, content: content(40, 40, 360, 560) },
+      { page: LETTER, content: content(80, 60, 520, 720) },
+    ])!;
+    expect(crops[0]).toEqual(crops[2]);
+    expect(crops[0]).toEqual({ x0: 76, y0: 56, x1: 524, y1: 724 });
+    expect(crops[1]).toEqual({ x0: 36, y0: 36, x1: 364, y1: 564 });
+  });
+
+  it("a page that could not be analysed stays whole, and only its own size is affected", () => {
+    const a4: Box = { x0: 0, y0: 0, x1: 595, y1: 842 };
+    const crops = computeUniformCrop([
+      { page: LETTER, content: content(72, 72, 540, 720) },
+      { page: a4, content: { kind: "unknown" } },
+    ])!;
+    expect(crops[0]).toEqual({ x0: 68, y0: 68, x1: 544, y1: 724 });
+    expect(crops[1]).toEqual(a4);
   });
 });
 
