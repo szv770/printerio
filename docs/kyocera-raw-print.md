@@ -159,3 +159,9 @@ arbitrary PDFs we need either (a) PDF direct (try below), or (b) PDF -> PCL XL c
 4. Only if 1-3 work: design the Agent change (send raw, lose Windows spooler status, so keep SNMP /
    other status in mind). Risks: no spooler job status, driver-specific bytes, cannot be validated
    without the physical printer.
+
+## Booklet size: what fills how much (measured 2026-10-25, not yet printed)
+Measured with `imposeBookletPdf` on a synthetic Word-like Letter document (text ~645 pt tall, 1 in side margins), text size relative to the original:
+- Letter sheet (half-size pages, cell 5.2 x 8.1 in), fit `keep`: 61%. Fit `fill` (blank margins cropped first): about 89% here, about 80% for a document whose text spans the full 6.5 in width. That is close to the physical cap for this sheet: the cell is 5.2 x 8.1 in and the content is 6.5 x 9 in. Shrinking the sheet margins (14 pt) or the gutter (14.4 pt) would add under 1% and eat into the printer's ~11 pt unprintable edge, so they were left alone.
+- 11x17 (`tabloid`) sheet, same Letter document: `keep` ~95%, `fill` ~117% (cropped content is enlarged to the cell). This is the way to larger text.
+UNVERIFIED on the printer: PJL sends no paper size, so the printer must pick 11x17 from the page size of the PDF (auto paper selection) and have 11x17 loaded. Test with `tools/raw-print/make-booklet-test.mjs ... tabloid fill` (needs `tsx`: `apps/gateway/node_modules/.bin/tsx --conditions=react-server`) and `send-built.mjs` (also under tsx).
