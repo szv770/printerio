@@ -86,3 +86,24 @@ describe("rawTargetFromProfile per-job staple corner", () => {
     expect(rawTargetFromProfile(base, {})?.staplePosition).toBe("top-right");
   });
 });
+
+describe("sender code in the job name (so the printer panel shows whose job it is)", () => {
+  const base = { output_mode: "raw", raw_host: "192.168.1.5", raw_port: 9100, raw_staple_position: "top-left", booklet_binding_side: "left" };
+  it("puts Printio-<code> in front of the file name", () => {
+    expect(rawTargetFromProfile(base, { jobTitle: "Quarterly report.pdf", senderCode: "SZV" })?.jobName).toBe("Printio-SZV Quarterly report.pdf");
+  });
+  it("keeps the code and shortens the title when the whole name is too long (60 characters max)", () => {
+    const name = rawTargetFromProfile(base, { jobTitle: "x".repeat(100), senderCode: "SZV" })!.jobName;
+    expect(name.length).toBeLessThanOrEqual(60);
+    expect(name.startsWith("Printio-SZV x")).toBe(true);
+  });
+  it("cleans an odd code and ignores a missing or empty one (old behaviour)", () => {
+    expect(rawTargetFromProfile(base, { jobTitle: "A", senderCode: 'S"Z\r\nV' })?.jobName).toBe("Printio-SZV A");
+    expect(rawTargetFromProfile(base, { jobTitle: "A", senderCode: "" })?.jobName).toBe("A");
+    expect(rawTargetFromProfile(base, { jobTitle: "A", senderCode: null })?.jobName).toBe("A");
+    expect(rawTargetFromProfile(base, { jobTitle: "A" })?.jobName).toBe("A");
+  });
+  it("uses just Printio-<code> when there is no title", () => {
+    expect(rawTargetFromProfile(base, { senderCode: "SZV" })?.jobName).toBe("Printio-SZV Printio job");
+  });
+});
