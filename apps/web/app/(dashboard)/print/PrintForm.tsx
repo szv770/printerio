@@ -51,6 +51,7 @@ interface SavedChoices {
   staple?: StapleChoice;
   booklet?: BookletChoice;
   bookletFit?: "fill" | "keep";
+  bookletSheet?: "letter" | "tabloid";
   copies?: number;
   colorMode?: "bw" | "color";
   paperSize?: string;
@@ -73,6 +74,7 @@ function readSavedChoices(): SavedChoices {
     if (typeof v.paperSize === "string") out.paperSize = v.paperSize;
     if (typeof v.punch === "boolean") out.punch = v.punch;
     if (v.bookletFit === "fill" || v.bookletFit === "keep") out.bookletFit = v.bookletFit;
+    if (v.bookletSheet === "letter" || v.bookletSheet === "tabloid") out.bookletSheet = v.bookletSheet;
     return out;
   } catch {
     return {};
@@ -149,6 +151,7 @@ export function PrintForm({
   const [punch, setPunch] = useState(false);
   /** Booklets only: "fill" crops the document's own blank margins so the content fills the page; "keep" scales the whole page. */
   const [bookletFit, setBookletFit] = useState<"fill" | "keep">("fill");
+  const [bookletSheet, setBookletSheet] = useState<"letter" | "tabloid">("letter");
   const [preview, setPreview] = useState<{ status: "idle" | "loading" | "error" | "ready"; error?: string; data?: BookletPreviewData; signature?: string }>({ status: "idle" });
   /** False until the remembered choices have been read, so the first render never overwrites them. */
   const [restored, setRestored] = useState(false);
@@ -173,6 +176,7 @@ export function PrintForm({
       if (saved.paperSize) setPaperSize(saved.paperSize);
       if (typeof saved.punch === "boolean") setPunch(saved.punch);
       if (saved.bookletFit) setBookletFit(saved.bookletFit);
+      if (saved.bookletSheet) setBookletSheet(saved.bookletSheet);
       setRestored(true);
     }, 0);
     return () => clearTimeout(t);
@@ -186,8 +190,8 @@ export function PrintForm({
 
   useEffect(() => {
     if (!restored) return;
-    writeSavedChoices({ profileId, sides, staple, booklet, bookletFit, copies, colorMode, paperSize, punch });
-  }, [restored, profileId, sides, staple, booklet, bookletFit, copies, colorMode, paperSize, punch]);
+    writeSavedChoices({ profileId, sides, staple, booklet, bookletFit, bookletSheet, copies, colorMode, paperSize, punch });
+  }, [restored, profileId, sides, staple, booklet, bookletFit, bookletSheet, copies, colorMode, paperSize, punch]);
 
   /**
    * What the form will actually submit, given what the selected printer can do. The raw picks stay in state, so
@@ -352,7 +356,7 @@ export function PrintForm({
   }
 
   /** The preview belongs to one exact set of choices and one file; any change hides it (and a new press rebuilds it). */
-  const previewSignature = JSON.stringify([formSignature, bookletFit, paperSize, rangeText]);
+  const previewSignature = JSON.stringify([formSignature, bookletFit, bookletSheet, paperSize, rangeText]);
 
   async function onPreviewBooklet() {
     if (preview.status === "loading") return;
@@ -751,7 +755,22 @@ export function PrintForm({
             />
             {effBooklet !== "none" && (
               <div>
-                <Segmented<"fill" | "keep">
+                <Segmented<"letter" | "tabloid">
+                  name="bookletSheet"
+                  label="Booklet size"
+                  value={bookletSheet}
+                  onChange={setBookletSheet}
+                  options={[
+                    { value: "letter", label: "Regular (Letter sheet)" },
+                    { value: "tabloid", label: "11x17 (full-size pages)" },
+                  ]}
+                  hint={
+                    bookletSheet === "letter"
+                      ? "Each page is scaled to fit a statement-size page (half a Letter sheet), as big as it can be without being cut off."
+                      : "Letter pages stay about full size on an 11x17 sheet, folded and stapled in the middle. Not tested yet - may not come out right. Put 11x17 paper in the printer first."
+                  }
+                />
+                {bookletSheet === "letter" && <div className="mt-4"><Segmented<"fill" | "keep">
                   name="bookletFit"
                   label="Booklet fit"
                   value={bookletFit}
@@ -762,10 +781,10 @@ export function PrintForm({
                   ]}
                   hint={
                     bookletFit === "fill"
-                      ? "Trims your document's own blank margins so the text fills each booklet page. Every page is trimmed the same, so the text stays one size."
+                      ? "Trims your document's own blank margins so the text fills each booklet page. Pages of the same size are trimmed the same, so the text stays one size. Scans of other sizes are fitted on their own."
                       : "Shrinks the whole page, margins included, to fit. Text comes out smaller."
                   }
-                />
+                /></div>}
                 <Button
                   type="button"
                   variant="secondary"

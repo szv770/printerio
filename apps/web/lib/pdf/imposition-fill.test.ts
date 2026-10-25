@@ -132,4 +132,30 @@ describe("imposeBookletPdf fit: fill", () => {
     const scales = await scalesOf(imposed);
     for (const s of scales) expect(s).toBeCloseTo(scales[0]!, 9);
   });
+
+  it("mixed sizes: every page gets the biggest scale that fits, and an edge-to-edge scan of another size does not shrink the normal pages", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const wordPage = (n: number) => {
+      const page = doc.addPage([612, 792]);
+      for (let line = 0; line < 40; line++) page.drawText(`Line ${line + 1} of page ${n}, body text in twelve point.`, { x: 72, y: 720 - line * 16, size: 12, font });
+    };
+    wordPage(1);
+    wordPage(2);
+    wordPage(3);
+    const scan = doc.addPage([842, 595]); // an A4-landscape scan: ink to every edge
+    scan.drawRectangle({ x: 0, y: 0, width: 842, height: 595 });
+    const mixed = await doc.save();
+
+    const keep = await scalesOf(await imposeBookletPdf(mixed, LETTER, "left", { fit: "keep" }));
+    const fill = await scalesOf(await imposeBookletPdf(mixed, LETTER, "left", { fit: "fill" }));
+    // draw order of the 4 slots: sheet 0 front = [page 4 (scan), page 1], back = [page 2, page 3]
+    const [scanFill, p1Fill, p2Fill, p3Fill] = fill as [number, number, number, number];
+    const scanFits = Math.min(CELL_W / 842, CELL_H / 595);
+    expect(scanFill).toBeCloseTo(scanFits, 9); // as big as the cell allows, whole page, nothing cut
+    expect(p2Fill).toBeCloseTo(p1Fill, 9); // normal pages keep one text size
+    expect(p3Fill).toBeCloseTo(p1Fill, 9);
+    expect(p1Fill).toBeGreaterThan(keep[1]! * 1.15); // and they were still enlarged by the crop
+    for (const [i, s] of fill.entries()) expect(s).toBeGreaterThanOrEqual(keep[i]! - 1e-9); // no page ever gets smaller
+  });
 });

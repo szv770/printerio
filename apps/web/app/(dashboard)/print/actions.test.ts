@@ -52,6 +52,7 @@ describe("submitPrintJobAction", () => {
       punch: false,
       confirmBookletPadding: false,
       bookletFit: "fill",
+      bookletSheet: "letter",
       writeClient: serviceClient,
     });
   });
@@ -69,7 +70,7 @@ describe("submitPrintJobAction", () => {
     await expect(submitPrintJobAction({}, fd)).rejects.toBeInstanceOf(RedirectSignal);
     const [, sess, , , opts] = createPrintJob.mock.calls[0]!;
     expect(sess).toBe(session); // identity and organization come from the session only
-    expect(Object.keys(opts).sort()).toEqual(["bookletFit", "choices", "colorMode", "confirmBookletPadding", "paperSize", "printerProfileId", "punch", "writeClient"]);
+    expect(Object.keys(opts).sort()).toEqual(["bookletFit", "bookletSheet", "choices", "colorMode", "confirmBookletPadding", "paperSize", "printerProfileId", "punch", "writeClient"]);
   });
 
   it("returns an error as form state, with its field error", async () => {
