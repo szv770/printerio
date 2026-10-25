@@ -37,8 +37,8 @@ export function deviceStatus(d: {
   if (d.revoked_at) return { key: "revoked", label: "Turned off", tone: "neutral" };
   if (d.first_printed_at) return { key: "printed", label: "Printed", tone: "success" };
   if (d.first_job_at) return { key: "job_received", label: "First print received", tone: "warning" };
-  if (d.last_seen_at) return { key: "connected", label: "Connected", tone: "warning" };
-  return { key: "created", label: "Address created, not connected yet", tone: "neutral" };
+  if (d.last_seen_at) return { key: "connected", label: "Device link created, not printed yet", tone: "warning" };
+  return { key: "created", label: "Device link created, not connected yet", tone: "neutral" };
 }
 
 export interface SetupSteps {
@@ -103,8 +103,7 @@ export function setupSteps(type: string, addr: DeviceAddress): SetupSteps | null
     return {
       needs: "hostname",
       profileDownload: true,
-      testStatus: "Not tested yet - being worked on",
-      note: "We have not tried this on a real iPhone yet, so it may not work. If it does not, use Print a document on the website.",
+      note: "Proven on a real iPhone. Menu names can differ a little between iOS versions.",
       steps: [
         "Open this page in Safari on your iPhone or iPad (other browsers cannot install profiles). Not in Safari? Tap Share, then Open in Safari.",
         "Tap Download iPhone setup profile. When it asks, tap Allow, then Close.",

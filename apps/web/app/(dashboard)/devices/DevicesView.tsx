@@ -323,7 +323,7 @@ function AddressBlock({ title, value, copyLabel, highlight }: { title: string; v
 }
 
 /** The status word for the right of a closed row: short, so the name keeps its room on a phone. */
-const SHORT_STATUS: Record<string, string> = { revoked: "Off", created: "Not connected", connected: "Connected", job_received: "First print", printed: "Printed" };
+const SHORT_STATUS: Record<string, string> = { revoked: "Off", created: "Not connected", connected: "Not printed yet", job_received: "First print", printed: "Printed" };
 
 function statusTone(tone: "neutral" | "success" | "warning"): StatusTone {
   return tone;
