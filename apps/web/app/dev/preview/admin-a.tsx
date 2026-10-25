@@ -262,10 +262,10 @@ export function ServerDetailPreview({ variant }: { variant?: string } = {}) {
 }
 
 const DEVICES: AdminDevice[] = [
-  { id: "d1", userName: "Moshe Levi", name: "Pixel 8", device_type: "android", created_at: ago(2000), revoked_at: null, last_seen_at: ago(20), first_job_at: ago(100), first_printed_at: null, last_user_agent: "Android 14", stuck: "job_not_printed", issues: [{ id: "x1", kind: "nothing_prints", note: "I press print and nothing comes out.", status: "open", created_at: ago(60), resolved_note: null, resolved_at: null }] },
-  { id: "d2", userName: "Rivka Stein", name: "School Chromebook", device_type: "chromebook", created_at: ago(5000), revoked_at: null, last_seen_at: ago(30), first_job_at: null, first_printed_at: null, last_user_agent: null, stuck: "connected_no_job", issues: [] },
-  { id: "d3", userName: "Dana Kaplan", name: "Work laptop", device_type: "windows", created_at: ago(9000), revoked_at: null, last_seen_at: ago(120), first_job_at: ago(8000), first_printed_at: ago(7990), last_user_agent: null, stuck: null, issues: [] },
-  { id: "d4", userName: "Avi Goldman", name: "Old iPad", device_type: "iphone", created_at: ago(20000), revoked_at: ago(1000), last_seen_at: ago(1500), first_job_at: ago(19000), first_printed_at: ago(18990), last_user_agent: null, stuck: null, issues: [] },
+  { id: "d1", userName: "Moshe Levi", name: "Pixel 8", device_type: "android", created_at: ago(2000), revoked_at: null, last_seen_at: ago(20), first_job_at: ago(100), first_printed_at: null, last_user_agent: "Android 14", stuck: "job_not_printed", connection: null, issues: [{ id: "x1", kind: "nothing_prints", note: "I press print and nothing comes out.", status: "open", created_at: ago(60), resolved_note: null, resolved_at: null }] },
+  { id: "d2", userName: "Rivka Stein", name: "School Chromebook", device_type: "chromebook", created_at: ago(5000), revoked_at: null, last_seen_at: ago(30), first_job_at: null, first_printed_at: null, last_user_agent: null, stuck: "connected_no_job", connection: { verdict: "address_blocked", createdAt: ago(40) }, issues: [] },
+  { id: "d3", userName: "Dana Kaplan", name: "Work laptop", device_type: "windows", created_at: ago(9000), revoked_at: null, last_seen_at: ago(120), first_job_at: ago(8000), first_printed_at: ago(7990), last_user_agent: null, stuck: null, connection: { verdict: "reachable", createdAt: ago(7900) }, issues: [] },
+  { id: "d4", userName: "Avi Goldman", name: "Old iPad", device_type: "iphone", created_at: ago(20000), revoked_at: ago(1000), last_seen_at: ago(1500), first_job_at: ago(19000), first_printed_at: ago(18990), last_user_agent: null, stuck: null, connection: null, issues: [] },
 ];
 
 export function UserDevicesPreview({ variant }: { variant?: string }) {

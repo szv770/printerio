@@ -20,6 +20,7 @@ import {
 import { ISSUE_KINDS, issueKindLabel, MAX_ISSUE_NOTE } from "@/lib/devices/admin";
 import { detectDeviceType, deviceAddress, deviceStatus, deviceTypeLabel, noStepsMessage, setupSteps } from "@/lib/devices/present";
 import { LocalTime } from "../jobs/LocalTime";
+import { ConnectionTest } from "./ConnectionTest";
 import {
   addDeviceAction,
   deleteDeviceAction,
@@ -257,6 +258,8 @@ function AddressCard({ created, onDone }: { created: NonNullable<AddDeviceState[
           {hostBlock}
         </>
       )}
+
+      <ConnectionTest deviceId={created.deviceId} hostname={created.hostname} />
 
       {guide ? (
         <div>
