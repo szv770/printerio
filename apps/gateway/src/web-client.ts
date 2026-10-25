@@ -7,6 +7,8 @@ export interface ResolvedDevice {
   userId: string;
   organizationId: string;
   displayName: string;
+  /** The name this device shows for the printer (Printio-<printer>-<user code>); absent from an older web app. */
+  printerLabel?: string;
 }
 
 export type ResolveResult =
@@ -156,7 +158,7 @@ export function createWebClient(opts: WebClientOptions): WebApi {
         const userId = str(json.userId);
         const organizationId = str(json.organizationId);
         if (!deviceId || !userId || !organizationId) throw new WebUnavailableError("device/resolve returned an unexpected body");
-        const device: ResolvedDevice = { deviceId, userId, organizationId, displayName: str(json.displayName) ?? "" };
+        const device: ResolvedDevice = { deviceId, userId, organizationId, displayName: str(json.displayName) ?? "", ...(str(json.printerLabel) ? { printerLabel: str(json.printerLabel) } : {}) };
         remember(cache, tokenHash, { device, expires: now() + ttl });
         return { kind: "ok", device };
       }

@@ -486,7 +486,7 @@ async function dispatch(deps: GatewayDeps, ctx: RequestContext, msg: IppMessage)
       }
       const attrs = buildPrinterAttributes({
         baseUrl: ctx.baseUrl,
-        printerName: deps.printerName,
+        printerName: device.printerLabel ?? deps.printerName,
         uuidSeed: ctx.token,
         startedAt: deps.startedAt,
         finishings: deps.finishings,
