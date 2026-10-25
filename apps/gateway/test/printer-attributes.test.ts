@@ -94,3 +94,12 @@ describe("AirPrint extras (only for iPhone/Mac devices)", () => {
     expect(p()["document-format-supported"]).toEqual(DOCUMENT_FORMATS);
   });
 });
+
+describe("printer name and description follow the device's label (every device type)", () => {
+  it("printer-info (the description many clients show) carries the same Printio-<printer>-<code> label", () => {
+    const attrs = buildPrinterAttributes({ baseUrl: "https://u-x.example.test", printerName: "Printio-MLMI-SZV", uuidSeed: "s", startedAt: Date.now() });
+    const p = flatten(decodeIpp(encodeIpp({ code: 0, requestId: 1, groups: [{ tag: TAG.printer, attrs }] })).groups[0]);
+    expect(p["printer-name"]).toBe("Printio-MLMI-SZV");
+    expect(p["printer-info"]).toBe("Printio-MLMI-SZV");
+  });
+});

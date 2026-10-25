@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { HelpCircle, X, PlayCircle } from "lucide-react";
-import { STUDENT_TOUR, ADMIN_TOUR, GLOSSARY } from "@/lib/onboarding-content";
+import { STUDENT_TOUR, ADMIN_TOUR, GLOSSARY, TOUR_ENABLED } from "@/lib/onboarding-content";
 import { SpotlightTour, readTourSession, clearTourSession } from "./SpotlightTour";
 
 function storageKey(userId: string): string {
@@ -27,11 +27,16 @@ function storageKey(userId: string): string {
 export function HelpMenu({ userId, variant }: { userId: string; variant: "student" | "admin" }) {
   const slides = variant === "admin" ? ADMIN_TOUR : STUDENT_TOUR;
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<"tour" | "glossary">("tour");
+  const [tab, setTab] = useState<"tour" | "glossary">(TOUR_ENABLED ? "tour" : "glossary");
   const [tourActive, setTourActive] = useState(false);
   const [tourStep, setTourStep] = useState(0);
 
   useEffect(() => {
+    if (!TOUR_ENABLED) {
+      // Tour switched off: drop any half-finished tour left in this browser so it can never resume.
+      clearTourSession();
+      return;
+    }
     // Reads browser-only APIs not available during SSR/hydration, so this
     // can only run as an effect (not a lazy useState initializer) without
     // risking a hydration mismatch - every piece of state above is already
@@ -109,17 +114,19 @@ export function HelpMenu({ userId, variant }: { userId: string; variant: "studen
           >
             <div className="mb-4 flex items-center justify-between">
               <div className="flex gap-4 text-sm font-medium">
-                <button
-                  type="button"
-                  onClick={() => setTab("tour")}
-                  className={tab === "tour" ? "text-[var(--color-primary)]" : "text-[var(--color-muted)]"}
-                >
-                  Tour
-                </button>
+                {TOUR_ENABLED && (
+                  <button
+                    type="button"
+                    onClick={() => setTab("tour")}
+                    className={tab === "tour" ? "text-[var(--color-primary)]" : "text-[var(--color-muted)]"}
+                  >
+                    Tour
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setTab("glossary")}
-                  className={tab === "glossary" ? "text-[var(--color-primary)]" : "text-[var(--color-muted)]"}
+                  className={tab === "glossary" || !TOUR_ENABLED ? "text-[var(--color-primary)]" : "text-[var(--color-muted)]"}
                 >
                   Glossary
                 </button>
@@ -129,7 +136,7 @@ export function HelpMenu({ userId, variant }: { userId: string; variant: "studen
               </button>
             </div>
 
-            {tab === "tour" ? <TourLauncher onStart={startTour} /> : <GlossaryPanel />}
+            {TOUR_ENABLED && tab === "tour" ? <TourLauncher onStart={startTour} /> : <GlossaryPanel />}
           </div>
         </div>
       )}

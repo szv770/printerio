@@ -64,7 +64,7 @@ export function buildPrinterAttributes(input: PrinterAttrsInput): IppAttr[] {
     attr(TAG.keyword, "uri-security-supported", secure ? "tls" : "none"),
     attr(TAG.keyword, "uri-authentication-supported", "none"),
     attr(TAG.name, "printer-name", input.printerName),
-    attr(TAG.text, "printer-info", "Printio cloud print"),
+    attr(TAG.text, "printer-info", input.printerName),
     attr(TAG.text, "printer-location", ""),
     attr(TAG.text, "printer-make-and-model", "Printio Cloud Print"),
     attr(TAG.text, "printer-device-id", "MFG:Printio;MDL:Cloud Print;CMD:PDF;"),

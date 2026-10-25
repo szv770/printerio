@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useRef, useState, startTransition } from "react";
 import { AlertTriangle, BookOpen, FileText, FileUp, ListOrdered, Minus, Palette, Paperclip, Plus, Printer, SlidersHorizontal } from "lucide-react";
 import { parsePageRange } from "@printio/shared";
+import { bookletBlankPagesNote } from "@/lib/booklet-note";
 import { Button, Card, Collapsible, FieldError, FieldLabel, FormError, Input, Segmented, Select, Spinner, StatusDot, Switch } from "@/components/ui";
 import { formatFileSize, precheckPdfHeader, precheckSelectedFile, shouldPreviewInBrowser } from "@/lib/pdf/client-precheck";
 import { renderPdfPageToCanvas } from "@/lib/pdf/render-page";
@@ -215,6 +216,7 @@ export function PrintForm({
   const rangeCheck = rangeText && estimatedPages ? parsePageRange(rangeText, estimatedPages) : null;
   const rangeError = (rangeCheck && !rangeCheck.ok ? rangeCheck.reason : null) ?? state.fieldErrors?.pageRange ?? null;
   const selectedPages = rangeCheck?.ok ? rangeCheck.pages.length : rangeText && !estimatedPages ? null : estimatedPages;
+  const bookletNote = effBooklet !== "none" ? bookletBlankPagesNote(selectedPages) : null;
   const summary = buildSummary({ pages: selectedPages, copies, sides: effSides, staple: effStaple, booklet: effBooklet });
 
   // The padding question belongs to one exact set of choices. Server action state is never cleared, so the prompt
@@ -331,7 +333,8 @@ export function PrintForm({
     setClientError(null);
     const confirming = confirmingRef.current && !!needsBookletConfirm;
     const data = new FormData(e.currentTarget);
-    if (confirming) data.set("confirmBookletPadding", "true");
+    // No extra question for a booklet: blank pages are simply added at the end (the inline note says how many).
+    if (confirming || effBooklet !== "none") data.set("confirmBookletPadding", "true");
     const picked = data.get("file");
     if (picked instanceof File && picked.size > 0) {
       try {
@@ -755,6 +758,11 @@ export function PrintForm({
             />
             {effBooklet !== "none" && (
               <div>
+                {bookletNote && (
+                  <p role="status" className="mb-3 rounded-xl bg-[var(--color-surface-2)] px-3 py-2 text-sm text-[var(--color-muted)]">
+                    {bookletNote}
+                  </p>
+                )}
                 <Segmented<"letter" | "tabloid">
                   name="bookletSheet"
                   label="Booklet size"

@@ -16,7 +16,10 @@ export interface Box {
 }
 
 /** What the analysis learned about one page: its ink box, "nothing on it", or "could not tell" (never guessed). */
-export type PageContent = { kind: "content"; box: Box } | { kind: "blank" } | { kind: "unknown" };
+export type PageContent =
+  /** `scan`: the box was found by looking at the rendered page (an image-only page), so it is cropped on its own. */
+  | { kind: "content"; box: Box; scan?: boolean }
+  | { kind: "blank" } | { kind: "unknown" };
 
 /** Clearance added around the union of all content, so antialiasing, descenders and hairlines are never touched. */
 export const CROP_SAFETY_PAD_PT = 4;
@@ -37,7 +40,7 @@ const clamp0 = (n: number) => (n > 0 ? n : 0);
 /**
  * The crop rectangle of every page, or null for "do not crop" (nothing could be cropped at all).
  *
- * Pages are grouped BY SIZE, and each group gets one shared crop: for each side, the smallest gap between the page
+ * Pages are grouped BY SIZE (a scanned page is its own group), and each group gets one shared crop: for each side, the smallest gap between the page
  * edge and the content on any page of that group (the union of the group's content), minus the safety pad. Pages of
  * the same size therefore get the identical crop and, in turn, the identical scale, so text keeps one size across a
  * normal document; a page with a header, a footer or a page number keeps them. Blank pages (booklet padding) are
@@ -58,8 +61,10 @@ export function computeUniformCrop(pages: Array<{ page: Box; content: PageConten
   if (pages.length === 0) return null;
 
   const groups = new Map<string, number[]>();
-  pages.forEach(({ page }, i) => {
-    const key = `${Math.round(page.x1 - page.x0)}x${Math.round(page.y1 - page.y0)}`;
+  pages.forEach(({ page, content }, i) => {
+    // A scanned page has no consistent "text size" to protect and its ink moves around from page to page, so it is
+    // cropped on its own: each scan fills its cell as far as its own ink allows.
+    const key = content.kind === "content" && content.scan ? `scan#${i}` : `${Math.round(page.x1 - page.x0)}x${Math.round(page.y1 - page.y0)}`;
     groups.set(key, [...(groups.get(key) ?? []), i]);
   });
 

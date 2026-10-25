@@ -24,7 +24,7 @@ describe("deviceStatus", () => {
   });
   it("uses plain wording", () => {
     expect(deviceStatus({ ...base, revoked_at: "r" }).label).toBe("Turned off");
-    expect(deviceStatus(base).label).toBe("Address created, not connected yet");
+    expect(deviceStatus(base).label).toBe("Device link created, not connected yet");
   });
 });
 
@@ -68,11 +68,11 @@ describe("setupSteps", () => {
   it("other types have no steps yet", () => {
     for (const t of ["other"] as const) expect(setupSteps(t, addr)).toBeNull();
   });
-  it("iPhone gets the profile route, labelled not tested, and no Terminal command", () => {
+  it("iPhone gets the profile route (proven), and no Terminal command", () => {
     const s = setupSteps("iphone", addr)!;
     expect(s.needs).toBe("hostname");
     expect(s.profileDownload).toBe(true);
-    expect(s.testStatus).toMatch(/not tested/i);
+    expect(s.testStatus).toBeUndefined(); // proven on a real iPhone 2026-10-25
     expect(s.command).toBeUndefined();
     const text = s.steps.join(" ");
     expect(text).toContain("Safari");

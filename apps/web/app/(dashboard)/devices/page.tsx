@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { listDevicesForMember, listIssuesForDevices } from "@/lib/devices/devices";
 import { PageHeader } from "@/components/ui";
 import { DevicesView } from "./DevicesView";
+import { ConfirmedBanner } from "@/components/devices/ConfirmedBanner";
 import { SetupFeedbackCard } from "@/components/devices/SetupFeedbackCard";
 import { listFeedbackCardDevices } from "@/lib/devices/setup-feedback-server";
 
@@ -25,6 +26,7 @@ export default async function DevicesPage({ searchParams }: { searchParams: Prom
         title="My devices"
         description="Add your phone, tablet or laptop to print from its normal Print button. Each device gets its own private address."
       />
+      <ConfirmedBanner />
       <SetupFeedbackCard devices={feedbackDevices} />
       <DevicesView
         startAdding={add === "1"}

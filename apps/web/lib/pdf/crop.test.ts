@@ -97,6 +97,15 @@ describe("computeUniformCrop", () => {
     expect(crops[1]).toEqual({ x0: 36, y0: 36, x1: 364, y1: 564 });
   });
 
+  it("scanned pages of the SAME size are cropped each on their own ink (no shared union)", () => {
+    const crops = computeUniformCrop([
+      { page: LETTER, content: { kind: "content", scan: true, box: { x0: 200, y0: 250, x1: 580, y1: 760 } } }, // ink top-right
+      { page: LETTER, content: { kind: "content", scan: true, box: { x0: 40, y0: 30, x1: 400, y1: 520 } } }, // ink bottom-left
+    ])!;
+    expect(crops[0]).toEqual({ x0: 196, y0: 246, x1: 584, y1: 764 });
+    expect(crops[1]).toEqual({ x0: 36, y0: 26, x1: 404, y1: 524 });
+  });
+
   it("a page that could not be analysed stays whole, and only its own size is affected", () => {
     const a4: Box = { x0: 0, y0: 0, x1: 595, y1: 842 };
     const crops = computeUniformCrop([

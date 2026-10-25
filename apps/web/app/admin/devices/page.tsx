@@ -7,6 +7,7 @@ import { ButtonLink, PageHeader, Tabs } from "@/components/ui";
 import { routes } from "@/lib/routes";
 import { printerTabs } from "@/lib/admin/tabs";
 import { DevicesAdmin, type AdminDevice } from "./DevicesAdmin";
+import { ConfirmedBanner } from "@/components/devices/ConfirmedBanner";
 import { SetupStatusPanel } from "./SetupStatusPanel";
 import { latestConnectionTests } from "@/lib/devices/connection-test-server";
 import { loadSetupSummaries } from "@/lib/devices/setup-feedback-server";
@@ -76,6 +77,7 @@ export default async function AdminDevicesPage() {
         }
       />
       <Tabs label="Printers and devices" items={printerTabs("devices", true)} />
+      <ConfirmedBanner />
       <SetupStatusPanel setups={setups} canConfirm />
       <DevicesAdmin devices={items} />
     </div>

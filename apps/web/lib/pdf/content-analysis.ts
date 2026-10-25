@@ -19,6 +19,19 @@ import type { Box, PageContent } from "./crop";
 const MAX_PAGES_ANALYSED = 300;
 const TIME_BUDGET_MS = 12_000;
 
+// Image-only pages (scans) are looked at as pictures: rendered small and measured, because the operator list can only
+// say "one image covers the page". Everything here only ever makes the box LARGER than the true ink (never cut ink).
+const RASTER_DPI = 100;
+const RASTER_MAX_PIXELS = 2_500_000;
+/** Pixels at or below this brightness (0-255) count as ink; light paper tint and faint grey do not. */
+const INK_BRIGHTNESS_MAX = 235;
+/** Added around the measured ink, on top of the crop's own safety pad (scanner edges, anti-aliasing, faint marks). */
+const RASTER_PAD_PT = 8;
+/** An image covering at least this share of the page makes it a scan. */
+const SCAN_IMAGE_SHARE = 0.5;
+/** Rendering pages is the slow part: at most this long per document; later scans stay whole (never an error). */
+const RASTER_BUDGET_MS = 8_000;
+
 type Matrix = [number, number, number, number, number, number];
 const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
 
@@ -71,11 +84,18 @@ interface PdfjsModule {
 interface PdfjsPage {
   view: number[];
   rotate: number;
+  getViewport: (p: { scale: number }) => { width: number; height: number };
+  render: (p: Record<string, unknown>) => { promise: Promise<void> };
   getTextContent: () => Promise<{ items: Array<{ str?: string; width?: number; height?: number; transform?: number[] }> }>;
   getOperatorList: (params?: Record<string, unknown>) => Promise<{ fnArray: number[]; argsArray: unknown[] }>;
   cleanup: () => void;
 }
+interface CanvasFactoryLike {
+  create: (w: number, h: number) => { canvas: unknown; context: { getImageData: (x: number, y: number, w: number, h: number) => { data: Uint8ClampedArray } } };
+  destroy: (c: { canvas: unknown; context: unknown }) => void;
+}
 interface PdfjsDoc {
+  canvasFactory?: CanvasFactoryLike;
   numPages: number;
   getPage: (n: number) => Promise<PdfjsPage>;
   destroy: () => Promise<void>;
@@ -94,7 +114,7 @@ async function loadPdfjs(): Promise<PdfjsModule> {
   return pdfjsPromise;
 }
 
-async function analyzePage(pdfjs: PdfjsModule, page: PdfjsPage): Promise<PageContent> {
+async function analyzePage(pdfjs: PdfjsModule, page: PdfjsPage, rasterInk?: (page: PdfjsPage) => Promise<Box | "blank" | null>): Promise<PageContent> {
   // pdf-lib (which does the imposition) does not apply /Rotate; rather than reason about both, do not crop.
   if (page.rotate % 360 !== 0) return { kind: "unknown" };
   const acc = new Accumulator();
@@ -144,6 +164,7 @@ async function analyzePage(pdfjs: PdfjsModule, page: PdfjsPage): Promise<PageCon
   let annotationDepth = 0;
   let unknown = false;
   let lineWidth = 1;
+  let biggestImageArea = 0;
 
   for (let i = 0; i < ol.fnArray.length; i++) {
     const fn = ol.fnArray[i]!;
@@ -177,6 +198,7 @@ async function analyzePage(pdfjs: PdfjsModule, page: PdfjsPage): Promise<PageCon
       fillWhite = fn === OPS.setFillCMYKColor && isWhite(args?.[0]);
     } else if (imageOps.has(fn)) {
       acc.addRect(0, 0, 1, 1, ctm);
+      biggestImageArea = Math.max(biggestImageArea, Math.abs(ctm[0] * ctm[3] - ctm[1] * ctm[2]));
     } else if (fn === OPS.paintImageXObjectRepeat || fn === OPS.paintImageMaskXObjectRepeat || fn === OPS.shadingFill || fn === OPS.paintShading) {
       unknown = true; // tiled images and shadings fill an area the operator list does not bound
     } else if (fn === OPS.constructPath && args) {
@@ -192,7 +214,68 @@ async function analyzePage(pdfjs: PdfjsModule, page: PdfjsPage): Promise<PageCon
   }
 
   if (unknown) return { kind: "unknown" };
-  return acc.box ? { kind: "content", box: acc.box } : { kind: "blank" };
+  if (!acc.box) return { kind: "blank" };
+
+  const pageArea = Math.abs((page.view[2]! - page.view[0]!) * (page.view[3]! - page.view[1]!));
+  if (rasterInk && pageArea > 0 && biggestImageArea >= SCAN_IMAGE_SHARE * pageArea) {
+    // A scan. If the picture cannot be measured the operator box stands (the whole image: nothing is cut).
+    const ink = await rasterInk(page).catch(() => null);
+    if (ink === "blank") return { kind: "blank" };
+    if (ink) return { kind: "content", box: ink, scan: true };
+  }
+  return { kind: "content", box: acc.box };
+}
+
+/** Renders a page small and returns the box (PDF user space) around everything that is not near-white, or null if it could not be measured. */
+async function measureInk(doc: PdfjsDoc, page: PdfjsPage): Promise<Box | "blank" | null> {
+  const factory = doc.canvasFactory;
+  if (!factory) return null;
+  const [vx0, vy0, vx1, vy1] = page.view as [number, number, number, number];
+  const w = vx1 - vx0;
+  const h = vy1 - vy0;
+  if (!(w > 0 && h > 0)) return null;
+  const scale = Math.min(RASTER_DPI / 72, Math.sqrt(RASTER_MAX_PIXELS / (w * h)));
+  const viewport = page.getViewport({ scale });
+  const pxW = Math.max(1, Math.ceil(viewport.width));
+  const pxH = Math.max(1, Math.ceil(viewport.height));
+  const target = factory.create(pxW, pxH);
+  try {
+    await page.render({ canvasContext: target.context, canvas: target.canvas, viewport, background: "rgb(255,255,255)" }).promise;
+    const { data } = target.context.getImageData(0, 0, pxW, pxH);
+    let minX = pxW;
+    let maxX = -1;
+    let minY = pxH;
+    let maxY = -1;
+    for (let y = 0; y < pxH; y++) {
+      const row = y * pxW * 4;
+      for (let x = 0; x < pxW; x++) {
+        const i = row + x * 4;
+        const a = data[i + 3]! / 255;
+        // Composite on white, then take the brightest-channel-agnostic luminance.
+        const lum = 0.299 * (data[i]! * a + 255 * (1 - a)) + 0.587 * (data[i + 1]! * a + 255 * (1 - a)) + 0.114 * (data[i + 2]! * a + 255 * (1 - a));
+        if (lum <= INK_BRIGHTNESS_MAX) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX < 0) return "blank";
+    const pad = RASTER_PAD_PT;
+    return {
+      x0: Math.max(vx0, vx0 + minX / scale - pad),
+      x1: Math.min(vx1, vx0 + (maxX + 1) / scale + pad),
+      y0: Math.max(vy0, vy1 - (maxY + 1) / scale - pad),
+      y1: Math.min(vy1, vy1 - minY / scale + pad),
+    };
+  } finally {
+    try {
+      factory.destroy(target);
+    } catch {
+      /* nothing to free */
+    }
+  }
 }
 
 /**
@@ -215,12 +298,15 @@ export async function analyzePdfContent(bytes: Uint8Array): Promise<PageContent[
     doc = await task.promise;
     if (doc.numPages > MAX_PAGES_ANALYSED) return null;
     const deadline = Date.now() + TIME_BUDGET_MS;
+    const rasterDeadline = Date.now() + RASTER_BUDGET_MS;
+    const currentDoc = doc;
+    const rasterInk = async (p: PdfjsPage): Promise<Box | "blank" | null> => (Date.now() > rasterDeadline ? null : measureInk(currentDoc, p));
     const out: PageContent[] = [];
     for (let n = 1; n <= doc.numPages; n++) {
       if (Date.now() > deadline) return null;
       const page = await doc.getPage(n);
       try {
-        out.push(await analyzePage(pdfjs, page));
+        out.push(await analyzePage(pdfjs, page, rasterInk));
       } catch {
         out.push({ kind: "unknown" });
       } finally {
