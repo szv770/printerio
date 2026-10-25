@@ -62,6 +62,16 @@ export function safeJobName(title: string | null | undefined): string {
   return cleaned || "Printio job";
 }
 
+/** The name the PRINTER shows for the job. With the sender's code it reads "Printio-SZV <file name>", so whoever collects
+ *  the pages (or looks at the printer's job list) can tell whose job it is. 60 characters at most (the PJL limit used
+ *  by sanitizePjlText); the file name is shortened, never the code. */
+export function printerJobName(title: string | null | undefined, senderCode?: string | null): string {
+  const code = (senderCode ?? "").replace(/[^A-Za-z0-9]/g, "").slice(0, 12);
+  if (!code) return safeJobName(title);
+  const prefix = `Printio-${code} `;
+  return `${prefix}${safeJobName(title).slice(0, 60 - prefix.length).trim()}`;
+}
+
 interface RawProfileFields {
   output_mode: string;
   raw_host: string | null;
@@ -79,6 +89,8 @@ export function rawTargetFromProfile(
     bindingSide?: "left" | "right" | null;
     /** The job's own staple corner (print_jobs.staple_position); null/absent = the printer's default. */
     staplePosition?: StaplePosition | null;
+    /** The sender's user code (organization_members.user_code); shown in the printer's job name when present. */
+    senderCode?: string | null;
   },
 ): RawTarget | undefined {
   if (profile.output_mode !== "raw" || !profile.raw_host) return undefined;
@@ -88,6 +100,6 @@ export function rawTargetFromProfile(
     port: profile.raw_port,
     staplePosition: opts.staplePosition ?? (profile.raw_staple_position === "top-right" ? "top-right" : "top-left"),
     bindingSide: side,
-    jobName: safeJobName(opts.jobTitle),
+    jobName: printerJobName(opts.jobTitle, opts.senderCode),
   };
 }

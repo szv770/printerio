@@ -75,8 +75,18 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
   // Raw (direct-to-printer) profiles carry no Windows queue; the Agent sends
   // the job straight to host:port instead.
   // The job's own choices win; null (older jobs, or nothing chosen) falls back to the printer's defaults.
+  // The sender's code goes into the job name the printer shows. Best effort: no code (or a failed lookup) just means
+  // the old name; it must never hold up a print.
+  const { data: sender } = await supabase
+    .from("organization_members")
+    .select("user_code")
+    .eq("organization_id", job.organization_id)
+    .eq("user_id", job.created_by)
+    .maybeSingle();
+
   const raw = rawTargetFromProfile(profile, {
     jobTitle: job.original_file_name,
+    senderCode: sender?.user_code ?? null,
     bindingSide: job.booklet_binding_side === "left" || job.booklet_binding_side === "right" ? job.booklet_binding_side : null,
     staplePosition: job.staple_position === "top-left" || job.staple_position === "top-right" ? job.staple_position : null,
   });
