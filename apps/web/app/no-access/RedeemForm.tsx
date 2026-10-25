@@ -11,8 +11,8 @@ export function RedeemForm({ defaultCode = "", initialError }: { defaultCode?: s
 
   return (
     <form action={formAction} className="flex flex-col gap-3">
-      <FieldLabel htmlFor="code">Enrollment code</FieldLabel>
-      <Input id="code" name="code" required autoFocus={!defaultCode} defaultValue={defaultCode} placeholder="e.g. a1b2c3d4e5f6" />
+      <FieldLabel htmlFor="code">Invite link or code</FieldLabel>
+      <Input id="code" name="code" required autoFocus={!defaultCode} defaultValue={defaultCode} placeholder="Paste the invite link or code" />
       <FormError message={state.error} />
       <Button type="submit" pending={pending} pendingLabel="Joining...">
         Join organization
