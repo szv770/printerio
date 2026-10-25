@@ -8,6 +8,7 @@ import { routes } from "@/lib/routes";
 import { printerTabs } from "@/lib/admin/tabs";
 import { DevicesAdmin, type AdminDevice } from "./DevicesAdmin";
 import { SetupStatusPanel } from "./SetupStatusPanel";
+import { latestConnectionTests } from "@/lib/devices/connection-test-server";
 import { loadSetupSummaries } from "@/lib/devices/setup-feedback-server";
 
 export default async function AdminDevicesPage() {
@@ -31,6 +32,7 @@ export default async function AdminDevicesPage() {
   const openCounts: Record<string, number> = {};
   for (const i of issues) if (i.status === "open") openCounts[i.device_id] = (openCounts[i.device_id] ?? 0) + 1;
 
+  const connection = await latestConnectionTests(supabase, devices.map((d) => d.id));
   const setups = await loadSetupSummaries(supabase, orgId).catch(() => []);
 
   const now = new Date();
@@ -47,6 +49,7 @@ export default async function AdminDevicesPage() {
     first_printed_at: d.first_printed_at,
     last_user_agent: d.last_user_agent,
     stuck: stuckReason(d, openCounts[d.id] ?? 0, now),
+    connection: connection.get(d.id) ? { verdict: connection.get(d.id)!.verdict, createdAt: connection.get(d.id)!.createdAt } : null,
     issues: issues
       .filter((i) => i.device_id === d.id)
       .map((i) => ({

@@ -11,6 +11,7 @@ vi.mock("@/lib/jobs/create-print-job", () => ({ createPrintJob: (...args: unknow
 
 import { POST as resolvePOST } from "./device/resolve/route";
 import { POST as eventsPOST } from "./events/route";
+vi.mock("@/lib/jobs/ensure-user-code", () => ({ ensureMemberUserCode: async () => "SZV" }));
 import { POST as finalizePOST } from "./jobs/finalize/route";
 import { GET as statusGET } from "./jobs/[jobId]/route";
 import { POST as cancelPOST } from "./jobs/[jobId]/cancel/route";
@@ -49,6 +50,7 @@ function standardResponder(over: Partial<{ device: typeof device | null; member:
     if (call.table === "member_devices" && call.op === "select") return ok(dev);
     if (call.table === "organization_members") return ok(mem);
     if (call.table === "profiles") return ok({ display_name: "Ms. Cohen", email: "c@example.org" });
+    if (call.table === "printers") return ok({ name: "MLMI" });
     if (call.table === "printer_profiles") return ok(profile);
     if (call.table === "print_jobs" && call.op === "select") return ok(over.job ?? null);
     if (call.table === "print_jobs" && call.op === "update") return ok([{ id: JOB_ID }]);
@@ -131,7 +133,7 @@ describe("POST /api/gateway/device/resolve", () => {
     const res = await resolvePOST(req("/api/gateway/device/resolve", { tokenHash: HASH }));
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json).toEqual({ deviceId: DEVICE_ID, userId: USER_ID, organizationId: ORG_ID, displayName: "Ms. Cohen" });
+    expect(json).toEqual({ deviceId: DEVICE_ID, userId: USER_ID, organizationId: ORG_ID, displayName: "Ms. Cohen", deviceType: "android", printerLabel: "Printio-MLMI-SZV" });
     expect(JSON.stringify(json)).not.toContain(HASH);
 
     const lookup = fake.calls.find((c) => c.table === "member_devices" && c.op === "select")!;

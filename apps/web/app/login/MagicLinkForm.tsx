@@ -58,11 +58,7 @@ export function MagicLinkForm({ inviteCode }: { inviteCode?: string } = {}) {
   }
 
   if (sent) {
-    return (
-      <p className="text-sm text-[var(--color-text)]">
-        Check <strong>{email.trim()}</strong> for a sign-in link. You can close this tab.
-      </p>
-    );
+    return <CodeEntry email={email.trim()} inviteCode={inviteCode} onBack={() => setSent(false)} />;
   }
 
   return (
@@ -84,6 +80,65 @@ export function MagicLinkForm({ inviteCode }: { inviteCode?: string } = {}) {
       <Button type="submit" variant={inviteCode ? "primary" : "outline"} className="w-full" pending={pending} pendingLabel="Sending...">
         Email me a sign-in link
       </Button>
+    </form>
+  );
+}
+
+/** After the email is sent: type the short code from it here. Works even when the emailed link was opened in a
+ *  different browser window or profile (a link opened there signs in THERE; this box signs in here). */
+function CodeEntry({ email, inviteCode, onBack }: { email: string; inviteCode?: string; onBack: () => void }) {
+  const [code, setCode] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    setPending(true);
+    setError(undefined);
+    try {
+      const res = await fetch("/auth/verify-code", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, code, invite: inviteCode }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { redirect?: string; error?: string };
+      if (res.ok && body.redirect) {
+        window.location.assign(body.redirect);
+        return;
+      }
+      setError(body.error ?? "That didn't work. Try again.");
+    } catch {
+      setError("Couldn't reach the server. Check your connection and try again.");
+    }
+    setPending(false);
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3 text-left">
+      <p className="text-sm text-[var(--color-text)]">
+        We emailed <strong>{email}</strong>. Open the email and tap the button, or type the code from it here.
+      </p>
+      <div>
+        <FieldLabel htmlFor="sign-in-code">Code from the email</FieldLabel>
+        <Input
+          id="sign-in-code"
+          name="code"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          pattern="[0-9 ]*"
+          required
+          placeholder="123456"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+        />
+      </div>
+      <FormError message={error} />
+      <Button type="submit" className="w-full" pending={pending} pendingLabel="Checking...">
+        Sign in
+      </Button>
+      <button type="button" onClick={onBack} className="text-xs text-[var(--color-muted)] underline">
+        Use a different email or send a new link
+      </button>
     </form>
   );
 }

@@ -268,6 +268,62 @@ export type Database = {
           },
         ]
       }
+      device_connection_tests: {
+        Row: {
+          control_ms: number
+          control_ok: boolean
+          created_at: string
+          device_id: string
+          id: string
+          organization_id: string
+          probe_ms: number
+          probe_ok: boolean
+          real_ms: number
+          real_ok: boolean
+          user_agent: string | null
+          user_id: string
+          verdict: string
+        }
+        Insert: {
+          control_ms: number
+          control_ok: boolean
+          created_at?: string
+          device_id: string
+          id?: string
+          organization_id: string
+          probe_ms: number
+          probe_ok: boolean
+          real_ms: number
+          real_ok: boolean
+          user_agent?: string | null
+          user_id: string
+          verdict: string
+        }
+        Update: {
+          control_ms?: number
+          control_ok?: boolean
+          created_at?: string
+          device_id?: string
+          id?: string
+          organization_id?: string
+          probe_ms?: number
+          probe_ok?: boolean
+          real_ms?: number
+          real_ok?: boolean
+          user_agent?: string | null
+          user_id?: string
+          verdict?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_connection_tests_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "member_devices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       device_setup_feedback: {
         Row: {
           created_at: string

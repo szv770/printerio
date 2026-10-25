@@ -74,6 +74,18 @@ const androidPrint = (doc = "application/pdf") => ({
   ],
 });
 
+describe("per-device printer name", () => {
+  it("shows the web app's Printio-<printer>-<code> label as printer-name, falling back to the configured name", async () => {
+    const ask = (host: string) =>
+      h.ipp({ code: OP.getPrinterAttributes, groups: [operationGroup(printerUri(), attr(TAG.keyword, "requested-attributes", "printer-name"))] }, Buffer.alloc(0), { host });
+    const plain = await ask(h.host);
+    expect(flatGroup(plain.ipp, TAG.printer)["printer-name"]).toBe("Printio");
+    const other = h.addDevice("dev-2", "Printio-MLMI-SZV");
+    const labelled = await ask(other.host);
+    expect(flatGroup(labelled.ipp, TAG.printer)["printer-name"]).toBe("Printio-MLMI-SZV");
+  });
+});
+
 describe("Windows 11 flow", () => {
   it("Get-Printer-Attributes on an arbitrary path honours requested-attributes and records one event", async () => {
     const r = await h.ipp(

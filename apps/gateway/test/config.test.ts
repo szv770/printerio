@@ -31,3 +31,20 @@ describe("busy guard configuration", () => {
     expect(() => loadConfig({ ...base, MAX_INFLIGHT_UPLOAD_MB: "-1" })).toThrow();
   });
 });
+
+describe("ADVERTISE_FINISHINGS", () => {
+  const base = {
+    WEB_BASE_URL: "https://web.test",
+    GATEWAY_SHARED_SECRET: "x".repeat(32),
+    SUPABASE_URL: "https://sb.test",
+    SUPABASE_SERVICE_ROLE_KEY: "k",
+    BASE_DOMAIN: "example.test",
+  };
+  it("defaults to full and accepts basic", () => {
+    expect(loadConfig(base).advertiseFinishings).toBe("full");
+    expect(loadConfig({ ...base, ADVERTISE_FINISHINGS: "basic" }).advertiseFinishings).toBe("basic");
+  });
+  it("rejects other values", () => {
+    expect(() => loadConfig({ ...base, ADVERTISE_FINISHINGS: "lots" })).toThrow();
+  });
+});

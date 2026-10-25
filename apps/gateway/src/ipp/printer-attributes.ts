@@ -41,6 +41,11 @@ export interface PrinterAttrsInput {
   uuidSeed: string;
   startedAt: number;
   now?: Date;
+  /** Finishing values to advertise (default: all of FINISHINGS_SUPPORTED). */
+  finishings?: readonly number[];
+  /** Apple devices (iPhone/iPad/Mac): also advertise the AirPrint raster format and its keyword. PDF stays first, so Apple
+   *  still sends PDF. UNVERIFIED on a real iPhone: this is the first hypothesis for "profile installs, printer never shows". */
+  airprint?: boolean;
 }
 
 export function uuidFromSeed(seed: string): string {
@@ -78,7 +83,7 @@ export function buildPrinterAttributes(input: PrinterAttrsInput): IppAttr[] {
     attr(TAG.language, "natural-language-configured", "en"),
     attr(TAG.language, "generated-natural-language-supported", "en"),
     attr(TAG.mime, "document-format-default", DOCUMENT_FORMATS[0] as string),
-    attr(TAG.mime, "document-format-supported", ...DOCUMENT_FORMATS),
+    attr(TAG.mime, "document-format-supported", ...(input.airprint ? [DOCUMENT_FORMATS[0] as string, "image/urf", ...DOCUMENT_FORMATS.slice(1)] : DOCUMENT_FORMATS)),
     attr(TAG.keyword, "pdl-override-supported", "attempted"),
     attr(TAG.keyword, "compression-supported", "none"),
     attr(TAG.boolean, "multiple-document-jobs-supported", false),
@@ -104,7 +109,7 @@ export function buildPrinterAttributes(input: PrinterAttrsInput): IppAttr[] {
     // UNVERIFIED: which of these Windows 11 / Android actually draw in their dialog (nothing is captured yet; the
     // OS may show only some, or only the generic "staple"). Whatever arrives that is not listed is held, never guessed.
     attr(TAG.enum, "finishings-default", 3),
-    attr(TAG.enum, "finishings-supported", ...FINISHINGS_SUPPORTED),
+    attr(TAG.enum, "finishings-supported", ...(input.finishings ?? FINISHINGS_SUPPORTED)),
     attr(TAG.resolution, "printer-resolution-default", dpi600),
     attr(TAG.resolution, "printer-resolution-supported", dpi600),
     attr(TAG.keyword, "media-default", letter.key),
@@ -132,6 +137,7 @@ export function buildPrinterAttributes(input: PrinterAttrsInput): IppAttr[] {
     attr(TAG.resolution, "pwg-raster-document-resolution-supported", { x: 300, y: 300, units: 3 }, dpi600),
     attr(TAG.keyword, "pwg-raster-document-type-supported", "sgray_8"),
     attr(TAG.keyword, "pwg-raster-document-sheet-back", "normal"),
+    ...(input.airprint ? [attr(TAG.keyword, "urf-supported", "V1.4", "CP1", "W8", "RS300", "DM1")] : []),
   ];
 }
 
