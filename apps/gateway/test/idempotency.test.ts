@@ -149,10 +149,10 @@ describe("duplicate protection: the same device sending the same document again"
     expect(h.web.finalizeCalls.map((c) => c.deviceId).sort()).toEqual(["dev-1", "dev-2"]);
   });
 
-  it("the window is about 3 minutes: after that the same document is a new print", async () => {
+  it("the window is about 30 seconds: after that the same document is a new print (a real reprint is never swallowed)", async () => {
     const doc = pdfOf("later");
     await h.ipp(printJob(), doc);
-    clock += 2 * 60_000 + 59_000;
+    clock += 29_000;
     await h.ipp(printJob(), doc);
     expect(h.web.finalizeCalls).toHaveLength(1);
     clock += 2_000;

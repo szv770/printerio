@@ -59,11 +59,12 @@ export function setupSteps(type: string, addr: DeviceAddress): SetupSteps | null
       steps: [
         "Open Settings > Bluetooth & devices > Printers & scanners.",
         "Click Add device, then choose \"Add manually\".",
-        "Choose \"Select a shared printer by name\" (the one with a box for a web address). Do NOT choose \"Add a printer using an IP address or hostname\".",
-        `Paste the full address: ${addr.url}`,
-        "Click Next and follow the prompts.",
+        "Choose \"Add a printer using an IP address or hostname\" and click Next.",
+        "If it asks for a device type, pick \"IPP Device\" (not Autodetect or TCP/IP).",
+        `Paste the full address, starting with https://: ${addr.url}`,
+        "Click Next. It says \"Contacting printer\" for about 30 seconds, then \"You've successfully added Printio\".",
       ],
-      note: "The address must be pasted whole, starting with https://. The hostname-only option is for Android and Mac, not Windows.",
+      note: "Proven on a Windows 11 laptop (the full address pasted into the hostname box). The \"shared printer by name\" route has not worked.",
     };
   }
   if (type === "android") {

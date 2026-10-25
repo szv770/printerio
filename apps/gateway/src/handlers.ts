@@ -39,7 +39,7 @@ export interface GatewayDeps {
   now?: () => number;
   /** Awaited-by-nobody background work (events); tests can drain it. */
   background?: Set<Promise<unknown>>;
-  /** Phone-retry protection (same device + same document within ~3 minutes). Created on first use when absent. */
+  /** Phone-retry protection (same device + same document within ~30 seconds). Created on first use when absent. */
   dedupe?: DedupeCache<FinalizedJob>;
   /** ~3 s per-job web status cache. Created on first use when absent. */
   statusCache?: StatusCache;

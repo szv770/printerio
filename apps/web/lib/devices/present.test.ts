@@ -35,7 +35,8 @@ describe("setupSteps", () => {
     expect(s.needs).toBe("url");
     const text = s.steps.join("\n");
     expect(text).toContain("Add manually");
-    expect(text).toContain("Select a shared printer by name");
+    expect(text).toContain("Add a printer using an IP address or hostname");
+    expect(text).toContain("IPP Device");
     expect(text).toContain("https://u-abc.szvtech.org/ipp/print");
   });
   it("android uses the bare hostname and says so", () => {
