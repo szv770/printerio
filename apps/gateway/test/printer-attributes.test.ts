@@ -75,3 +75,22 @@ describe("advertised finishings", () => {
     expect(finishingsOf([3])).toBe(3);
   });
 });
+
+describe("AirPrint extras (only for iPhone/Mac devices)", () => {
+  const p = (airprint?: boolean) => {
+    const attrs = buildPrinterAttributes({ baseUrl: "https://u-x.example.test", printerName: "Printio", uuidSeed: "seed", startedAt: Date.now(), airprint });
+    return flatten(decodeIpp(encodeIpp({ code: 0, requestId: 1, groups: [{ tag: TAG.printer, attrs }] })).groups[0]);
+  };
+  it("adds image/urf and urf-supported when asked, keeping PDF first", () => {
+    const withAp = p(true);
+    expect((withAp["document-format-supported"] as string[])[0]).toBe("application/pdf");
+    expect(withAp["document-format-supported"]).toContain("image/urf");
+    expect(withAp["urf-supported"]).toBeDefined();
+  });
+  it("leaves Windows/Android attributes exactly as they were", () => {
+    const without = p(false);
+    expect(without["document-format-supported"]).toEqual(DOCUMENT_FORMATS);
+    expect(without["urf-supported"]).toBeUndefined();
+    expect(p()["document-format-supported"]).toEqual(DOCUMENT_FORMATS);
+  });
+});

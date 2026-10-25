@@ -55,7 +55,7 @@ const TYPE_OPTIONS: { value: string; label: string; Icon: LucideIcon }[] = [
 ];
 
 const noopSubscribe = () => () => {};
-const NO_STEPS_TYPES = new Set(["iphone", "chromebook", "other"]);
+const NO_STEPS_TYPES = new Set(["chromebook", "other"]);
 
 function DeviceTypeIcon({ type, className }: { type: string; className?: string }) {
   const Icon = TYPE_OPTIONS.find((o) => o.value === type)?.Icon ?? MonitorSmartphone;
@@ -284,6 +284,13 @@ function AddressCard({ created, onDone }: { created: NonNullable<AddDeviceState[
               </li>
             ))}
           </ol>
+          {guide.profileDownload && (
+            <form method="post" action="/api/devices/airprint-profile" className="mt-4">
+              <input type="hidden" name="hostname" value={addr.hostname} />
+              <input type="hidden" name="name" value={created.name} />
+              <Button type="submit" variant="secondary">Download iPhone setup profile</Button>
+            </form>
+          )}
           {guide.command && (
             <div className="mt-4 rounded-xl border-2 border-[var(--color-border)] p-3.5">
               <p className="mb-1 text-[13px] font-medium text-[var(--color-muted)]">Line to paste into Terminal</p>

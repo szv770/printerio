@@ -133,7 +133,7 @@ describe("POST /api/gateway/device/resolve", () => {
     const res = await resolvePOST(req("/api/gateway/device/resolve", { tokenHash: HASH }));
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json).toEqual({ deviceId: DEVICE_ID, userId: USER_ID, organizationId: ORG_ID, displayName: "Ms. Cohen", printerLabel: "Printio-MLMI-SZV" });
+    expect(json).toEqual({ deviceId: DEVICE_ID, userId: USER_ID, organizationId: ORG_ID, displayName: "Ms. Cohen", deviceType: "android", printerLabel: "Printio-MLMI-SZV" });
     expect(JSON.stringify(json)).not.toContain(HASH);
 
     const lookup = fake.calls.find((c) => c.table === "member_devices" && c.op === "select")!;

@@ -50,6 +50,8 @@ export interface SetupSteps {
   command?: string;
   /** Honest label when this way of setting up has not been proven on a real device yet. */
   testStatus?: string;
+  /** Offer the "Download iPhone setup profile" button (an AirPrint configuration profile for this address). */
+  profileDownload?: true;
 }
 
 export function setupSteps(type: string, addr: DeviceAddress): SetupSteps | null {
@@ -79,6 +81,21 @@ export function setupSteps(type: string, addr: DeviceAddress): SetupSteps | null
         "Tap Add.",
       ],
       note: "Android needs the bare hostname: no \"https://\" and nothing after it.",
+    };
+  }
+  if (type === "iphone") {
+    return {
+      needs: "hostname",
+      profileDownload: true,
+      testStatus: "Not tested yet - being worked on",
+      note: "We have not tried this on a real iPhone yet, so it may not work. If it does not, use Print a document on the website.",
+      steps: [
+        "Open this page in Safari on your iPhone or iPad (other browsers cannot install profiles). Not in Safari? Tap Share, then Open in Safari.",
+        "Tap Download iPhone setup profile. When it asks, tap Allow, then Close.",
+        "Open Settings and tap Profile Downloaded near the top. Tap Install (top right), enter your passcode.",
+        "A warning says Unsigned Profile. That is normal. Tap Install again, then Install, then Done.",
+        "To print: open a document or photo, tap Share, then Print, tap Printer, and choose your Printio printer. If it is not listed, wait 10 seconds and tap Printer again.",
+      ],
     };
   }
   if (type === "mac") {
@@ -113,9 +130,6 @@ export function detectDeviceType(userAgent: string | undefined | null, maxTouchP
 
 /** What to tell someone when we have no step-by-step help for their device type. */
 export function noStepsMessage(type: string): string {
-  if (type === "iphone") {
-    return "iPhone and iPad: coming later. We do not expect printing from the Print button to work yet. For now, upload from the website (Print a document).";
-  }
   if (type === "other") return "We don't have steps for this kind of device yet. It may not work.";
   return `We don't have steps for ${deviceTypeLabel(type)} yet. It may not work, so ask your administrator if you get stuck.`;
 }

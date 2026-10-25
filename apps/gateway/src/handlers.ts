@@ -490,6 +490,7 @@ async function dispatch(deps: GatewayDeps, ctx: RequestContext, msg: IppMessage)
         uuidSeed: ctx.token,
         startedAt: deps.startedAt,
         finishings: deps.finishings,
+        airprint: device.deviceType === "iphone" || device.deviceType === "mac",
       });
       return buildReply(msg, {
         status: STATUS.ok,

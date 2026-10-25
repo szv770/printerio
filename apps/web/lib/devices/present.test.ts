@@ -66,7 +66,22 @@ describe("setupSteps", () => {
     expect(setupSteps("android", addr)!.testStatus).toBeUndefined();
   });
   it("other types have no steps yet", () => {
-    for (const t of ["chromebook", "iphone", "other"] as const) expect(setupSteps(t, addr)).toBeNull();
+    for (const t of ["chromebook", "other"] as const) expect(setupSteps(t, addr)).toBeNull();
+  });
+  it("iPhone gets the profile route, labelled not tested, and no Terminal command", () => {
+    const s = setupSteps("iphone", addr)!;
+    expect(s.needs).toBe("hostname");
+    expect(s.profileDownload).toBe(true);
+    expect(s.testStatus).toMatch(/not tested/i);
+    expect(s.command).toBeUndefined();
+    const text = s.steps.join(" ");
+    expect(text).toContain("Safari");
+    expect(text).toContain("Profile Downloaded");
+    expect(text).toMatch(/Unsigned/i);
+    expect(text).toContain("Print");
+  });
+  it("no other type offers the profile", () => {
+    for (const t of ["windows", "android", "mac"] as const) expect(setupSteps(t, addr)!.profileDownload).toBeUndefined();
   });
 });
 
@@ -108,9 +123,8 @@ describe("detectDeviceType", () => {
 });
 
 describe("noStepsMessage", () => {
-  it("is honest about iPhone", () => {
-    expect(noStepsMessage("iphone")).toMatch(/coming later/i);
-    expect(noStepsMessage("iphone")).toMatch(/upload from the website/i);
+  it("has no iPhone special case any more (iPhone now has steps)", () => {
+    expect(noStepsMessage("iphone")).toMatch(/don't have steps/i);
   });
   it("says plainly that Other has no steps and may not work", () => {
     expect(noStepsMessage("other")).toBe("We don't have steps for this kind of device yet. It may not work.");

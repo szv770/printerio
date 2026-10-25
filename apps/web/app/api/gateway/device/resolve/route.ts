@@ -66,6 +66,7 @@ export async function POST(request: Request) {
       userId: device.user_id,
       organizationId: device.organization_id,
       displayName,
+      deviceType: device.device_type,
       ...(printerLabel ? { printerLabel } : {}),
     });
   } catch (err) {

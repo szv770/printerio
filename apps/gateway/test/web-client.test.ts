@@ -15,6 +15,8 @@ describe("web client printer label", () => {
     const without = vi.fn(async () => json(200, { deviceId: "d", userId: "u", organizationId: "o", displayName: "P" }));
     const r = await client(without as unknown as typeof fetch).resolveDevice("h2");
     expect(r.kind === "ok" && r.device.printerLabel).toBeUndefined();
+    const typed = vi.fn(async () => json(200, { deviceId: "d", userId: "u", organizationId: "o", displayName: "P", deviceType: "iphone" }));
+    expect(await client(typed as unknown as typeof fetch).resolveDevice("h3")).toMatchObject({ kind: "ok", device: { deviceType: "iphone" } });
   });
 });
 
