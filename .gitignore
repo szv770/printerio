@@ -4,6 +4,7 @@ node_modules/
 
 # Next.js
 apps/web/.next/
+apps/web/public/pdfjs/
 apps/web/out/
 apps/web/next-env.d.ts
 
