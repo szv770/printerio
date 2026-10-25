@@ -66,7 +66,7 @@ describe("setupSteps", () => {
     expect(setupSteps("android", addr)!.testStatus).toBeUndefined();
   });
   it("other types have no steps yet", () => {
-    for (const t of ["chromebook", "other"] as const) expect(setupSteps(t, addr)).toBeNull();
+    for (const t of ["other"] as const) expect(setupSteps(t, addr)).toBeNull();
   });
   it("iPhone gets the profile route, labelled not tested, and no Terminal command", () => {
     const s = setupSteps("iphone", addr)!;
@@ -79,6 +79,20 @@ describe("setupSteps", () => {
     expect(text).toContain("Profile Downloaded");
     expect(text).toMatch(/Unsigned/i);
     expect(text).toContain("Print");
+  });
+  it("Chromebook uses the manual Add printer form: hostname with port 443, IPPS, queue ipp/print; labelled not tested", () => {
+    const s = setupSteps("chromebook", addr)!;
+    expect(s.needs).toBe("hostname");
+    expect(s.testStatus).toMatch(/not tested/i);
+    expect(s.command).toBeUndefined();
+    expect(s.profileDownload).toBeUndefined();
+    const text = s.steps.join(" ");
+    expect(text).toContain("Add printer");
+    expect(text).toContain("u-abc.szvtech.org:443");
+    expect(text).toMatch(/IPPS/);
+    expect(text).toContain("ipp/print");
+    expect(text).not.toContain("https://");
+    expect(s.note).toMatch(/school|administrator|managed/i);
   });
   it("no other type offers the profile", () => {
     for (const t of ["windows", "android", "mac"] as const) expect(setupSteps(t, addr)!.profileDownload).toBeUndefined();

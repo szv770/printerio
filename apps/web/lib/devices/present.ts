@@ -83,6 +83,22 @@ export function setupSteps(type: string, addr: DeviceAddress): SetupSteps | null
       note: "Android needs the bare hostname: no \"https://\" and nothing after it.",
     };
   }
+  if (type === "chromebook") {
+    return {
+      needs: "hostname",
+      testStatus: "Not tested yet - being worked on",
+      note: "We have not tried this on a real Chromebook yet, so it may not work. A school-managed Chromebook may not allow adding printers at all (ask your administrator). If it does not work, use Print a document on the website.",
+      steps: [
+        "Open Settings > Advanced > Printing > Printers (on newer versions: Settings > Connected devices > Printers). Choose Add printer, then Add manually.",
+        "Name: type anything you like, for example Printio.",
+        `Address: paste ${addr.hostname}:443`,
+        "Protocol: choose Internet Printing Protocol (IPPS). Not plain IPP.",
+        "Queue: type ipp/print",
+        "Click Add. If it asks for a printer model or driver, choose Generic / IPP Everywhere if offered.",
+        "To print: open a page or document, press Ctrl + P, tap Destination, and choose your Printio printer.",
+      ],
+    };
+  }
   if (type === "iphone") {
     return {
       needs: "hostname",

@@ -55,7 +55,7 @@ const TYPE_OPTIONS: { value: string; label: string; Icon: LucideIcon }[] = [
 ];
 
 const noopSubscribe = () => () => {};
-const NO_STEPS_TYPES = new Set(["chromebook", "other"]);
+const NO_STEPS_TYPES = new Set(["other"]);
 
 function DeviceTypeIcon({ type, className }: { type: string; className?: string }) {
   const Icon = TYPE_OPTIONS.find((o) => o.value === type)?.Icon ?? MonitorSmartphone;
