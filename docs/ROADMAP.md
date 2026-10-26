@@ -40,3 +40,6 @@ first. "Needs you" means I cannot finish it without the owner at a device or a d
 - Rotate landscape pages automatically in booklets (owner decision: only if someone clearly opts in).
 - Claim a device or feature is working before it has printed on a real device.
 - Offer the library to the public before the library's team has agreed in writing.
+
+- **Sichos In English (sie.org/weekly) as a library source.** Checked 2026-10-26: sie.org answers automated visitors with a Cloudflare security check (403), so Printio cannot read it, and we will not try to get around that. Needs permission or a feed from Sichos In English (for example allowing Printio's server). Meanwhile the Mafteiach library already offers many English translations, now searchable and filterable.
+- **Early tools for a whole group or role** (today it is switched on per person in Admin -> Users).
