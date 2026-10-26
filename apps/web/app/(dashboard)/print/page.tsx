@@ -5,6 +5,8 @@ import { routes } from "@/lib/routes";
 import { PageHeader } from "@/components/ui";
 import { DEFAULT_MAX_UPLOAD_BYTES } from "@/lib/pdf/client-precheck";
 import { SharedFileHandoff } from "@/components/pwa/SharedFileHandoff";
+import { LinkImport } from "@/components/print/LinkImport";
+import { canUseLinks } from "@/lib/sources/access";
 import { PrintForm } from "./PrintForm";
 
 export default async function PrintPage() {
@@ -59,6 +61,7 @@ export default async function PrintPage() {
        *  blocking the user from picking a file and preparing everything
        *  else just because a printer isn't connected yet. */}
       <SharedFileHandoff maxUploadBytes={maxUploadBytes} />
+      {canUseLinks(session.membership.role) && <LinkImport maxUploadBytes={maxUploadBytes} />}
       <PrintForm printerProfiles={printerProfiles} maxUploadBytes={maxUploadBytes} />
     </main>
   );
