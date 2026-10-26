@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { didBypassChangeOutcome, isAdminExemptFromRestrictions } from "./admin-bypass";
+import { approverSkipsApproval, didBypassChangeOutcome, isAdminExemptFromRestrictions } from "./admin-bypass";
 
 describe("isAdminExemptFromRestrictions", () => {
   it("is exempt when org_admin and the org has bypass enabled (the default)", () => {
@@ -30,5 +30,16 @@ describe("didBypassChangeOutcome", () => {
   it("is true when exempt and the policy would otherwise have denied or required approval", () => {
     expect(didBypassChangeOutcome(true, "deny")).toBe(true);
     expect(didBypassChangeOutcome(true, "require_approval")).toBe(true);
+  });
+});
+
+describe("approverSkipsApproval", () => {
+  it("is true only for an approver whose job would otherwise wait for approval", () => {
+    expect(approverSkipsApproval("approver", "require_approval")).toBe(true);
+  });
+  it("never lifts a denial or helps anyone else", () => {
+    expect(approverSkipsApproval("approver", "deny")).toBe(false);
+    expect(approverSkipsApproval("approver", "allow")).toBe(false);
+    for (const role of ["staff", "student", "org_admin"] as const) expect(approverSkipsApproval(role, "require_approval")).toBe(false);
   });
 });

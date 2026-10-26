@@ -147,6 +147,20 @@ describe("createPrintJob: success", () => {
     expect(rpcs("adjust_monthly_usage")).toHaveLength(0); // a denied job reserves nothing
   });
 
+  it("an approver's own job skips the approval step, but a denial still blocks it", async () => {
+    const approver: JobSession = { userId: USER, membership: { organization_id: ORG, role: "approver", department: null } };
+    const runAs = () => createPrintJob(fake.client as never, approver, pdf3, "report.pdf", baseOpts());
+    evaluateJobPolicy.mockResolvedValue({ result: { action: "require_approval", reasons: ["Needs a teacher"] }, quotaLimit: null, adminsBypassRestrictions: false, quotaBasis: "physical_sheets", groupIds: [] });
+    let res = await runAs();
+    expect(res).toMatchObject({ ok: true, status: "approved" });
+    expect(insertedJob().policy_bypassed_for_admin).toBe(true); // disclosed, like the admin bypass
+
+    use();
+    evaluateJobPolicy.mockResolvedValue({ result: { action: "deny", reasons: ["No color"] }, quotaLimit: null, adminsBypassRestrictions: false, quotaBasis: "physical_sheets", groupIds: [] });
+    res = await runAs();
+    expect(res).toMatchObject({ ok: true, status: "denied" });
+  });
+
   it("records an IPP job's origin on the row and in its first event", async () => {
     const res = await run(pdf3, baseOpts({ source: "ipp", deviceId: "device-1", ippUserAgent: "Windows IPP" }));
     expect(res.ok).toBe(true);

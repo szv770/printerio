@@ -10,7 +10,7 @@ import { buildStampText, normalizeStampSettings } from "@/lib/jobs/user-code";
 import { ensureMemberUserCode } from "@/lib/jobs/ensure-user-code";
 import { checkQueueCapabilities, mapQueueChoices, mapRawChoices, planPageSubset, type BindingSide, type PrintChoices } from "@/lib/print-choices";
 import { evaluateJobPolicy } from "@/lib/policy/build-facts";
-import { didBypassChangeOutcome, isAdminExemptFromRestrictions } from "@/lib/policy/admin-bypass";
+import { approverSkipsApproval, didBypassChangeOutcome, isAdminExemptFromRestrictions } from "@/lib/policy/admin-bypass";
 import { adjustMonthlyUsage, usageAmountsForJob, type UsageAmounts } from "@/lib/quota";
 import { jobFilePath, PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { logger } from "@/lib/logger";
@@ -426,7 +426,11 @@ export async function createPrintJob(
     adminExempt = isAdminExemptFromRestrictions(session.membership.role as OrgRole, evaluated.adminsBypassRestrictions);
     policyBypassed = didBypassChangeOutcome(adminExempt, evaluated.result.action);
 
-    if (!adminExempt) {
+    // An approver's own job skips the approval step (and only that step). Flagged like the admin bypass so it is disclosed.
+    const approverAuto = approverSkipsApproval(session.membership.role as OrgRole, evaluated.result.action);
+    if (approverAuto) policyBypassed = true;
+
+    if (!adminExempt && !approverAuto) {
       if (evaluated.result.action === "deny") jobStatus = "denied";
       else if (evaluated.result.action === "require_approval") jobStatus = "pending_approval";
     }
