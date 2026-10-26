@@ -46,7 +46,14 @@ describe("Google Docs and Slides export as PDF", () => {
   it("document link becomes a PDF export", () => {
     const r = ok("https://docs.google.com/document/d/0B_WSU737WJ1fMmZHRGdZdlpyMm8/edit?resourcekey=0-_9-vGCV4kE0OgeUqM4qVZg");
     expect(r.kind).toBe("docs");
-    expect(r.url.toString()).toBe("https://docs.google.com/document/d/0B_WSU737WJ1fMmZHRGdZdlpyMm8/export?format=pdf");
+    expect(r.url.toString()).toBe("https://docs.google.com/document/d/0B_WSU737WJ1fMmZHRGdZdlpyMm8/export?format=pdf&resourcekey=0-_9-vGCV4kE0OgeUqM4qVZg");
+  });
+  it("keeps the resource key on the export (legacy shared documents need it)", () => {
+    const doc = ok("https://docs.google.com/document/d/0B_WSU737WJ1fMmZHRGdZdlpyMm8/edit?resourcekey=0-_9-vGCV4kE0OgeUqM4qVZg");
+    expect(doc.url.searchParams.get("resourcekey")).toBe("0-_9-vGCV4kE0OgeUqM4qVZg");
+    expect(doc.url.searchParams.get("format")).toBe("pdf");
+    const slides = ok("https://docs.google.com/presentation/d/1abcDEF_ghi-JKL/edit?resourcekey=0-abc_DEF");
+    expect(slides.url.searchParams.get("resourcekey")).toBe("0-abc_DEF");
   });
   it("presentation link becomes a PDF export", () => {
     const r = ok("https://docs.google.com/presentation/d/1abcDEF_ghi-JKL/edit#slide=id.p");

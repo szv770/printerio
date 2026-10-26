@@ -9,6 +9,9 @@ import { LinkImport } from "@/components/print/LinkImport";
 import { canUseLinks } from "@/lib/sources/access";
 import { PrintForm } from "./PrintForm";
 
+// "Print from a link" fetches a file on the server (up to 30 s) and the upload then needs time too.
+export const maxDuration = 60;
+
 export default async function PrintPage() {
   const session = await requireSessionOrRedirect();
   if (!session.membership) redirect(routes.noAccess);

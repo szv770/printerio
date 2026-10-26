@@ -160,6 +160,20 @@ describe("fetchPdf: size and time limits", () => {
     expect(res).toMatchObject({ ok: false, reason: "too_big" });
   });
 
+  it("aborts the request it gave up on, so nothing is left running", async () => {
+    let seen: AbortSignal | undefined;
+    const res = await fetchPdf(url("https://example.org/a"), "direct", {
+      timeoutMs: 60,
+      resolve: publicDns,
+      transport: (r) => {
+        seen = r.signal;
+        return new Promise(() => {});
+      },
+    });
+    expect(res).toMatchObject({ ok: false, reason: "timeout" });
+    expect(seen?.aborted).toBe(true);
+  });
+
   it("times out a server that never answers", async () => {
     const res = await fetchPdf(url("https://example.org/a"), "direct", { timeoutMs: 60, resolve: publicDns, transport: () => new Promise(() => {}) });
     expect(res).toMatchObject({ ok: false, reason: "timeout" });
@@ -193,6 +207,13 @@ describe("fileNameFrom", () => {
     expect(fileNameFrom("attachment; filename*=UTF-8''%D7%A9%D7%99%D7%97%D7%94.pdf", u("https://x.org/a"))).toBe("שיחה.pdf");
     expect(fileNameFrom('attachment; filename="a/b\\c:d.pdf"', u("https://x.org/a"))).toBe("a b c d.pdf");
     expect(fileNameFrom('attachment; filename="notes"', u("https://x.org/a"))).toBe("notes.pdf");
+  });
+  it("reads a Hebrew name the server sent as raw UTF-8 bytes (Node hands headers over as Latin-1 text)", () => {
+    const raw = Buffer.from("01 יום א' דראש השנה.pdf", "utf8").toString("latin1");
+    expect(fileNameFrom(`attachment; filename="${raw}"`, u("https://x.org/a"))).toBe("01 יום א' דראש השנה.pdf");
+    // plain Latin-1 text that is not UTF-8 stays as it is
+    const plain = Buffer.from("café.pdf", "latin1").toString("latin1");
+    expect(fileNameFrom(`attachment; filename="${plain}"`, u("https://x.org/a"))).toBe(plain);
   });
   it("falls back to the end of the address when it is a .pdf, otherwise nothing", () => {
     expect(fileNameFrom(undefined, u("https://x.org/files/Booklet%201.pdf"))).toBe("Booklet 1.pdf");

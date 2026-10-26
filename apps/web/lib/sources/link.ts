@@ -62,6 +62,8 @@ export function normalizeSourceLink(input: string): NormalizedLink {
     if (m) {
       const out = new URL(`https://docs.google.com/${m[1]}/d/${m[2]}/${m[1] === "document" ? "export" : "export/pdf"}`);
       if (m[1] === "document") out.searchParams.set("format", "pdf");
+      const key = url.searchParams.get("resourcekey");
+      if (key) out.searchParams.set("resourcekey", key); // older shared documents only open with their key
       return { ok: true, kind: "docs", url: out };
     }
     return fail("Printio can open Google Docs and Slides links, or a PDF in Drive. Copy the share link of the file.");
