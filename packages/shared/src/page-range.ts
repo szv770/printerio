@@ -3,7 +3,8 @@
  * 1-based, de-duplicated, order preserved. Strict: anything unrecognised is an error
  * rather than silently printing the wrong pages.
  */
-export const MAX_PAGE_RANGE_INPUT_LENGTH = 200;
+/** Generous on purpose: tapping every other page of a 300 page file writes about 1000 characters (see the tap-to-pick pages). */
+export const MAX_PAGE_RANGE_INPUT_LENGTH = 2000;
 
 export type PageRangeResult = { ok: true; pages: number[] } | { ok: false; reason: string };
 

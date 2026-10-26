@@ -4,6 +4,7 @@ import { useActionState, useEffect, useRef, useState, startTransition } from "re
 import { AlertTriangle, BookOpen, FileText, FileUp, ListOrdered, Minus, Palette, Paperclip, Plus, Printer, SlidersHorizontal } from "lucide-react";
 import { parsePageRange } from "@printio/shared";
 import { bookletBlankPagesNote } from "@/lib/booklet-note";
+import { PagePicker } from "@/components/print/PagePicker";
 import { Button, Card, Collapsible, FieldError, FieldLabel, FormError, Input, Segmented, Select, Spinner, StatusDot, Switch } from "@/components/ui";
 import { formatFileSize, precheckPdfHeader, precheckSelectedFile, shouldPreviewInBrowser } from "@/lib/pdf/client-precheck";
 import { renderPdfPageToCanvas } from "@/lib/pdf/render-page";
@@ -116,6 +117,9 @@ export function PrintForm({
 
   const [profileId, setProfileId] = useState(printerProfiles[0]?.id ?? "");
   const [estimatedPages, setEstimatedPages] = useState<number | null>(null);
+  /** The chosen file's bytes (only when small enough to preview in the browser): the tap-to-pick pages draw their thumbnails from it. */
+  const [pickedBytes, setPickedBytes] = useState<ArrayBuffer | null>(null);
+  const [pickMode, setPickMode] = useState<"tap" | "type">("tap");
   const [fileName, setFileName] = useState<string | null>(null);
   const [fileSizeLabel, setFileSizeLabel] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -252,6 +256,7 @@ export function PrintForm({
     setFileVersion((v) => v + 1);
     fileSnapshots.current.clear();
     setEstimatedPages(null);
+    setPickedBytes(null);
     setFileError(null);
     setFileName(file?.name ?? null);
     setFileSizeLabel(file ? formatFileSize(file.size) : null);
@@ -287,6 +292,8 @@ export function PrintForm({
       rejectSelectedFile(input, headerCheck.reason);
       return;
     }
+    // Its own copy: pdf.js takes ownership of (empties) any buffer it is given, and the form hands this one to it next.
+    setPickedBytes(bytes.slice(0));
 
     try {
       const { PDFDocument } = await import("pdf-lib");
@@ -681,7 +688,25 @@ export function PrintForm({
               ]}
             />
             {!(pagesMode === "range" || rangeText) && <input type="hidden" name="pageRange" value="" />}
-            {(pagesMode === "range" || rangeText) && (
+            {(pagesMode === "range" || rangeText) && pickedBytes && estimatedPages && (
+              <Segmented<"tap" | "type">
+                label="How do you want to choose?"
+                value={pickMode}
+                onChange={setPickMode}
+                options={[
+                  { value: "tap", label: "Tap pages" },
+                  { value: "type", label: "Type pages" },
+                ]}
+              />
+            )}
+            {(pagesMode === "range" || rangeText) && pickedBytes && estimatedPages && pickMode === "tap" && (
+              <>
+                <input type="hidden" name="pageRange" value={pageRange} />
+                <PagePicker bytes={pickedBytes} totalPages={estimatedPages} value={pageRange} onChange={setPageRange} />
+                {rangeError && <FieldError message={rangeError} />}
+              </>
+            )}
+            {(pagesMode === "range" || rangeText) && !(pickedBytes && estimatedPages && pickMode === "tap") && (
               <div>
                 <FieldLabel htmlFor="pageRange">Pages to print</FieldLabel>
                 <Input
