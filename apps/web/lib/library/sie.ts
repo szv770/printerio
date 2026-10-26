@@ -36,9 +36,11 @@ export function sieForLikkut(volume: number | null, page: number | null, entries
   return entries.filter((e) => e.volume === volume && e.page !== undefined && e.page >= page && (nextPage === null || e.page < nextPage));
 }
 
-/** The page range that skips SIE's cover, blank page and dedication pages ("4-18"); undefined when the whole file should be used. */
-export function sieContentRange(e: Pick<SieEntry, "from" | "pageCount">): string | undefined {
+/** The page range with SIE's cover, blank and dedication pages at the front, and its blank page, credits page and back cover at the back, left out ("4-15"). Undefined when the whole file should be used. */
+export function sieContentRange(e: Pick<SieEntry, "from" | "to" | "pageCount">): string | undefined {
   if (e.from === undefined || e.pageCount === undefined) return undefined;
-  if (e.from <= 1 || e.from > e.pageCount) return undefined;
-  return `${e.from}-${e.pageCount}`;
+  const to = e.to ?? e.pageCount;
+  if (e.from > to || to > e.pageCount) return undefined;
+  if (e.from <= 1 && to >= e.pageCount) return undefined;
+  return `${e.from}-${to}`;
 }
