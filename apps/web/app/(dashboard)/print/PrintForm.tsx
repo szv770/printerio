@@ -1,5 +1,6 @@
 "use client";
 
+import { readBuilderParams } from "@/lib/booklet/builder-params";
 import { useActionState, useEffect, useRef, useState, startTransition } from "react";
 import { AlertTriangle, BookOpen, FileText, FileUp, ListOrdered, Minus, Palette, Paperclip, Plus, Printer, SlidersHorizontal } from "lucide-react";
 import { parsePageRange } from "@printio/shared";
@@ -186,9 +187,10 @@ export function PrintForm({
       if (saved.bookletFit) setBookletFit(saved.bookletFit);
       if (saved.bookletSheet) setBookletSheet(saved.bookletSheet);
       // Coming from the booklet builder: ?booklet=left|right switches the booklet on for the built file (after the saved choices).
-      const fromBuilder = new URLSearchParams(window.location.search).get("booklet");
-      if (fromBuilder === "left" || fromBuilder === "right") {
-        setBooklet(fromBuilder);
+      const fromBuilder = readBuilderParams(window.location.search);
+      if (fromBuilder.booklet) {
+        setBooklet(fromBuilder.booklet);
+        if (fromBuilder.sheet) setBookletSheet(fromBuilder.sheet); // overrides a size remembered from last time
         setAutoPreview(true);
       }
       setRestored(true);

@@ -2,14 +2,18 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, Plus, Search } from "lucide-react";
+import { Check, ChevronDown, Plus, Printer, Search } from "lucide-react";
 import { Badge, Button, FormError, Input, Segmented, Spinner } from "@/components/ui";
 import { libraryEntryAction, libraryLikkutAction, libraryListAction } from "@/app/(dashboard)/print/library/actions";
+import { importLinkAction } from "@/app/(dashboard)/print/import-link-action";
+import { putBuiltBooklet } from "@/lib/booklet/handoff";
+import { SIE_CREDIT, SIE_SNAPSHOT_DATE, SIE_WEEKLY } from "@/lib/library/sie-weekly";
+import { groupSie } from "@/lib/library/sie";
 import { addToCart, CART_MAX, clearCart, MAFTEIACH_CREDIT, readCart, removeFromCart, type CartItem } from "@/lib/library/cart";
 import { friendlyFileLabel, hasEnglish, matchesQuery } from "@/lib/library/labels";
 import type { EntrySection, LikkutPage, ListEntry, ListPage } from "@/lib/library/mafteiach-parse";
 
-type Tab = "likkutei" | "maamorim" | "all";
+type Tab = "likkutei" | "maamorim" | "all" | "sie";
 
 /** One file in the library: tap to put it in (or take it out of) the booklet. */
 function FileButton({ label, chosen, onToggle }: { label: string; chosen: boolean; onToggle: () => void }) {
@@ -53,6 +57,7 @@ export function LibraryBrowser() {
   const [notice, setNotice] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [pending, startTransition] = useTransition();
+  const [printing, startPrint] = useTransition();
   const [query, setQuery] = useState("");
 
   const [likkut, setLikkut] = useState<LikkutPage | null>(null);
@@ -67,12 +72,34 @@ export function LibraryBrowser() {
   }, []);
 
   const chosen = (url: string) => cart.some((i) => i.url === url);
-  function toggle(title: string, url: string) {
+  function toggle(title: string, url: string, credit = MAFTEIACH_CREDIT) {
     setNotice(undefined);
     if (chosen(url)) return setCart(removeFromCart(url));
-    const res = addToCart({ title, url, credit: MAFTEIACH_CREDIT });
+    const res = addToCart({ title, url, credit });
     setCart(res.items);
     if (res.full) setNotice(`A booklet holds up to ${CART_MAX} files. Remove one to add another.`);
+  }
+
+  /** The simple path: one file, straight to the Print screen. No booklet wizard unless the person asks for it. */
+  function printOne() {
+    const item = cart[0];
+    if (!item) return;
+    setError(undefined);
+    startPrint(async () => {
+      try {
+        const data = new FormData();
+        data.set("link", item.url);
+        const result = await importLinkAction(data);
+        if (result.error || !result.imported) return setError(result.error ?? "Something went wrong. Try again.");
+        const res = await fetch(result.imported.signedUrl, { cache: "no-store" });
+        if (!res.ok) throw new Error("download");
+        putBuiltBooklet(new File([await res.blob()], result.imported.fileName, { type: "application/pdf", lastModified: Date.now() }));
+        clearCart();
+        router.push("/print?built=1");
+      } catch {
+        setError("Printio could not get that file. Try again.");
+      }
+    });
   }
 
   function loadVolume(n: number) {
@@ -112,7 +139,7 @@ export function LibraryBrowser() {
     setError(undefined);
     setNotice(undefined);
     if (next === "likkutei" && !likkut) loadVolume(1);
-    if (next !== "likkutei" && !lists[next]) loadYear(next);
+    if (next === "maamorim" || next === "all") if (!lists[next]) loadYear(next);
   }
 
   // Open on Likkutei Sichos: the first load happens once, after mount.
@@ -121,7 +148,8 @@ export function LibraryBrowser() {
     return () => clearTimeout(t);
   }, []);
 
-  const list = tab === "likkutei" ? null : lists[tab];
+  const list = tab === "maamorim" || tab === "all" ? lists[tab] : null;
+  const sieGroups = tab === "sie" ? groupSie(SIE_WEEKLY, query) : [];
 
   // What is on screen after the search and the "English only" filter.
   const visibleParshiyos = likkut
@@ -142,6 +170,7 @@ export function LibraryBrowser() {
           { value: "likkutei", label: "Likkutei Sichos" },
           { value: "maamorim", label: "Maamarim" },
           { value: "all", label: "Sichos and farbrengens" },
+          { value: "sie", label: "Sichos In English" },
         ]}
       />
       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -199,6 +228,35 @@ export function LibraryBrowser() {
                     </li>
                   ))}
                 </ul>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {tab === "sie" && (
+        <section className="mt-4">
+          <p className="text-[13px] leading-5 text-[var(--color-muted)]">
+            SIE Weekly: the weekly English translations of the Rebbe&apos;s Likkutei Sichos, courtesy of Sichos In English (sie.org). The list is a copy from {SIE_SNAPSHOT_DATE}; new weeks are added when it is refreshed.
+          </p>
+          {sieGroups.length === 0 && <p className="mt-3 text-sm text-[var(--color-muted)]">Nothing matches. Clear the search to see more.</p>}
+          <div className="mt-3 space-y-6">
+            {sieGroups.map((g) => (
+              <div key={g.chelek}>
+                <h2 className="text-base font-semibold">Chelek {g.chelek}</h2>
+                {g.sefarim.map((sf) => (
+                  <div key={sf.sefer} className="mt-2">
+                    <h3 className="text-[13px] font-medium text-[var(--color-muted)]">Sefer {sf.sefer}</h3>
+                    <ul className="mt-1.5 space-y-2">
+                      {sf.entries.map((e) => (
+                        <li key={e.url} className="flex items-center justify-between gap-3 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+                          <span className="min-w-0 flex-1 text-sm font-medium">{e.title}</span>
+                          <FileButton label="English" chosen={chosen(e.url)} onToggle={() => toggle(`${e.title} (SIE, Chelek ${e.chelek})`, e.url, SIE_CREDIT)} />
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
               </div>
             ))}
           </div>
@@ -284,7 +342,13 @@ export function LibraryBrowser() {
             <Button type="button" variant="ghost" size="sm" onClick={() => (clearCart(), setCart([]))}>
               Clear
             </Button>
-            <Button type="button" onClick={() => router.push("/print/booklet")}>
+            {cart.length === 1 && (
+              <Button type="button" onClick={printOne} pending={printing} pendingLabel="Getting the file...">
+                <Printer className="h-4 w-4" aria-hidden="true" />
+                Print this file
+              </Button>
+            )}
+            <Button type="button" variant={cart.length === 1 ? "secondary" : "primary"} onClick={() => router.push("/print/booklet")} disabled={printing}>
               Make a booklet
             </Button>
           </div>

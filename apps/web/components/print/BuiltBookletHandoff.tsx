@@ -12,7 +12,7 @@ const FILE_INPUT_ID = "file";
  * printing rules all run exactly as for a file the person picked. Nothing prints until they press Print.
  */
 export function BuiltBookletHandoff() {
-  const [view, setView] = useState<{ kind: "ok"; name: string; url: string } | { kind: "gone" } | null>(null);
+  const [view, setView] = useState<{ kind: "ok"; name: string; url: string; booklet: boolean } | { kind: "gone" } | null>(null);
   const started = useRef(false);
   const objectUrl = useRef<string | null>(null);
 
@@ -20,6 +20,7 @@ export function BuiltBookletHandoff() {
     const params = new URLSearchParams(window.location.search);
     if (!params.has("built") || started.current) return; // strict mode runs effects twice in development
     started.current = true;
+    const asBooklet = params.has("booklet");
     params.delete("built");
     const qs = params.toString();
     window.history.replaceState(window.history.state, "", window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash);
@@ -37,7 +38,7 @@ export function BuiltBookletHandoff() {
         input.files = transfer.files;
         input.dispatchEvent(new Event("change", { bubbles: true }));
         objectUrl.current = URL.createObjectURL(file);
-      setView({ kind: "ok", name: file.name, url: objectUrl.current });
+      setView({ kind: "ok", name: file.name, url: objectUrl.current, booklet: asBooklet });
       } catch {
         setView({ kind: "gone" });
       }
@@ -54,12 +55,18 @@ export function BuiltBookletHandoff() {
       <p className="min-w-0 flex-1 text-sm leading-5">
         {view.kind === "ok" ? (
           <>
-            <span className="font-semibold">{view.name}</span> is ready below as a booklet. Check the preview, then press Print.{" "}
-            <a href={view.url} download={view.name} className="inline-flex items-center gap-1 font-medium underline">
-              <Download className="h-3.5 w-3.5" aria-hidden="true" />
-              Save a copy (PDF)
-            </a>{" "}
-            <span className="text-[var(--color-muted)]">This is the normal page-by-page PDF, not the folded layout, so you can upload it again later.</span>
+            <span className="font-semibold">{view.name}</span>{" "}
+            {view.booklet ? "is ready below as a booklet. Check the preview, then press Print." : "is ready below. Choose the pages and options, then press Print."}
+            {view.booklet && (
+              <>
+                {" "}
+                <a href={view.url} download={view.name} className="inline-flex items-center gap-1 font-medium underline">
+                  <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                  Save a copy (PDF)
+                </a>{" "}
+                <span className="text-[var(--color-muted)]">This is the normal page-by-page PDF, not the folded layout, so you can upload it again later.</span>
+              </>
+            )}
           </>
         ) : (
           <>That booklet is no longer here (the page was reloaded). Go back to the booklet builder and build it again.</>

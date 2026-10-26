@@ -8,6 +8,7 @@ import { Button, Checkbox, Field, FormError, Input, Segmented, Textarea } from "
 import { PagePicker } from "@/components/print/PagePicker";
 import { precheckSelectedFile } from "@/lib/pdf/client-precheck";
 import { putBuiltBooklet } from "@/lib/booklet/handoff";
+import { builderPrintUrl, type SheetChoice } from "@/lib/booklet/builder-params";
 import { clearDraft, readDraft, saveDraft, type DraftSource } from "@/lib/booklet/draft";
 import { clearCart, readCart, type CartItem } from "@/lib/library/cart";
 import { importLinkAction } from "@/app/(dashboard)/print/import-link-action";
@@ -31,6 +32,7 @@ export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
   const [direction, setDirection] = useState<"ltr" | "rtl">(() => readDraft()?.direction ?? "ltr");
   const [cover, setCover] = useState(() => readDraft()?.cover ?? true);
   const [contents, setContents] = useState(() => readDraft()?.contents ?? true);
+  const [sheet, setSheet] = useState<SheetChoice>(() => readDraft()?.sheet ?? "letter");
   const [link, setLink] = useState("");
   const [addError, setAddError] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
@@ -40,8 +42,8 @@ export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
   const [libraryProgress, setLibraryProgress] = useState<{ done: number; total: number } | null>(null);
 
   useEffect(() => {
-    saveDraft({ sources, title, description, direction, cover, contents });
-  }, [sources, title, description, direction, cover, contents]);
+    saveDraft({ sources, title, description, direction, cover, contents, sheet });
+  }, [sources, title, description, direction, cover, contents, sheet]);
 
   async function addFile(file: File, credit = "", title?: string) {
     const verdict = precheckSelectedFile(file, maxUploadBytes);
@@ -166,7 +168,7 @@ export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
         if (!res.ok) throw new Error("download");
         putBuiltBooklet(new File([await res.blob()], result.built.fileName, { type: "application/pdf", lastModified: Date.now() }));
         clearDraft();
-        router.push(`/print?built=1&booklet=${direction === "rtl" ? "right" : "left"}`);
+        router.push(builderPrintUrl(direction, sheet));
       } catch {
         setError("Printio built the booklet but your browser could not get it. Try again.");
       }
@@ -279,6 +281,21 @@ export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
             { value: "rtl", label: "Right to left (Hebrew)" },
           ]}
           hint="Sets the cover and contents layout and which edge the booklet binds on."
+        />
+        <Segmented<SheetChoice>
+          label="Booklet size"
+          value={sheet}
+          onChange={setSheet}
+          disabled={building}
+          options={[
+            { value: "letter", label: "Letter (regular)" },
+            { value: "tabloid", label: "Ledger 11x17" },
+          ]}
+          hint={
+            sheet === "tabloid"
+              ? "Full-size pages on 11x17 sheets, folded and stitched. Not tested yet: the printer's paper-size setting for this is still being checked."
+              : "Each page is shrunk to half a letter sheet, folded and stitched. The usual choice."
+          }
         />
         <div>
           <Checkbox label="Cover page" description="The name and description on the first page." checked={cover} onChange={(e) => setCover(e.target.checked)} disabled={building} />
