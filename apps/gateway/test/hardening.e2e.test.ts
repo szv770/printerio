@@ -120,6 +120,14 @@ describe("rate limits", () => {
     expect(code(r.body)).toBe(STATUS.serverBusy);
   });
 
+  it("one flooding address cannot use up the shared allowance: other addresses can still print", async () => {
+    h = await startHarness({ limits: { globalRequestsPerMin: 6, perIpRequestsPerMin: 3 } });
+    // The flooder's first 3 requests count against the shared allowance; the other 17 are refused by its own limit and must NOT be charged.
+    for (let i = 0; i < 20; i++) await h.post(getAttrs(), { headers: { "cf-connecting-ip": "203.0.113.1" } }).catch(() => undefined);
+    const other = await h.post(getAttrs(), { headers: { "cf-connecting-ip": "203.0.113.2" } });
+    expect(code(other.body)).not.toBe(STATUS.serverBusy);
+  });
+
   it("a per-IP limit on unknown-token lookups stops the resolve amplification", async () => {
     h = await startHarness({ limits: { unknownTokensPerIpPerMin: 3, perIpRequestsPerMin: 1000 } });
     for (let i = 0; i < 3; i++) await h.post(getAttrs(), { host: bogusHost(i) });

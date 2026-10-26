@@ -71,6 +71,23 @@ describe("service worker source", () => {
     }
   });
 
+  it("turns away a share-target POST that comes from another website (it never stores the file)", async () => {
+    const { listeners } = runWorker();
+    const form = new FormData();
+    form.set("file", new File(["%PDF-1.4"], "a.pdf", { type: "application/pdf" }));
+    for (const site of ["cross-site", "same-site"]) {
+      const fe = fetchEvent(new Request("https://printio.test/share-target", { method: "POST", body: form, headers: { "sec-fetch-site": site } }));
+      listeners.fetch!(fe.event);
+      const res = await fe.responded!;
+      expect(res.status).toBe(303);
+      expect(res.headers.get("Location")).toBe("/print");
+    }
+    // The phone's own share sheet sends no cross-site marker (or "none"), and still works.
+    const ok = fetchEvent(new Request("https://printio.test/share-target", { method: "POST", body: form, headers: { "sec-fetch-site": "none" } }));
+    listeners.fetch!(ok.event);
+    expect((await ok.responded!).headers.get("Location")).toBe("/print?share=storage");
+  });
+
   it("answers POST /share-target with a 303, even when it cannot store the file", async () => {
     const { listeners } = runWorker();
     const form = new FormData();

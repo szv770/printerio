@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { deflateSync } from "node:zlib";
 import { PDFDocument, PDFName, PDFString } from "pdf-lib";
 import { containsPjlEscape } from "@printio/shared";
 import { findActiveContent } from "./active-content";
@@ -9,6 +10,21 @@ async function makeValidPdf(pageCount: number): Promise<Uint8Array> {
   for (let i = 0; i < pageCount; i++) doc.addPage([612, 792]); // US Letter
   return doc.save();
 }
+
+describe("preflightPdf: decompression bombs", () => {
+  it("refuses a small file whose object stream expands to hundreds of megabytes, before it is opened", async () => {
+    const bomb = deflateSync(Buffer.alloc(300 * 1024 * 1024)); // about 300 KB on disk
+    const file = Buffer.concat([
+      Buffer.from(`%PDF-1.7\n1 0 obj\n<< /Type /ObjStm /N 1 /First 5 /Filter /FlateDecode /Length ${bomb.length} >>\nstream\n`, "latin1"),
+      bomb,
+      Buffer.from("\nendstream\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n", "latin1"),
+    ]);
+    expect(file.length).toBeLessThan(1024 * 1024);
+    const res = await preflightPdf(file, { maxSizeBytes: 50 * 1024 * 1024 });
+    expect(res.ok).toBe(false);
+    expect(!res.ok && res.reason).toMatch(/too large when opened/i);
+  });
+});
 
 describe("preflightPdf", () => {
   it("accepts a well-formed PDF and returns the real page count", async () => {

@@ -2,6 +2,7 @@ import "server-only";
 import { PDFDocument } from "pdf-lib";
 import { parsePageRange } from "@printio/shared";
 import type { Direction } from "./bidi";
+import { checkPdfInflation } from "@/lib/pdf/inflate-guard";
 import { addFrontMatter, frontMatterPageCount, type FrontEntry } from "./frontmatter";
 
 /** A refusal with a plain-language message that is safe to show the person as it is. */
@@ -63,6 +64,8 @@ export async function assembleBooklet(input: BuilderInput): Promise<BuilderResul
   for (const [i, s] of input.sources.entries()) {
     const label = s.title.trim() || `File ${i + 1}`;
     let doc: PDFDocument;
+    const inflation = checkPdfInflation(s.bytes);
+    if (!inflation.ok) throw new BuilderError(`"${label}": ${inflation.reason}`);
     try {
       doc = await PDFDocument.load(s.bytes, { updateMetadata: false });
     } catch {
