@@ -3349,3 +3349,25 @@ revoke all on table public.device_connection_tests from anon;
 revoke all on table public.device_connection_tests from authenticated;
 grant select, insert, update, delete on public.device_connection_tests to service_role;
 grant select on public.device_connection_tests to authenticated;
+
+-- 0046: weeks of Sichos In English added after the saved copy in the code (an admin's "Check for new weeks").
+create table library_sie_entries (
+  url text primary key check (url ~ '^https://drive[.]google[.]com/file/d/[A-Za-z0-9_-]{20,}/view$'),
+  chelek text not null check (char_length(chelek) between 1 and 20),
+  sefer text not null check (char_length(sefer) between 1 and 30),
+  title text not null check (char_length(title) between 1 and 120),
+  volume int check (volume is null or volume between 1 and 99),
+  page int check (page is null or page between 1 and 5000),
+  from_page int not null default 1 check (from_page between 1 and 50),
+  to_page int check (to_page is null or to_page between 1 and 1000),
+  page_count int check (page_count is null or page_count between 1 and 1000),
+  added_at timestamptz not null default now(),
+  added_by uuid references profiles (id) on delete set null
+);
+alter table library_sie_entries enable row level security;
+create policy "members can read the SIE list" on library_sie_entries for select to authenticated using (true);
+-- The default privileges (0031) also hand new tables to signed-in members; take the writes back so only the service role writes.
+revoke insert, update, delete, truncate, references, trigger on public.library_sie_entries from authenticated;
+revoke all on public.library_sie_entries from anon;
+grant select on public.library_sie_entries to authenticated;
+grant select, insert, update, delete on public.library_sie_entries to service_role;

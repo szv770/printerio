@@ -41,5 +41,5 @@ first. "Needs you" means I cannot finish it without the owner at a device or a d
 - Claim a device or feature is working before it has printed on a real device.
 - Offer the library to the public before the library's team has agreed in writing.
 
-- **Sichos In English: refresh the list.** The library has a copy of https://shop.sie.org/pages/weekly from 2026-10-26 (`apps/web/lib/library/sie-weekly.ts`, 111 published weeks, 19 "coming soon" left out). sie.org itself refuses automated visitors, so the page is read by hand with a browser and the list replaced. Ask SIE for a feed if they would offer one.
+- **Sichos In English new weeks**: an org admin presses "Check for new weeks" in the library's Sichos In English tab (reads shop.sie.org/pages/weekly, a public page the owner has permission to use). Weeks it adds are kept in the database (`library_sie_entries`, migration 0046); the saved copy in `apps/web/lib/library/sie-weekly.ts` is the starting list. If SIE changes their page layout the button says the page looks different today.
 - **Early tools for a whole group or role** (today it is switched on per person in Admin -> Users).

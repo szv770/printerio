@@ -622,6 +622,48 @@ export type Database = {
           },
         ]
       }
+      library_sie_entries: {
+        Row: {
+          url: string
+          chelek: string
+          sefer: string
+          title: string
+          volume: number | null
+          page: number | null
+          from_page: number
+          to_page: number | null
+          page_count: number | null
+          added_at: string
+          added_by: string | null
+        }
+        Insert: {
+          url: string
+          chelek: string
+          sefer: string
+          title: string
+          volume?: number | null
+          page?: number | null
+          from_page?: number
+          to_page?: number | null
+          page_count?: number | null
+          added_at?: string
+          added_by?: string | null
+        }
+        Update: {
+          url?: string
+          chelek?: string
+          sefer?: string
+          title?: string
+          volume?: number | null
+          page?: number | null
+          from_page?: number
+          to_page?: number | null
+          page_count?: number | null
+          added_at?: string
+          added_by?: string | null
+        }
+        Relationships: []
+      }
       organization_members: {
         Row: {
           created_at: string
