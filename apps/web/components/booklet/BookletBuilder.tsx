@@ -1,12 +1,14 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, FileText, Link2, Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { ArrowDown, ArrowUp, BookOpen, FileText, Link2, Plus, Trash2 } from "lucide-react";
 import { Button, Checkbox, Field, FormError, Input, Segmented, Textarea } from "@/components/ui";
 import { PagePicker } from "@/components/print/PagePicker";
 import { precheckSelectedFile } from "@/lib/pdf/client-precheck";
 import { putBuiltBooklet } from "@/lib/booklet/handoff";
+import { clearCart, readCart, type CartItem } from "@/lib/library/cart";
 import { importLinkAction } from "@/app/(dashboard)/print/import-link-action";
 import { buildBookletAction } from "@/app/(dashboard)/print/booklet/actions";
 
@@ -42,8 +44,9 @@ export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
   const [adding, startAdd] = useTransition();
   const [building, startBuild] = useTransition();
   const [picking, setPicking] = useState<number | null>(null);
+  const [libraryProgress, setLibraryProgress] = useState<{ done: number; total: number } | null>(null);
 
-  async function addFile(file: File, credit = "") {
+  async function addFile(file: File, credit = "", title?: string) {
     const verdict = precheckSelectedFile(file, maxUploadBytes);
     if (!verdict.ok) throw new Error(verdict.reason);
     const bytes = await file.arrayBuffer();
@@ -54,8 +57,41 @@ export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
     } catch {
       throw new Error(`"${file.name}" could not be read as a PDF.`);
     }
-    setSources((cur) => [...cur, { id: nextId.current++, title: nameFromFile(file.name), file, bytes, totalPages, pages: "", credit }]);
+    setSources((cur) => [...cur, { id: nextId.current++, title: title || nameFromFile(file.name), file, bytes, totalPages, pages: "", credit }]);
   }
+
+  /** Files picked in the library: fetched one after another through the same safe link import as a pasted link. */
+  async function importFromLibrary(items: CartItem[]) {
+    const failed: string[] = [];
+    for (const [i, item] of items.entries()) {
+      setLibraryProgress({ done: i, total: items.length });
+      try {
+        const data = new FormData();
+        data.set("link", item.url);
+        const result = await importLinkAction(data);
+        if (result.error || !result.imported) throw new Error(result.error ?? "import");
+        const res = await fetch(result.imported.signedUrl, { cache: "no-store" });
+        if (!res.ok) throw new Error("download");
+        await addFile(new File([await res.blob()], result.imported.fileName, { type: "application/pdf", lastModified: Date.now() }), item.credit, item.title);
+      } catch {
+        failed.push(item.title);
+      }
+    }
+    setLibraryProgress(null);
+    if (failed.length > 0) setAddError(`Printio could not get ${failed.length === 1 ? "this file" : "these files"} from the library: ${failed.join("; ")}. Go back to the library and try again.`);
+  }
+
+  // Coming from the library: add what was picked there, once.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const items = readCart();
+      if (items.length === 0) return;
+      clearCart();
+      void importFromLibrary(items);
+    }, 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
@@ -144,7 +180,12 @@ export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
     <form onSubmit={build} className="space-y-6">
       <section className="space-y-3">
         <h2 className="text-base font-semibold">1. Add the files</h2>
-        {sources.length === 0 && (
+        {libraryProgress && (
+          <p role="status" className="text-sm text-[var(--color-muted)]">
+            Getting your files from the library: {libraryProgress.done + 1} of {libraryProgress.total}...
+          </p>
+        )}
+        {sources.length === 0 && !libraryProgress && (
           <p className="text-sm text-[var(--color-muted)]">PDFs from this device, or a link (a Google Drive file shared with &quot;Anyone with the link&quot; works).</p>
         )}
         <ul className="space-y-3">
@@ -184,10 +225,16 @@ export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
         </ul>
         <div>
           <input ref={fileInput} type="file" accept="application/pdf,.pdf" multiple hidden onChange={onPick} />
-          <Button type="button" variant="secondary" onClick={() => fileInput.current?.click()} disabled={busy || sources.length >= MAX_SOURCES}>
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            Add PDFs
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="secondary" onClick={() => fileInput.current?.click()} disabled={busy || sources.length >= MAX_SOURCES}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add PDFs
+            </Button>
+            <Link href="/print/library" className="inline-flex min-h-11 items-center gap-2 rounded-full border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-4 text-sm font-medium hover:bg-[var(--color-surface-2)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]">
+              <BookOpen className="h-4 w-4" aria-hidden="true" />
+              Pick from the library
+            </Link>
+          </div>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
           <Input
