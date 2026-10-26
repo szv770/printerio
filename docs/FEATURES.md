@@ -75,6 +75,7 @@ a hosted option that needs no server in the building. Pricing and billing do not
 | Booklet builder (admins, plus anyone an admin switches early tools on for): combine up to 12 PDFs or links into one booklet with a name, description, cover and contents page (Hebrew right-to-left supported), pick pages per file, reorder; then the normal Print screen takes over with the booklet switched on | Built, testing. Not tested yet on paper |
 | Approvers' own jobs are approved automatically (a "deny" rule and quota limits still apply to them); disclosed on the job like the admin bypass | Built, testing |
 | Early tools switch: an admin can turn the link import and the booklet builder on for one named person (Admin -> Users -> that person), so staff can help test; off by default | Built, testing |
+| Booklet builder keeps your files while you visit the library to pick more and come back; after building, "Save a copy (PDF)" gives the normal page-by-page PDF (not the folded layout) to keep and upload again later | Built, testing |
 | Library browser (early tools): browse Mafteiach's Likkutei Sichos by volume and parsha, maamarim and sichos by year, tap the files you want (Hebrew, translated, unedited, notes), then they go into the booklet builder with "Courtesy of Mafteiach (mafteiach.app)" on the contents page | Built, testing. Not tested yet on a real admin session; the Mafteiach team has not been asked |
 
 ### People and rules
