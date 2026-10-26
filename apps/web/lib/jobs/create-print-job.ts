@@ -174,6 +174,7 @@ export async function createPrintJob(
   let paperSize: string;
   let staplePosition: "top-left" | "top-right" | null;
   let bindingSide: BindingSide | null;
+  let duplexEdge: "short" | null = null;
   let heldReason: string | null = null;
   const copies = choices.copies;
   if (printerProfile.output_mode === "raw") {
@@ -185,6 +186,7 @@ export async function createPrintJob(
       declaredPaperSizes: printerProfile.declared_paper_sizes,
     });
     ({ duplex, colorMode, paperSize, staplePosition, bindingSide, heldReason } = mapped);
+    duplexEdge = mapped.duplexEdge;
     staple = mapped.finishing.staple;
     booklet = mapped.finishing.booklet;
     punch = false; // the raw builder has no punch setting, so it is never requested
@@ -199,6 +201,8 @@ export async function createPrintJob(
       printerProfile.declared_capabilities as { duplex?: boolean; staple?: boolean; booklet?: boolean; punch?: boolean } | null,
     );
     if (unsupported) return fail(unsupported, "unsupported_option");
+    // A Windows queue cannot be told which edge to flip on from here: hold it with a plain reason, never print it the wrong way.
+    if (choices.flip === "short" && duplex && !booklet) heldReason = "This printer is not set up to flip on the short edge, so nothing was printed. Choose double-sided (long edge).";
   }
   // The caller can force a hold with its own plain-language reason (the IPP gateway does this for anything the
   // print dialog asked for that the website pipeline cannot honour). It wins over the printer's own reason.
@@ -547,7 +551,13 @@ export async function createPrintJob(
     color_mode: colorMode,
     duplex,
     paper_size: booklet && bookletSheet === "tabloid" ? "tabloid" : paperSize,
-    finishing: { staple, booklet, punch, ...(booklet ? { bookletFit, ...(bookletSheet === "tabloid" ? { bookletSheet } : {}) } : {}) },
+    finishing: {
+      staple,
+      booklet,
+      punch,
+      ...(booklet ? { bookletFit, ...(bookletSheet === "tabloid" ? { bookletSheet } : {}) } : {}),
+      ...(duplexEdge ? { duplexEdge } : {}),
+    },
     // Per-job choices (migrations 0028 + 0030). staple_position is non-null exactly for a stapled raw job; a
     // booklet always records which edge it is bound on, so imposition, the Agent and a re-print agree.
     staple_position: staple ? staplePosition : null,

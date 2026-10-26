@@ -10,6 +10,8 @@ export interface RawPrintOptions {
   colorMode: "bw" | "color";
   duplex: boolean;
   jobName: string;
+  /** Double-sided only: which edge the sheet flips on. Default "long" (the usual). "short" = BINDING=SHORTEDGE (flip like a notepad); not combinable with a corner staple. Ignored for booklets and single-sided. */
+  duplexEdge?: "long" | "short";
   staple?: StaplePosition;
   booklet?: boolean;
   /** Only used with booklet; must match how the PDF was imposed. */
@@ -48,7 +50,10 @@ export function buildPjlSettings(o: RawPrintOptions): PjlSettingsResult {
     // KREVERSEFOLD scrambles pages - do not use.
     settings.push("DUPLEX=ON", "BINDING=SHORTEDGE", "OUTBIN=KBOOKLET", "FINISH=KFOLD");
   } else {
-    if (o.duplex) settings.push("DUPLEX=ON", "BINDING=LONGEDGE");
+    if (o.duplex && o.duplexEdge === "short" && o.staple) {
+      return { ok: false, reason: "a short-edge flip together with a corner staple is not supported" };
+    }
+    if (o.duplex) settings.push("DUPLEX=ON", o.duplexEdge === "short" ? "BINDING=SHORTEDGE" : "BINDING=LONGEDGE");
     else settings.push("DUPLEX=OFF");
     if (o.staple) {
       // Position map from labelled real-printer tests (portrait page, duplex long edge):

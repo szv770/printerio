@@ -16,6 +16,30 @@ describe("buildPjlSettings", () => {
     expect(r.settings).toEqual(expect.arrayContaining(["DUPLEX=ON", "BINDING=LONGEDGE", "QTY=1"]));
   });
 
+  it("duplex short edge sends BINDING=SHORTEDGE (plain documents, not only booklets)", () => {
+    const r = buildPjlSettings({ ...base, duplex: true, duplexEdge: "short" });
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.settings).toEqual(expect.arrayContaining(["DUPLEX=ON", "BINDING=SHORTEDGE", "QTY=1"]));
+    expect(r.settings).not.toContain("BINDING=LONGEDGE");
+  });
+
+  it("an explicit long edge, or no edge, stays long edge; single-sided ignores the edge", () => {
+    for (const duplexEdge of ["long", undefined] as const) {
+      const r = buildPjlSettings({ ...base, duplex: true, duplexEdge });
+      if (!r.ok) throw new Error(r.reason);
+      expect(r.settings).toContain("BINDING=LONGEDGE");
+    }
+    const one = buildPjlSettings({ ...base, duplex: false, duplexEdge: "short" });
+    if (!one.ok) throw new Error(one.reason);
+    expect(one.settings).toContain("DUPLEX=OFF");
+    expect(one.settings.join()).not.toContain("BINDING");
+  });
+
+  it("short edge together with a staple is refused (the corner is not known for that combination)", () => {
+    const r = buildPjlSettings({ ...base, duplex: true, duplexEdge: "short", staple: "top-left" });
+    expect(r.ok).toBe(false);
+  });
+
   it("copies map to QTY", () => {
     const r = buildPjlSettings({ ...base, copies: 7 });
     if (!r.ok) throw new Error(r.reason);

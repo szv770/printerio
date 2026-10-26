@@ -58,19 +58,16 @@ function mapCopies(raw: unknown, reasons: string[]): number {
   return 1;
 }
 
-function mapSides(raw: unknown, reasons: string[], booklet: boolean): "one" | "two" {
-  if (raw === undefined) return "one";
+function mapSides(raw: unknown, reasons: string[]): { sides: "one" | "two"; flip?: "short" } {
+  if (raw === undefined) return { sides: "one" };
   const v = asList(raw)[0];
-  if (v === "one-sided") return "one";
-  if (v === "two-sided-long-edge") return "two";
-  if (v === "two-sided-short-edge") {
-    // A booklet is always printed short-edge (part of the proven booklet settings), so asking for it is fine.
-    if (booklet) return "two";
-    reasons.push("Flip on the short edge is not available from the print dialog yet; choose double-sided or use the website.");
-    return "two";
-  }
+  if (v === "one-sided") return { sides: "one" };
+  if (v === "two-sided-long-edge") return { sides: "two" };
+  // Flip on the short edge is delivered with the printer's own BINDING=SHORTEDGE (the setting every booklet already
+  // uses). A booklet drops the flip later (it is always short-edge); a corner staple with it is held in mapFinishings.
+  if (v === "two-sided-short-edge") return { sides: "two", flip: "short" };
   reasons.push(`Printio does not recognise the sides setting "${describe(v)}", so nothing was printed. Choose single-sided or double-sided on the website.`);
-  return "one";
+  return { sides: "one" };
 }
 
 /** `[lo, hi]` pairs (one pair, or a list of pairs) -> "1-5, 8". Null = invalid. */
@@ -192,7 +189,10 @@ function mapFinishings(raw: unknown, orientation: unknown, sidesRaw: unknown, re
   }
   if (booklet) reasons.push(BOOKLET_BINDING_REASON);
   if (staple !== "none") {
-    if (asList(sidesRaw)[0] === "two-sided-short-edge") return none; // the short-edge reason is already given by mapSides
+    if (asList(sidesRaw)[0] === "two-sided-short-edge") {
+      reasons.push("A corner staple cannot be combined with a flip on the short edge yet, so nothing was printed. Choose double-sided (long edge) with the staple, or use the website.");
+      return none;
+    }
     const o = toInt(asList(orientation)[0]);
     if (o !== null && NON_PORTRAIT.has(o)) {
       reasons.push("The staple corner is only checked on portrait pages, so nothing was printed. Choose the staple on the website.");
@@ -225,14 +225,15 @@ export function mapIppChoices(attributes: IppAttributes | null | undefined): Ipp
   const pageRange = mapPageRanges(attrs["page-ranges"], reasons);
   mapMedia(attrs, reasons);
   const fin = mapFinishings(attrs["finishings"], attrs["orientation-requested"], attrs["sides"], reasons);
-  const sides = mapSides(attrs["sides"], reasons, fin.booklet);
+  const mappedSides = mapSides(attrs["sides"], reasons);
   // orientation-requested, print-quality, print-color-mode, printer-resolution, print-scaling, document-format,
   // job-name and everything else: deliberately ignored here (printer defaults; the PDF carries its orientation).
 
   return {
     choices: {
       // A booklet is always double-sided whatever flip the dialog asked for (the short-edge flip is part of it).
-      sides: fin.booklet ? "two" : sides,
+      sides: fin.booklet ? "two" : mappedSides.sides,
+      ...(!fin.booklet && mappedSides.flip ? { flip: mappedSides.flip } : {}),
       staple: fin.staple,
       booklet: fin.booklet ? "profile" : "none",
       copies,
