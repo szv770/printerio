@@ -44,6 +44,11 @@ export function normalizeSourceLink(input: string): NormalizedLink {
   const host = url.hostname.toLowerCase();
   if (!isAllowedHostname(host)) return fail("Printio cannot fetch from that address. Use a link to a public website.");
 
+  // The address Google's PDF viewer shows while you read a Drive file: it only works inside your own signed-in browser.
+  if (host.endsWith(".googleusercontent.com") && url.pathname.startsWith("/viewer/")) {
+    return fail("That is a temporary viewer address that only works in your own browser. In Google Drive, open the file, press Share, choose \"Anyone with the link\", copy that link and paste it here.");
+  }
+
   if (host === "drive.google.com" || host === "drive.usercontent.google.com") {
     if (/^\/drive\/(u\/\d+\/)?folders\//.test(url.pathname)) return fail("That is a Google Drive folder. Open the file itself and copy its link.");
     const id = driveFileId(url);
