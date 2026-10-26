@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { friendlyFileLabel, hasEnglish, matchesQuery } from "./labels";
 
 describe("friendlyFileLabel", () => {
-  it("turns the library's short Hebrew button names into plain words", () => {
-    expect(friendlyFileLabel("שיחה")).toBe("Hebrew sicha");
-    expect(friendlyFileLabel("מתורגם")).toBe("English translation");
-    expect(friendlyFileLabel("  מתורגם ")).toBe("English translation");
+  it("turns the library's short Hebrew button names into plain words (מתורגם is translated INTO Hebrew, not English)", () => {
+    expect(friendlyFileLabel("שיחה")).toBe("Original sicha");
+    expect(friendlyFileLabel("מתורגם")).toBe("Translated to Hebrew");
+    expect(friendlyFileLabel("  מתורגם ")).toBe("Translated to Hebrew");
   });
   it("leaves every other label as it is", () => {
     expect(friendlyFileLabel('שיחו"ק')).toBe('שיחו"ק');
@@ -15,13 +15,12 @@ describe("friendlyFileLabel", () => {
 });
 
 describe("hasEnglish", () => {
-  it("is true when a file is a translation or the section is English", () => {
-    expect(hasEnglish([{ label: "שיחה" }, { label: "מתורגם" }])).toBe(true);
+  it("is true only for real English: an English section, or a file named English", () => {
     expect(hasEnglish([{ label: "Proceeding Together Vol. 3" }], "English")).toBe(true);
     expect(hasEnglish([{ label: "English translation" }])).toBe(true);
   });
-  it("is false otherwise", () => {
-    expect(hasEnglish([{ label: "שיחה" }])).toBe(false);
+  it("is NOT true for the Hebrew translation (מתורגם)", () => {
+    expect(hasEnglish([{ label: "שיחה" }, { label: "מתורגם" }])).toBe(false);
     expect(hasEnglish([], "הנחות")).toBe(false);
   });
 });
