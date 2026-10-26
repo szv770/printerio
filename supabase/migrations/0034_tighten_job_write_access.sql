@@ -1,6 +1,6 @@
 -- Printio: close the member write holes on print_jobs, monthly_usage and the print-jobs bucket.
 -- Review findings 1-3, verified against the live DB 2026-10-22.
--- *** DRAFT - NOT APPLIED. Apply only AFTER the matching web code (branch claude/server-side-writes) is deployed. ***
+-- *** APPLIED 2026-10-22 (live). Apply only AFTER the matching web code (branch claude/server-side-writes) is deployed. ***
 --
 -- Before this migration a signed-in member, using the public anon key and their own session from the browser console, could:
 --   1. INSERT/UPDATE any column of their own print_jobs rows (self-approve, forge jobs, skip policy and quota);

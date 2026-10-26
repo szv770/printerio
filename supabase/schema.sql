@@ -633,6 +633,25 @@ create trigger profiles_prevent_privilege_escalation
   before update on profiles
   for each row execute function private.prevent_platform_role_escalation();
 
+-- 0045: a member cannot change profiles.email (it mirrors the sign-in address); one profile per address.
+create or replace function private.prevent_profile_email_change()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.email is distinct from old.email
+     and coalesce(auth.role(), 'anon') <> 'service_role' then
+    raise exception 'email can only be changed by a service-role operation';
+  end if;
+  return new;
+end;
+$$;
+create trigger profiles_prevent_email_change
+  before update on public.profiles
+  for each row execute function private.prevent_profile_email_change();
+create unique index profiles_email_lower_key on public.profiles (lower(email));
+
 create policy "users can view own profile or org_admins can view their org's members"
 on profiles for select
 to authenticated
