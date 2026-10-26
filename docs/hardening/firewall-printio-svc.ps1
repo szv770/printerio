@@ -16,15 +16,20 @@
        (If you do nothing, the rules REMOVE THEMSELVES after 10 minutes, so a mistake cannot leave printing broken.)
     4. Remove it any time:               .\firewall-printio-svc.ps1 -Revert
 
-  The printer's address defaults to 192.168.100.168; use -PrinterIp if yours is different.
+  ADDING ANOTHER PRINTER LATER (one short command, takes effect at once, no 10-minute wait):
+        .\firewall-printio-svc.ps1 -AddPrinter 192.168.100.170
+  The script remembers every printer you give it (in C:\ProgramData\Printio\firewall-printers.txt).
+  If a NEW printer shows as unreachable in Printio, this is the first thing to run.
+  The first printer defaults to 192.168.100.168; use -PrinterIp to start with a different one.
 #>
 [CmdletBinding()]
-param([switch]$Apply, [switch]$Keep, [switch]$Revert, [string]$PrinterIp = "192.168.100.168")
+param([switch]$Apply, [switch]$Keep, [switch]$Revert, [string[]]$PrinterIp = @(), [string]$AddPrinter = "")
 
 $ErrorActionPreference = "Stop"
 $Account = "printio-svc"
 $RulePrefix = "Printio svc"
 $TaskName = "Printio firewall auto-undo"
+$StateFile = Join-Path $env:ProgramData "Printio\firewall-printers.txt"
 
 function Say($m) { Write-Host $m }
 
@@ -71,7 +76,16 @@ $sid = (New-Object Security.Principal.NTAccount($Account)).Translate([Security.P
 $sddl = "D:(A;;CC;;;$sid)"
 
 $dns = Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | ForEach-Object { $_.ServerAddresses } | Where-Object { $_ } | Select-Object -Unique
-$allowed = @($PrinterIp) + @($dns | Where-Object { $_ -match "^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)" })
+# Printers to keep reachable: the ones remembered from before, any given now, and the first-time default.
+$saved = if (Test-Path $StateFile) { @(Get-Content $StateFile | Where-Object { $_ -match "^\d+\.\d+\.\d+\.\d+$" }) } else { @() }
+if ($AddPrinter) {
+  if ($AddPrinter -notmatch "^\d{1,3}(\.\d{1,3}){3}$" -or ($AddPrinter.Split(".") | Where-Object { [int]$_ -gt 255 })) { throw "'$AddPrinter' is not a printer address like 192.168.100.170." }
+  $PrinterIp = @($PrinterIp) + @($AddPrinter)
+}
+$printers = @($saved) + @($PrinterIp)
+if ($printers.Count -eq 0) { $printers = @("192.168.100.168") }
+$printers = @($printers | Select-Object -Unique)
+$allowed = @($printers) + @($dns | Where-Object { $_ -match "^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)" })
 $allowed = $allowed | Select-Object -Unique
 
 $v4Private = @("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10")
@@ -80,7 +94,7 @@ $v6Blocked = @("fc00::/7", "fe80::/10")
 $blocked = $v4Blocked + $v6Blocked
 
 Say "Account:         $Account"
-Say "Printer:         $PrinterIp  (allowed, all ports)"
+Say "Printers:        $($printers -join ', ')  (allowed, all ports)"
 Say "DNS servers:     $(if ($dns) { $dns -join ', ' } else { '(none found)' })  (private ones stay allowed)"
 Say "Stays allowed:   the internet, this computer itself (127.0.0.1), and the hosts above"
 Say "Will be blocked: outgoing connections by '$Account' to these private ranges:"
@@ -88,19 +102,30 @@ $v4Blocked | ForEach-Object { Say "    $_" }
 $v6Blocked | ForEach-Object { Say "    $_" }
 Say ""
 
-if (-not $Apply) {
-  if (-not (Test-NetConnection -ComputerName $PrinterIp -Port 9100 -WarningAction SilentlyContinue).TcpTestSucceeded) {
-    Write-Warning "This computer could not reach $PrinterIp on port 9100 right now. Check the printer address before you apply."
+if (-not $Apply -and -not $AddPrinter) {
+  foreach ($pr in $printers) {
+    if (-not (Test-NetConnection -ComputerName $pr -Port 9100 -WarningAction SilentlyContinue).TcpTestSucceeded) {
+      Write-Warning "This computer could not reach $pr on port 9100 right now. Check the printer address before you apply."
+    }
   }
   Say "That was a preview: nothing was changed. To turn it on:  .\firewall-printio-svc.ps1 -Apply"
   return
 }
 
 # --- apply ------------------------------------------------------------------------------------------------------------
+$alreadyOn = [bool](Get-NetFirewallRule -DisplayName "$RulePrefix*" -ErrorAction SilentlyContinue)
+New-Item -ItemType Directory -Force -Path (Split-Path $StateFile) | Out-Null
+$printers | Set-Content $StateFile
 Get-NetFirewallRule -DisplayName "$RulePrefix*" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 New-NetFirewallRule -DisplayName "$RulePrefix - block LAN and Tailscale (outgoing)" -Description "Printio: the limited account that runs the gateway and agent may not start connections to other computers on private networks. See docs/SECURITY.md." `
   -Direction Outbound -Action Block -LocalUser $sddl -RemoteAddress $blocked -Profile Any -Enabled True | Out-Null
 Say "Firewall rule added."
+
+if ($AddPrinter -and $alreadyOn) {
+  Say ""
+  Say "Done: $AddPrinter is now allowed as well (the rule was updated in place). Check that printer in Printio."
+  return
+}
 
 # Dead-man switch: remove the rules in 10 minutes unless the owner confirms with -Keep.
 $cmd = "Get-NetFirewallRule -DisplayName '$RulePrefix*' -ErrorAction SilentlyContinue | Remove-NetFirewallRule; Unregister-ScheduledTask -TaskName '$TaskName' -Confirm:`$false -ErrorAction SilentlyContinue"
