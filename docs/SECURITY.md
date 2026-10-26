@@ -61,6 +61,8 @@ The printer address defaults to 192.168.100.168 (add `-PrinterIp x.x.x.x` if you
 
 **Adding another printer later** is one short command, with no 10-minute wait: `powershell -ExecutionPolicy Bypass -File .\firewall-printio-svc.ps1 -AddPrinter 192.168.100.170`. The script remembers every printer you give it. If a new printer shows as unreachable in Printio, that is the first thing to run.
 
+**If "Update this server" says "The update did not finish ... EPERM ... lstat 'C:\Users\...\AppData'"** (it works on a retry): the update's `pnpm install` runs as the limited account and cannot see pnpm's package store inside your own profile. Fix once with `docs/hardening/fix-update-permissions.ps1`: preview with `powershell -ExecutionPolicy Bypass -File .\fix-update-permissions.ps1`, apply by adding `-Apply`. It lets the account walk through (attributes only) to the store and gives it change access to the store folder only.
+
 ## Known, accepted for now
 
 - **The print gateway computer holds the master database key.** If someone broke into that computer they would have the database. Mitigation today: keep it locked down, rotate keys after any scare (above). Proper fix (later): give the gateway only narrow access.
