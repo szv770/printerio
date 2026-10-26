@@ -7,6 +7,7 @@ import { routes } from "@/lib/routes";
 import { Card, PageHeader } from "@/components/ui";
 import { MemberDetailControls } from "./MemberDetailControls";
 import { MemberAccessCard } from "./MemberAccessCard";
+import { EarlyToolsCard } from "./EarlyToolsCard";
 import { describeMemberAccess, type AccessRule } from "@/lib/admin/member-access";
 import type { OrgRole, PolicyAction, RuleCondition } from "@printio/shared";
 
@@ -24,7 +25,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ u
 
   const { data: member } = await supabase
     .from("organization_members")
-    .select("user_id, role, status, department, created_at, profiles(email, display_name)")
+    .select("user_id, role, status, department, early_tools, created_at, profiles(email, display_name)")
     .eq("organization_id", session.membership.organization_id)
     .eq("user_id", userId)
     .maybeSingle();
@@ -117,6 +118,14 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ u
       </Card>
 
       <MemberAccessCard groups={memberGroups.map((g) => g.name)} access={access} firstName={(displayName ?? email).split(/[\s@]/)[0] ?? "This person"} />
+
+      <EarlyToolsCard
+        userId={member.user_id}
+        isAdmin={member.role === "org_admin"}
+        enabled={member.early_tools}
+        canEdit={isOrgAdmin}
+        firstName={(displayName ?? email).split(/[\s@]/)[0] ?? "this person"}
+      />
 
       <Card className="mb-4 text-sm">
         <p className="text-[var(--color-muted)]">Joined</p>

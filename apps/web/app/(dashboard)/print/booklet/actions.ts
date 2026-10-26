@@ -36,7 +36,7 @@ function safeFileName(title: string): string {
  * Builds ONE PDF from several: optional cover and contents pages, then the chosen pages of each file in order
  * (lib/booklet/assemble.ts). Nothing is printed here. The finished PDF is held briefly under gateway-intake/ (swept by the
  * weekly cleanup) and the browser downloads it and hands it to the normal Print form, where the preview, the blank pages
- * note, the printer, finishing and the printing rules all work as for any upload. Admins only for now.
+ * note, the printer, finishing and the printing rules all work as for any upload. Admins, and people an admin switched early tools on for.
  *
  * Form fields: title, description, direction ("ltr" | "rtl"), cover/contents ("on"), count, then for each file i:
  * file-i (the PDF), title-i, pages-i (typed range, blank = all), credit-i.
@@ -44,7 +44,7 @@ function safeFileName(title: string): string {
 export async function buildBookletAction(formData: FormData): Promise<BuildBookletResult> {
   const session = await requireSessionOrRedirect();
   if (!session.membership) return { error: "Your account is not part of an organization yet." };
-  if (!canUseLinks(session.membership.role)) return { error: "Building booklets is being tested with admins first." };
+  if (!canUseLinks(session.membership.role, session.membership.early_tools)) return { error: "Building booklets is being tested with admins first. Ask an admin to switch early tools on for you." };
 
   const count = Number(text(formData, "count"));
   if (!Number.isInteger(count) || count < 1) return { error: "Add at least one file to the booklet." };

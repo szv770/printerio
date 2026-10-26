@@ -246,6 +246,43 @@ export async function toggleMemberStatusAction(_prev: StatusChangeState, formDat
   return {};
 }
 
+export interface EarlyToolsState {
+  error?: string;
+}
+
+/** Switches "early tools" (print from a link, the booklet builder) on or off for one member. Admins always have them.
+ *  Only an org admin can run this, and RLS only lets admins update membership rows, so nobody can switch it on for
+ *  themselves. Scoped to the admin's own organization. */
+export async function setMemberEarlyToolsAction(_prev: EarlyToolsState, formData: FormData): Promise<EarlyToolsState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const userId = String(formData.get("userId") ?? "");
+  const enabledText = String(formData.get("enabled") ?? "");
+  if (!userId) return { error: "Choose a person." };
+  if (enabledText !== "true" && enabledText !== "false") return { error: "Invalid choice." };
+  const enabled = enabledText === "true";
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("organization_members")
+    .update({ early_tools: enabled })
+    .eq("organization_id", session.membership.organization_id)
+    .eq("user_id", userId);
+  if (error) return { error: describeDatabaseError(error, "Couldn't change early tools for that person.") };
+
+  await supabase.from("audit_logs").insert({
+    organization_id: session.membership.organization_id,
+    actor_id: session.userId,
+    action: "member.early_tools_changed",
+    target_type: "organization_members",
+    target_id: userId,
+    metadata: { early_tools: enabled },
+  });
+
+  revalidatePath(routes.adminUsers);
+  revalidatePath(routes.adminUserDetail(userId));
+  return {};
+}
+
 export interface RemoveMemberState {
   error?: string;
   success?: boolean;

@@ -26,7 +26,7 @@ function putFileInForm(file: File): boolean {
 
 /**
  * "Print from a link": paste a link to a PDF (a Google Drive file works), Printio fetches it, and it appears in the
- * Print form below exactly like a file you picked. Nothing prints until you press Print. Admins only for now.
+ * Print form below exactly like a file you picked. Nothing prints until you press Print. An early tool, still being tested.
  */
 export function LinkImport({ maxUploadBytes }: { maxUploadBytes: number }) {
   const [open, setOpen] = useState(false);
@@ -108,7 +108,7 @@ export function LinkImport({ maxUploadBytes }: { maxUploadBytes: number }) {
             Link to a PDF
           </label>
           <p className="mt-0.5 text-[13px] leading-5 text-[var(--color-muted)]">
-            A link anyone can open. A Google Drive file works if it is shared with &quot;Anyone with the link&quot;. Admins only for now.
+            A link anyone can open. A Google Drive file works if it is shared with &quot;Anyone with the link&quot;. Still being tested.
           </p>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">
             <Input
