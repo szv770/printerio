@@ -3,7 +3,7 @@ import { PDFDocument } from "pdf-lib";
 import { parsePageRange } from "@printio/shared";
 import type { Direction } from "./bidi";
 import { checkPdfInflation } from "@/lib/pdf/inflate-guard";
-import { addFrontMatter, frontMatterPageCount, type FrontEntry } from "./frontmatter";
+import { addFrontMatter, drawBackPageText, frontMatterPageCount, type FrontEntry } from "./frontmatter";
 
 /** A refusal with a plain-language message that is safe to show the person as it is. */
 export class BuilderError extends Error {}
@@ -14,6 +14,7 @@ export const MAX_TITLE_LENGTH = 120;
 export const MAX_SOURCE_PAGES = 500;
 export const MAX_BOOKLET_PAGES = 1000;
 export const MAX_DESCRIPTION_LENGTH = 600;
+export const MAX_SPONSOR_LENGTH = 200;
 const MIN_SIDE_PT = 200;
 const MAX_SIDE_PT = 1700;
 const LETTER = { width: 612, height: 792 };
@@ -36,6 +37,10 @@ export interface BuilderInput {
   sources: BuilderSource[];
   cover: boolean;
   contents: boolean;
+  /** A short line printed small on the back page, above the credit ("In honor of ..."). Optional. */
+  sponsorLine?: string;
+  /** Print the credit and sponsor line on the back page when the booklet needs padding anyway. Default true. */
+  backPage?: boolean;
 }
 
 export interface BuilderResult {
@@ -43,6 +48,8 @@ export interface BuilderResult {
   pageCount: number;
   /** Where each source starts in the finished document (cover and contents pages count). */
   entries: FrontEntry[];
+  /** True when the credit/sponsor line went on the back page (it never adds pages beyond the padding a booklet needs). */
+  backPage: boolean;
 }
 
 const clamp = (n: number) => Math.min(MAX_SIDE_PT, Math.max(MIN_SIDE_PT, n));
@@ -58,6 +65,8 @@ export async function assembleBooklet(input: BuilderInput): Promise<BuilderResul
   const title = input.title.trim();
   if (!title) throw new BuilderError("Give the booklet a name.");
   if (title.length > MAX_TITLE_LENGTH) throw new BuilderError(`The name is too long (at most ${MAX_TITLE_LENGTH} characters).`);
+  const sponsorLine = (input.sponsorLine ?? "").replace(/\s+/g, " ").trim();
+  if (sponsorLine.length > MAX_SPONSOR_LENGTH) throw new BuilderError(`The sponsor line is too long (at most ${MAX_SPONSOR_LENGTH} characters).`);
   if (input.description.length > MAX_DESCRIPTION_LENGTH) throw new BuilderError(`The description is too long (at most ${MAX_DESCRIPTION_LENGTH} characters).`);
   if (input.sources.length === 0) throw new BuilderError("Add at least one file to the booklet.");
   if (input.sources.length > MAX_SOURCES) throw new BuilderError(`A booklet can combine up to ${MAX_SOURCES} files.`);
@@ -102,6 +111,9 @@ export async function assembleBooklet(input: BuilderInput): Promise<BuilderResul
   const credits = [...new Set(input.sources.map((s) => (s.credit ?? "").trim()).filter(Boolean))];
   const titles = input.sources.map((s, i) => s.title.trim() || `File ${i + 1}`);
   const draft = titles.map((t) => ({ title: t, startPage: 0 }));
+  // The back page only uses pages a booklet needs anyway (the total is padded to a multiple of 4), so it adds no paper.
+  const chosenPages = picks.reduce((n, p) => n + p.length, 0);
+  const wantsBack = (input.backPage ?? true) && (credits.length > 0 || sponsorLine.length > 0);
   const base = { title, description: input.description, direction: input.direction, credits, cover: input.cover, contents: input.contents, size };
 
   // Page numbers depend on how many front pages there are, which depends only on the titles.
@@ -113,15 +125,22 @@ export async function assembleBooklet(input: BuilderInput): Promise<BuilderResul
     return entry;
   });
 
+  const unpadded = frontPages + chosenPages;
+  const useBack = wantsBack && unpadded % 4 !== 0;
   const out = await PDFDocument.create();
   out.setTitle(title);
   out.setProducer("Printio");
-  const added = await addFrontMatter(out, { ...base, entries });
+  // With a back page the credit lives there; otherwise it stays at the foot of the contents page.
+  const added = await addFrontMatter(out, { ...base, credits: useBack ? [] : credits, entries });
   if (added !== frontPages) throw new BuilderError("The cover and contents could not be laid out. Try a shorter name or fewer files.");
 
   for (const [i, s] of input.sources.entries()) {
     const copied = await out.copyPages(docs[i]!, picks[i]!.map((p) => p - 1));
     for (const page of copied) out.addPage(page);
   }
-  return { bytes: await out.save(), pageCount: out.getPageCount(), entries };
+  if (useBack) {
+    while (out.getPageCount() % 4 !== 0) out.addPage([size.width, size.height]);
+    await drawBackPageText(out, { credits, sponsorLine, direction: input.direction, size });
+  }
+  return { bytes: await out.save(), pageCount: out.getPageCount(), entries, backPage: useBack };
 }

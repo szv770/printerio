@@ -32,6 +32,8 @@ export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
   const [direction, setDirection] = useState<"ltr" | "rtl">(() => readDraft()?.direction ?? "ltr");
   const [cover, setCover] = useState(() => readDraft()?.cover ?? true);
   const [contents, setContents] = useState(() => readDraft()?.contents ?? true);
+  const [sponsorLine, setSponsorLine] = useState(() => readDraft()?.sponsorLine ?? "");
+  const [backPage, setBackPage] = useState(() => readDraft()?.backPage ?? true);
   const [sheet, setSheet] = useState<SheetChoice>(() => readDraft()?.sheet ?? "letter");
   const [link, setLink] = useState("");
   const [addError, setAddError] = useState<string | undefined>();
@@ -42,8 +44,8 @@ export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
   const [libraryProgress, setLibraryProgress] = useState<{ done: number; total: number } | null>(null);
 
   useEffect(() => {
-    saveDraft({ sources, title, description, direction, cover, contents, sheet });
-  }, [sources, title, description, direction, cover, contents, sheet]);
+    saveDraft({ sources, title, description, direction, cover, contents, sheet, sponsorLine, backPage });
+  }, [sources, title, description, direction, cover, contents, sheet, sponsorLine, backPage]);
 
   async function addFile(file: File, credit = "", title?: string, pages = "") {
     const verdict = precheckSelectedFile(file, maxUploadBytes);
@@ -154,6 +156,8 @@ export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
       data.set("direction", direction);
       if (cover) data.set("cover", "on");
       if (contents) data.set("contents", "on");
+      if (backPage) data.set("backPage", "on");
+      data.set("sponsor", sponsorLine);
       data.set("count", String(sources.length));
       sources.forEach((s, i) => {
         data.set(`file-${i}`, s.file);
@@ -300,6 +304,12 @@ export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
         <div>
           <Checkbox label="Cover page" description="The name and description on the first page." checked={cover} onChange={(e) => setCover(e.target.checked)} disabled={building} />
           <Checkbox label="Contents page" description="Each file with the page it starts on." checked={contents} onChange={(e) => setContents(e.target.checked)} disabled={building} />
+          <Checkbox label="Credit on the back page" description="A small 'Courtesy of ...' line on the last page. It only uses a page the booklet needs anyway, so it never adds paper." checked={backPage} onChange={(e) => setBackPage(e.target.checked)} disabled={building} />
+        </div>
+        <Field label="Sponsor line (optional)" htmlFor="b-sponsor" help="One short line printed small on the back page, above the credit. For example: In honor of the Smith family.">
+          <Input id="b-sponsor" value={sponsorLine} onChange={(e) => setSponsorLine(e.target.value)} maxLength={200} disabled={building || !backPage} autoComplete="off" />
+        </Field>
+        <div>
         </div>
       </section>
 

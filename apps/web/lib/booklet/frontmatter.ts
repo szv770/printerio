@@ -219,6 +219,30 @@ function drawContents(doc: PDFDocument, fonts: Fonts, input: FrontMatterInput, l
   });
 }
 
+/**
+ * Writes the back-page lines on the LAST page of `doc`: an optional sponsor line, then "Courtesy of ..." for the sources.
+ * Small and centred near the bottom of the page. The caller makes sure that page is one the booklet needs anyway.
+ */
+export async function drawBackPageText(doc: PDFDocument, input: { credits: string[]; sponsorLine: string; direction: Direction; size: { width: number; height: number } }): Promise<void> {
+  const fonts = await embedFonts(doc);
+  const page = doc.getPage(doc.getPageCount() - 1);
+  const { width: W } = input.size;
+  const margin = Math.max(36, W * 0.1);
+  const rtl = input.direction === "rtl";
+  const lines: { text: string; size: number; color: ReturnType<typeof rgb> }[] = [];
+  const sponsor = clean(input.sponsorLine);
+  if (sponsor) for (const l of wrapText(sponsor, fonts.regular, 11, W - 2 * margin).slice(0, 3)) lines.push({ text: l, size: 11, color: INK });
+  const credits = input.credits.map(clean).filter(Boolean);
+  if (credits.length > 0) {
+    for (const l of wrapText(`${COURTESY[input.direction]}: ${credits.join("; ")}`, fonts.regular, 9.5, W - 2 * margin).slice(0, 3)) lines.push({ text: l, size: 9.5, color: GRAY });
+  }
+  let y = margin + (lines.length - 1) * 15;
+  for (const l of lines) {
+    drawLine(page, l.text, fonts.regular, l.size, { x0: margin, x1: W - margin, y, dir: rtl ? "rtl" : direct(l.text, "ltr"), center: true, color: l.color });
+    y -= 15;
+  }
+}
+
 /** How many pages the cover and contents will take, so the sources' page numbers can be worked out first. */
 export async function frontMatterPageCount(input: Omit<FrontMatterInput, "credits"> & { credits?: string[] }): Promise<number> {
   const scratch = await PDFDocument.create();

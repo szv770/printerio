@@ -111,6 +111,57 @@ describe("assembleBooklet", () => {
     ).rejects.toThrow(/at most 1000 pages/i);
   });
 
+  describe("the back page (credit and sponsor line)", () => {
+    const withCredit = async (over: Partial<BuilderInput> = {}) =>
+      input({
+        sources: [
+          { title: "First", bytes: await pdf([301, 302, 303, 304]), pages: [1, 2, 3], credit: "Sichos In English (sie.org)" },
+          { title: "Second", bytes: await pdf([401, 402]), pages: [1, 2], credit: "Sichos In English (sie.org)" },
+        ],
+        ...over,
+      });
+    const lastPageText = async (bytes: Uint8Array) => {
+      const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      const doc = await pdfjs.getDocument({ data: new Uint8Array(bytes), isEvalSupported: false, verbosity: 0 } as never).promise;
+      const page = await doc.getPage(doc.numPages);
+      const tc = await page.getTextContent();
+      return (tc.items as { str: string }[]).map((i) => i.str).join(" ");
+    };
+
+    it("puts the credit on the very last page, filling the pages a booklet needs anyway (so it costs no extra paper)", async () => {
+      const r = await assembleBooklet(await withCredit()); // cover + contents + 3 + 2 = 7 pages -> padded to 8
+      expect(r.pageCount).toBe(8);
+      expect(r.backPage).toBe(true);
+      expect(await lastPageText(r.bytes)).toMatch(/Courtesy of.*Sichos In English \(sie\.org\)/);
+    });
+
+    it("prints the sponsor line above the credit, and a sponsor line alone is enough to use the back page", async () => {
+      const r = await assembleBooklet(await withCredit({ sponsorLine: "In honor of the Smith family" }));
+      expect(await lastPageText(r.bytes)).toMatch(/In honor of the Smith family/);
+      const only = await assembleBooklet(await input({ sponsorLine: "Sponsored by a friend" })); // no credits at all
+      expect(only.backPage).toBe(true);
+      expect(only.pageCount % 4).toBe(0);
+    });
+
+    it("never adds pages just for it: a booklet already a multiple of 4 keeps its credit on the contents page", async () => {
+      const r = await assembleBooklet(await withCredit({ sources: [{ title: "A", bytes: await pdf([301, 302, 303, 304, 305, 306]), pages: [1, 2, 3, 4, 5, 6], credit: "Sichos In English (sie.org)" }] }));
+      expect(r.pageCount).toBe(8); // cover + contents + 6
+      expect(r.backPage).toBe(false);
+    });
+
+    it("can be switched off, and a Hebrew booklet gets a Hebrew credit line", async () => {
+      const off = await assembleBooklet(await withCredit({ backPage: false }));
+      expect(off.backPage).toBe(false);
+      expect(off.pageCount).toBe(7);
+      const he = await assembleBooklet(await withCredit({ direction: "rtl", title: "ליקוטי שיחות" }));
+      expect(await lastPageText(he.bytes)).toMatch(/באדיבות|Sichos In English/);
+    });
+
+    it("refuses a sponsor line that is too long", async () => {
+      await expect(assembleBooklet(await withCredit({ sponsorLine: "x".repeat(201) }))).rejects.toThrow(/sponsor line.*too long/i);
+    });
+  });
+
   describe("refuses, in plain words", () => {
     const bad = async (over: Partial<BuilderInput>, why: RegExp) => {
       await expect(assembleBooklet(await input(over))).rejects.toThrow(why);
