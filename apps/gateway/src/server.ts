@@ -85,7 +85,9 @@ export function createGatewayServer(opts: GatewayServerOptions): http.Server {
         return sendText(res, 200, "ok");
       }
       const ip = clientIpFor(req.socket.remoteAddress, req.headers, trusted);
-      if (!global.take("g") || !perIp.take(ip)) {
+      // The sender's own limit is checked FIRST, and the shared allowance is charged only for a request that passed it.
+      // The other way round, one address flooding junk used up the shared allowance and every real print was refused.
+      if (!perIp.take(ip) || !global.take("g")) {
         log.warn("rate limited", { ip });
         if (req.method === "POST" && tokenFromHost(req.headers.host, baseDomain)) return refuse(req, res, busyBody(), busyHeaders);
         req.destroy();

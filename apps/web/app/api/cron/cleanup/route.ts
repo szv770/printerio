@@ -10,7 +10,7 @@ const LIMIT = 500;
 export const maxDuration = 60;
 
 /**
- * Weekly cleanup (Vercel Cron, Sunday 03:00 UTC - see vercel.json):
+ * Cleanup (Vercel Cron, daily 03:00 UTC - see vercel.json; it was weekly until 2026-10-26, when link-import and booklet files made a faster pace sensible):
  *  1. retention: purge stored PDFs of finished jobs past their org's window
  *     (default 7 days completed/failed, 3 rejected) - rows are kept. The daily
  *     /api/cron/sweep does this too; running it here is a harmless idempotent

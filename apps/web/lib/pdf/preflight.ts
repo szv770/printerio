@@ -1,4 +1,5 @@
 import "server-only";
+import { checkPdfInflation } from "./inflate-guard";
 import { PDFDocument } from "pdf-lib";
 import { containsPjlEscape, PJL_ESCAPE_MESSAGE } from "@printio/shared";
 import { findActiveContent } from "./active-content";
@@ -47,6 +48,10 @@ export async function preflightPdf(bytes: Uint8Array, opts: { maxSizeBytes: numb
   // A PDF that carries the printer's escape sequence could run its own PJL commands when streamed to the
   // printer's raw port (security review F1). There is no legitimate reason for one to be in a document.
   if (containsPjlEscape(bytes)) return { ok: false, reason: PJL_ESCAPE_MESSAGE };
+
+  // A file that is tiny but expands enormously when opened would crash the server: refuse it before it is opened.
+  const inflation = checkPdfInflation(bytes);
+  if (!inflation.ok) return { ok: false, reason: inflation.reason };
 
   try {
     const doc = await PDFDocument.load(bytes, { updateMetadata: false });
