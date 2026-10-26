@@ -7,8 +7,9 @@ import { Badge, Button, FormError, Input, Segmented, Spinner } from "@/component
 import { libraryEntryAction, libraryLikkutAction, libraryListAction } from "@/app/(dashboard)/print/library/actions";
 import { importLinkAction } from "@/app/(dashboard)/print/import-link-action";
 import { putBuiltBooklet } from "@/lib/booklet/handoff";
+import { singleFilePrintUrl } from "@/lib/booklet/builder-params";
 import { SIE_CREDIT, SIE_SNAPSHOT_DATE, SIE_WEEKLY } from "@/lib/library/sie-weekly";
-import { groupSie } from "@/lib/library/sie";
+import { groupSie, likkutPageFromLabel, sieContentRange, sieForLikkut } from "@/lib/library/sie";
 import { addToCart, CART_MAX, clearCart, MAFTEIACH_CREDIT, readCart, removeFromCart, type CartItem } from "@/lib/library/cart";
 import { friendlyFileLabel, hasEnglish, matchesQuery } from "@/lib/library/labels";
 import type { EntrySection, LikkutPage, ListEntry, ListPage } from "@/lib/library/mafteiach-parse";
@@ -72,10 +73,10 @@ export function LibraryBrowser() {
   }, []);
 
   const chosen = (url: string) => cart.some((i) => i.url === url);
-  function toggle(title: string, url: string, credit = MAFTEIACH_CREDIT) {
+  function toggle(title: string, url: string, credit = MAFTEIACH_CREDIT, pages?: string) {
     setNotice(undefined);
     if (chosen(url)) return setCart(removeFromCart(url));
-    const res = addToCart({ title, url, credit });
+    const res = addToCart({ title, url, credit, ...(pages ? { pages } : {}) });
     setCart(res.items);
     if (res.full) setNotice(`A booklet holds up to ${CART_MAX} files. Remove one to add another.`);
   }
@@ -95,7 +96,7 @@ export function LibraryBrowser() {
         if (!res.ok) throw new Error("download");
         putBuiltBooklet(new File([await res.blob()], result.imported.fileName, { type: "application/pdf", lastModified: Date.now() }));
         clearCart();
-        router.push("/print?built=1");
+        router.push(singleFilePrintUrl(item.pages));
       } catch {
         setError("Printio could not get that file. Try again.");
       }
@@ -158,6 +159,13 @@ export function LibraryBrowser() {
         .filter((p) => p.entries.length > 0)
     : [];
   const visibleCount = visibleParshiyos.reduce((n, p) => n + p.entries.length, 0);
+  // The English (SIE) translation of each sicha: matched by volume and page. A sicha runs until the next one starts.
+  const volumePages = likkut ? [...new Set(likkut.parshiyos.flatMap((p) => p.entries.map((e) => likkutPageFromLabel(e.label)).filter((n): n is number => n !== null)))].sort((a, b) => a - b) : [];
+  const englishFor = (label: string) => {
+    const page = likkutPageFromLabel(label);
+    const next = page === null ? null : (volumePages.find((n) => n > page) ?? null);
+    return sieForLikkut(likkut?.current ?? null, page, SIE_WEEKLY, next);
+  };
   const visibleList = list ? list.entries.filter((e) => matchesQuery([e.heading, e.title, e.series, e.note], query)) : [];
 
   return (
@@ -212,7 +220,7 @@ export function LibraryBrowser() {
                     <li key={e.id} className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3.5">
                       <p dir="auto" className="flex flex-wrap items-center gap-2 text-sm font-medium">
                         {e.label}
-                        {hasEnglish(e.links) && <Badge tone="accent">English</Badge>}
+                        {(hasEnglish(e.links) || englishFor(e.label).length > 0) && <Badge tone="accent">English</Badge>}
                       </p>
                       {e.summary && (
                         <p dir="auto" className="mt-1 line-clamp-3 text-[13px] leading-5 text-[var(--color-muted)]">
@@ -223,7 +231,10 @@ export function LibraryBrowser() {
                         {e.links.map((l) => (
                           <FileButton key={l.url} label={friendlyFileLabel(l.label)} chosen={chosen(l.url)} onToggle={() => toggle(l.label === "שיחה" ? e.label : `${e.label} - ${friendlyFileLabel(l.label)}`.slice(0, 120), l.url)} />
                         ))}
-                        {e.links.length === 0 && <span className="text-[13px] text-[var(--color-muted)]">No file yet.</span>}
+                        {englishFor(e.label).map((x, k, all) => (
+                          <FileButton key={x.url} label={all.length > 1 ? `English (SIE): ${x.title}` : "English (SIE)"} chosen={chosen(x.url)} onToggle={() => toggle(`${e.label} - English (SIE)`.slice(0, 120), x.url, SIE_CREDIT, sieContentRange(x))} />
+                        ))}
+                        {e.links.length === 0 && englishFor(e.label).length === 0 && <span className="text-[13px] text-[var(--color-muted)]">No file yet.</span>}
                       </div>
                     </li>
                   ))}
@@ -250,8 +261,12 @@ export function LibraryBrowser() {
                     <ul className="mt-1.5 space-y-2">
                       {sf.entries.map((e) => (
                         <li key={e.url} className="flex items-center justify-between gap-3 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-                          <span className="min-w-0 flex-1 text-sm font-medium">{e.title}</span>
-                          <FileButton label="English" chosen={chosen(e.url)} onToggle={() => toggle(`${e.title} (SIE, Chelek ${e.chelek})`, e.url, SIE_CREDIT)} />
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-medium">{e.title}</span>
+                            {sieContentRange(e) && <span className="block text-[12px] text-[var(--color-muted)]">Starts at page {e.from}: the cover and dedication pages are skipped.</span>}
+                            {e.volume !== undefined && <span className="block text-[12px] text-[var(--color-muted)]">Likkutei Sichos vol. {e.volume}, p. {e.page}</span>}
+                          </span>
+                          <FileButton label="English" chosen={chosen(e.url)} onToggle={() => toggle(`${e.title} (SIE, Chelek ${e.chelek})`, e.url, SIE_CREDIT, sieContentRange(e))} />
                         </li>
                       ))}
                     </ul>

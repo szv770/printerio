@@ -46,6 +46,14 @@ describe("library cart", () => {
     expect(readCart(s)).toEqual([item(1)]);
   });
 
+  it("keeps an optional page range, and drops a bad one", () => {
+    const s = memory();
+    addToCart({ ...item(1), pages: "4-18" }, s);
+    expect(readCart(s)[0]!.pages).toBe("4-18");
+    s.setItem(CART_KEY, JSON.stringify([{ ...item(2), pages: "1-3; drop table" }]));
+    expect(readCart(s)[0]!.pages).toBeUndefined();
+  });
+
   it("works without any storage (private windows)", () => {
     expect(readCart(null)).toEqual([]);
     expect(addToCart(item(1), null).items).toEqual([item(1)]);

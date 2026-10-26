@@ -10,6 +10,8 @@ export interface CartItem {
   url: string;
   /** "Mafteiach (mafteiach.app)": printed as "Courtesy of ..." on the contents page. */
   credit: string;
+  /** Pages to use, like "4-18" (SIE files open with a cover and dedication pages that are skipped). Absent = every page. */
+  pages?: string;
 }
 
 export const CART_KEY = "printio-library-cart";
@@ -27,14 +29,19 @@ function defaultStorage(): StorageLike | null {
   }
 }
 
+const PAGES = /^\d{1,4}(-\d{1,4})?$/;
+
 const isItem = (v: unknown): v is CartItem =>
   typeof v === "object" && v !== null && typeof (v as CartItem).title === "string" && typeof (v as CartItem).url === "string" && typeof (v as CartItem).credit === "string" && /^https:\/\//.test((v as CartItem).url);
+
+/** A stored item with only safe, known fields (a damaged or tampered page range is dropped). */
+const clean = (v: CartItem): CartItem => ({ title: v.title, url: v.url, credit: v.credit, ...(typeof v.pages === "string" && PAGES.test(v.pages) ? { pages: v.pages } : {}) });
 
 export function readCart(storage: StorageLike | null = defaultStorage()): CartItem[] {
   if (!storage) return [];
   try {
     const parsed: unknown = JSON.parse(storage.getItem(CART_KEY) ?? "[]");
-    return Array.isArray(parsed) ? parsed.filter(isItem).slice(0, CART_MAX) : [];
+    return Array.isArray(parsed) ? parsed.filter(isItem).map(clean).slice(0, CART_MAX) : [];
   } catch {
     return [];
   }

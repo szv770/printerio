@@ -45,7 +45,7 @@ export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
     saveDraft({ sources, title, description, direction, cover, contents, sheet });
   }, [sources, title, description, direction, cover, contents, sheet]);
 
-  async function addFile(file: File, credit = "", title?: string) {
+  async function addFile(file: File, credit = "", title?: string, pages = "") {
     const verdict = precheckSelectedFile(file, maxUploadBytes);
     if (!verdict.ok) throw new Error(verdict.reason);
     const bytes = await file.arrayBuffer();
@@ -56,7 +56,7 @@ export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
     } catch {
       throw new Error(`"${file.name}" could not be read as a PDF.`);
     }
-    setSources((cur) => [...cur, { id: nextId.current++, title: title || nameFromFile(file.name), file, bytes, totalPages, pages: "", credit }]);
+    setSources((cur) => [...cur, { id: nextId.current++, title: title || nameFromFile(file.name), file, bytes, totalPages, pages, credit }]);
   }
 
   /** Files picked in the library: fetched one after another through the same safe link import as a pasted link. */
@@ -71,7 +71,7 @@ export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
         if (result.error || !result.imported) throw new Error(result.error ?? "import");
         const res = await fetch(result.imported.signedUrl, { cache: "no-store" });
         if (!res.ok) throw new Error("download");
-        await addFile(new File([await res.blob()], result.imported.fileName, { type: "application/pdf", lastModified: Date.now() }), item.credit, item.title);
+        await addFile(new File([await res.blob()], result.imported.fileName, { type: "application/pdf", lastModified: Date.now() }), item.credit, item.title, item.pages);
       } catch {
         failed.push(item.title);
       }

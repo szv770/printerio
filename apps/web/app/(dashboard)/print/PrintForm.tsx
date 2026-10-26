@@ -1,6 +1,6 @@
 "use client";
 
-import { readBuilderParams } from "@/lib/booklet/builder-params";
+import { readBuilderParams, readPagesParam } from "@/lib/booklet/builder-params";
 import { useActionState, useEffect, useRef, useState, startTransition } from "react";
 import { AlertTriangle, BookOpen, FileText, FileUp, ListOrdered, Minus, Palette, Paperclip, Plus, Printer, SlidersHorizontal } from "lucide-react";
 import { parsePageRange } from "@printio/shared";
@@ -192,6 +192,12 @@ export function PrintForm({
         setBooklet(fromBuilder.booklet);
         if (fromBuilder.sheet) setBookletSheet(fromBuilder.sheet); // overrides a size remembered from last time
         setAutoPreview(true);
+      }
+      // One file picked in the library with the pages to use (a source's cover and dedication pages are skipped).
+      const pagesFromLibrary = readPagesParam(window.location.search);
+      if (pagesFromLibrary) {
+        setPagesMode("range");
+        setPageRange(pagesFromLibrary);
       }
       setRestored(true);
     }, 0);
