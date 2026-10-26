@@ -32,8 +32,13 @@ const NUMBER_JOINERS = new Set([",", ".", "-", ":", "/"]);
 type Kind = "R" | "L" | "N";
 
 export function visualOrder(text: string, direction: Direction): string {
+  return visualRuns(text, direction).map((r) => r.text).join("");
+}
+
+/** The same layout as `visualOrder`, kept as runs from left to right so the caller knows which runs read right to left. */
+export function visualRuns(text: string, direction: Direction): { text: string; rtl: boolean }[] {
   const chars = Array.from(text);
-  if (chars.length === 0) return text;
+  if (chars.length === 0) return [];
 
   // 1. Strong direction of every character; digits count as left-to-right.
   const kinds: Kind[] = chars.map((c) => (isHebrew(c) ? "R" : isLatinLetter(c) || isDigit(c) ? "L" : "N"));
@@ -97,6 +102,6 @@ export function visualOrder(text: string, direction: Direction): string {
 
   // 5. Right-to-left runs are drawn backwards (brackets mirrored); in a right-to-left line the runs themselves go
   //    right to left, so their order is reversed too.
-  const drawn = runs.map((r) => (r.dir === "R" ? [...r.text].reverse().map((c) => MIRROR[c] ?? c).join("") : r.text.join("")));
-  return (direction === "rtl" ? drawn.reverse() : drawn).join("");
+  const drawn = runs.map((r) => ({ text: r.dir === "R" ? [...r.text].reverse().map((c) => MIRROR[c] ?? c).join("") : r.text.join(""), rtl: r.dir === "R" }));
+  return direction === "rtl" ? drawn.reverse() : drawn;
 }

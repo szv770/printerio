@@ -40,6 +40,12 @@ describe("Google Drive links all become one direct-download address", () => {
     expect(r.ok).toBe(false);
     expect(!r.ok && r.message).toMatch(/folder/i);
   });
+
+  it("explains Google's temporary viewer address instead of fetching it", () => {
+    const r = normalizeSourceLink("https://doc-0g-0s-apps-viewer.googleusercontent.com/viewer/secure/pdf/abc/def/1792990500000/drive/066/ACF?authuser=0&print=true");
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.message).toMatch(/temporary viewer address.*Anyone with the link/i);
+  });
 });
 
 describe("Google Docs and Slides export as PDF", () => {
