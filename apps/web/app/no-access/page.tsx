@@ -33,7 +33,7 @@ export default async function NoAccessPage({
   const firstRun = await getFirstRunStatus();
   if (firstRun.kind !== "organization_exists") {
     return (
-      <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center gap-6 px-4 py-12">
+      <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-6 px-4 py-12">
         <div>
           <h1 className="text-xl font-semibold">No organization has been set up on this deployment yet</h1>
           <p className="mt-2 text-sm text-[var(--color-muted)]">
@@ -128,7 +128,7 @@ export default async function NoAccessPage({
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-6 px-4">
+    <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 px-4">
       <div>
         <h1 className="flex items-center gap-2 text-xl font-semibold">
           <KeyRound className="h-5 w-5 text-[var(--color-muted)]" />

@@ -36,6 +36,12 @@ Read `docs/HANDOFF.md` first: what is built, what is untested, the follow-ups, a
 - Vercel bot comments on PRs are noise. Docs/tools-only PRs do not affect the web build.
 - Never commit secrets, tunnel tokens, or the spike's `spike-data/` (gitignored).
 
+## Keep the features doc true
+`docs/FEATURES.md` is the living list of features (Proven / Built, testing / Planned), the pitch, and the WhatsApp share text.
+Update it in the same PR as any feature, proof or removal. The public home page (`apps/web/lib/landing-content.ts`) and the
+in-app confirmed-devices banner (`apps/web/lib/devices/confirmed.ts`) repeat those claims: change them together, never claim
+more than has printed on a real device. `docs/ROADMAP.md` holds what is not built yet.
+
 ## How the owner likes to work
 - Ask clarifying questions before building, especially on detailed behavior; give a recommendation,
   not a survey. Split independent work across agents when it genuinely helps.

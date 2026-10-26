@@ -21,7 +21,7 @@ export default async function ConfirmSignInPage({
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center px-4">
+    <main className="flex min-h-dvh flex-col items-center justify-center px-4">
       <Card className="w-full max-w-sm text-center shadow-sm">
         <h1 className="mb-2 text-2xl font-semibold">Printio</h1>
         {valid ? (

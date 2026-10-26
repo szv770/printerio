@@ -1,0 +1,651 @@
+/* Public home page. Scoped so nothing here leaks into the app. Printing is the visual language: CMYK halftone, crop marks. */
+.root {
+  --ink: #0f1f38;
+  --ink-2: #3a4a66;
+  --paper: #f7f9fc;
+  --line: #d9e1ee;
+  --blue: #0a64d8;
+  --c: #0ea5d9;
+  --m: #e03a86;
+  --y: #f4b400;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.display {
+  font-family: var(--font-display), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.03em;
+}
+
+/* Halftone: three dot screens at different angles, the way a press lays down cyan, magenta and yellow. */
+.halftone {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle at 50% 50%, rgb(14 165 217 / 0.22) 1.2px, transparent 1.6px),
+    radial-gradient(circle at 50% 50%, rgb(224 58 134 / 0.16) 1.2px, transparent 1.6px),
+    radial-gradient(circle at 50% 50%, rgb(244 180 0 / 0.2) 1.2px, transparent 1.6px);
+  background-size: 18px 18px, 18px 18px, 18px 18px;
+  background-position: 0 0, 6px 6px, 12px 3px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 85% 20%, #000 0%, transparent 70%);
+  mask-image: radial-gradient(ellipse 70% 60% at 85% 20%, #000 0%, transparent 70%);
+}
+
+/* Crop marks frame the demo like a page on a press sheet. */
+.stage {
+  position: relative;
+  padding: 1.75rem 1.25rem 1.25rem;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 1.25rem;
+  box-shadow: 0 1px 2px rgb(15 31 56 / 0.05), 0 24px 48px -24px rgb(15 31 56 / 0.25);
+}
+.stage::before,
+.stage::after {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--ink);
+  opacity: 0.55;
+  pointer-events: none;
+}
+.stage::before {
+  top: -9px;
+  left: -9px;
+  border-right: 0;
+  border-bottom: 0;
+}
+.stage::after {
+  right: -9px;
+  bottom: -9px;
+  border-left: 0;
+  border-top: 0;
+}
+
+.tab {
+  min-height: 2.5rem;
+  padding: 0 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink-2);
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+.tab[aria-selected="true"] {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+.tab:focus-visible,
+.pressBtn:focus-visible,
+.toggle:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.flow {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+  align-items: stretch;
+}
+@media (min-width: 900px) {
+  .flow {
+    grid-template-columns: 1.15fr 0.5fr 0.9fr 0.5fr 1fr;
+    gap: 0.25rem;
+  }
+}
+
+.device {
+  border: 1.5px solid var(--ink);
+  border-radius: 1.1rem;
+  background: var(--paper);
+  padding: 0.8rem;
+  min-height: 11.5rem;
+}
+.dialogRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.6rem;
+  background: #fff;
+  border: 1px solid var(--line);
+  font-size: 0.8125rem;
+  margin-top: 0.4rem;
+}
+.pressBtn {
+  margin-top: 0.7rem;
+  width: 100%;
+  min-height: 2.6rem;
+  border: 0;
+  border-radius: 0.75rem;
+  background: var(--blue);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: transform 0.15s, background 0.2s;
+}
+.pressBtn:active {
+  transform: scale(0.97);
+}
+.pressBtn:disabled {
+  background: #8aa9d6;
+  cursor: default;
+}
+
+.rail {
+  position: relative;
+  height: 2.25rem;
+  align-self: center;
+  display: none;
+}
+@media (min-width: 900px) {
+  .rail {
+    display: block;
+    height: auto;
+    min-height: 2rem;
+  }
+}
+.rail::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  border-left: 2px dashed var(--line);
+}
+@media (min-width: 900px) {
+  .rail::before {
+    left: 0;
+    right: 0;
+    top: 50%;
+    bottom: auto;
+    border-left: 0;
+    border-top: 2px dashed var(--line);
+  }
+}
+.rail[data-on="true"]::before {
+  border-color: var(--blue);
+}
+
+.node {
+  border-radius: 1.1rem;
+  border: 1.5px solid var(--line);
+  background: #fff;
+  padding: 0.9rem;
+  min-height: 11.5rem;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+[data-phase="2"] .node,
+[data-phase="3"] .node {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 4px rgb(10 100 216 / 0.12);
+}
+.check {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  font-size: 0.8125rem;
+  margin-top: 0.4rem;
+  opacity: 0;
+  transform: translateX(-6px);
+  transition: opacity 0.35s, transform 0.35s;
+}
+[data-phase="2"] .check,
+[data-phase="3"] .check,
+[data-phase="4"] .check {
+  opacity: 1;
+  transform: none;
+}
+.check:nth-child(2) {
+  transition-delay: 0.15s;
+}
+.check:nth-child(3) {
+  transition-delay: 0.3s;
+}
+.check:nth-child(4) {
+  transition-delay: 0.45s;
+}
+
+.printer {
+  border: 1.5px solid var(--ink);
+  border-radius: 1.1rem;
+  background: #fff;
+  min-height: 11.5rem;
+  padding: 0.8rem;
+  position: relative;
+  overflow: hidden;
+}
+.panel {
+  height: 0.55rem;
+  width: 3.2rem;
+  border-radius: 99px;
+  background: var(--ink);
+  opacity: 0.85;
+}
+.led {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--y);
+  margin-right: 0.35rem;
+}
+[data-phase="4"] .led {
+  background: #1a9d4b;
+}
+[data-phase="3"] .led {
+  animation: blink 0.5s steps(2) infinite;
+}
+@keyframes blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+.slot {
+  margin: 0.7rem auto 0;
+  height: 0.5rem;
+  width: 82%;
+  border-radius: 99px;
+  background: var(--ink);
+}
+.sheet {
+  position: relative;
+  margin: -0.25rem auto 0;
+  width: 70%;
+  aspect-ratio: 8.5 / 5.5;
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 14px -8px rgb(15 31 56 / 0.5);
+  border-radius: 3px;
+  transform: translateY(-120%);
+  opacity: 0;
+  transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s;
+}
+[data-phase="3"] .sheet {
+  opacity: 1;
+  transform: translateY(-35%);
+}
+[data-phase="4"] .sheet {
+  opacity: 1;
+  transform: translateY(0);
+}
+.lines {
+  position: absolute;
+  inset: 0.5rem 0.5rem 1.4rem;
+  background: repeating-linear-gradient(to bottom, #c9d3e4 0 2px, transparent 2px 7px);
+}
+.stamp {
+  position: absolute;
+  right: 0.4rem;
+  bottom: 0.3rem;
+  font-weight: 800;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  color: var(--m);
+  opacity: 0.8;
+}
+
+.flyer {
+  width: 2.2rem;
+  height: 2.8rem;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  margin: 0.5rem auto 0;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+[data-phase="1"] .flyer {
+  opacity: 1;
+  animation: fly 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes fly {
+  from {
+    transform: translateX(-1.5rem);
+  }
+  to {
+    transform: translateX(1.5rem);
+  }
+}
+
+/* Booklet fold */
+.book {
+  perspective: 1100px;
+  display: grid;
+  place-items: center;
+  min-height: 17rem;
+  margin: 1.25rem 0 0.5rem;
+}
+.spread {
+  position: relative;
+  display: flex;
+  width: min(100%, 22rem);
+  height: 14rem;
+  transform-style: preserve-3d;
+  transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.pageFace {
+  position: relative;
+  width: 50%;
+  height: 100%;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  backface-visibility: hidden;
+  transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.6s;
+  background-color: #fff;
+}
+/* A heading bar and lines of text, so it reads as a page and not as ruled paper. */
+.pageFace::before {
+  content: "";
+  position: absolute;
+  inset: 22% 13% 18%;
+  background: repeating-linear-gradient(to bottom, #c9d3e4 0 2px, transparent 2px 9px);
+}
+.pageFace::after {
+  content: "";
+  position: absolute;
+  left: 13%;
+  right: 42%;
+  top: 11%;
+  height: 7px;
+  border-radius: 4px;
+  background: var(--ink);
+}
+.pageFace > span {
+  position: absolute;
+  bottom: 5%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+/* The fold: each half darkens toward the spine, and the whole sheet floats. */
+.foldLeft {
+  transform-origin: right center;
+  border-radius: 6px 0 0 6px;
+  box-shadow: inset -18px 0 18px -18px rgb(15 31 56 / 0.4), 0 16px 28px -18px rgb(15 31 56 / 0.55);
+}
+.foldRight {
+  transform-origin: left center;
+  border-radius: 0 6px 6px 0;
+  box-shadow: inset 18px 0 18px -18px rgb(15 31 56 / 0.4), 0 16px 28px -18px rgb(15 31 56 / 0.55);
+}
+.spread[data-closed="true"][data-rtl="false"] .foldLeft {
+  transform: rotateY(180deg);
+  opacity: 0;
+}
+.spread[data-closed="true"][data-rtl="false"] {
+  transform: translateX(-25%);
+}
+.spread[data-closed="true"][data-rtl="true"] .foldRight {
+  transform: rotateY(-180deg);
+  opacity: 0;
+}
+.spread[data-closed="true"][data-rtl="true"] {
+  transform: translateX(25%);
+}
+.toggle {
+  min-height: 2.5rem;
+  padding: 0 1rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.toggle[aria-pressed="true"] {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+
+/* Option chips inside the demo dialog */
+.chip {
+  min-height: 1.75rem;
+  padding: 0 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink-2);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.chip[aria-pressed="true"] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+.chip:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.chip:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+@media (max-width: 899px) {
+  /* Bigger tap targets on a phone */
+  .chip {
+    min-height: 2.25rem;
+    padding: 0 0.65rem;
+    font-size: 0.8125rem;
+  }
+  .dialogRow {
+    gap: 0.35rem;
+  }
+}
+
+/* What the printed page looks like for each finish */
+.staple {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  width: 15px;
+  height: 3px;
+  border-radius: 2px;
+  background: #4b5568;
+  transform: rotate(-35deg);
+  box-shadow: 0 1px 1px rgb(15 31 56 / 0.3);
+}
+.fold {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  border-left: 1.5px dashed #9fb0cc;
+}
+.pnL,
+.pnR {
+  position: absolute;
+  bottom: 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--ink-2);
+}
+.pnL {
+  left: 22%;
+}
+.pnR {
+  right: 22%;
+}
+.sheet[data-finish="booklet"] .stamp {
+  bottom: 1.15rem;
+}
+.sheet[data-finish="booklet"] .lines {
+  background: repeating-linear-gradient(to bottom, #c9d3e4 0 2px, transparent 2px 7px);
+  -webkit-mask-image: linear-gradient(to right, #000 0 44%, transparent 44% 56%, #000 56% 100%);
+  mask-image: linear-gradient(to right, #000 0 44%, transparent 44% 56%, #000 56% 100%);
+}
+
+/* Phone: a stepper for the journey, and ONE stage at a time (all three share the same spot) so the whole demo fits
+   on screen. Wider screens show all three stages side by side and hide the stepper. */
+.steps {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.9rem;
+}
+.step {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #7c8aa3;
+  flex: 1;
+}
+.step:not(:last-child)::after {
+  content: "";
+  flex: 1;
+  height: 2px;
+  margin-left: 0.2rem;
+  background: var(--line);
+  border-radius: 2px;
+}
+.step[data-state="active"] {
+  color: var(--ink);
+}
+.step[data-state="done"] {
+  color: var(--ink-2);
+}
+.step[data-state="done"]::after {
+  background: var(--blue);
+}
+.stepDot {
+  display: inline-grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  background: #fff;
+  color: #fff;
+}
+.step[data-state="active"] .stepDot {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 4px rgb(10 100 216 / 0.14);
+}
+.step[data-state="done"] .stepDot {
+  border-color: var(--blue);
+  background: var(--blue);
+}
+.replay {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.5rem;
+  padding: 0 1rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--ink);
+  cursor: pointer;
+}
+.replay:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+@media (min-width: 900px) {
+  .steps,
+  .mobileOnly {
+    display: none;
+  }
+}
+@media (max-width: 899px) {
+  .flow {
+    align-items: stretch;
+  }
+  .device,
+  .node,
+  .printer {
+    grid-area: 1 / 1;
+    transition: opacity 0.4s, transform 0.4s, visibility 0.4s;
+  }
+  .node,
+  .printer {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(10px);
+  }
+  [data-phase="2"] .device,
+  [data-phase="3"] .device,
+  [data-phase="4"] .device {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(-10px);
+  }
+  [data-phase="2"] .node {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: none;
+  }
+  [data-phase="3"] .printer,
+  [data-phase="4"] .printer {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: none;
+  }
+  .printer {
+    display: flex;
+    flex-direction: column;
+  }
+  /* The output tray the page lands in, anchored to the bottom of the printer */
+  .printer::after {
+    content: "";
+    position: absolute;
+    left: 8%;
+    right: 8%;
+    bottom: 0.9rem;
+    height: 0.7rem;
+    border-radius: 0.35rem;
+    background: #e8eef9;
+    border: 1px solid var(--line);
+  }
+  .slot {
+    margin-top: 1rem;
+  }
+  .sheet {
+    width: 66%;
+  }
+  [data-phase="4"] .sheet {
+    transform: translateY(1.6rem);
+  }
+  [data-phase="3"] .sheet {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-phase="3"] .led,
+  [data-phase="1"] .flyer {
+    animation: none;
+  }
+  .check,
+  .sheet,
+  .flyer,
+  .spread,
+  .pageFace,
+  .node {
+    transition: none;
+  }
+}
