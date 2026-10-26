@@ -76,6 +76,8 @@ export interface RawTarget {
   bindingSide: "left" | "right";
   /** Double-sided jobs only: "short" flips on the short edge; absent = the usual long edge. */
   duplexEdge?: "long" | "short";
+  /** "ledger" for an 11x17 job (PAPER=LEDGER); absent = the printer's default paper. */
+  paper?: "ledger";
   jobName: string;
 }
 

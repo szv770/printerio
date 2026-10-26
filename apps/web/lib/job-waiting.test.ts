@@ -149,6 +149,6 @@ describe("every list that shows a status word labels a waiting job as waiting (n
     expect(jobStatusCell("approved", unknown)).toEqual({ label: "Waiting for the printer", tone: "warning" });
     expect(jobStatusCell("approved", null)).toEqual({ label: "Approved", tone: "warning" });
     expect(jobStatusCell("failed", unavailable)).toEqual({ label: "Failed", tone: "danger" });
-    expect(jobStatusCell("completed", null)).toEqual({ label: "Completed", tone: "success" });
+    expect(jobStatusCell("completed", null)).toEqual({ label: "Sent to printer", tone: "success" });
   });
 });

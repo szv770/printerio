@@ -174,7 +174,7 @@ describe("Windows 11 flow", () => {
     const pj = flatGroup(polled.ipp, TAG.job);
     expect(pj["job-state"]).toBe(9);
     expect(pj["job-state-reasons"]).toBe("job-completed-successfully");
-    expect(pj["job-state-message"]).toBe("Printed");
+    expect(pj["job-state-message"]).toBe("Sent to the printer. It may take a few moments to start printing.");
 
     // ... and by job-uri
     const byUri = await h.ipp({
@@ -287,7 +287,7 @@ describe("phone-visible job status", () => {
     expect(sj["job-state-message"]).toBe("Waiting for the printer");
     expect(flatGroup(sent.ipp, TAG.operation)["status-message"]).toBe("Waiting for the printer");
     const id = sj["job-id"] as number;
-    for (const [status, msg] of [["printing", "Printing"], ["completed", "Printed"]] as const) {
+    for (const [status, msg] of [["printing", "Printing"], ["completed", "Sent to the printer. It may take a few moments to start printing."]] as const) {
       h.web.jobs.set("web-job-1", { jobId: "web-job-1", status });
       clock += PAST_STATUS_CACHE_MS;
       expect(flatGroup((await poll(id)).ipp, TAG.job)["job-state-message"]).toBe(msg);
@@ -298,7 +298,7 @@ describe("phone-visible job status", () => {
       return null;
     };
     const again = flatGroup((await poll(id)).ipp, TAG.job);
-    expect([again["job-state"], again["job-state-message"], lookups]).toEqual([9, "Printed", 0]);
+    expect([again["job-state"], again["job-state-message"], lookups]).toEqual([9, "Sent to the printer. It may take a few moments to start printing.", 0]);
   });
 
   it("a denied job reports the first policy reason and an aborted state", async () => {

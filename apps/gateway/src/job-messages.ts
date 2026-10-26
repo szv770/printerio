@@ -75,7 +75,7 @@ export function describeJob(state: JobState | undefined, webMessage?: string, wa
     case "submitted_to_spooler":
       return { state: IPP_JOB_STATE.processing, reasons: ["job-printing"], message: "Printing" };
     case "completed":
-      return { state: IPP_JOB_STATE.completed, reasons: ["job-completed-successfully"], message: "Printed" };
+      return { state: IPP_JOB_STATE.completed, reasons: ["job-completed-successfully"], message: "Sent to the printer. It may take a few moments to start printing." };
     case "cancelled":
       return { state: IPP_JOB_STATE.canceled, reasons: ["job-canceled-by-user"], message: "Cancelled" };
     case "denied":

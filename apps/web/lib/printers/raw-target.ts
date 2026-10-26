@@ -91,6 +91,8 @@ export function rawTargetFromProfile(
     staplePosition?: StaplePosition | null;
     /** Double-sided jobs: "short" flips on the short edge. Null/absent = the usual long edge (nothing is sent). */
     duplexEdge?: "short" | null;
+    /** "ledger" for an 11x17 job (the row's paper size is tabloid); null/absent = the printer's default paper. */
+    paper?: "ledger" | null;
     /** The sender's user code (organization_members.user_code); shown in the printer's job name when present. */
     senderCode?: string | null;
   },
@@ -103,6 +105,7 @@ export function rawTargetFromProfile(
     staplePosition: opts.staplePosition ?? (profile.raw_staple_position === "top-right" ? "top-right" : "top-left"),
     bindingSide: side,
     ...(opts.duplexEdge === "short" ? { duplexEdge: "short" as const } : {}),
+    ...(opts.paper === "ledger" ? { paper: "ledger" as const } : {}),
     jobName: printerJobName(opts.jobTitle, opts.senderCode),
   };
 }

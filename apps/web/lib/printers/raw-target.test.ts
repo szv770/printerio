@@ -112,6 +112,10 @@ describe("duplex edge on the raw target", () => {
   const base = { output_mode: "raw", raw_host: "192.168.1.5", raw_port: 9100, raw_staple_position: "top-left", booklet_binding_side: "left" };
   it("carries a short-edge flip to the Agent, and nothing for the usual long edge", () => {
     expect(rawTargetFromProfile(base, { jobTitle: "A", duplexEdge: "short" })?.duplexEdge).toBe("short");
+    // 11x17 jobs carry the paper to the printer; anything else sends nothing
+    expect(rawTargetFromProfile(base, { jobTitle: "A", paper: "ledger" })?.paper).toBe("ledger");
+    expect(rawTargetFromProfile(base, { jobTitle: "A" })).not.toHaveProperty("paper");
+    expect(rawTargetFromProfile(base, { jobTitle: "A", paper: null })).not.toHaveProperty("paper");
     expect(rawTargetFromProfile(base, { jobTitle: "A" })).not.toHaveProperty("duplexEdge");
     expect(rawTargetFromProfile(base, { jobTitle: "A", duplexEdge: null })).not.toHaveProperty("duplexEdge");
   });

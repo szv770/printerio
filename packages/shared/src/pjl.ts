@@ -16,6 +16,8 @@ export interface RawPrintOptions {
   booklet?: boolean;
   /** Only used with booklet; must match how the PDF was imposed. */
   bindingSide?: "left" | "right";
+  /** "ledger" = 11x17 sheets (an 11x17 booklet). Without it the printer uses its default paper (letter) and shrinks the pages. Proven by a real booklet print 2026-10-26: PAPER=LEDGER with the booklet settings. */
+  paper?: "ledger";
 }
 
 import { containsPjlEscape, PJL_ESCAPE_MESSAGE } from "./pjl-escape";
@@ -66,6 +68,7 @@ export function buildPjlSettings(o: RawPrintOptions): PjlSettingsResult {
     }
   }
 
+  if (o.paper === "ledger") settings.push("PAPER=LEDGER");
   settings.push(`QTY=${o.copies}`);
   // KCOLORMODE=MONO is deliberately NOT sent: unverified on the printer, and the web form stores colour as
   // "bw" by default, which would turn staff prints grey. Add it back only after a labelled test proves it.

@@ -159,3 +159,11 @@ arbitrary PDFs we need either (a) PDF direct (try below), or (b) PDF -> PCL XL c
 4. Only if 1-3 work: design the Agent change (send raw, lose Windows spooler status, so keep SNMP /
    other status in mind). Risks: no spooler job status, driver-specific bytes, cannot be validated
    without the physical printer.
+
+## 11x17 (ledger) paper: proven 2026-10-26
+
+Three numbered test prints of the same 11x17-imposed 4-page booklet (labelled sheets, sent with tools/raw-print/send-labelled.mjs):
+1. `DUPLEX=ON BINDING=SHORTEDGE OUTBIN=KBOOKLET FINISH=KFOLD` only: printed on LETTER, shrunk (the printer's default paper; this is the old behaviour).
+2. The same plus **`PAPER=LEDGER`**: a proper ledger booklet. **This is the setting.**
+3. `DUPLEX=ON BINDING=SHORTEDGE PAPER=LEDGER` (no fold/booklet tray): plain ledger, short-edge duplex.
+So an 11x17 booklet (print_jobs.paper_size = "tabloid") now sends `PAPER=LEDGER` right after the booklet settings (packages/shared/src/pjl.ts, `paper: "ledger"`).

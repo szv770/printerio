@@ -3,7 +3,7 @@ import { jobWaiting } from "./job-waiting";
 
 export type HeadlineTone = "neutral" | "live" | "success" | "warning" | "danger";
 
-const HEADLINES: Record<JobState, { sentence: string; tone: HeadlineTone }> = {
+const HEADLINES: Record<JobState, { sentence: string; tone: HeadlineTone; detail?: string }> = {
   draft: { sentence: "Getting ready", tone: "neutral" },
   held: { sentence: "Waiting for your choices", tone: "warning" },
   pending_approval: { sentence: "Waiting for approval", tone: "warning" },
@@ -17,7 +17,8 @@ const HEADLINES: Record<JobState, { sentence: string; tone: HeadlineTone }> = {
   downloaded: { sentence: "Sending to the printer", tone: "live" },
   printing: { sentence: "Printing now", tone: "live" },
   submitted_to_spooler: { sentence: "Printing now", tone: "live" },
-  completed: { sentence: "Done. It printed.", tone: "success" },
+  // For a printer on the direct port Printio knows the job was SENT, not that paper is coming out yet.
+  completed: { sentence: "Sent to the printer", tone: "success", detail: "It may take a few moments for the printer to start printing." },
   failed: { sentence: "It didn't print", tone: "danger" },
 };
 
@@ -26,5 +27,5 @@ export function jobHeadline(status: string, errorMessage?: string | null): { sen
   // A job the printer could not take right now is waiting, not failed: same headline, plus the plain reason.
   const waiting = jobWaiting(status, errorMessage);
   if (waiting) return { sentence: "Waiting for the printer", tone: "warning", detail: waiting.text };
-  return (HEADLINES as Record<string, { sentence: string; tone: HeadlineTone }>)[status] ?? { sentence: "Status unknown", tone: "neutral" };
+  return (HEADLINES as Record<string, { sentence: string; tone: HeadlineTone; detail?: string }>)[status] ?? { sentence: "Status unknown", tone: "neutral" };
 }

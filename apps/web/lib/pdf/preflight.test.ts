@@ -23,7 +23,7 @@ describe("preflightPdf: decompression bombs", () => {
     const res = await preflightPdf(file, { maxSizeBytes: 50 * 1024 * 1024 });
     expect(res.ok).toBe(false);
     expect(!res.ok && res.reason).toMatch(/too large when opened/i);
-  });
+  }, 60_000); // builds a 300 MB buffer: slow when the whole suite runs at once
 });
 
 describe("preflightPdf", () => {
