@@ -20,6 +20,8 @@ export interface BuilderDraft {
   direction: "ltr" | "rtl";
   cover: boolean;
   contents: boolean;
+  /** "letter" (default) or "tabloid" (ledger 11x17). */
+  sheet?: "letter" | "tabloid";
 }
 
 let current: BuilderDraft | null = null;

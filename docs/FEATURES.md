@@ -78,6 +78,9 @@ a hosted option that needs no server in the building. Pricing and billing do not
 | Booklet builder keeps your files while you visit the library to pick more and come back; after building, "Save a copy (PDF)" gives the normal page-by-page PDF (not the folded layout) to keep and upload again later | Built, testing |
 | Library browser (early tools): browse Mafteiach's Likkutei Sichos by volume and parsha, maamarim and sichos by year, tap the files you want (Hebrew, translated, unedited, notes), then they go into the booklet builder with "Courtesy of Mafteiach (mafteiach.app)" on the contents page | Built, testing. Not tested yet on a real admin session; the Mafteiach team has not been asked |
 | Library: search box on every list, an "English" badge where a real English file exists, plain button names ("Original sicha", "Translated to Hebrew": מתורגם means translated INTO Hebrew, not English) | Built, testing. Not seen on a phone yet |
+| Library "Sichos In English" tab: the 111 published SIE Weekly English translations of Likkutei Sichos (by volume and book), each a Google Drive file, credited "Sichos In English (sie.org)"; a copy of SIE's page from 2026-10-26, refreshed by hand | Built, testing. Owner has SIE's permission |
+| Library: "Print this file" for a single choice goes straight to the Print screen; "Make a booklet" (the wizard) only when asked | Built, testing |
+| Booklet wizard: choose Letter or Ledger 11x17; the Print screen opens with the right binding side (Hebrew = right) and the chosen size | Built, testing. The 11x17 paper-size line to the printer is NOT done yet (test prints pending) |
 
 ### People and rules
 

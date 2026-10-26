@@ -41,5 +41,5 @@ first. "Needs you" means I cannot finish it without the owner at a device or a d
 - Claim a device or feature is working before it has printed on a real device.
 - Offer the library to the public before the library's team has agreed in writing.
 
-- **Sichos In English (sie.org/weekly) as a library source.** Checked 2026-10-26: sie.org answers automated visitors with a Cloudflare security check (403), so Printio cannot read it, and we will not try to get around that. Needs permission or a feed from Sichos In English (for example allowing Printio's server). Note: Mafteiach's "מתורגם" is translated INTO Hebrew, not English.
+- **Sichos In English: refresh the list.** The library has a copy of https://shop.sie.org/pages/weekly from 2026-10-26 (`apps/web/lib/library/sie-weekly.ts`, 111 published weeks, 19 "coming soon" left out). sie.org itself refuses automated visitors, so the page is read by hand with a browser and the list replaced. Ask SIE for a feed if they would offer one.
 - **Early tools for a whole group or role** (today it is switched on per person in Admin -> Users).
