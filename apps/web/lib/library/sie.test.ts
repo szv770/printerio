@@ -74,13 +74,16 @@ describe("sieForLikkut (the English translation of one Likkutei Sichos sicha)", 
 });
 
 describe("sieContentRange (skip SIE's cover, blank page and dedication pages)", () => {
-  const e = (from?: number, pageCount?: number) => ({ chelek: "Alef", sefer: "Bereishis", title: "T", url: "https://drive.google.com/file/d/xxxxxxxxxxxxxxxxxxxxxxxxx/view", from, pageCount });
+  const e = (from?: number, pageCount?: number, to?: number) => ({ chelek: "Alef", sefer: "Bereishis", title: "T", url: "https://drive.google.com/file/d/xxxxxxxxxxxxxxxxxxxxxxxxx/view", from, pageCount, to });
   it("gives the page range that starts where the real content starts", () => {
-    expect(sieContentRange(e(4, 18))).toBe("4-18");
-    expect(sieContentRange(e(5, 30))).toBe("5-30");
+    expect(sieContentRange(e(4, 18, 15))).toBe("4-15"); // front pages and the back cover/credits are left out
+    expect(sieContentRange(e(5, 30, 27))).toBe("5-27");
+    expect(sieContentRange(e(4, 18))).toBe("4-18"); // no end known: up to the last page
   });
   it("gives nothing when the whole file should be used or the layout is unknown", () => {
     expect(sieContentRange(e(1, 18))).toBeUndefined();
+    expect(sieContentRange(e(1, 18, 18))).toBeUndefined();
+    expect(sieContentRange(e(1, 18, 16))).toBe("1-16"); // nothing to skip at the front, but the back is trimmed
     expect(sieContentRange(e(undefined, 18))).toBeUndefined();
     expect(sieContentRange(e(4, undefined))).toBeUndefined();
     expect(sieContentRange(e(19, 18))).toBeUndefined(); // never an empty range
@@ -89,6 +92,8 @@ describe("sieContentRange (skip SIE's cover, blank page and dedication pages)", 
     for (const x of SIE_WEEKLY) {
       expect([4, 5], x.title).toContain(x.from);
       expect(x.pageCount!, x.title).toBeGreaterThan(x.from!);
+      expect(x.to!, x.title).toBeGreaterThanOrEqual(x.from!);
+      expect(x.to!, x.title).toBeLessThan(x.pageCount!); // every file has back pages to drop
       expect(sieContentRange(x)).toMatch(/^[45]-\d+$/);
     }
   });

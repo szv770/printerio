@@ -55,7 +55,7 @@ describe("public home page", () => {
 
   it("does not make claims it cannot back up", () => {
     const text = html.replace(/<[^>]+>/g, " "); // what a visitor reads, not class names
-    for (const phrase of [/thousands/i, /millions/i, /trusted by/i, /\d+%/, /award/i, /number one|#1/i, /best[- ]in[- ]class/i]) expect(text).not.toMatch(phrase);
+    for (const phrase of [/thousands/i, /millions/i, /trusted by/i, /\d+%/, /award/i, /number one|#1\b/i, /best[- ]in[- ]class/i]) expect(text).not.toMatch(phrase);
   });
 
   it("every feature has plain wording (no empty titles or details)", () => {
