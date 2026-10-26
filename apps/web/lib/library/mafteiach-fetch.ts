@@ -10,8 +10,9 @@ import { parseEntryPage, parseLikkutSichos, parseListPage, type EntrySection, ty
 const HOST = "https://www.mafteiach.app";
 export const MAX_PAGE_BYTES = 3 * 1024 * 1024;
 const TIMEOUT_MS = 15_000;
-const YEAR = /^\d{4}(_\d{4})?$/;
-const MAAMOR_PATH = /^\/maamorim\/\d{1,7}$/;
+/** Hebrew years the library could plausibly hold (5600 to 5899), alone or as a range like 5690_5710. */
+const YEAR = /^5[6-8]\d{2}(_5[6-8]\d{2})?$/;
+const MAAMOR_PATH = /^\/maamorim\/\d{1,5}$/;
 const FARBRENGEN_PATH = /^\/all\/\d{4}-\d{1,2}[A-Za-z]?-\d{1,2}[A-Za-z]?$/;
 
 export type PageRef =
