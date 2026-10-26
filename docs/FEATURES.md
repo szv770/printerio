@@ -72,6 +72,7 @@ a hosted option that needs no server in the building. Pricing and billing do not
 | Share a PDF into Printio from the phone's share sheet (installed app) | Built, testing |
 | Tap-to-pick pages: tap page thumbnails (with All / First page / Last 3 / Odd / Even / Swap / Clear) or type the range; both stay in step | Built, testing |
 | Print from a link to a PDF (public link or Google Drive / Docs file), admins only for now; fetched safely on the server and placed in the normal Print form | Built, testing |
+| Booklet builder (admins only for now): combine up to 12 PDFs or links into one booklet with a name, description, cover and contents page (Hebrew right-to-left supported), pick pages per file, reorder; then the normal Print screen takes over with the booklet switched on | Built, testing. Not tested yet on paper |
 
 ### People and rules
 

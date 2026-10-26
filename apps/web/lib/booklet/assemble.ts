@@ -1,5 +1,6 @@
 import "server-only";
 import { PDFDocument } from "pdf-lib";
+import { parsePageRange } from "@printio/shared";
 import type { Direction } from "./bidi";
 import { addFrontMatter, frontMatterPageCount, type FrontEntry } from "./frontmatter";
 
@@ -16,8 +17,10 @@ const LETTER = { width: 612, height: 792 };
 export interface BuilderSource {
   title: string;
   bytes: Uint8Array;
-  /** 1-based pages to take from this source, in the order they should appear. */
-  pages: number[];
+  /** 1-based pages to take from this source, in the order they should appear. Either this or `pageRange`. */
+  pages?: number[];
+  /** The same typed form as the Print page ("1-3, 5"); empty or missing means every page. Checked here, against the real page count. */
+  pageRange?: string;
   /** "Mafteiach (mafteiach.app)": shown as "Courtesy of ..." on the contents page. */
   credit?: string;
 }
@@ -56,6 +59,7 @@ export async function assembleBooklet(input: BuilderInput): Promise<BuilderResul
   if (input.sources.length > MAX_SOURCES) throw new BuilderError(`A booklet can combine up to ${MAX_SOURCES} files.`);
 
   const docs: PDFDocument[] = [];
+  const picks: number[][] = [];
   for (const [i, s] of input.sources.entries()) {
     const label = s.title.trim() || `File ${i + 1}`;
     let doc: PDFDocument;
@@ -64,16 +68,27 @@ export async function assembleBooklet(input: BuilderInput): Promise<BuilderResul
     } catch {
       throw new BuilderError(`"${label}" could not be read as a PDF.`);
     }
-    if (s.pages.length === 0) throw new BuilderError(`Choose at least one page from "${label}".`);
     const total = doc.getPageCount();
-    for (const p of s.pages) {
+    let pages: number[];
+    if (s.pages) {
+      pages = s.pages;
+    } else if (!s.pageRange?.trim()) {
+      pages = Array.from({ length: total }, (_, k) => k + 1);
+    } else {
+      const parsed = parsePageRange(s.pageRange, total);
+      if (!parsed.ok) throw new BuilderError(`"${label}": ${parsed.reason}`);
+      pages = parsed.pages;
+    }
+    if (pages.length === 0) throw new BuilderError(`Choose at least one page from "${label}".`);
+    for (const p of pages) {
       if (!Number.isInteger(p) || p < 1 || p > total) throw new BuilderError(`"${label}" has ${total} ${total === 1 ? "page" : "pages"}, so page ${p} does not exist.`);
     }
     docs.push(doc);
+    picks.push(pages);
   }
 
   // The cover and contents take the size of the first page that will be in the booklet.
-  const first = docs[0]!.getPage(input.sources[0]!.pages[0]! - 1).getSize();
+  const first = docs[0]!.getPage(picks[0]![0]! - 1).getSize();
   const size = first.width > 0 && first.height > 0 ? { width: clamp(first.width), height: clamp(first.height) } : LETTER;
 
   const credits = [...new Set(input.sources.map((s) => (s.credit ?? "").trim()).filter(Boolean))];
@@ -86,7 +101,7 @@ export async function assembleBooklet(input: BuilderInput): Promise<BuilderResul
   let next = frontPages + 1;
   const entries: FrontEntry[] = input.sources.map((s, i) => {
     const entry = { title: titles[i]!, startPage: next };
-    next += s.pages.length;
+    next += picks[i]!.length;
     return entry;
   });
 
@@ -97,7 +112,7 @@ export async function assembleBooklet(input: BuilderInput): Promise<BuilderResul
   if (added !== frontPages) throw new BuilderError("The cover and contents could not be laid out. Try a shorter name or fewer files.");
 
   for (const [i, s] of input.sources.entries()) {
-    const copied = await out.copyPages(docs[i]!, s.pages.map((p) => p - 1));
+    const copied = await out.copyPages(docs[i]!, picks[i]!.map((p) => p - 1));
     for (const page of copied) out.addPage(page);
   }
   return { bytes: await out.save(), pageCount: out.getPageCount(), entries };

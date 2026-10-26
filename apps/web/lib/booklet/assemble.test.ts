@@ -62,6 +62,25 @@ describe("assembleBooklet", () => {
     expect(await widthsOf(r.bytes)).toEqual([103, 101, 102]);
   });
 
+  it("takes pages from a typed range like 1-3, 5 (the same form as the Print page); blank means every page", async () => {
+    const r = await assembleBooklet(
+      await input({
+        cover: false,
+        contents: false,
+        sources: [
+          { title: "A", bytes: await pdf([101, 102, 103, 104, 105]), pageRange: "1-2, 5" },
+          { title: "B", bytes: await pdf([201, 202]), pageRange: "" },
+        ],
+      }),
+    );
+    expect(await widthsOf(r.bytes)).toEqual([101, 102, 105, 201, 202]);
+  });
+
+  it("explains a bad typed range with the file's name", async () => {
+    await expect(assembleBooklet(await input({ sources: [{ title: "Sicha", bytes: await pdf([300, 301]), pageRange: "1-9" }] }))).rejects.toThrow(/"Sicha".*page/i);
+    await expect(assembleBooklet(await input({ sources: [{ title: "Sicha", bytes: await pdf([300, 301]), pageRange: "banana" }] }))).rejects.toThrow(/"Sicha"/);
+  });
+
   it("uses a placeholder title for an untitled file", async () => {
     const r = await assembleBooklet(await input({ sources: [{ title: "  ", bytes: await pdf([300]), pages: [1] }] }));
     expect(r.entries[0]!.title).toBe("File 1");

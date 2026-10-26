@@ -182,6 +182,9 @@ export function PrintForm({
       if (typeof saved.punch === "boolean") setPunch(saved.punch);
       if (saved.bookletFit) setBookletFit(saved.bookletFit);
       if (saved.bookletSheet) setBookletSheet(saved.bookletSheet);
+      // Coming from the booklet builder: ?booklet=left|right switches the booklet on for the built file (after the saved choices).
+      const fromBuilder = new URLSearchParams(window.location.search).get("booklet");
+      if (fromBuilder === "left" || fromBuilder === "right") setBooklet(fromBuilder);
       setRestored(true);
     }, 0);
     return () => clearTimeout(t);
