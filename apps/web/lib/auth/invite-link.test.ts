@@ -56,3 +56,19 @@ describe("extractInviteCode", () => {
     expect(extractInviteCode("https://evil.example/login?code=a1b2c3d4e5f6")).toBeNull();
   });
 });
+
+import { inviteEntryTarget } from "./invite-link";
+
+describe("inviteEntryTarget (the box on /join when someone arrives without a code)", () => {
+  it("turns a pasted code or invite link into the join address", () => {
+    expect(inviteEntryTarget("a1b2c3d4e5f6")).toEqual({ ok: true, href: "/join?code=a1b2c3d4e5f6" });
+    expect(inviteEntryTarget(" https://printio.szvtech.org/join?code=a1b2c3d4e5f6 ")).toEqual({ ok: true, href: "/join?code=a1b2c3d4e5f6" });
+  });
+  it("says plainly what to do when the box is empty or the text is not an invite", () => {
+    const empty = inviteEntryTarget("   ");
+    expect(empty).toMatchObject({ ok: false });
+    expect(!empty.ok && empty.error).toMatch(/paste/i);
+    const junk = inviteEntryTarget("hello there");
+    expect(!junk.ok && junk.error).toMatch(/invite link or code/i);
+  });
+});
