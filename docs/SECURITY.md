@@ -34,11 +34,22 @@ Short answer: not directly, and not through the website. But it is the right wor
 - **The real risk is a bug in how the gateway reads those requests.** If someone found one, they would run commands on that computer with whatever power the gateway has. Two reviews and 200+ gateway tests found no such bug, but "none found" is not "none exist".
 - **What limits the damage is how much power that program has.** Today the gateway and the agent are installed as Windows services without a named account, which means they run as **LocalSystem, the most powerful account on the computer**. That is the thing to fix. A small bug becomes a big problem only because of it.
 
-### The fix (to do together, on the print computer)
-1. Create a plain Windows account just for Printio (`printio-svc`, not an administrator, no remote desktop rights) and make the gateway and agent services run as it (Services -> the Printio service -> Log On tab).
-2. Add Windows Firewall rules so that computer can only make outgoing connections to: the internet (Supabase, Cloudflare, Vercel), and the printer's address and port 9100. Block it from reaching your other computers. Then even a fully taken-over gateway cannot wander the network.
-3. Keep that computer updated, with its own strong password, and do not use it for anything else.
-Ask the next session to walk you through these; it will first list the real service names with `Get-Service *printio*` so the steps are exact.
+### The fix: run the two services as a limited account
+
+Your server's two services are `printioippgateway.exe` (Printio IPP Gateway) and `printioprintagent.exe` (Printio Print Agent). Both run as LocalSystem today (checked 2026-10-26). One script changes that safely: `docs/hardening/limit-printio-services.ps1`.
+
+1. In Printio Admin, press **Update this server** so the server has the script.
+2. On the server, open PowerShell **as administrator** and go to the script's folder:
+   `cd "C:\Users\MLM Office\printerio\docs\hardening"`
+3. **Preview** (changes nothing, shows every step): `powershell -ExecutionPolicy Bypass -File .\limit-printio-services.ps1`
+   (Run it from your own administrator window on the server. The `-ExecutionPolicy Bypass` part only gets past Windows' default block on scripts you downloaded.)
+4. **Do it**: the same command with `-Apply` on the end.
+5. **Check** (the script lists these too): Admin -> Agents shows the print program online; print a test page from your phone; press **Update this server** once and confirm it finishes.
+6. **Undo, if anything is off**: the same command with `-Revert`. It puts both services back exactly as they were.
+
+What it does: creates the account `printio-svc` (not an administrator, cannot sign in or use Remote Desktop, a random password nobody knows), lets it use only the Printio folder and the data folder, switches the gateway and then the agent over one at a time (and undoes a switch by itself if the service does not come back), tells git the Printio folder is safe for that account, and allows it to restart the gateway so the update button keeps working. Your own Remote Desktop, SSH and Tailscale logins are untouched.
+
+**Phase 2, after phase 1 is confirmed working: a firewall rule** so that account can reach the internet and the printer but not your other computers. This is the bigger protection against a taken-over gateway spreading. It needs the printer's address and a careful test, so it is its own step.
 
 ## Known, accepted for now
 
