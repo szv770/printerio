@@ -1,10 +1,13 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import { BookOpen } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
 import { PageHeader } from "@/components/ui";
 import { DEFAULT_MAX_UPLOAD_BYTES } from "@/lib/pdf/client-precheck";
 import { SharedFileHandoff } from "@/components/pwa/SharedFileHandoff";
+import { BuiltBookletHandoff } from "@/components/print/BuiltBookletHandoff";
 import { LinkImport } from "@/components/print/LinkImport";
 import { canUseLinks } from "@/lib/sources/access";
 import { PrintForm } from "./PrintForm";
@@ -64,7 +67,19 @@ export default async function PrintPage() {
        *  blocking the user from picking a file and preparing everything
        *  else just because a printer isn't connected yet. */}
       <SharedFileHandoff maxUploadBytes={maxUploadBytes} />
-      {canUseLinks(session.membership.role) && <LinkImport maxUploadBytes={maxUploadBytes} />}
+      <BuiltBookletHandoff />
+      {canUseLinks(session.membership.role) && (
+        <div className="flex flex-wrap items-start gap-x-3">
+          <LinkImport maxUploadBytes={maxUploadBytes} />
+          <Link
+            href="/print/booklet"
+            className="mb-4 inline-flex min-h-11 items-center gap-2 rounded-full border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-4 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-2)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]"
+          >
+            <BookOpen className="h-4 w-4" aria-hidden="true" />
+            Make a booklet from several files
+          </Link>
+        </div>
+      )}
       <PrintForm printerProfiles={printerProfiles} maxUploadBytes={maxUploadBytes} />
     </main>
   );
