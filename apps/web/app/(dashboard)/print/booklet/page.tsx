@@ -13,7 +13,7 @@ export const maxDuration = 60;
 export default async function BookletBuilderPage() {
   const session = await requireSessionOrRedirect();
   if (!session.membership) redirect(routes.noAccess);
-  if (!canUseLinks(session.membership.role)) redirect(routes.print);
+  if (!canUseLinks(session.membership.role, session.membership.early_tools)) redirect(routes.print);
 
   const supabase = await createClient();
   const { data: settings } = await supabase

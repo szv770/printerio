@@ -29,7 +29,7 @@ const SIGNED_URL_SECONDS = 300;
 export async function importLinkAction(formData: FormData): Promise<ImportLinkResult> {
   const session = await requireSessionOrRedirect();
   if (!session.membership) return { error: "Your account is not part of an organization yet." };
-  if (!canUseLinks(session.membership.role)) return { error: "Printing from a link is being tested with admins first." };
+  if (!canUseLinks(session.membership.role, session.membership.early_tools)) return { error: "Printing from a link is being tested with admins first. Ask an admin to switch early tools on for you." };
 
   const link = normalizeSourceLink(String(formData.get("link") ?? ""));
   if (!link.ok) return { error: link.message };

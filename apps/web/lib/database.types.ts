@@ -629,6 +629,7 @@ export type Database = {
           organization_id: string
           role: string
           status: string
+          early_tools: boolean
           user_code: string | null
           user_id: string
         }
@@ -638,6 +639,7 @@ export type Database = {
           organization_id: string
           role?: string
           status?: string
+          early_tools?: boolean
           user_code?: string | null
           user_id: string
         }
@@ -647,6 +649,7 @@ export type Database = {
           organization_id?: string
           role?: string
           status?: string
+          early_tools?: boolean
           user_code?: string | null
           user_id?: string
         }

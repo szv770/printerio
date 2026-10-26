@@ -68,7 +68,7 @@ export default async function PrintPage() {
        *  else just because a printer isn't connected yet. */}
       <SharedFileHandoff maxUploadBytes={maxUploadBytes} />
       <BuiltBookletHandoff />
-      {canUseLinks(session.membership.role) && (
+      {canUseLinks(session.membership.role, session.membership.early_tools) && (
         <div className="flex flex-wrap items-start gap-x-3">
           <LinkImport maxUploadBytes={maxUploadBytes} />
           <Link

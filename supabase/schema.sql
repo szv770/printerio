@@ -70,6 +70,8 @@ create table organization_members (
     check (role in ('org_admin', 'approver', 'staff', 'student')),
   department text,
   status text not null default 'active' check (status in ('active', 'disabled')),
+  -- 0044: an org admin switched the early tools (print from a link, booklet builder) on for this person.
+  early_tools boolean not null default false,
   created_at timestamptz not null default now(),
   primary key (user_id, organization_id)
 );
