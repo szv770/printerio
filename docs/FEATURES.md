@@ -74,6 +74,7 @@ a hosted option that needs no server in the building. Pricing and billing do not
 | Print from a link to a PDF (public link or Google Drive / Docs file), admins plus anyone with early tools on; fetched safely on the server and placed in the normal Print form | Built, testing |
 | Booklet builder (admins, plus anyone an admin switches early tools on for): combine up to 12 PDFs or links into one booklet with a name, description, cover and contents page (Hebrew right-to-left supported), pick pages per file, reorder; then the normal Print screen takes over with the booklet switched on | Built, testing. Not tested yet on paper |
 | Early tools switch: an admin can turn the link import and the booklet builder on for one named person (Admin -> Users -> that person), so staff can help test; off by default | Built, testing |
+| Library browser (early tools): browse Mafteiach's Likkutei Sichos by volume and parsha, maamarim and sichos by year, tap the files you want (Hebrew, translated, unedited, notes), then they go into the booklet builder with "Courtesy of Mafteiach (mafteiach.app)" on the contents page | Built, testing. Not tested yet on a real admin session; the Mafteiach team has not been asked |
 
 ### People and rules
 

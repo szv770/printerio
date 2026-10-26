@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { BookOpen } from "lucide-react";
+import { BookOpen, Library } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
@@ -77,6 +77,13 @@ export default async function PrintPage() {
           >
             <BookOpen className="h-4 w-4" aria-hidden="true" />
             Make a booklet from several files
+          </Link>
+          <Link
+            href="/print/library"
+            className="mb-4 inline-flex min-h-11 items-center gap-2 rounded-full border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-4 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-2)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]"
+          >
+            <Library className="h-4 w-4" aria-hidden="true" />
+            Library
           </Link>
         </div>
       )}

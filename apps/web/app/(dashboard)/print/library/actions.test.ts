@@ -3,13 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 const requireSessionOrRedirect = vi.fn();
 vi.mock("@/lib/auth/session", () => ({ requireSessionOrRedirect: () => requireSessionOrRedirect() }));
-let rateOk = true;
-vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: () => ({ rpc: async () => ({ data: rateOk, error: null }) }) }));
-const loaders = {
+const state = vi.hoisted(() => ({ rateOk: true }));
+vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: () => ({ rpc: async () => ({ data: state.rateOk, error: null }) }) }));
+const loaders = vi.hoisted(() => ({
   loadLikkutVolume: vi.fn(async () => ({ ok: true as const, page: { volumes: [], current: null, parshiyos: [] } })),
   loadList: vi.fn(async () => ({ ok: true as const, page: { years: [], entries: [] } })),
   loadEntry: vi.fn(async () => ({ ok: true as const, sections: [] })),
-};
+}));
 vi.mock("@/lib/library/mafteiach-fetch", () => loaders);
 
 import { libraryEntryAction, libraryLikkutAction, libraryListAction } from "./actions";
@@ -18,7 +18,7 @@ const member = (role: string, early = false) => ({ userId: "u1", membership: { o
 
 beforeEach(() => {
   vi.clearAllMocks();
-  rateOk = true;
+  state.rateOk = true;
   requireSessionOrRedirect.mockResolvedValue(member("org_admin"));
 });
 
@@ -46,7 +46,7 @@ describe("library actions", () => {
     requireSessionOrRedirect.mockResolvedValue({ userId: "u2", membership: null });
     expect((await libraryEntryAction("/maamorim/1")).ok).toBe(false);
     requireSessionOrRedirect.mockResolvedValue(member("org_admin"));
-    rateOk = false;
+    state.rateOk = false;
     const res = await libraryEntryAction("/maamorim/1");
     expect(!res.ok && res.message).toMatch(/wait a few minutes/i);
     expect(loaders.loadEntry).not.toHaveBeenCalled();
