@@ -8,6 +8,7 @@ import { Card, PageHeader } from "@/components/ui";
 import { MemberDetailControls } from "./MemberDetailControls";
 import { MemberAccessCard } from "./MemberAccessCard";
 import { EarlyToolsCard } from "./EarlyToolsCard";
+import { CancelQueueCard } from "./CancelQueueCard";
 import { describeMemberAccess, type AccessRule } from "@/lib/admin/member-access";
 import type { OrgRole, PolicyAction, RuleCondition } from "@printio/shared";
 
@@ -126,6 +127,8 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ u
         canEdit={isOrgAdmin}
         firstName={(displayName ?? email).split(/[\s@]/)[0] ?? "this person"}
       />
+
+      {isOrgAdmin && <CancelQueueCard userId={member.user_id} firstName={(displayName ?? email).split(/[\s@]/)[0] ?? "this person"} />}
 
       <Card className="mb-4 text-sm">
         <p className="text-[var(--color-muted)]">Joined</p>

@@ -155,6 +155,96 @@ export async function cancelOwnJob(service: Client, ref: OwnerRef): Promise<JobA
   return { ok: true, message: "Cancelled. Nothing was printed and your quota was released." };
 }
 
+/** Statuses an ADMIN may cancel from: anything that has not started printing (the print program may hold a lease on it, which then simply fails). */
+const ADMIN_CANCELLABLE = ["held", "pending_approval", "approved", "failed", "claimed", "downloading", "downloaded"] as const;
+/** At the printer already: the raw job cannot be recalled. */
+const AT_PRINTER = ["printing", "submitted_to_spooler"] as const;
+
+/** Like holdsReservation, but for the wider set an admin can cancel: a job the print program has picked up still holds its reservation. */
+function holdsReservationForAdminCancel(job: Pick<JobFacts, "status" | "attempt_count" | "max_attempts" | "is_test_print">): boolean {
+  if (job.is_test_print) return false;
+  if (["pending_approval", "approved", "claimed", "downloading", "downloaded"].includes(job.status)) return true;
+  return job.status === "failed" && job.attempt_count < job.max_attempts;
+}
+
+export interface AdminCancelRef {
+  jobId: string;
+  organizationId: string;
+  adminId: string;
+}
+
+/**
+ * An org admin cancels ANY member's job that has not started printing, even one the print program has already picked
+ * up (the program finds out on its next update and stops). Same safety as the owner's cancel: service-role writes,
+ * guarded by this job, this organization and the exact status decided from, so a double press or a race cannot release
+ * the person's quota twice. The caller must already have checked that the person is an org admin.
+ */
+export async function cancelJobAsAdmin(service: Client, ref: AdminCancelRef): Promise<JobActionResult> {
+  const read = async (): Promise<JobFacts | null> => {
+    const { data } = await service.from("print_jobs").select(JOB_COLUMNS).eq("id", ref.jobId).eq("organization_id", ref.organizationId).maybeSingle();
+    return (data as JobFacts | null) ?? null;
+  };
+  const job = await read();
+  if (!job) return { ok: false, error: "Job not found." };
+  if (job.status === "cancelled") return { ok: true, message: "This job is already cancelled." };
+  if ((AT_PRINTER as readonly string[]).includes(job.status)) return { ok: false, error: GONE_TO_PRINTER };
+  if (!(ADMIN_CANCELLABLE as readonly string[]).includes(job.status)) {
+    return { ok: false, error: "This job has already finished, so it can no longer be cancelled." };
+  }
+
+  let update = service.from("print_jobs").update({ status: "cancelled" }).eq("id", ref.jobId).eq("organization_id", ref.organizationId).eq("status", job.status);
+  if (job.status === "failed") update = update.eq("attempt_count", job.attempt_count);
+  const { data: updated, error } = await update.select("id");
+  if (error) {
+    logger.error("admin cancel job failed", { jobId: ref.jobId, error: error.message });
+    return { ok: false, error: "Could not cancel this job right now. Try again in a moment." };
+  }
+  if (!updated || updated.length === 0) {
+    const now = await read();
+    if (!now) return { ok: false, error: "Job not found." };
+    if (now.status === "cancelled") return { ok: true, message: "This job is already cancelled." };
+    if ((AT_PRINTER as readonly string[]).includes(now.status)) return { ok: false, error: GONE_TO_PRINTER };
+    return { ok: false, error: "This job just changed. Refresh the page and try again." };
+  }
+
+  await service.from("print_job_events").insert({
+    job_id: job.id,
+    event_type: "JOB_CANCELLED",
+    actor_type: "admin",
+    actor_id: ref.adminId,
+    metadata: { previousStatus: job.status },
+  });
+  if (holdsReservationForAdminCancel(job)) await releaseReservation(service, job);
+  return { ok: true, message: "Cancelled. Nothing more will print for this job and the person's quota was released." };
+}
+
+/**
+ * Stops one person's whole line: cancels every job of theirs that has not started printing, a batch at a time.
+ * This is the answer to a flood: it works even though the jobs were already approved and queued.
+ */
+export async function cancelMemberQueue(
+  service: Client,
+  input: { organizationId: string; adminId: string; userId: string; limit?: number },
+): Promise<{ cancelled: number; skipped: number; more: boolean }> {
+  const limit = input.limit ?? 200;
+  const { data } = await service
+    .from("print_jobs")
+    .select("id")
+    .eq("organization_id", input.organizationId)
+    .eq("created_by", input.userId)
+    .in("status", [...ADMIN_CANCELLABLE])
+    .limit(limit + 1);
+  const ids = (data ?? []).map((r) => (r as { id: string }).id);
+  let cancelled = 0;
+  let skipped = 0;
+  for (const id of ids.slice(0, limit)) {
+    const res = await cancelJobAsAdmin(service, { jobId: id, organizationId: input.organizationId, adminId: input.adminId });
+    if (res.ok) cancelled++;
+    else skipped++;
+  }
+  return { cancelled, skipped, more: ids.length > limit };
+}
+
 type RequeueActor = { type: "user"; id: string } | { type: "system" };
 
 /**
