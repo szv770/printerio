@@ -92,6 +92,20 @@ describe("executeRawPrint", () => {
     expect(Buffer.concat(received).equals(Buffer.from(expected.bytes))).toBe(true);
   });
 
+  it("a short-edge double-sided job reaches the printer with BINDING=SHORTEDGE", async () => {
+    const { port, received, closed } = await listen(() => {});
+    const res = await executeRawPrint({
+      raw: { ...raw(port), duplexEdge: "short" as const },
+      request: { ...req, finishing: { staple: false, booklet: false, punch: false } },
+      pdf,
+    });
+    await closed;
+    expect(res.ok).toBe(true);
+    const sent = Buffer.concat(received).toString("latin1");
+    expect(sent).toContain("@PJL SET BINDING=SHORTEDGE");
+    expect(sent).not.toContain("BINDING=LONGEDGE");
+  });
+
   it("returns ok:false with the reason and opens NO connection when buildRawJob refuses", async () => {
     let connections = 0;
     const { port } = await listen(() => {

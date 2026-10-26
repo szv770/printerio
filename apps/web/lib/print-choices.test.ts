@@ -236,3 +236,32 @@ describe("planPageSubset", () => {
     expect(planPageSubset({ pageRangeText: "1-4", pageCount: 4, held: false })).toEqual({ ok: true, sourcePages: 4, subsetPages: null });
   });
 });
+
+describe("flip on the short edge", () => {
+  const profile = { capabilities: { duplex: true, staple: true, booklet: true }, bookletBindingSide: "left" as const, stapleDefault: "top-left" as const, declaredPaperSizes: ["letter"] };
+  const base = { sides: "two" as const, staple: "none" as const, booklet: "none" as const, copies: 1, pageRange: "" };
+
+  it("parseChoices reads flip=short and ignores anything else", () => {
+    const get = (m: Record<string, string>) => (n: string) => (m[n] ?? null) as FormDataEntryValue | null;
+    expect(parseChoices(get({ sides: "two", flip: "short" }))).toMatchObject({ ok: true, choices: { sides: "two", flip: "short" } });
+    const other = parseChoices(get({ sides: "two", flip: "sideways" }));
+    expect(other.ok && other.choices).not.toHaveProperty("flip");
+  });
+
+  it("mapRawChoices sends BINDING=SHORTEDGE for double-sided short edge, nothing held", () => {
+    const m = mapRawChoices({ ...base, flip: "short" }, profile);
+    expect(m.heldReason).toBeNull();
+    expect(m.duplexEdge).toBe("short");
+    expect(m.pjl).toMatchObject({ duplex: true, duplexEdge: "short" });
+  });
+
+  it("flip does nothing for single-sided or a booklet", () => {
+    expect(mapRawChoices({ ...base, sides: "one", flip: "short" }, profile).duplexEdge).toBeNull();
+    expect(mapRawChoices({ ...base, booklet: "left", flip: "short" }, profile).duplexEdge).toBeNull();
+    expect(mapRawChoices(base, profile).duplexEdge).toBeNull();
+  });
+
+  it("a corner staple with a short-edge flip is held", () => {
+    expect(mapRawChoices({ ...base, staple: "top-left", flip: "short" }, profile).heldReason).toMatch(/short/i);
+  });
+});

@@ -283,6 +283,15 @@ describe("createPrintJob: error path", () => {
     expect(insertedJob().finishing).toEqual({ staple: false, booklet: false, punch: false });
   });
 
+  it("a double-sided short-edge job records the flip (so the Agent sends BINDING=SHORTEDGE) and is not held; long edge records nothing", async () => {
+    const res = await run(pdf3, baseOpts({ choices: { sides: "two", staple: "none", booklet: "none", copies: 1, pageRange: "", flip: "short" } }));
+    expect(res).toMatchObject({ ok: true, status: "approved" });
+    expect(insertedJob()).toMatchObject({ duplex: true, held_reason: null, finishing: { staple: false, booklet: false, punch: false, duplexEdge: "short" } });
+    use();
+    await run(pdf3, baseOpts({ choices: { sides: "two", staple: "none", booklet: "none", copies: 1, pageRange: "" } }));
+    expect(insertedJob().finishing).toEqual({ staple: false, booklet: false, punch: false });
+  });
+
   it("an 11x17 booklet is recorded on the job (finishing + paper size) so a re-print repeats it; a regular one records nothing extra", async () => {
     await run(pdf3, baseOpts({ choices: { sides: "two", staple: "none", booklet: "right", copies: 1, pageRange: "" }, confirmBookletPadding: true, bookletSheet: "tabloid" }));
     expect(insertedJob()).toMatchObject({ paper_size: "tabloid", booklet_binding_side: "right", finishing: { booklet: true, bookletSheet: "tabloid" } });

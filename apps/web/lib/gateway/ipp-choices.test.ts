@@ -66,7 +66,6 @@ describe("mapIppChoices: what is held, with a reason", () => {
     ["copies 100", { copies: 100 }, /copies must be 1 to 99/i],
     ["copies negative", { copies: -3 }, /copies must be 1 to 99/i],
     ["copies not a number", { copies: "many" }, /copies must be 1 to 99/i],
-    ["short edge", { sides: "two-sided-short-edge" }, /short edge is not available from the print dialog yet; choose double-sided or use the website/i],
     ["unknown sides", { sides: "tumble" }, /does not recognise the sides setting "tumble"/i],
     ["backwards range", { "page-ranges": [5, 1] }, /page range .* could not be read/i],
     ["zero page", { "page-ranges": [0, 3] }, /page range .* could not be read/i],
@@ -102,8 +101,8 @@ describe("mapIppChoices: what is held, with a reason", () => {
 
   it("keeps the valid parts of a held request and joins every reason", () => {
     const { choices, heldReason } = mapIppChoices({ copies: 4, sides: "two-sided-short-edge", media: "iso_a4_210x297mm", "page-ranges": [2, 3] });
-    expect(choices).toEqual({ sides: "two", staple: "none", booklet: "none", copies: 4, pageRange: "2-3" });
-    expect(heldReason).toMatch(/short edge/);
+    expect(choices).toEqual({ sides: "two", flip: "short", staple: "none", booklet: "none", copies: 4, pageRange: "2-3" });
+    expect(heldReason).not.toMatch(/short edge/);
     expect(heldReason).toMatch(/iso_a4_210x297mm/);
   });
 
@@ -131,8 +130,26 @@ describe("mapIppChoices: finishings from the print dialog", () => {
     expect(choices).toMatchObject(want);
   });
 
-  it("short edge on its own is still held (not deliverable yet)", () => {
-    const { heldReason } = mapIppChoices({ sides: "two-sided-short-edge" });
+  it("short edge on its own is accepted: double-sided, flip on the short edge, nothing held", () => {
+    const { choices, heldReason } = mapIppChoices({ sides: "two-sided-short-edge" });
+    expect(heldReason).toBeNull();
+    expect(choices).toMatchObject({ sides: "two", flip: "short" });
+  });
+
+  it("long edge and one-sided carry no flip choice", () => {
+    expect(mapIppChoices({ sides: "two-sided-long-edge" }).choices).not.toHaveProperty("flip");
+    expect(mapIppChoices({ sides: "one-sided" }).choices).not.toHaveProperty("flip");
+  });
+
+  it("a booklet ignores the flip (short edge is part of every booklet)", () => {
+    const { choices, heldReason } = mapIppChoices({ finishings: 13, sides: "two-sided-short-edge" });
+    expect(choices).not.toHaveProperty("flip");
+    expect(heldReason).not.toMatch(/short edge/);
+  });
+
+  it("a corner staple on a short-edge flip is held with a plain reason (the corner is not known)", () => {
+    const { heldReason } = mapIppChoices({ finishings: 20, sides: "two-sided-short-edge" });
+    expect(heldReason).toMatch(/staple/i);
     expect(heldReason).toMatch(/short edge/i);
   });
 });

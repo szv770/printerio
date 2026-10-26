@@ -74,6 +74,8 @@ export interface RawTarget {
   staplePosition: "top-left" | "top-right";
   /** Only meaningful for booklet jobs. */
   bindingSide: "left" | "right";
+  /** Double-sided jobs only: "short" flips on the short edge; absent = the usual long edge. */
+  duplexEdge?: "long" | "short";
   jobName: string;
 }
 

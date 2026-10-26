@@ -285,18 +285,28 @@ describe("POST /api/gateway/jobs/finalize", () => {
     createPrintJob.mockImplementation(async (_c, _s, _b, _n, opts) =>
       created("held", { heldReason: opts.forcedHeldReason }),
     );
-    const res = await finalizePOST(req("/api/gateway/jobs/finalize", goodBody({ sides: "two-sided-short-edge", media: "iso_a4_210x297mm", finishings: 21 })));
+    const res = await finalizePOST(req("/api/gateway/jobs/finalize", goodBody({ sides: "tumble", media: "iso_a4_210x297mm", finishings: 21 })));
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.status).toBe("held");
-    expect(json.message).toMatch(/short edge/);
+    expect(json.message).toMatch(/sides setting/);
     expect(json.message).toMatch(/iso_a4_210x297mm/);
     expect(json.message).toMatch(/choose it on the website/);
     const opts = createPrintJob.mock.calls[0]![4];
-    expect(opts.forcedHeldReason).toMatch(/short edge/);
+    expect(opts.forcedHeldReason).toMatch(/sides setting/);
     expect(opts.choices.staple).toBe("none");
     expect(opts.choices.booklet).toBe("none");
     expect(removed()).toHaveLength(1);
+  });
+
+  it("a short-edge flip from the dialog is passed on as a flip choice and is NOT held", async () => {
+    createPrintJob.mockImplementation(async (_c, _s, _b, _n, opts) => created(opts.forcedHeldReason ? "held" : "approved", { heldReason: opts.forcedHeldReason }));
+    const res = await finalizePOST(req("/api/gateway/jobs/finalize", goodBody({ sides: "two-sided-short-edge" })));
+    expect(res.status).toBe(200);
+    expect((await res.json()).status).not.toBe("held");
+    const opts = createPrintJob.mock.calls[0]![4];
+    expect(opts.forcedHeldReason ?? null).toBeNull();
+    expect(opts.choices).toMatchObject({ sides: "two", flip: "short" });
   });
 
   it("denied by policy: 200 with the state and the first policy reason", async () => {

@@ -184,6 +184,7 @@ export async function executeRawPrint(args: {
         colorMode: request.colorMode,
         duplex: request.duplex,
         jobName: raw.jobName,
+        ...(raw.duplexEdge ? { duplexEdge: raw.duplexEdge } : {}),
         staple: request.finishing.staple ? raw.staplePosition : undefined,
         booklet: request.finishing.booklet,
         bindingSide: raw.bindingSide,

@@ -25,6 +25,8 @@ export interface PrintChoices {
   staple: StapleChoice;
   booklet: BookletChoice;
   copies: number;
+  /** Double-sided only: "short" flips on the short edge (like a notepad). Absent = the usual long edge. */
+  flip?: "short";
   /** Raw text as typed ("1-5, 8"); empty = the whole document. Parsed with parsePageRange. */
   pageRange: string;
 }
@@ -60,7 +62,8 @@ export function parseChoices(get: (name: string) => FormDataEntryValue | null): 
   else return { ok: false, reason: "Choose single-sided or double-sided." };
   const n = parseInt(str("copies"), 10);
   const copies = Number.isFinite(n) && n >= 1 ? Math.min(n, MAX_COPIES) : 1;
-  return { ok: true, choices: { sides, staple, booklet, copies, pageRange: str("pageRange").trim() } };
+  const flip = sides === "two" && booklet === "none" && str("flip") === "short" ? ({ flip: "short" } as const) : {};
+  return { ok: true, choices: { sides, staple, booklet, copies, ...flip, pageRange: str("pageRange").trim() } };
 }
 
 export type PageSubsetPlan =
@@ -116,6 +119,8 @@ export interface MappedRawOptions {
   colorMode: "bw";
   paperSize: string;
   copies: number;
+  /** "short" when the sheet flips on the short edge (double-sided, not a booklet); null = the usual long edge. */
+  duplexEdge: "short" | null;
   /** What the Agent will hand to buildPjlSettings, minus the job name. */
   pjl: Omit<RawPrintOptions, "jobName">;
   /** Plain-language reason the job must be held instead of printed, or null. */
@@ -134,6 +139,7 @@ export function mapRawChoices(c: PrintChoices, profile: RawProfileContext): Mapp
   const bindingSide = resolveBinding(c.booklet, profile.bookletBindingSide);
   // A booklet is always printed double-sided (short-edge flip is part of the proven booklet settings).
   const duplex = isBooklet || c.sides === "two";
+  const duplexEdge: "short" | null = !isBooklet && c.sides === "two" && c.flip === "short" ? "short" : null;
   const stapled = c.staple !== "none";
   const staplePosition: StaplePosition | null =
     c.staple === "top-left" || c.staple === "top-right" ? c.staple : c.staple === "profile" ? profile.stapleDefault : null;
@@ -143,6 +149,7 @@ export function mapRawChoices(c: PrintChoices, profile: RawProfileContext): Mapp
     copies: c.copies,
     colorMode: "bw",
     duplex,
+    ...(duplexEdge ? { duplexEdge } : {}),
     ...(staplePosition ? { staple: staplePosition } : {}),
     booklet: isBooklet,
     ...(bindingSide ? { bindingSide } : {}),
@@ -157,6 +164,8 @@ export function mapRawChoices(c: PrintChoices, profile: RawProfileContext): Mapp
     heldReason = "This printer is not set up to make booklets, so nothing was printed.";
   } else if (duplex && !profile.capabilities.duplex) {
     heldReason = "This printer is not set up for double-sided printing, so nothing was printed.";
+  } else if (duplexEdge && stapled) {
+    heldReason = "A corner staple cannot be combined with a flip on the short edge yet, so nothing was printed.";
   } else {
     // The shared builder is the single source of truth for what the printer is known to do.
     const built = buildPjlSettings({ ...pjl, jobName: "Printio" });
@@ -168,6 +177,7 @@ export function mapRawChoices(c: PrintChoices, profile: RawProfileContext): Mapp
     finishing: { staple: stapled, booklet: isBooklet, punch: false },
     staplePosition,
     bindingSide,
+    duplexEdge,
     colorMode: "bw",
     paperSize,
     copies: c.copies,
