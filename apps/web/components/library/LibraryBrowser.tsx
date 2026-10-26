@@ -2,10 +2,11 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, Plus } from "lucide-react";
-import { Button, FormError, Segmented, Spinner } from "@/components/ui";
+import { Check, ChevronDown, Plus, Search } from "lucide-react";
+import { Badge, Button, FormError, Input, Segmented, Spinner } from "@/components/ui";
 import { libraryEntryAction, libraryLikkutAction, libraryListAction } from "@/app/(dashboard)/print/library/actions";
 import { addToCart, CART_MAX, clearCart, MAFTEIACH_CREDIT, readCart, removeFromCart, type CartItem } from "@/lib/library/cart";
+import { friendlyFileLabel, hasEnglish, matchesQuery } from "@/lib/library/labels";
 import type { EntrySection, LikkutPage, ListEntry, ListPage } from "@/lib/library/mafteiach-parse";
 
 type Tab = "likkutei" | "maamorim" | "all";
@@ -52,6 +53,8 @@ export function LibraryBrowser() {
   const [notice, setNotice] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [pending, startTransition] = useTransition();
+  const [query, setQuery] = useState("");
+  const [englishOnly, setEnglishOnly] = useState(false);
 
   const [likkut, setLikkut] = useState<LikkutPage | null>(null);
   const [lists, setLists] = useState<Partial<Record<"maamorim" | "all", ListPage>>>({});
@@ -121,6 +124,15 @@ export function LibraryBrowser() {
 
   const list = tab === "likkutei" ? null : lists[tab];
 
+  // What is on screen after the search and the "English only" filter.
+  const visibleParshiyos = likkut
+    ? likkut.parshiyos
+        .map((p) => ({ ...p, entries: p.entries.filter((e) => matchesQuery([e.label, e.summary, p.name], query) && (!englishOnly || hasEnglish(e.links))) }))
+        .filter((p) => p.entries.length > 0)
+    : [];
+  const visibleCount = visibleParshiyos.reduce((n, p) => n + p.entries.length, 0);
+  const visibleList = list ? list.entries.filter((e) => matchesQuery([e.heading, e.title, e.series, e.note], query)) : [];
+
   return (
     <div className="pb-28">
       <Segmented<Tab>
@@ -133,6 +145,17 @@ export function LibraryBrowser() {
           { value: "all", label: "Sichos and farbrengens" },
         ]}
       />
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="relative sm:flex-1">
+          <Search className="pointer-events-none absolute start-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-muted)]" aria-hidden="true" />
+          <Input aria-label="Search this list" type="search" placeholder="Search (a name, a topic, a parsha)" value={query} onChange={(e) => setQuery(e.target.value)} autoComplete="off" className="ps-10" dir="auto" />
+        </div>
+        {tab === "likkutei" && (
+          <Chip active={englishOnly} onClick={() => setEnglishOnly((v) => !v)}>
+            English available only
+          </Chip>
+        )}
+      </div>
       <FormError message={error} />
       {notice && <p role="status" className="mt-2 text-sm text-[var(--color-muted)]">{notice}</p>}
       {pending && (
@@ -150,8 +173,13 @@ export function LibraryBrowser() {
               </Chip>
             ))}
           </div>
+          <p className="mt-2 text-[13px] text-[var(--color-muted)]" role="status">
+            {visibleCount} {visibleCount === 1 ? "sicha" : "sichos"}
+            {query || englishOnly ? " match" : " in this volume"}
+          </p>
+          {visibleCount === 0 && <p className="mt-3 text-sm text-[var(--color-muted)]">Nothing matches. Clear the search{englishOnly ? " or the English filter" : ""} to see more.</p>}
           <div className="mt-3 space-y-5">
-            {likkut.parshiyos.map((p) => (
+            {visibleParshiyos.map((p) => (
               <div key={p.name}>
                 <h2 dir="auto" className="text-base font-semibold">
                   {p.name}
@@ -159,8 +187,9 @@ export function LibraryBrowser() {
                 <ul className="mt-2 space-y-3">
                   {p.entries.map((e) => (
                     <li key={e.id} className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3.5">
-                      <p dir="auto" className="text-sm font-medium">
+                      <p dir="auto" className="flex flex-wrap items-center gap-2 text-sm font-medium">
                         {e.label}
+                        {hasEnglish(e.links) && <Badge tone="accent">English available</Badge>}
                       </p>
                       {e.summary && (
                         <p dir="auto" className="mt-1 line-clamp-3 text-[13px] leading-5 text-[var(--color-muted)]">
@@ -169,7 +198,7 @@ export function LibraryBrowser() {
                       )}
                       <div className="mt-2.5 flex flex-wrap gap-2">
                         {e.links.map((l) => (
-                          <FileButton key={l.url} label={l.label} chosen={chosen(l.url)} onToggle={() => toggle(l.label === "שיחה" ? e.label : `${e.label} - ${l.label}`, l.url)} />
+                          <FileButton key={l.url} label={friendlyFileLabel(l.label)} chosen={chosen(l.url)} onToggle={() => toggle(l.label === "שיחה" ? e.label : `${e.label} - ${friendlyFileLabel(l.label)}`.slice(0, 120), l.url)} />
                         ))}
                         {e.links.length === 0 && <span className="text-[13px] text-[var(--color-muted)]">No file yet.</span>}
                       </div>
@@ -192,7 +221,8 @@ export function LibraryBrowser() {
             ))}
           </div>
           <ul className="mt-3 space-y-2">
-            {list.entries.map((e) => {
+            {visibleList.length === 0 && <li className="text-sm text-[var(--color-muted)]">Nothing matches. Clear the search to see more.</li>}
+            {visibleList.map((e) => {
               const state = entries[e.path];
               return (
                 <li key={e.path} className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface)]">
@@ -220,8 +250,9 @@ export function LibraryBrowser() {
                         <div className="space-y-4">
                           {state.map((s, i) => (
                             <div key={`${s.title}-${i}`}>
-                              <p dir="auto" className="text-sm font-semibold">
+                              <p dir="auto" className="flex flex-wrap items-center gap-2 text-sm font-semibold">
                                 {s.title}
+                                {hasEnglish(s.groups.flatMap((g) => g.links), s.title) && <Badge tone="accent">English</Badge>}
                               </p>
                               {s.groups.map((g, j) => (
                                 <div key={`${g.label}-${j}`} className="mt-1.5">
@@ -232,7 +263,7 @@ export function LibraryBrowser() {
                                   )}
                                   <div className="mt-1 flex flex-wrap gap-2">
                                     {g.links.map((l) => (
-                                      <FileButton key={l.url} label={l.label.length > 48 ? `${l.label.slice(0, 46)}...` : l.label} chosen={chosen(l.url)} onToggle={() => toggle(`${e.title} - ${l.label}`.slice(0, 120), l.url)} />
+                                      <FileButton key={l.url} label={friendlyFileLabel(l.label).length > 48 ? `${friendlyFileLabel(l.label).slice(0, 46)}...` : friendlyFileLabel(l.label)} chosen={chosen(l.url)} onToggle={() => toggle(`${e.title} - ${friendlyFileLabel(l.label)}`.slice(0, 120), l.url)} />
                                     ))}
                                   </div>
                                 </div>
