@@ -43,3 +43,12 @@ export function extractInviteCode(input: string): string | null {
   }
   return isPlausibleInviteCode(text) ? text : null;
 }
+
+/** The box on /join for someone who arrives without a code (for example from the home page's "I have an invite"):
+ *  they paste the invite link or the code, and this says where to go next, or what is wrong, in plain words. */
+export function inviteEntryTarget(input: string): { ok: true; href: string } | { ok: false; error: string } {
+  if (!input.trim()) return { ok: false, error: "Paste your invite link or code." };
+  const code = extractInviteCode(input);
+  if (!code) return { ok: false, error: "That doesn't look like an invite link or code. Paste the whole link, or just the code." };
+  return { ok: true, href: `/join?code=${encodeURIComponent(code)}` };
+}

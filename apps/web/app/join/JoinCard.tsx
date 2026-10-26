@@ -39,9 +39,14 @@ export function JoinCard({ code, orgName, problem }: { code?: string; orgName: s
           )}
         </div>
         {p ? (
-          <ButtonLink href={routes.login} variant="outline" className="w-full">
-            Go to sign in
-          </ButtonLink>
+          <div className="flex flex-col gap-3">
+            <ButtonLink href="/join" className="w-full">
+              Try a different invite
+            </ButtonLink>
+            <ButtonLink href={routes.login} variant="outline" className="w-full">
+              Go to sign in
+            </ButtonLink>
+          </div>
         ) : (
           <div className="flex flex-col gap-4">
             {code && <RememberInvite code={code} />}
