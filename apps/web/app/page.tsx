@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 import { getCurrentSession } from "@/lib/auth/session";
-import { routes } from "@/lib/routes";
 import { Landing } from "@/components/landing/Landing";
 
 export const metadata: Metadata = {
@@ -15,14 +13,8 @@ export const metadata: Metadata = {
   },
 };
 
+// The public home page is for everyone, including people who are signed in (they get an "Open Printio" button).
 export default async function HomePage() {
   const session = await getCurrentSession();
-  // Visitors who are not signed in see the public home page; signed-in people go straight to their own home.
-  if (!session) return <Landing />;
-  if (!session.membership) redirect(routes.noAccess);
-
-  if (session.membership.role === "org_admin" || session.membership.role === "approver") {
-    redirect(routes.admin);
-  }
-  redirect(routes.dashboard);
+  return <Landing signedIn={!!session} />;
 }

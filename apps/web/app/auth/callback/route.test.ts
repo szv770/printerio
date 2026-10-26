@@ -68,13 +68,13 @@ describe("auth callback: code (Google PKCE) path", () => {
     expect(rpc).not.toHaveBeenCalled();
     expect(maybeBootstrapOrganization).toHaveBeenCalledWith("u2", "g@school.org");
     expect(from).toHaveBeenCalledWith("profiles");
-    expect(location(res).pathname).toBe("/");
+    expect(location(res).pathname).toBe("/go");
   });
 
   it("redirects home (unchanged) when the exchange fails", async () => {
     exchangeCodeForSession.mockResolvedValue({ data: { user: null }, error: new Error("bad") });
     const res = await call("code=abc");
-    expect(location(res).pathname).toBe("/");
+    expect(location(res).pathname).toBe("/go");
     expect(from).not.toHaveBeenCalled();
   });
 });
@@ -87,7 +87,7 @@ describe("auth callback: token_hash (cross-browser magic link) path", () => {
     expect(maybeBootstrapOrganization).toHaveBeenCalledWith("u1", "a@school.org");
     expect(from).toHaveBeenCalledWith("profiles");
     expect(eq).toHaveBeenCalledWith("id", "u1");
-    expect(location(res).pathname).toBe("/");
+    expect(location(res).pathname).toBe("/go");
   });
 
   it("no longer calls the old domain-gate RPCs (superseded by join_mode)", async () => {
@@ -98,7 +98,7 @@ describe("auth callback: token_hash (cross-browser magic link) path", () => {
   it("an existing member is never sent through the join rule", async () => {
     const res = await call("token_hash=th1&type=email");
     expect(tryJoinByDomain).not.toHaveBeenCalled();
-    expect(location(res).pathname).toBe("/");
+    expect(location(res).pathname).toBe("/go");
   });
 
   it("a non-member whose domain is allowed joins and lands home", async () => {
@@ -106,7 +106,7 @@ describe("auth callback: token_hash (cross-browser magic link) path", () => {
     tryJoinByDomain.mockResolvedValue("o1");
     const res = await call("token_hash=th1&type=email");
     expect(tryJoinByDomain).toHaveBeenCalledWith("u1");
-    expect(location(res).pathname).toBe("/");
+    expect(location(res).pathname).toBe("/go");
   });
 
   it("a non-member with no invite and no allowed domain stays signed in and sees the friendly invite page", async () => {
@@ -148,7 +148,7 @@ describe("auth callback: invite link carried through sign-in", () => {
   it("redeems the invite from ?invite= after sign-in and lands home", async () => {
     const res = await call("token_hash=th1&type=email&invite=a1b2c3d4e5f6", { "x-forwarded-for": "5.6.7.8" });
     expect(redeemInvitation).toHaveBeenCalledWith("a1b2c3d4e5f6", "u1", "a@school.org", { ip: "5.6.7.8" });
-    expect(location(res).pathname).toBe("/");
+    expect(location(res).pathname).toBe("/go");
   });
 
   it("falls back to the printio_invite cookie", async () => {
@@ -179,12 +179,12 @@ describe("auth callback: invite link carried through sign-in", () => {
     hasActiveMembership.mockResolvedValue(true); // membership exists after redeem
     const res = await call("token_hash=th1&type=email&invite=a1b2c3d4e5f6");
     expect(redeemInvitation).toHaveBeenCalled();
-    expect(location(res).pathname).toBe("/");
+    expect(location(res).pathname).toBe("/go");
   });
 
   it("treats already_member as success", async () => {
     redeemInvitation.mockResolvedValue({ ok: false, reason: "already_member" });
     const res = await call("token_hash=th1&type=email&invite=a1b2c3d4e5f6");
-    expect(location(res).pathname).toBe("/");
+    expect(location(res).pathname).toBe("/go");
   });
 });

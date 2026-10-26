@@ -11,7 +11,7 @@ import { JoinCard } from "./JoinCard";
 export default async function JoinPage({ searchParams }: { searchParams: Promise<{ code?: string }> }) {
   const { code } = await searchParams;
   const session = await getCurrentSession();
-  if (session?.membership) redirect(routes.home);
+  if (session?.membership) redirect(routes.start);
   // No code at all (for example "I have an invite" on the home page): ask for the link or code instead of looking one up.
   if (!code?.trim()) {
     if (session) redirect(routes.noAccess); // signed in but not in an organization: that page already has the invite box

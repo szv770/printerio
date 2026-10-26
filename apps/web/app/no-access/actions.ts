@@ -33,5 +33,5 @@ export async function redeemInvitationAction(_prev: RedeemState, formData: FormD
     return { error: messages[result.reason] };
   }
 
-  redirect(routes.home);
+  redirect(routes.start);
 }

@@ -17,7 +17,7 @@ export default async function PlatformLayout({ children }: { children: React.Rea
   try {
     await requirePlatformRole();
   } catch {
-    redirect(routes.home);
+    redirect(routes.start);
   }
 
   return (

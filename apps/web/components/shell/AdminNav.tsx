@@ -25,6 +25,7 @@ import {
   Menu,
   X,
   ChevronRight,
+  Info,
   type LucideIcon,
 } from "lucide-react";
 import { routes } from "@/lib/routes";
@@ -171,6 +172,10 @@ export function AdminNav({
               Platform console
             </Link>
           )}
+          <Link href={routes.home} className={`${ROW} text-[var(--color-text-2)] hover:bg-[var(--color-surface-2)]`}>
+            <Info className="h-[18px] w-[18px] shrink-0 text-[var(--color-muted)]" strokeWidth={1.75} />
+            About Printio
+          </Link>
           <div className={`${ROW} text-[var(--color-text-2)] hover:bg-[var(--color-surface-2)] [&_button]:min-h-11 [&_button]:w-full [&_button]:text-sm [&_button]:font-medium md:[&_button]:min-h-10`}>
             <HelpMenu userId={userId} variant="admin" />
           </div>

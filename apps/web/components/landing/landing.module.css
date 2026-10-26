@@ -201,7 +201,8 @@
 }
 [data-phase="2"] .check,
 [data-phase="3"] .check,
-[data-phase="4"] .check {
+[data-phase="4"] .check,
+[data-phase="5"] .check {
   opacity: 1;
   transform: none;
 }
@@ -239,7 +240,7 @@
   background: var(--y);
   margin-right: 0.35rem;
 }
-[data-phase="4"] .led {
+[data-phase="5"] .led {
   background: #1a9d4b;
 }
 [data-phase="3"] .led {
@@ -274,7 +275,8 @@
   opacity: 1;
   transform: translateY(-35%);
 }
-[data-phase="4"] .sheet {
+[data-phase="4"] .sheet,
+[data-phase="5"] .sheet {
   opacity: 1;
   transform: translateY(0);
 }
@@ -317,40 +319,82 @@
   }
 }
 
-/* Booklet fold */
-.book {
-  perspective: 1100px;
-  display: grid;
-  place-items: center;
-  min-height: 17rem;
-  margin: 1.25rem 0 0.5rem;
+/* Flip-through booklet. Built for English (spine on the left); Hebrew mirrors the whole book. */
+.bkWrap {
+  perspective: 1500px;
+  margin: 1.25rem auto 0.5rem;
+  width: min(100%, 24rem);
+  touch-action: pan-y;
+  user-select: none;
+  outline: none;
 }
-.spread {
+.bkWrap:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 6px;
+  border-radius: 8px;
+}
+.bk {
   position: relative;
-  display: flex;
-  width: min(100%, 22rem);
-  height: 14rem;
+  height: 14.5rem;
   transform-style: preserve-3d;
-  transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
 }
-.pageFace {
-  position: relative;
+.bk {
+  transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.bk[data-rtl="true"] {
+  transform: scaleX(-1);
+}
+/* A closed book is one page wide: slide it to the middle. Written for English; the mirrored Hebrew view shifts the other way by itself. */
+.bk[data-pos="cover"] {
+  transform: translateX(-25%);
+}
+.bk[data-pos="back"] {
+  transform: translateX(25%);
+}
+.bk[data-rtl="true"][data-pos="cover"] {
+  transform: scaleX(-1) translateX(-25%);
+}
+.bk[data-rtl="true"][data-pos="back"] {
+  transform: scaleX(-1) translateX(25%);
+}
+.bk[data-rtl="true"] .bkNum {
+  transform: translateX(-50%) scaleX(-1);
+}
+.bkHalf {
+  position: absolute;
+  top: 0;
   width: 50%;
   height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  display: block;
+}
+.bkHalf:disabled {
+  cursor: default;
+}
+.bkLeft {
+  left: 0;
+}
+.bkRight {
+  right: 0;
+}
+.bkPage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #fff;
   border: 1px solid var(--line);
-  color: var(--ink);
-  backface-visibility: hidden;
-  transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.6s;
-  background-color: #fff;
 }
 /* A heading bar and lines of text, so it reads as a page and not as ruled paper. */
-.pageFace::before {
+.bkPage::before {
   content: "";
   position: absolute;
   inset: 22% 13% 18%;
   background: repeating-linear-gradient(to bottom, #c9d3e4 0 2px, transparent 2px 9px);
 }
-.pageFace::after {
+.bkPage::after {
   content: "";
   position: absolute;
   left: 13%;
@@ -360,38 +404,101 @@
   border-radius: 4px;
   background: var(--ink);
 }
-.pageFace > span {
+.bkNum {
   position: absolute;
   bottom: 5%;
   left: 50%;
   transform: translateX(-50%);
   font-size: 1.05rem;
   font-weight: 800;
+  color: var(--ink);
 }
-/* The fold: each half darkens toward the spine, and the whole sheet floats. */
-.foldLeft {
-  transform-origin: right center;
+/* Each half darkens toward the spine, and the book floats a little. */
+.bkLeft .bkPage {
   border-radius: 6px 0 0 6px;
   box-shadow: inset -18px 0 18px -18px rgb(15 31 56 / 0.4), 0 16px 28px -18px rgb(15 31 56 / 0.55);
 }
-.foldRight {
-  transform-origin: left center;
+.bkRight .bkPage {
   border-radius: 0 6px 6px 0;
   box-shadow: inset 18px 0 18px -18px rgb(15 31 56 / 0.4), 0 16px 28px -18px rgb(15 31 56 / 0.55);
 }
-.spread[data-closed="true"][data-rtl="false"] .foldLeft {
+/* The page that is turning: it starts on the right half and swings over the spine, lifting toward you. */
+.leaf {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 50%;
+  height: 100%;
+  z-index: 3;
+  transform-origin: left center;
+  transform-style: preserve-3d;
+  animation-duration: 0.8s;
+  animation-timing-function: cubic-bezier(0.45, 0.05, 0.25, 1);
+  animation-fill-mode: both;
+}
+.leaf[data-dir="next"] {
+  animation-name: turnNext;
+}
+.leaf[data-dir="prev"] {
+  animation-name: turnPrev;
+}
+@keyframes turnNext {
+  from {
+    transform: rotateY(0deg);
+  }
+  to {
+    transform: rotateY(-180deg);
+  }
+}
+@keyframes turnPrev {
+  from {
+    transform: rotateY(-180deg);
+  }
+  to {
+    transform: rotateY(0deg);
+  }
+}
+.leafFace {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+}
+.leafBack {
   transform: rotateY(180deg);
-  opacity: 0;
 }
-.spread[data-closed="true"][data-rtl="false"] {
-  transform: translateX(-25%);
+.leafBack .bkPage {
+  border-radius: 6px 0 0 6px;
 }
-.spread[data-closed="true"][data-rtl="true"] .foldRight {
-  transform: rotateY(-180deg);
-  opacity: 0;
+.turnBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
 }
-.spread[data-closed="true"][data-rtl="true"] {
-  transform: translateX(25%);
+.turnBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.turnBtn:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+@keyframes panelIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.panelIn {
+  animation: panelIn 0.3s ease-out;
 }
 .toggle {
   min-height: 2.5rem;
@@ -448,7 +555,12 @@
   }
 }
 
-/* What the printed page looks like for each finish */
+/* What the printed page looks like for each finish, and how it gets finished. Every "hit" here sits at the same moment
+   the sound is scheduled for: see lib/landing-timing.ts (the staple lands at 40% of --stroke). */
+.sheetInner {
+  position: absolute;
+  inset: 0;
+}
 .staple {
   position: absolute;
   top: 7px;
@@ -459,35 +571,202 @@
   background: #4b5568;
   transform: rotate(-35deg);
   box-shadow: 0 1px 1px rgb(15 31 56 / 0.3);
+  opacity: 0;
 }
-.fold {
+[data-phase="5"] .staple {
+  opacity: 1;
+}
+.stapler {
   position: absolute;
-  top: 0;
-  bottom: 0;
+  left: -2px;
+  top: -9px;
+  width: 28px;
+  height: 14px;
+  z-index: 2;
+  border-radius: 4px 4px 2px 2px;
+  background: linear-gradient(#34476a, #0f1f38);
+  opacity: 0;
+  pointer-events: none;
+  transform-origin: 20% 100%;
+}
+.stapler::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  right: -7px;
+  bottom: -3px;
+  height: 4px;
+  border-radius: 0 0 3px 3px;
+  background: #9fb0cc;
+}
+[data-phase="4"] .stapler {
+  animation: arm var(--stroke) ease-in-out both;
+}
+[data-phase="4"] .staple {
+  animation: stapleMark var(--stroke) both;
+}
+[data-phase="4"][data-finish="staple"] .sheetInner {
+  animation: jolt var(--stroke) both;
+}
+@keyframes arm {
+  0% {
+    opacity: 0;
+    transform: translate(-8px, -30px) rotate(-10deg);
+  }
+  14% {
+    opacity: 1;
+  }
+  40% {
+    opacity: 1;
+    transform: translate(0, 3px) rotate(0deg);
+  }
+  48% {
+    transform: translate(0, 3px) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-8px, -30px) rotate(-10deg);
+  }
+}
+@keyframes stapleMark {
+  0%,
+  39% {
+    opacity: 0;
+    transform: rotate(-35deg) scale(1.7);
+  }
+  40% {
+    opacity: 1;
+    transform: rotate(-35deg) scale(1.3);
+  }
+  52%,
+  100% {
+    opacity: 1;
+    transform: rotate(-35deg) scale(1);
+  }
+}
+@keyframes jolt {
+  0%,
+  38% {
+    transform: none;
+  }
+  40% {
+    transform: translateY(2px) scale(0.99);
+  }
+  54%,
+  100% {
+    transform: none;
+  }
+}
+
+/* Booklet: the sheet comes out flat (last page left, cover right), the left half folds BEHIND the cover, the booklet
+   slides to the middle, then two stitches go in along the spine. */
+.sheet[data-finish="booklet"] .sheetInner {
+  perspective: 700px;
+}
+.fsheet {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  transform-style: preserve-3d;
+}
+/* The sheet's own outline is dropped for a booklet: each half carries its own, so once the left half has folded behind,
+   what is left is a closed booklet and not a wide empty sheet. */
+.sheet[data-finish="booklet"] {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+.fHalf {
+  position: relative;
+  width: 50%;
+  height: 100%;
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 14px -8px rgb(15 31 56 / 0.5);
+  backface-visibility: hidden;
+}
+.fRight .stamp {
+  bottom: auto;
+  top: 0.3rem;
+}
+.fLeft {
+  transform-origin: right center;
+  border-right-style: dashed;
+}
+.fNum {
+  position: absolute;
+  bottom: 0.25rem;
   left: 50%;
-  border-left: 1.5px dashed #9fb0cc;
-}
-.pnL,
-.pnR {
-  position: absolute;
-  bottom: 0.3rem;
+  transform: translateX(-50%);
   font-size: 0.7rem;
   font-weight: 800;
   color: var(--ink-2);
 }
-.pnL {
-  left: 22%;
+.stitch {
+  position: absolute;
+  left: 2px;
+  width: 3px;
+  height: 14%;
+  border-radius: 2px;
+  background: #4b5568;
+  opacity: 0;
 }
-.pnR {
-  right: 22%;
+.stitchA {
+  top: 22%;
 }
-.sheet[data-finish="booklet"] .stamp {
-  bottom: 1.15rem;
+.stitchB {
+  top: 62%;
 }
-.sheet[data-finish="booklet"] .lines {
-  background: repeating-linear-gradient(to bottom, #c9d3e4 0 2px, transparent 2px 7px);
-  -webkit-mask-image: linear-gradient(to right, #000 0 44%, transparent 44% 56%, #000 56% 100%);
-  mask-image: linear-gradient(to right, #000 0 44%, transparent 44% 56%, #000 56% 100%);
+[data-phase="4"] .fLeft {
+  animation: foldBehind var(--fold) cubic-bezier(0.45, 0.05, 0.25, 1) both;
+}
+[data-phase="4"] .fsheet {
+  animation: centerBook var(--fold) cubic-bezier(0.45, 0.05, 0.25, 1) both;
+}
+[data-phase="4"] .stitchA {
+  animation: stitchPop var(--pop) ease-out var(--stitch1) both;
+}
+[data-phase="4"] .stitchB {
+  animation: stitchPop var(--pop) ease-out var(--stitch2) both;
+}
+[data-phase="5"] .fLeft {
+  transform: rotateY(-180deg);
+}
+[data-phase="5"] .fsheet {
+  transform: translateX(-25%);
+}
+[data-phase="5"] .stitch {
+  opacity: 1;
+}
+@keyframes foldBehind {
+  from {
+    transform: rotateY(0deg);
+  }
+  to {
+    transform: rotateY(-180deg);
+  }
+}
+@keyframes centerBook {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-25%);
+  }
+}
+@keyframes stitchPop {
+  0% {
+    opacity: 0;
+    transform: scaleY(2);
+  }
+  55% {
+    opacity: 1;
+    transform: scaleY(0.85);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* Phone: a stepper for the journey, and ONE stage at a time (all three share the same spot) so the whole demo fits
@@ -586,7 +865,8 @@
   }
   [data-phase="2"] .device,
   [data-phase="3"] .device,
-  [data-phase="4"] .device {
+  [data-phase="4"] .device,
+  [data-phase="5"] .device {
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
@@ -599,7 +879,8 @@
     transform: none;
   }
   [data-phase="3"] .printer,
-  [data-phase="4"] .printer {
+  [data-phase="4"] .printer,
+  [data-phase="5"] .printer {
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
@@ -627,8 +908,9 @@
   .sheet {
     width: 66%;
   }
-  [data-phase="4"] .sheet {
-    transform: translateY(1.6rem);
+  [data-phase="4"] .sheet,
+  [data-phase="5"] .sheet {
+    transform: translateY(0.35rem); /* rests above the tray, so the sender's stamp stays in view */
   }
   [data-phase="3"] .sheet {
     transform: translateY(0);
@@ -636,6 +918,14 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .stapler,
+  .staple,
+  .sheetInner,
+  .fsheet,
+  .fLeft,
+  .stitch {
+    animation: none !important;
+  }
   [data-phase="3"] .led,
   [data-phase="1"] .flyer {
     animation: none;
@@ -643,9 +933,13 @@
   .check,
   .sheet,
   .flyer,
-  .spread,
-  .pageFace,
   .node {
     transition: none;
+  }
+  .leaf {
+    animation-duration: 0.01s;
+  }
+  .panelIn {
+    animation: none;
   }
 }

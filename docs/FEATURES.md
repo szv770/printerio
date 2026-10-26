@@ -5,7 +5,7 @@
 > code and tests pass, but nobody has seen it on a real device or on paper yet. **Planned** = not built.
 > The public home page (`apps/web/lib/landing-content.ts`) and the in-app "confirmed devices" banner
 > (`apps/web/lib/devices/confirmed.ts`) are the two places that repeat these claims; change them together.
-> Last updated: 2026-10-25.
+> Last updated: 2026-10-26.
 
 ---
 
@@ -110,7 +110,11 @@ a hosted option that needs no server in the building. Pricing and billing do not
 
 | Feature | Status |
 |---|---|
-| Public home page for visitors with an interactive print demo and booklet fold | Built, testing |
+| Public home page, shown to everyone (signed-in people get an "Open Printio" button and an "About Printio" menu link) | Built, testing |
+| Home page demo: pick a device and a finish, press Print; stapling and booklet folding-and-stitching are animated | Built, testing |
+| Home page demo: optional synthesized sound (off by default) timed to the staple and fold | Built, testing, needs an ear-check |
+| Home page: an 8 page booklet you can flip through, English and Hebrew (mirrored) | Built, testing |
+| "I have an invite" box on /join: paste an invite link or code | Built, testing |
 | Guided tour for new users | Switched off until it is rebuilt |
 
 ### Planned (see `docs/ROADMAP.md`)

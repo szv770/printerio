@@ -10,6 +10,18 @@ import { COMING_NEXT, FEATURE_ROWS, landingDevices } from "@/lib/landing-content
 
 const html = renderToStaticMarkup(<Landing />);
 
+describe("public home page, signed in", () => {
+  const signed = renderToStaticMarkup(<Landing signedIn />);
+  it("shows the same page with an Open Printio button instead of Sign in and the invite link", () => {
+    expect(signed).toContain("Press Print. It comes out of the right printer.");
+    expect(signed).toContain('href="/go"');
+    expect(signed).toContain("Open Printio");
+    expect(signed).not.toContain('href="/login"');
+    expect(signed).not.toContain('href="/join"');
+    expect(signed).not.toContain(">Sign in<");
+  });
+});
+
 describe("public home page", () => {
   it("says what Printio is and gives visitors a way in", () => {
     expect(html).toContain("Press Print. It comes out of the right printer.");
@@ -21,8 +33,9 @@ describe("public home page", () => {
   it("shows the interactive demo and the booklet fold", () => {
     expect(html).toContain('role="tablist"');
     expect(html).toContain("Printio-MLMI-SZV");
-    expect(html).toContain("Hebrew, right edge");
-    expect(html).toContain("Fold it");
+    expect(html).toContain("Hebrew");
+    expect(html).toContain("Next pages");
+    expect(html).toContain("Sound off");
   });
 
   it("lists exactly the devices from the confirmed list, no more", () => {
