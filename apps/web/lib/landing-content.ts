@@ -12,21 +12,19 @@ export interface FeatureRow {
 }
 
 export const FEATURE_ROWS: FeatureRow[] = [
-  { group: "Everyone", title: "The normal Print button", detail: "Add the printer once and print from any app on Windows, iPhone and Android, the way you print anywhere else." },
-  { group: "Everyone", title: "Upload and print from the website", detail: "Drop in a PDF, choose pages with a preview, pick double-sided, staples or a booklet, and press print." },
-  { group: "Everyone", title: "Real booklets", detail: "Left or right binding, so Hebrew and English both read the right way. Scans of any size are scaled as large as they fit, without cutting anything off." },
-  { group: "Everyone", title: "Larger 11x17 booklets", detail: "Letter pages kept at full size on an 11x17 sheet, folded and stapled in the middle.", testing: true },
-  { group: "Everyone", title: "Always know where your job is", detail: "Waiting, printing, printed or held, with a plain reason, on the phone and on the website. Try again with one tap." },
-  { group: "Everyone", title: "Installs like an app", detail: "Add it to your home screen and share a PDF straight into Printio from your phone." },
-  { group: "Everyone", title: "Whose pile is this?", detail: "Every page and every print job carries the sender's short code, so nobody grabs the wrong copy." },
-  { group: "Admins", title: "Rules, limits and approvals", detail: "Groups, who can print what, page limits, and an approval step where you want one." },
-  { group: "Admins", title: "Invite people with a link", detail: "Share one link. They sign in with their email and land in the right group. No passwords to hand out." },
-  { group: "Admins", title: "See every device and every job", detail: "Which phones and laptops are connected, what printed, what failed and why, with an activity log." },
-  { group: "Admins", title: "Test my connection", detail: "A one-tap check on the device being set up tells you if the network is the problem, so setup does not turn into guesswork." },
-  { group: "Admins", title: "Update from the website", detail: "Press one button to update the print server and watch it restart. No remote desktop." },
-  { group: "Behind the scenes", title: "Private address per device", detail: "Each device gets its own secret address that you can switch off at any time. Nothing else is shared." },
-  { group: "Behind the scenes", title: "Your own print server", detail: "Jobs go to a small program in your building that talks to the printer directly. The printer never faces the internet." },
-  { group: "Behind the scenes", title: "Built to survive real life", detail: "A paper jam does not fail a job, repeat clicks do not double print, and old files clean themselves up." },
+  { group: "Everyone", title: "The normal Print button", detail: "Windows, iPhone and Android. Nothing to install." },
+  { group: "Everyone", title: "Real booklets", detail: "Left or right edge, with every page as big as it fits." },
+  { group: "Everyone", title: "11x17 booklets", detail: "Letter pages at full size on a bigger sheet.", testing: true },
+  { group: "Everyone", title: "Upload a PDF", detail: "Choose the pages, preview it, then print." },
+  { group: "Everyone", title: "Know where your job is", detail: "Waiting, printing or printed, with a plain reason if not." },
+  { group: "Everyone", title: "Whose pile is this?", detail: "Every page carries the sender's code." },
+  { group: "Admins", title: "Rules and approvals", detail: "Groups, page limits, and an approval step if you want one." },
+  { group: "Admins", title: "Invite with one link", detail: "No passwords to hand out." },
+  { group: "Admins", title: "See every device and job", detail: "What printed, what failed, and why." },
+  { group: "Admins", title: "Update from the website", detail: "One button, no remote desktop." },
+  { group: "Behind the scenes", title: "A private address per device", detail: "Switch any of them off, any time." },
+  { group: "Behind the scenes", title: "Your own print server", detail: "The printer never faces the internet." },
+  { group: "Behind the scenes", title: "Built for real life", detail: "A paper jam does not fail a job." },
 ];
 
 export const FEATURE_GROUPS: FeatureRow["group"][] = ["Everyone", "Admins", "Behind the scenes"];

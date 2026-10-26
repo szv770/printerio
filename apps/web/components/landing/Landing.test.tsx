@@ -33,8 +33,9 @@ describe("public home page", () => {
   it("shows the interactive demo and the booklet fold", () => {
     expect(html).toContain('role="tablist"');
     expect(html).toContain("Printio-MLMI-SZV");
-    expect(html).toContain("Hebrew, right edge");
-    expect(html).toContain("Fold it");
+    expect(html).toContain("Hebrew");
+    expect(html).toContain("Next pages");
+    expect(html).toContain("Sound off");
   });
 
   it("lists exactly the devices from the confirmed list, no more", () => {
