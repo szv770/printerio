@@ -15,7 +15,7 @@ describe("jobHeadline", () => {
     expect(jobHeadline("submitted_to_spooler").tone).toBe("live");
   });
   it("marks done as success and failed as danger", () => {
-    expect(jobHeadline("completed")).toMatchObject({ sentence: "Done. It printed.", tone: "success" });
+    expect(jobHeadline("completed")).toMatchObject({ sentence: "Sent to the printer", tone: "success", detail: expect.stringMatching(/few moments.*start printing/i) });
     expect(jobHeadline("failed")).toMatchObject({ sentence: "It didn't print", tone: "danger" });
   });
   it("marks people-waiting states as warning", () => {

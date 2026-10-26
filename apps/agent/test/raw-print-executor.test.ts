@@ -106,6 +106,18 @@ describe("executeRawPrint", () => {
     expect(sent).not.toContain("BINDING=LONGEDGE");
   });
 
+  it("an 11x17 job reaches the printer with PAPER=LEDGER, and a letter job does not", async () => {
+    const ledger = await listen(() => {});
+    const res = await executeRawPrint({ raw: { ...raw(ledger.port), paper: "ledger" as const }, request: { ...req, finishing: { staple: false, booklet: true, punch: false } }, pdf });
+    await ledger.closed;
+    expect(res.ok).toBe(true);
+    expect(Buffer.concat(ledger.received).toString("latin1")).toContain("@PJL SET PAPER=LEDGER");
+    const letter = await listen(() => {});
+    await executeRawPrint({ raw: raw(letter.port), request: req, pdf });
+    await letter.closed;
+    expect(Buffer.concat(letter.received).toString("latin1")).not.toContain("PAPER=");
+  });
+
   it("returns ok:false with the reason and opens NO connection when buildRawJob refuses", async () => {
     let connections = 0;
     const { port } = await listen(() => {

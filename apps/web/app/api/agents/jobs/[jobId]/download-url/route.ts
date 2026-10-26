@@ -90,6 +90,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
     bindingSide: job.booklet_binding_side === "left" || job.booklet_binding_side === "right" ? job.booklet_binding_side : null,
     staplePosition: job.staple_position === "top-left" || job.staple_position === "top-right" ? job.staple_position : null,
     duplexEdge: (job.finishing as { duplexEdge?: string } | null)?.duplexEdge === "short" ? "short" : null,
+    // An 11x17 booklet is stored with paper_size "tabloid": tell the printer to use 11x17 sheets (otherwise it shrinks onto letter).
+    paper: job.paper_size === "tabloid" ? "ledger" : null,
   });
 
   const printRequest: ResolvedPrintRequest = {

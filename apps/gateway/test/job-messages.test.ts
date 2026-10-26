@@ -24,7 +24,7 @@ describe("describeJob: state -> (job-state, reasons, message)", () => {
     ["downloaded", undefined, 3, "job-queued", "Waiting for the printer"],
     ["printing", undefined, 5, "job-printing", "Printing"],
     ["submitted_to_spooler", undefined, 5, "job-printing", "Printing"],
-    ["completed", undefined, 9, "job-completed-successfully", "Printed"],
+    ["completed", undefined, 9, "job-completed-successfully", "Sent to the printer. It may take a few moments to start printing."],
     ["pending_approval", "Waiting for approval before it prints.", 4, "job-hold-until-specified", "Waiting for approval in Printio"],
     ["cancelled", undefined, 7, "job-canceled-by-user", "Cancelled"],
     ["rejected", "An approver declined this job.", 8, "aborted-by-system", "An approver declined this job in Printio"],

@@ -3,6 +3,25 @@ import { buildPjlSettings, buildRawJob, sanitizePjlText } from "./pjl";
 
 const base = { copies: 1, colorMode: "color" as const, duplex: true, jobName: "Quiz 3" };
 
+describe("buildPjlSettings: 11x17 (ledger) paper", () => {
+  const booklet = { ...base, booklet: true, bindingSide: "left" as const };
+  it("a ledger booklet adds PAPER=LEDGER after the proven booklet settings (proven by a real print, 2026-10-26)", () => {
+    const r = buildPjlSettings({ ...booklet, paper: "ledger" });
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.settings.slice(0, 5)).toEqual(["DUPLEX=ON", "BINDING=SHORTEDGE", "OUTBIN=KBOOKLET", "FINISH=KFOLD", "PAPER=LEDGER"]);
+  });
+  it("a plain ledger job also gets PAPER=LEDGER, and a normal job never does", () => {
+    const plain = buildPjlSettings({ ...base, duplex: true, duplexEdge: "short", paper: "ledger" });
+    if (!plain.ok) throw new Error(plain.reason);
+    expect(plain.settings).toContain("PAPER=LEDGER");
+    for (const o of [{ ...base }, { ...booklet }, { ...base, paper: undefined }]) {
+      const r = buildPjlSettings(o);
+      if (!r.ok) throw new Error(r.reason);
+      expect(r.settings.join(" ")).not.toMatch(/PAPER/);
+    }
+  });
+});
+
 describe("buildPjlSettings", () => {
   it("one-sided", () => {
     const r = buildPjlSettings({ ...base, duplex: false });

@@ -297,7 +297,7 @@ export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
           ]}
           hint={
             sheet === "tabloid"
-              ? "Full-size pages on 11x17 sheets, folded and stitched. Not tested yet: the printer's paper-size setting for this is still being checked."
+              ? "Full-size pages on 11x17 sheets, folded and stitched. The printer must have 11x17 paper loaded."
               : "Each page is shrunk to half a letter sheet, folded and stitched. The usual choice."
           }
         />
