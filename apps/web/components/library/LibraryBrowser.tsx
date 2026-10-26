@@ -4,11 +4,13 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Check, ChevronDown, Plus, Printer, Search } from "lucide-react";
 import { Badge, Button, FormError, Input, Segmented, Spinner } from "@/components/ui";
-import { libraryEntryAction, libraryLikkutAction, libraryListAction } from "@/app/(dashboard)/print/library/actions";
+import { libraryEntryAction, libraryLikkutAction, libraryListAction, refreshSieAction } from "@/app/(dashboard)/print/library/actions";
 import { importLinkAction } from "@/app/(dashboard)/print/import-link-action";
 import { putBuiltBooklet } from "@/lib/booklet/handoff";
 import { singleFilePrintUrl } from "@/lib/booklet/builder-params";
 import { SIE_CREDIT, SIE_SNAPSHOT_DATE, SIE_WEEKLY } from "@/lib/library/sie-weekly";
+import { mergeSie } from "@/lib/library/sie-store";
+import type { SieEntry } from "@/lib/library/sie-weekly";
 import { groupSie, likkutPageFromLabel, sieContentRange, sieForLikkut } from "@/lib/library/sie";
 import { addToCart, CART_MAX, clearCart, MAFTEIACH_CREDIT, readCart, removeFromCart, type CartItem } from "@/lib/library/cart";
 import { friendlyFileLabel, hasEnglish, matchesQuery } from "@/lib/library/labels";
@@ -51,7 +53,7 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
 }
 
 /** Browse the Mafteiach library (Likkutei Sichos, maamarim, sichos and farbrengens) and pick files for a booklet. Admins and early-tools people only. */
-export function LibraryBrowser() {
+export function LibraryBrowser({ extraSie = [], canRefreshSie = false }: { extraSie?: SieEntry[]; canRefreshSie?: boolean }) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("likkutei");
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -59,6 +61,9 @@ export function LibraryBrowser() {
   const [error, setError] = useState<string | undefined>();
   const [pending, startTransition] = useTransition();
   const [printing, startPrint] = useTransition();
+  const [checking, startCheck] = useTransition();
+  const [sieMessage, setSieMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const allSie = mergeSie(SIE_WEEKLY, extraSie);
   const [query, setQuery] = useState("");
 
   const [likkut, setLikkut] = useState<LikkutPage | null>(null);
@@ -99,6 +104,19 @@ export function LibraryBrowser() {
         router.push(singleFilePrintUrl(item.pages));
       } catch {
         setError("Printio could not get that file. Try again.");
+      }
+    });
+  }
+
+  function checkForNewWeeks() {
+    setSieMessage(null);
+    startCheck(async () => {
+      try {
+        const res = await refreshSieAction();
+        setSieMessage({ ok: res.ok, text: res.message });
+        if (res.ok) router.refresh();
+      } catch {
+        setSieMessage({ ok: false, text: "Something went wrong on our side. Try again." });
       }
     });
   }
@@ -150,7 +168,7 @@ export function LibraryBrowser() {
   }, []);
 
   const list = tab === "maamorim" || tab === "all" ? lists[tab] : null;
-  const sieGroups = tab === "sie" ? groupSie(SIE_WEEKLY, query) : [];
+  const sieGroups = tab === "sie" ? groupSie(allSie, query) : [];
 
   // What is on screen after the search and the "English only" filter.
   const visibleParshiyos = likkut
@@ -164,7 +182,7 @@ export function LibraryBrowser() {
   const englishFor = (label: string) => {
     const page = likkutPageFromLabel(label);
     const next = page === null ? null : (volumePages.find((n) => n > page) ?? null);
-    return sieForLikkut(likkut?.current ?? null, page, SIE_WEEKLY, next);
+    return sieForLikkut(likkut?.current ?? null, page, allSie, next);
   };
   const visibleList = list ? list.entries.filter((e) => matchesQuery([e.heading, e.title, e.series, e.note], query)) : [];
 
@@ -248,8 +266,16 @@ export function LibraryBrowser() {
       {tab === "sie" && (
         <section className="mt-4">
           <p className="text-[13px] leading-5 text-[var(--color-muted)]">
-            SIE Weekly: the weekly English translations of the Rebbe&apos;s Likkutei Sichos, courtesy of Sichos In English (sie.org). The list is a copy from {SIE_SNAPSHOT_DATE}; new weeks are added when it is refreshed.
+            SIE Weekly: the weekly English translations of the Rebbe&apos;s Likkutei Sichos, courtesy of Sichos In English (sie.org). {allSie.length} weeks. The list started as a copy from {SIE_SNAPSHOT_DATE}{extraSie.length > 0 ? ` and ${extraSie.length} newer ${extraSie.length === 1 ? "week was" : "weeks were"} added since` : ""}.
           </p>
+          {canRefreshSie && (
+            <div className="mt-3">
+              <Button type="button" variant="secondary" size="sm" onClick={checkForNewWeeks} pending={checking} pendingLabel="Checking Sichos In English...">
+                Check for new weeks
+              </Button>
+              {sieMessage && (sieMessage.ok ? <p role="status" className="mt-2 text-sm">{sieMessage.text}</p> : <FormError message={sieMessage.text} />)}
+            </div>
+          )}
           {sieGroups.length === 0 && <p className="mt-3 text-sm text-[var(--color-muted)]">Nothing matches. Clear the search to see more.</p>}
           <div className="mt-3 space-y-6">
             {sieGroups.map((g) => (
