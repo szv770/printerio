@@ -161,6 +161,29 @@ describe("createPrintJob: success", () => {
     expect(res).toMatchObject({ ok: true, status: "denied" });
   });
 
+  it("refuses a job that would use an absurd amount of paper, before uploading or reserving anything", async () => {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 10; i++) doc.addPage([612, 792]);
+    const pdf10 = await doc.save();
+    const res = await run(pdf10, baseOpts({ choices: { sides: "one", staple: "none", booklet: "none", copies: 99, pageRange: "" } }));
+    expect(res).toMatchObject({ ok: false, code: "too_large" });
+    expect(!res.ok && res.kind === "error" && res.error).toMatch(/sheets/i);
+    expect(fake.calls.some((c) => c.op === "upload")).toBe(false);
+    expect(rpcs("adjust_monthly_usage")).toHaveLength(0);
+    // a sensible job is unaffected
+    use();
+    expect((await run(pdf10, baseOpts({ choices: { sides: "one", staple: "none", booklet: "none", copies: 5, pageRange: "" } }))).ok).toBe(true);
+  });
+
+  it("refuses another job when the person already has too many waiting or printing", async () => {
+    respond = (c) => (c.table === "print_jobs" && c.op === "select" ? { data: null, error: null, count: 10 } : defaults()(c));
+    fake = fakeSupabase((c) => respond(c));
+    const res = await run();
+    expect(res).toMatchObject({ ok: false, code: "rate_limited" });
+    expect(!res.ok && res.kind === "error" && res.error).toMatch(/waiting or printing/i);
+    expect(fake.calls.some((c) => c.op === "upload" || c.op === "insert")).toBe(false);
+  });
+
   it("records an IPP job's origin on the row and in its first event", async () => {
     const res = await run(pdf3, baseOpts({ source: "ipp", deviceId: "device-1", ippUserAgent: "Windows IPP" }));
     expect(res.ok).toBe(true);
@@ -271,7 +294,7 @@ describe("createPrintJob: error path", () => {
     use({ upload: failure("bucket down") });
     expect(await run()).toMatchObject({ ok: false, code: "storage_failed" });
     expect(rpcs("adjust_monthly_usage").map((c) => (c.values as { p_mode: string }).p_mode)).toEqual(["reserve", "release"]);
-    expect(fake.calls.some((c) => c.table === "print_jobs")).toBe(false);
+    expect(fake.calls.some((c) => c.table === "print_jobs" && c.op === "insert")).toBe(false);
   });
 
   it("a booklet of a document that needs padding asks to confirm (and creates nothing)", async () => {

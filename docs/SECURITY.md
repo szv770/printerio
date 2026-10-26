@@ -20,9 +20,25 @@ Written for the owner. No jargon. Last reviewed 2026-10-26 (two independent read
 - A hostile PDF is cleaned (scripts, launch actions, attachments removed) and a "decompression bomb" is refused before it is opened.
 - One address flooding the gateway can no longer use up everyone's allowance (fixed 2026-10-26).
 - A web page on another site cannot drop a file into someone's phone share inbox (fixed 2026-10-26).
-- A member can have at most 15 devices.
+- A member can have at most 15 devices, at most 10 jobs waiting at once, and no single job may use more than 300 sheets of paper (fixed 2026-10-26).
+- The booklet builder refuses files over 500 pages or booklets over 1000 pages.
 - Link import and the library can only reach public websites (internal addresses are blocked, redirects re-checked); the library only talks to mafteiach.app.
 - Secrets are not in the code. Device addresses are random, and only a hash is stored.
+
+## "Could someone use the website to hack the print computer and reach the whole network?"
+
+Short answer: not directly, and not through the website. But it is the right worry, so here is the honest picture.
+
+- **The website (Vercel) and the print computer are separate.** A person using the website only talks to Vercel and Supabase. They never touch your computers.
+- **The one internet-facing piece on your side is the print gateway** (the program that receives prints from phones and laptops through the Cloudflare tunnel). The tunnel is an outgoing connection from your computer: no door is opened in your router. An outsider can only send the gateway print requests, and only to addresses that hold a secret token.
+- **The real risk is a bug in how the gateway reads those requests.** If someone found one, they would run commands on that computer with whatever power the gateway has. Two reviews and 200+ gateway tests found no such bug, but "none found" is not "none exist".
+- **What limits the damage is how much power that program has.** Today the gateway and the agent are installed as Windows services without a named account, which means they run as **LocalSystem, the most powerful account on the computer**. That is the thing to fix. A small bug becomes a big problem only because of it.
+
+### The fix (to do together, on the print computer)
+1. Create a plain Windows account just for Printio (`printio-svc`, not an administrator, no remote desktop rights) and make the gateway and agent services run as it (Services -> the Printio service -> Log On tab).
+2. Add Windows Firewall rules so that computer can only make outgoing connections to: the internet (Supabase, Cloudflare, Vercel), and the printer's address and port 9100. Block it from reaching your other computers. Then even a fully taken-over gateway cannot wander the network.
+3. Keep that computer updated, with its own strong password, and do not use it for anything else.
+Ask the next session to walk you through these; it will first list the real service names with `Get-Service *printio*` so the steps are exact.
 
 ## Known, accepted for now
 

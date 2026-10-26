@@ -10,6 +10,9 @@ export class BuilderError extends Error {}
 
 export const MAX_SOURCES = 12;
 export const MAX_TITLE_LENGTH = 120;
+/** Per file, and for the whole booklet. Stops one crafted file from making the server copy millions of pages. */
+export const MAX_SOURCE_PAGES = 500;
+export const MAX_BOOKLET_PAGES = 1000;
 export const MAX_DESCRIPTION_LENGTH = 600;
 const MIN_SIDE_PT = 200;
 const MAX_SIDE_PT = 1700;
@@ -72,6 +75,7 @@ export async function assembleBooklet(input: BuilderInput): Promise<BuilderResul
       throw new BuilderError(`"${label}" could not be read as a PDF.`);
     }
     const total = doc.getPageCount();
+    if (total > MAX_SOURCE_PAGES) throw new BuilderError(`"${label}" has ${total} pages, and the limit is ${MAX_SOURCE_PAGES} pages per file. Split it into smaller files first.`);
     let pages: number[];
     if (s.pages) {
       pages = s.pages;
@@ -88,6 +92,7 @@ export async function assembleBooklet(input: BuilderInput): Promise<BuilderResul
     }
     docs.push(doc);
     picks.push(pages);
+    if (picks.reduce((n, p) => n + p.length, 0) > MAX_BOOKLET_PAGES) throw new BuilderError(`A booklet can have at most ${MAX_BOOKLET_PAGES} pages in total. Choose fewer pages or fewer files.`);
   }
 
   // The cover and contents take the size of the first page that will be in the booklet.

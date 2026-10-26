@@ -53,6 +53,12 @@ export interface JobOptions {
   writeClient?: SupabaseClient<Database>;
 }
 
+/** The most sheets of paper one job may use (pages x copies, halved when double-sided). Applies to everyone, admins included. */
+export const MAX_SHEETS_PER_JOB = 300;
+/** How many jobs one person may have waiting or printing at the same time. */
+export const MAX_OPEN_JOBS_PER_USER = 10;
+const OPEN_JOB_STATUSES = ["held", "pending_approval", "approved", "claimed", "downloading", "downloaded", "printing", "submitted_to_spooler"];
+
 export type CreatePrintJobErrorCode =
   | "invalid_request"
   | "rate_limited"
@@ -140,6 +146,18 @@ export async function createPrintJob(
     logger.error("rate limit check failed", { userId: session.userId, error: rateLimitError.message });
   } else if (!withinLimit) {
     return fail("You're submitting jobs too quickly. Wait a few minutes and try again.", "rate_limited");
+  }
+
+  // One person cannot stack up an endless queue (paper, toner and everyone else's waiting time). Checked before any
+  // expensive work. A failed count is not a reason to refuse the job.
+  const { count: openJobs } = await writer
+    .from("print_jobs")
+    .select("id", { count: "exact", head: true })
+    .eq("created_by", session.userId)
+    .eq("organization_id", organizationId)
+    .in("status", OPEN_JOB_STATUSES);
+  if ((openJobs ?? 0) >= MAX_OPEN_JOBS_PER_USER) {
+    return fail(`You already have ${MAX_OPEN_JOBS_PER_USER} jobs waiting or printing. Wait for some to finish, or cancel one, then try again.`, "rate_limited");
   }
 
   // Independent lookups - the profile doesn't gate the settings read or vice
@@ -374,6 +392,12 @@ export async function createPrintJob(
   if (derivedBytes && containsPjlEscape(derivedBytes)) return fail(PJL_ESCAPE_MESSAGE, "bad_pdf");
 
   const printMath = computePrintMath({ pageCount: effectivePageCount, copies, duplex, booklet });
+  if (printMath.physicalSheets > MAX_SHEETS_PER_JOB) {
+    return fail(
+      `This job would use about ${printMath.physicalSheets} sheets of paper, and the limit for one job is ${MAX_SHEETS_PER_JOB}. Print fewer copies or pages, or split it into several jobs.`,
+      "too_large",
+    );
+  }
   const pricing = (printerProfile.pricing as unknown as PricingConfig | null) ?? null;
   const costCents = computeCostCents({
     printedSides: printMath.printedSides,

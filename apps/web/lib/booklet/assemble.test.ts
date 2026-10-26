@@ -99,6 +99,18 @@ describe("assembleBooklet", () => {
     expect(doc.context.lookup(doc.catalog.get(doc.context.obj("Names")) as never)).toBeUndefined();
   });
 
+  it("refuses a file with an absurd number of pages, and a booklet with too many pages in total", async () => {
+    const big = await PDFDocument.create();
+    for (let i = 0; i < 501; i++) big.addPage([300, 300]);
+    await expect(assembleBooklet(await input({ sources: [{ title: "Huge", bytes: await big.save(), pages: [1] }] }))).rejects.toThrow(/"Huge" has 501 pages.*500/i);
+    const some = await PDFDocument.create();
+    for (let i = 0; i < 400; i++) some.addPage([300, 300]);
+    const bytes = await some.save();
+    await expect(
+      assembleBooklet(await input({ sources: [1, 2, 3].map((n) => ({ title: `Part ${n}`, bytes, pageRange: "" })) })),
+    ).rejects.toThrow(/at most 1000 pages/i);
+  });
+
   describe("refuses, in plain words", () => {
     const bad = async (over: Partial<BuilderInput>, why: RegExp) => {
       await expect(assembleBooklet(await input(over))).rejects.toThrow(why);

@@ -21,6 +21,10 @@ describe("libraryPageUrl: only a few page shapes on the one library site", () =>
     expect(libraryPageUrl({ kind: "likkutei", volume: 1.5 })).toBeNull();
     expect(libraryPageUrl({ kind: "list", section: "all", year: "5711/../x" })).toBeNull();
     expect(libraryPageUrl({ kind: "list", section: "all", year: "5711&x=1" })).toBeNull();
+    // years outside any real range, and absurd ids, are refused (they would only churn the cache and hammer the library's site)
+    expect(libraryPageUrl({ kind: "list", section: "maamorim", year: "1234" })).toBeNull();
+    expect(libraryPageUrl({ kind: "list", section: "maamorim", year: "9999" })).toBeNull();
+    expect(libraryPageUrl({ kind: "entry", path: "/maamorim/9999999" })).toBeNull();
     for (const path of ["//evil.example/x", "/maamorim/../admin", "/maamorim/12?x=1", "http://evil.example/maamorim/1", "/maamorim/abc", "/all/5711-01-01/extra", "/likkutei_sichos/by_volume/1"]) {
       expect(libraryPageUrl({ kind: "entry", path }), path).toBeNull();
     }
