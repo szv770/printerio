@@ -8,36 +8,29 @@ import { Button, Checkbox, Field, FormError, Input, Segmented, Textarea } from "
 import { PagePicker } from "@/components/print/PagePicker";
 import { precheckSelectedFile } from "@/lib/pdf/client-precheck";
 import { putBuiltBooklet } from "@/lib/booklet/handoff";
+import { clearDraft, readDraft, saveDraft, type DraftSource } from "@/lib/booklet/draft";
 import { clearCart, readCart, type CartItem } from "@/lib/library/cart";
 import { importLinkAction } from "@/app/(dashboard)/print/import-link-action";
 import { buildBookletAction } from "@/app/(dashboard)/print/booklet/actions";
 
 const MAX_SOURCES = 12;
 
-interface Source {
-  id: number;
-  title: string;
-  file: File;
-  bytes: ArrayBuffer;
-  totalPages: number;
-  /** Typed range, "" = every page. The page picker edits this same text. */
-  pages: string;
-  credit: string;
-}
+type Source = DraftSource;
 
 const nameFromFile = (n: string) => n.replace(/\.pdf$/i, "").replace(/_+/g, " ").trim();
 
 /** Builds one PDF from several (cover, contents, the chosen pages of each), then opens the normal Print page with it. */
 export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
   const router = useRouter();
-  const nextId = useRef(1);
+  const nextId = useRef(Math.max(0, ...(readDraft()?.sources.map((s) => s.id) ?? [])) + 1);
   const fileInput = useRef<HTMLInputElement>(null);
-  const [sources, setSources] = useState<Source[]>([]);
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [direction, setDirection] = useState<"ltr" | "rtl">("ltr");
-  const [cover, setCover] = useState(true);
-  const [contents, setContents] = useState(true);
+  // Kept while you visit the library to pick more and come back (lib/booklet/draft.ts).
+  const [sources, setSources] = useState<Source[]>(() => readDraft()?.sources ?? []);
+  const [title, setTitle] = useState(() => readDraft()?.title ?? "");
+  const [description, setDescription] = useState(() => readDraft()?.description ?? "");
+  const [direction, setDirection] = useState<"ltr" | "rtl">(() => readDraft()?.direction ?? "ltr");
+  const [cover, setCover] = useState(() => readDraft()?.cover ?? true);
+  const [contents, setContents] = useState(() => readDraft()?.contents ?? true);
   const [link, setLink] = useState("");
   const [addError, setAddError] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
@@ -45,6 +38,10 @@ export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
   const [building, startBuild] = useTransition();
   const [picking, setPicking] = useState<number | null>(null);
   const [libraryProgress, setLibraryProgress] = useState<{ done: number; total: number } | null>(null);
+
+  useEffect(() => {
+    saveDraft({ sources, title, description, direction, cover, contents });
+  }, [sources, title, description, direction, cover, contents]);
 
   async function addFile(file: File, credit = "", title?: string) {
     const verdict = precheckSelectedFile(file, maxUploadBytes);
@@ -168,6 +165,7 @@ export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
         const res = await fetch(result.built.signedUrl, { cache: "no-store" });
         if (!res.ok) throw new Error("download");
         putBuiltBooklet(new File([await res.blob()], result.built.fileName, { type: "application/pdf", lastModified: Date.now() }));
+        clearDraft();
         router.push(`/print?built=1&booklet=${direction === "rtl" ? "right" : "left"}`);
       } catch {
         setError("Printio built the booklet but your browser could not get it. Try again.");

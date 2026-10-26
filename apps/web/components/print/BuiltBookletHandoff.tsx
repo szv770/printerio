@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, X } from "lucide-react";
+import { Check, Download, X } from "lucide-react";
 import { takeBuiltBooklet } from "@/lib/booklet/handoff";
 
 const FILE_INPUT_ID = "file";
@@ -12,8 +12,9 @@ const FILE_INPUT_ID = "file";
  * printing rules all run exactly as for a file the person picked. Nothing prints until they press Print.
  */
 export function BuiltBookletHandoff() {
-  const [view, setView] = useState<{ kind: "ok"; name: string } | { kind: "gone" } | null>(null);
+  const [view, setView] = useState<{ kind: "ok"; name: string; url: string } | { kind: "gone" } | null>(null);
   const started = useRef(false);
+  const objectUrl = useRef<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -35,11 +36,15 @@ export function BuiltBookletHandoff() {
         transfer.items.add(file);
         input.files = transfer.files;
         input.dispatchEvent(new Event("change", { bubbles: true }));
-        setView({ kind: "ok", name: file.name });
+        objectUrl.current = URL.createObjectURL(file);
+      setView({ kind: "ok", name: file.name, url: objectUrl.current });
       } catch {
         setView({ kind: "gone" });
       }
     });
+    return () => {
+      if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
+    };
   }, []);
 
   if (!view) return null;
@@ -49,7 +54,12 @@ export function BuiltBookletHandoff() {
       <p className="min-w-0 flex-1 text-sm leading-5">
         {view.kind === "ok" ? (
           <>
-            <span className="font-semibold">{view.name}</span> is ready below as a booklet. Check the preview, then press Print.
+            <span className="font-semibold">{view.name}</span> is ready below as a booklet. Check the preview, then press Print.{" "}
+            <a href={view.url} download={view.name} className="inline-flex items-center gap-1 font-medium underline">
+              <Download className="h-3.5 w-3.5" aria-hidden="true" />
+              Save a copy (PDF)
+            </a>{" "}
+            <span className="text-[var(--color-muted)]">This is the normal page-by-page PDF, not the folded layout, so you can upload it again later.</span>
           </>
         ) : (
           <>That booklet is no longer here (the page was reloaded). Go back to the booklet builder and build it again.</>
