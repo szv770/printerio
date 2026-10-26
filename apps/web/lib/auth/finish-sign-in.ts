@@ -82,5 +82,5 @@ export async function finishSignIn(
     }
   }
 
-  return NextResponse.redirect(`${origin}${routes.home}`);
+  return NextResponse.redirect(`${origin}${routes.start}`);
 }

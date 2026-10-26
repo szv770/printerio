@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Home, ListChecks, LogOut, PieChart, Printer, Smartphone, UserRound, X, type LucideIcon } from "lucide-react";
+import { Home, Info, ListChecks, LogOut, PieChart, Printer, Smartphone, UserRound, X, type LucideIcon } from "lucide-react";
 import { signOutAction } from "@/lib/auth/actions";
 import { routes } from "@/lib/routes";
 import { isActiveHref, TOUR_ANCHORS } from "@/lib/nav";
@@ -26,6 +26,7 @@ const ME_LINKS: Tab[] = [
   { href: routes.profile, label: "Profile", Icon: UserRound },
   { href: routes.usage, label: "My usage", Icon: PieChart },
   { href: routes.devices, label: "My devices", Icon: Smartphone },
+  { href: routes.home, label: "About Printio", Icon: Info },
 ];
 
 /**

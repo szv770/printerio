@@ -8,7 +8,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   try {
     session = await requireOrgRole(["org_admin", "approver"]);
   } catch {
-    redirect(routes.home);
+    redirect(routes.start);
   }
   return <AppShell session={session}>{children}</AppShell>;
 }

@@ -10,8 +10,10 @@ import styles from "./landing.module.css";
 const btnBase = "inline-flex min-h-12 items-center justify-center rounded-full px-6 text-[0.9375rem] font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2";
 
 /** The public home page for visitors who are not signed in. Everything it claims comes from lib/landing-content.ts. */
-export function Landing() {
+export function Landing({ signedIn = false }: { signedIn?: boolean }) {
   const devices = landingDevices();
+  // Signed-in people see the same page; their main button takes them to their own home instead of the sign-in page.
+  const primary = signedIn ? { href: routes.start, label: "Open Printio" } : { href: routes.login, label: "Sign in" };
   return (
     <div className={`${styles.root} ${displayFont.variable} min-h-dvh`}>
       <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
@@ -23,8 +25,8 @@ export function Landing() {
           <a href="#booklets" className="hover:text-[var(--ink)]">Booklets</a>
           <a href="#inside" className="hover:text-[var(--ink)]">What&apos;s inside</a>
         </nav>
-        <Link href={routes.login} className={`${btnBase} bg-[var(--ink)] text-white hover:bg-[#1c3358] focus-visible:outline-[var(--blue)]`}>
-          Sign in
+        <Link href={primary.href} className={`${btnBase} bg-[var(--ink)] text-white hover:bg-[#1c3358] focus-visible:outline-[var(--blue)]`}>
+          {primary.label}
         </Link>
       </header>
 
@@ -44,12 +46,14 @@ export function Landing() {
                 Printio puts your school or office printer in everyone&apos;s normal Print menu on Windows, iPhone and Android. Rules, approvals and proper booklets are built in.
               </p>
               <div className="mt-5 flex flex-wrap gap-3">
-                <Link href={routes.login} className={`${btnBase} bg-[var(--blue)] text-white hover:bg-[#0752b3] focus-visible:outline-[var(--blue)]`}>
-                  Sign in
+                <Link href={primary.href} className={`${btnBase} bg-[var(--blue)] text-white hover:bg-[#0752b3] focus-visible:outline-[var(--blue)]`}>
+                  {primary.label}
                 </Link>
-                <Link href="/join" className={`${btnBase} border border-[var(--line)] bg-white text-[var(--ink)] hover:border-[var(--ink)] focus-visible:outline-[var(--blue)]`}>
-                  I have an invite
-                </Link>
+                {!signedIn && (
+                  <Link href="/join" className={`${btnBase} border border-[var(--line)] bg-white text-[var(--ink)] hover:border-[var(--ink)] focus-visible:outline-[var(--blue)]`}>
+                    I have an invite
+                  </Link>
+                )}
               </div>
             </div>
           </div>
@@ -152,16 +156,22 @@ export function Landing() {
         <section className="bg-[var(--ink)] text-white">
           <div className="mx-auto flex max-w-6xl flex-col items-start gap-6 px-4 py-16 sm:px-6 md:flex-row md:items-center md:justify-between">
             <div>
-              <h2 className={`${styles.display} text-[clamp(1.75rem,4vw,2.5rem)] font-extrabold leading-tight`}>Printio is invite-only for now.</h2>
-              <p className="mt-2 max-w-lg text-[1.0625rem] leading-7 text-[#c5d2e8]">Already have an account? Sign in. Got an invite link or code? Open it and you are in.</p>
+              <h2 className={`${styles.display} text-[clamp(1.75rem,4vw,2.5rem)] font-extrabold leading-tight`}>
+                {signedIn ? "You are signed in." : "Printio is invite-only for now."}
+              </h2>
+              <p className="mt-2 max-w-lg text-[1.0625rem] leading-7 text-[#c5d2e8]">
+                {signedIn ? "Go back to your jobs, your devices and your printer." : "Already have an account? Sign in. Got an invite link or code? Open it and you are in."}
+              </p>
             </div>
             <div className="flex flex-wrap gap-3">
-              <Link href={routes.login} className={`${btnBase} bg-white text-[var(--ink)] hover:bg-[#e8eef9] focus-visible:outline-white`}>
-                Sign in
+              <Link href={primary.href} className={`${btnBase} bg-white text-[var(--ink)] hover:bg-[#e8eef9] focus-visible:outline-white`}>
+                {primary.label}
               </Link>
-              <Link href="/join" className={`${btnBase} border border-[#5b6f94] text-white hover:border-white focus-visible:outline-white`}>
-                I have an invite
-              </Link>
+              {!signedIn && (
+                <Link href="/join" className={`${btnBase} border border-[#5b6f94] text-white hover:border-white focus-visible:outline-white`}>
+                  I have an invite
+                </Link>
+              )}
             </div>
           </div>
         </section>

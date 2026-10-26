@@ -8,7 +8,10 @@
  * has no built-in typed-route export we can generate this from yet.
  */
 export const routes = {
+  /** The public home page: shown to everyone, signed in or not. */
   home: "/",
+  /** "Take me to my own home": signs-in people go to their dashboard or admin, others to login. Use this for every internal redirect that used to mean "home". */
+  start: "/go",
   login: "/login",
   authCallback: "/auth/callback",
   noAccess: "/no-access",

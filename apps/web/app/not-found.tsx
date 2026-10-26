@@ -8,7 +8,7 @@ export default function NotFound() {
       <p className="text-sm text-[var(--color-muted)]">
         The page you&apos;re looking for doesn&apos;t exist or you don&apos;t have access to it.
       </p>
-      <Link href={routes.home} className="text-sm font-medium text-[var(--color-primary)]">
+      <Link href={routes.start} className="text-sm font-medium text-[var(--color-primary)]">
         Go home
       </Link>
     </main>

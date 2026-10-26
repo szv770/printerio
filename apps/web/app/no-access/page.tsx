@@ -23,7 +23,7 @@ export default async function NoAccessPage({
 
   const session = await getCurrentSession();
   if (!session) redirect(routes.login);
-  if (session.membership) redirect(routes.home);
+  if (session.membership) redirect(routes.start);
 
   // "Ask your organization administrator for an enrollment code" is only
   // useful advice if an administrator exists. On a deployment where no

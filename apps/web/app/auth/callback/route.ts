@@ -62,5 +62,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.redirect(`${origin}${routes.home}`);
+  return NextResponse.redirect(`${origin}${routes.start}`);
 }
