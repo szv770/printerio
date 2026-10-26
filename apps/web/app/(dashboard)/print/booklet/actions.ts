@@ -92,6 +92,8 @@ export async function buildBookletAction(formData: FormData): Promise<BuildBookl
       sources,
       cover: text(formData, "cover") === "on",
       contents: text(formData, "contents") === "on",
+      sponsorLine: text(formData, "sponsor"),
+      backPage: text(formData, "backPage") === "on",
     });
   } catch (err) {
     if (err instanceof BuilderError) return { error: err.message };

@@ -22,6 +22,8 @@ export interface BuilderDraft {
   contents: boolean;
   /** "letter" (default) or "tabloid" (ledger 11x17). */
   sheet?: "letter" | "tabloid";
+  sponsorLine?: string;
+  backPage?: boolean;
 }
 
 let current: BuilderDraft | null = null;
