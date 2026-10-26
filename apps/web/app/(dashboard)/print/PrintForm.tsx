@@ -157,6 +157,9 @@ export function PrintForm({
   /** Booklets only: "fill" crops the document's own blank margins so the content fills the page; "keep" scales the whole page. */
   const [bookletFit, setBookletFit] = useState<"fill" | "keep">("fill");
   const [bookletSheet, setBookletSheet] = useState<"letter" | "tabloid">("letter");
+  /** Set when the page was opened from the booklet builder: the booklet preview then builds itself once the file is in. */
+  const [autoPreview, setAutoPreview] = useState(false);
+  const autoPreviewFired = useRef(false);
   const [preview, setPreview] = useState<{ status: "idle" | "loading" | "error" | "ready"; error?: string; data?: BookletPreviewData; signature?: string }>({ status: "idle" });
   /** False until the remembered choices have been read, so the first render never overwrites them. */
   const [restored, setRestored] = useState(false);
@@ -184,7 +187,10 @@ export function PrintForm({
       if (saved.bookletSheet) setBookletSheet(saved.bookletSheet);
       // Coming from the booklet builder: ?booklet=left|right switches the booklet on for the built file (after the saved choices).
       const fromBuilder = new URLSearchParams(window.location.search).get("booklet");
-      if (fromBuilder === "left" || fromBuilder === "right") setBooklet(fromBuilder);
+      if (fromBuilder === "left" || fromBuilder === "right") {
+        setBooklet(fromBuilder);
+        setAutoPreview(true);
+      }
       setRestored(true);
     }, 0);
     return () => clearTimeout(t);
@@ -399,6 +405,21 @@ export function PrintForm({
       setPreview({ status: "error", error: "The preview didn't load (the connection dropped or the file is too large to preview). Printing is not affected." });
     }
   }
+
+  // From the booklet builder: show the preview (cover, contents and all) without a press, as soon as the built file is in
+  // the form. The file arrives a moment after the page, so this waits for its page count.
+  useEffect(() => {
+    if (!autoPreview || !restored || estimatedPages === null || !hasPrinters || rangeError || fileError || effBooklet === "none") return;
+    if (autoPreviewFired.current) return;
+    autoPreviewFired.current = true;
+    // Deferred a tick: state is not set inside the effect body.
+    void Promise.resolve().then(() => {
+      setAutoPreview(false);
+      void onPreviewBooklet();
+    });
+    // onPreviewBooklet reads the form and current state when it runs; it is deliberately not a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPreview, restored, estimatedPages, hasPrinters, rangeError, fileError, effBooklet]);
 
   function resetChoices() {
     try {
@@ -740,6 +761,7 @@ export function PrintForm({
         <Collapsible
           id="print-finishing"
           title="Finishing"
+          forceOpen={autoPreview || preview.status !== "idle"}
           icon={<Paperclip className="h-4 w-4" aria-hidden="true" />}
           summary={summarizeFinishing({ staple: effStaple, booklet: effBooklet })}
         >

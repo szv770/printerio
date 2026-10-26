@@ -1,7 +1,7 @@
 import "server-only";
 import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib";
-import { paragraphDirection, visualOrder, type Direction } from "./bidi";
+import { hasHebrew, paragraphDirection, visualRuns, type Direction } from "./bidi";
 import { DAVID_LIBRE_BOLD_BASE64 } from "./fonts/david-libre-bold";
 import { DAVID_LIBRE_REGULAR_BASE64 } from "./fonts/david-libre-regular";
 
@@ -75,12 +75,24 @@ export function wrapText(text: string, font: PDFFont, size: number, maxWidth: nu
   return lines;
 }
 
+/**
+ * The pieces of a line, left to right, with the text to hand to drawText for each. The font library lays out Hebrew itself
+ * and reverses every Hebrew run (it assumes it was given logical order), so a Hebrew run is given back in reverse of the
+ * visual order, and the library's reversal then lands the letters in visual order. Anything else is drawn as it is.
+ */
+export function drawableRuns(logical: string, dir: Direction): { visual: string; draw: string }[] {
+  return visualRuns(logical, dir).map((r) => ({ visual: r.text, draw: r.rtl && hasHebrew(r.text) ? Array.from(r.text).reverse().join("") : r.text }));
+}
+
 /** Draws one logical line at the start edge (right for right-to-left text) or centered, in visual order. */
 function drawLine(page: PDFPage, logical: string, font: PDFFont, size: number, o: { x0: number; x1: number; y: number; dir: Direction; center?: boolean; color?: ReturnType<typeof rgb> }): number {
-  const text = visualOrder(logical, o.dir);
-  const w = font.widthOfTextAtSize(text, size);
-  const x = o.center ? (o.x0 + o.x1 - w) / 2 : o.dir === "rtl" ? o.x1 - w : o.x0;
-  page.drawText(text, { x, y: o.y, size, font, color: o.color ?? INK });
+  const runs = drawableRuns(logical, o.dir).map((r) => ({ ...r, w: font.widthOfTextAtSize(r.draw, size) }));
+  const w = runs.reduce((sum, r) => sum + r.w, 0);
+  let x = o.center ? (o.x0 + o.x1 - w) / 2 : o.dir === "rtl" ? o.x1 - w : o.x0;
+  for (const r of runs) {
+    page.drawText(r.draw, { x, y: o.y, size, font, color: o.color ?? INK });
+    x += r.w;
+  }
   return w;
 }
 
