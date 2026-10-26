@@ -27,3 +27,12 @@ export function isAdminExemptFromRestrictions(role: OrgRole, adminsBypassRestric
 export function didBypassChangeOutcome(exempt: boolean, policyAction: PolicyAction): boolean {
   return exempt && policyAction !== "allow";
 }
+
+/**
+ * An approver's own job is approved automatically: the approver IS the person who would approve it, so making them wait
+ * for someone else only blocks them (owner decision 2026-10-26). This lifts ONLY the "needs approval" step. A "deny" rule
+ * and quota limits still apply to approvers, unlike the org-admin exemption above.
+ */
+export function approverSkipsApproval(role: OrgRole, policyAction: PolicyAction): boolean {
+  return role === "approver" && policyAction === "require_approval";
+}
