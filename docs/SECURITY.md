@@ -49,7 +49,15 @@ Your server's two services are `printioippgateway.exe` (Printio IPP Gateway) and
 
 What it does: creates the account `printio-svc` (not an administrator, cannot sign in or use Remote Desktop, a random password nobody knows), lets it use only the Printio folder and the data folder, switches the gateway and then the agent over one at a time (and undoes a switch by itself if the service does not come back), tells git the Printio folder is safe for that account, and allows it to restart the gateway so the update button keeps working. Your own Remote Desktop, SSH and Tailscale logins are untouched.
 
-**Phase 2, after phase 1 is confirmed working: a firewall rule** so that account can reach the internet and the printer but not your other computers. This is the bigger protection against a taken-over gateway spreading. It needs the printer's address and a careful test, so it is its own step.
+**Phase 2: a firewall rule** (script `docs/hardening/firewall-printio-svc.ps1`). It blocks only the `printio-svc` account from starting connections to other computers on your private networks (office LAN, Tailscale). That account can still reach the internet, the printer and your DNS servers. Your own logins and Remote Desktop, SSH, Tailscale and cloudflared are different accounts and are untouched.
+
+1. In Printio Admin press **Update this server**, then on the server open PowerShell **as administrator** and `cd "C:\Users\MLM Office\printerio\docs\hardening"`.
+2. **Preview** (changes nothing; shows exactly what is blocked and allowed): `powershell -ExecutionPolicy Bypass -File .\firewall-printio-svc.ps1`
+3. **Turn on**: same command with `-Apply`. The rule **removes itself after 10 minutes** unless you confirm, so a mistake cannot leave printing broken.
+4. **Check within 10 minutes**: Admin -> Agents shows the print program online; print a test page; press **Update this server** once.
+5. **Keep it**: same command with `-Keep`. Or remove it any time with `-Revert`.
+
+The printer address defaults to 192.168.100.168 (add `-PrinterIp x.x.x.x` if yours differs).
 
 ## Known, accepted for now
 
