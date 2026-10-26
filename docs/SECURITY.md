@@ -59,6 +59,8 @@ What it does: creates the account `printio-svc` (not an administrator, cannot si
 
 The printer address defaults to 192.168.100.168 (add `-PrinterIp x.x.x.x` if yours differs).
 
+**Adding another printer later** is one short command, with no 10-minute wait: `powershell -ExecutionPolicy Bypass -File .\firewall-printio-svc.ps1 -AddPrinter 192.168.100.170`. The script remembers every printer you give it. If a new printer shows as unreachable in Printio, that is the first thing to run.
+
 ## Known, accepted for now
 
 - **The print gateway computer holds the master database key.** If someone broke into that computer they would have the database. Mitigation today: keep it locked down, rotate keys after any scare (above). Proper fix (later): give the gateway only narrow access.
