@@ -1,8 +1,9 @@
 /** Small, pure helpers for showing the Mafteiach library clearly: friendlier file names, which entries have English, and search. */
 
+// "מתורגם" means translated INTO Hebrew (Loshon Hakodesh), from the English or Yiddish. It is NOT an English file.
 const FRIENDLY: Record<string, string> = {
-  שיחה: "Hebrew sicha",
-  מתורגם: "English translation",
+  שיחה: "Original sicha",
+  מתורגם: "Translated to Hebrew",
 };
 
 /** The library names its buttons in one Hebrew word ("שיחה", "מתורגם"); show those in plain words. Other labels are unchanged. */
@@ -10,10 +11,10 @@ export function friendlyFileLabel(label: string): string {
   return FRIENDLY[label.trim()] ?? label;
 }
 
-/** True when any file is an English translation, or the section the files are in is the English one. */
+/** True only for real English: the section the files are in is the English one, or a file is named English. */
 export function hasEnglish(files: { label: string }[], sectionTitle = ""): boolean {
   if (sectionTitle.trim().toLowerCase() === "english") return true;
-  return files.some((f) => f.label.trim() === "מתורגם" || /english/i.test(f.label));
+  return files.some((f) => /english/i.test(f.label));
 }
 
 const normalize = (s: string) =>

@@ -54,7 +54,6 @@ export function LibraryBrowser() {
   const [error, setError] = useState<string | undefined>();
   const [pending, startTransition] = useTransition();
   const [query, setQuery] = useState("");
-  const [englishOnly, setEnglishOnly] = useState(false);
 
   const [likkut, setLikkut] = useState<LikkutPage | null>(null);
   const [lists, setLists] = useState<Partial<Record<"maamorim" | "all", ListPage>>>({});
@@ -127,7 +126,7 @@ export function LibraryBrowser() {
   // What is on screen after the search and the "English only" filter.
   const visibleParshiyos = likkut
     ? likkut.parshiyos
-        .map((p) => ({ ...p, entries: p.entries.filter((e) => matchesQuery([e.label, e.summary, p.name], query) && (!englishOnly || hasEnglish(e.links))) }))
+        .map((p) => ({ ...p, entries: p.entries.filter((e) => matchesQuery([e.label, e.summary, p.name], query)) }))
         .filter((p) => p.entries.length > 0)
     : [];
   const visibleCount = visibleParshiyos.reduce((n, p) => n + p.entries.length, 0);
@@ -150,11 +149,6 @@ export function LibraryBrowser() {
           <Search className="pointer-events-none absolute start-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-muted)]" aria-hidden="true" />
           <Input aria-label="Search this list" type="search" placeholder="Search (a name, a topic, a parsha)" value={query} onChange={(e) => setQuery(e.target.value)} autoComplete="off" className="ps-10" dir="auto" />
         </div>
-        {tab === "likkutei" && (
-          <Chip active={englishOnly} onClick={() => setEnglishOnly((v) => !v)}>
-            English available only
-          </Chip>
-        )}
       </div>
       <FormError message={error} />
       {notice && <p role="status" className="mt-2 text-sm text-[var(--color-muted)]">{notice}</p>}
@@ -175,9 +169,9 @@ export function LibraryBrowser() {
           </div>
           <p className="mt-2 text-[13px] text-[var(--color-muted)]" role="status">
             {visibleCount} {visibleCount === 1 ? "sicha" : "sichos"}
-            {query || englishOnly ? " match" : " in this volume"}
+            {query ? " match" : " in this volume"}
           </p>
-          {visibleCount === 0 && <p className="mt-3 text-sm text-[var(--color-muted)]">Nothing matches. Clear the search{englishOnly ? " or the English filter" : ""} to see more.</p>}
+          {visibleCount === 0 && <p className="mt-3 text-sm text-[var(--color-muted)]">Nothing matches. Clear the search to see more.</p>}
           <div className="mt-3 space-y-5">
             {visibleParshiyos.map((p) => (
               <div key={p.name}>
@@ -189,7 +183,7 @@ export function LibraryBrowser() {
                     <li key={e.id} className="rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3.5">
                       <p dir="auto" className="flex flex-wrap items-center gap-2 text-sm font-medium">
                         {e.label}
-                        {hasEnglish(e.links) && <Badge tone="accent">English available</Badge>}
+                        {hasEnglish(e.links) && <Badge tone="accent">English</Badge>}
                       </p>
                       {e.summary && (
                         <p dir="auto" className="mt-1 line-clamp-3 text-[13px] leading-5 text-[var(--color-muted)]">
