@@ -25,7 +25,7 @@ export default async function PlatformLayout({ children }: { children: React.Rea
     // content on a phone and only becomes a fixed-width sidebar once there is
     // room for one. This console is three links and super-admin-only, so it
     // gets the wrapped-row treatment rather than admin's full drawer.
-    <div className="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 px-4 py-4 md:flex-row md:gap-8 md:py-8">
+    <div className="mx-auto flex min-h-dvh max-w-5xl flex-col gap-4 px-4 py-4 md:flex-row md:gap-8 md:py-8">
       <nav className="w-full shrink-0 md:w-48">
         <Link href={routes.platform} className="mb-1 block text-lg font-semibold">
           Printio Platform
