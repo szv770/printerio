@@ -56,10 +56,13 @@ describe("parsePageRange", () => {
     bad("1", 1.5);
     bad("1", Number.NaN);
   });
-  it("caps input length at 200", () => {
-    expect(parsePageRange("1,".repeat(100), 5).ok).toBe(true); // exactly 200 chars
-    bad("1,".repeat(101), 5);
-    bad(" ".repeat(300) + "1", 5);
+  it("caps input length at 2000 (enough for every other page of a 400 page file)", () => {
+    expect(parsePageRange("1,".repeat(1000), 5).ok).toBe(true); // exactly 2000 chars
+    bad("1,".repeat(1001), 5);
+    bad(" ".repeat(3000) + "1", 5);
+    const everyOther = Array.from({ length: 400 }, (_, i) => i * 2 + 1).join(", ");
+    expect(everyOther.length).toBeLessThanOrEqual(2000);
+    expect(parsePageRange(everyOther, 800).ok).toBe(true);
   });
   it("is safe against odd input", () => {
     bad("__proto__", 5);
