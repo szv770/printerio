@@ -17,8 +17,8 @@ export function generateDeviceSecret(): string {
 
 /**
  * The device secret is 32 random bytes, so a slow KDF adds nothing: a plain SHA-256 is enough and costs
- * microseconds instead of tens of ms of CPU per request. Rows stored as `sha256:<hex>` verify the fast way;
- * legacy `salt:hash` (scrypt) rows still verify.
+ * microseconds instead of tens of ms of CPU per request. New and rotated secrets are stored as
+ * `sha256:<hex>`. Legacy `salt:hash` (scrypt) rows still verify, and are upgraded on first use.
  */
 const FAST_PREFIX = "sha256:";
 
@@ -26,12 +26,12 @@ function sha256Hex(secret: string): string {
   return createHash("sha256").update(secret).digest("hex");
 }
 
-// Step 1 of a two-step rollout: new secrets are still written in the legacy format, so reverting this
-// release is safe. Step 2 switches writing (and the lazy upgrade) to `sha256:`.
 export function hashDeviceSecret(secret: string): string {
-  const salt = randomBytes(16);
-  const hash = scryptSync(secret, salt, 64);
-  return `${salt.toString("hex")}:${hash.toString("hex")}`;
+  return `${FAST_PREFIX}${sha256Hex(secret)}`;
+}
+
+export function isLegacyDeviceSecretHash(stored: string): boolean {
+  return !stored.startsWith(FAST_PREFIX);
 }
 
 export function verifyDeviceSecret(secret: string, stored: string): boolean {
@@ -81,6 +81,20 @@ export async function authenticateAgentRequest(request: Request): Promise<Authen
   const { data: agent } = await supabase.from("agents").select("*").eq("id", agentId).maybeSingle();
   if (!agent || agent.status !== "active" || !agent.device_secret_hash) return null;
   if (!verifyDeviceSecret(secret, agent.device_secret_hash)) return null;
+
+  if (isLegacyDeviceSecretHash(agent.device_secret_hash)) {
+    // Best effort: move this agent to the fast format. Guarded by the old value so a concurrent rotate wins,
+    // and never allowed to fail the request.
+    try {
+      await supabase
+        .from("agents")
+        .update({ device_secret_hash: hashDeviceSecret(secret) })
+        .eq("id", agent.id)
+        .eq("device_secret_hash", agent.device_secret_hash);
+    } catch {
+      // ignore - the next request retries
+    }
+  }
 
   return { id: agent.id, organizationId: agent.organization_id, paused: agent.paused };
 }
