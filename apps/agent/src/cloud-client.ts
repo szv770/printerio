@@ -54,9 +54,21 @@ export interface HeartbeatMachineInfo {
   isGitCheckout: boolean;
 }
 
+/** What the printer itself said when asked (apps/agent/src/printer-probe.ts); display only. */
+export interface HeartbeatRawPrinter {
+  printerId: string;
+  reachable: boolean;
+  answered: boolean;
+  online?: boolean;
+  code?: number;
+  display?: string;
+}
+
 export interface HeartbeatResponse {
   ok: true;
   serverTime: string;
+  /** The direct-port printers this agent should ask about with its next heartbeat. Absent from an older cloud. */
+  rawPrinters?: Array<{ printerId: string; host: string; port: number }>;
   /**
    * True while an org_admin has this Agent paused (agents.paused). The Agent
    * honors it by not polling for claimable jobs at all
@@ -291,11 +303,12 @@ export class CloudClient {
     version: string,
     queues: HeartbeatQueue[],
     machine?: HeartbeatMachineInfo,
+    rawPrinters?: HeartbeatRawPrinter[],
   ): Promise<HeartbeatResponse> {
     return this.request<HeartbeatResponse>(
       "POST",
       "/api/agents/heartbeat",
-      machine ? { version, queues, machine } : { version, queues },
+      { version, queues, ...(machine ? { machine } : {}), ...(rawPrinters && rawPrinters.length > 0 ? { rawPrinters } : {}) },
       { auth: true, retry: true },
     );
   }

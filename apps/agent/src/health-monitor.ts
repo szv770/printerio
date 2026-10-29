@@ -16,6 +16,23 @@ import type { PrinterManager } from "./printer-manager.js";
 import type { Logger } from "./logger.js";
 import { AGENT_VERSION } from "./version.js";
 import { collectMachineInfo } from "./machine-info.js";
+import type { HeartbeatRawPrinter } from "./cloud-client.js";
+import { probePrinter } from "./printer-probe.js";
+import { isSending } from "./send-activity.js";
+import type { RawTargetCheck } from "./raw-host-policy.js";
+
+export interface HealthMonitorOptions {
+  /** Asks one printer how it is. Injectable for tests. */
+  probe?: typeof probePrinter;
+  /** The private-network rule every printer address must pass before anything is sent to it. */
+  checkTarget?: (target: { host: string; port: number }) => Promise<RawTargetCheck>;
+  /** True while a job is being sent (the printer's port may take only one connection). */
+  isSending?: () => boolean;
+  /** At most one status question per printer per this many milliseconds (default 60 s), so the printer can still go to sleep. */
+  probeIntervalMs?: number;
+}
+
+const MAX_PROBED_PRINTERS = 8;
 
 export interface HealthMonitor {
   /**
@@ -45,12 +62,40 @@ export function createHealthMonitor(
   cloudClient: CloudClient,
   printerManager: PrinterManager,
   logger: Logger,
+  options: HealthMonitorOptions = {},
 ): HealthMonitor {
   let paused = false;
+  // The direct-port printers to ask about: learned from the cloud's last answer, never invented here.
+  let printerTargets: Array<{ printerId: string; host: string; port: number }> = [];
+  const probe = options.probe ?? probePrinter;
+  const checkTarget = options.checkTarget ?? (async (t: { host: string; port: number }) => ({ ok: true as const, host: t.host, port: t.port }));
+  const sendingNow = options.isSending ?? isSending;
+  const probeIntervalMs = options.probeIntervalMs ?? 60_000;
+  let lastProbeAt = 0;
+
+  /** Asks each known printer how it is, unless a job is being sent. Never throws. */
+  async function askPrinters(): Promise<HeartbeatRawPrinter[]> {
+    if (printerTargets.length === 0 || sendingNow()) return [];
+    if (probeIntervalMs > 0 && Date.now() - lastProbeAt < probeIntervalMs) return [];
+    lastProbeAt = Date.now();
+    const reports = await Promise.all(
+      printerTargets.slice(0, MAX_PROBED_PRINTERS).map(async (t): Promise<HeartbeatRawPrinter | null> => {
+        const allowed = await checkTarget({ host: t.host, port: t.port }).catch(() => ({ ok: false as const, reason: "check failed" }));
+        if (!allowed.ok) return null; // not an allowed address: never contacted, nothing reported
+        try {
+          return { printerId: t.printerId, ...(await probe({ host: allowed.host, port: allowed.port })) };
+        } catch {
+          return { printerId: t.printerId, reachable: false, answered: false };
+        }
+      }),
+    );
+    return reports.filter((r): r is HeartbeatRawPrinter => r !== null);
+  }
 
   return {
     async sendHeartbeat(): Promise<boolean> {
       const queues = await printerManager.discoverQueues();
+      const rawReports = await askPrinters();
       try {
         const res = await cloudClient.heartbeat(
           AGENT_VERSION,
@@ -61,7 +106,11 @@ export function createHealthMonitor(
             status: q.status,
           })),
           collectMachineInfo(),
+          rawReports,
         );
+        printerTargets = Array.isArray(res.rawPrinters)
+          ? res.rawPrinters.filter((t) => t && typeof t.printerId === "string" && typeof t.host === "string" && Number.isInteger(t.port))
+          : printerTargets;
         const nowPaused = res.paused === true;
         if (nowPaused !== paused) {
           logger.warn(

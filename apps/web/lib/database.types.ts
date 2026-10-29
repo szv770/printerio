@@ -1200,6 +1200,8 @@ export type Database = {
           organization_id: string
           snmp_config: Json
           status: string
+          status_detail: string | null
+          status_code: number | null
           vendor: string | null
         }
         Insert: {
@@ -1212,6 +1214,8 @@ export type Database = {
           organization_id: string
           snmp_config?: Json
           status?: string
+          status_detail?: string | null
+          status_code?: number | null
           vendor?: string | null
         }
         Update: {
@@ -1224,6 +1228,8 @@ export type Database = {
           organization_id?: string
           snmp_config?: Json
           status?: string
+          status_detail?: string | null
+          status_code?: number | null
           vendor?: string | null
         }
         Relationships: [

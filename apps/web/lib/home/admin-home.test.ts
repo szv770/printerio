@@ -175,6 +175,18 @@ describe("buildRightNow", () => {
     ]);
   });
 
+  it("a printer in trouble shows its own words when it reported them, and a plain line when it did not", () => {
+    const rows = buildRightNow({
+      ...base,
+      printers: [
+        { id: "1", name: "Main office", status: "error", statusDetail: "Add paper in cassette 2" },
+        { id: "2", name: "Library", status: "error", statusDetail: null },
+        { id: "3", name: "Back", status: "error" },
+      ],
+    });
+    expect(rows.map((r) => r.detail)).toEqual(["Add paper in cassette 2", "Reported a problem", "Reported a problem"]);
+  });
+
   it("active jobs without a known printer still show", () => {
     const rows = buildRightNow({
       ...base,

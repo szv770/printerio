@@ -159,6 +159,9 @@ create table printers (
   location text,
   status text not null default 'unknown' check (status in ('unknown', 'online', 'offline', 'error')),
   last_status_at timestamptz,
+  -- 0047: the printer's own last status message and PJL code, as reported by the print agent (display only).
+  status_detail text check (status_detail is null or char_length(status_detail) <= 200),
+  status_code integer check (status_code is null or status_code between 0 and 99999),
   -- Model-specific SNMP OID overrides (never hardcoded across models - see
   -- docs/architecture.md sec 9 / known-limitations.md). Null/empty = SNMP telemetry
   -- disabled for this printer; printing is unaffected either way.

@@ -1,5 +1,6 @@
 "use client";
 
+import { printerSaysLine } from "@/lib/printers/status-label";
 import { useActionState, useState } from "react";
 import { FileCheck2, Info, Pause, Pencil, Plus, Printer as PrinterIcon, Trash2, Wand2, Wifi, WifiOff } from "lucide-react";
 import type { Tables } from "@/lib/database.types";
@@ -237,6 +238,9 @@ function PrinterCard({
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <StatusDot tone={printerTone(printer.status)}>{printerStatusWord(printer.status)}</StatusDot>
+            {printerSaysLine(printer.status, printer.status_detail) && (
+              <p className="mt-1 text-[13px] font-medium">{printerSaysLine(printer.status, printer.status_detail)}</p>
+            )}
             <p className="mt-1 text-[13px] text-[var(--color-muted)]">
               {[where, printer.location].filter(Boolean).join(" · ") || "No details added"}
               {printer.last_status_at && ` · last heard from ${new Date(printer.last_status_at).toLocaleString()}`}

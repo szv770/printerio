@@ -51,6 +51,7 @@ export function JobStatusLive({
   job: serverJob,
   eventTypes,
   rejectionReason,
+  printerNote,
   actions,
 }: {
   job: PrintJob;
@@ -58,6 +59,8 @@ export function JobStatusLive({
   eventTypes: string[];
   /** The approver's own words, from the REJECTED event's metadata (mirrors approval_actions.reason). */
   rejectionReason: string | null;
+  /** What the printer itself says (paper out, a jam), when the job is waiting on it. Null when the printer is fine or unknown. */
+  printerNote?: string | null;
   /** The primary buttons (Cancel / Try again / Print again), rendered by the server page so each keeps its own action wiring. */
   actions?: React.ReactNode;
 }) {
@@ -200,6 +203,11 @@ export function JobStatusLive({
             </span>
             <h2 className="text-2xl font-semibold leading-8 tracking-[-0.01em] sm:text-[1.75rem] sm:leading-9">{headline.sentence}</h2>
           </div>
+          {(headline.detail || printerNote) && (
+            <p className="mt-1.5 pl-[1.625rem] text-[13px] leading-5 text-[var(--color-muted)]">
+              {[headline.detail, printerNote].filter(Boolean).join(" ")}
+            </p>
+          )}
           <p className="mt-1.5 pl-[1.625rem] text-[13px] leading-5 text-[var(--color-muted)]">
             {/* A step counter only means something while the job is still moving - on a stopped job it would read
              *  as progress that is not happening. */}

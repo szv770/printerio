@@ -1,5 +1,6 @@
 "use client";
 
+import { printerStatusLabel } from "@/lib/printers/status-label";
 import { readBuilderParams, readPagesParam } from "@/lib/booklet/builder-params";
 import { useActionState, useEffect, useRef, useState, startTransition } from "react";
 import { AlertTriangle, BookOpen, FileText, FileUp, ListOrdered, Minus, Palette, Paperclip, Plus, Printer, SlidersHorizontal } from "lucide-react";
@@ -43,6 +44,14 @@ interface PrinterOption {
   declaredPaperSizes: string[];
   declaredCapabilities: { duplex: boolean; color: boolean; staple: boolean; booklet: boolean; punch: boolean };
   printerOnline: boolean;
+  /** What the printer itself reports (see lib/printers/status-label.ts); absent in older callers. */
+  printerStatus?: string;
+  printerDetail?: string | null;
+}
+
+/** Ready, Offline, or the printer's own words when it needs someone (paper out, a jam). */
+function statusFor(p: { printerOnline: boolean; printerStatus?: string; printerDetail?: string | null }) {
+  return printerStatusLabel(p.printerStatus ?? (p.printerOnline ? "online" : "offline"), p.printerDetail);
 }
 
 const THUMBNAIL_MAX_WIDTH_PX = 200;
@@ -603,7 +612,7 @@ export function PrintForm({
                   <span className="truncate font-medium">{profile.label}</span>
                   {profile.description && <span className="truncate text-xs text-[var(--color-muted)]">{profile.description}</span>}
                 </span>
-                <StatusDot tone={profile.printerOnline ? "success" : "neutral"}>{profile.printerOnline ? "Ready" : "Offline"}</StatusDot>
+                <StatusDot tone={statusFor(profile).tone}>{statusFor(profile).label}</StatusDot>
               </div>
             </>
           )}
@@ -629,7 +638,7 @@ export function PrintForm({
                   <span className="font-medium">{p.label}</span>
                   {p.description && <span className="text-xs text-[var(--color-muted)]">{p.description}</span>}
                 </span>
-                <StatusDot tone={p.printerOnline ? "success" : "neutral"}>{p.printerOnline ? "Ready" : "Offline"}</StatusDot>
+                <StatusDot tone={statusFor(p).tone}>{statusFor(p).label}</StatusDot>
               </label>
             ))}
         </fieldset>
