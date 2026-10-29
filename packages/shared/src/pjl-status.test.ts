@@ -21,7 +21,7 @@ describe("parsePjlInfoStatus (the answer to @PJL INFO STATUS)", () => {
 describe("sanitizePrinterDisplay (the printer's own words are shown to people)", () => {
   it("removes control characters and extra spaces and limits the length", () => {
     expect(sanitizePrinterDisplay("  Add\u0007 paper \u001b[31m in\r\ncassette 1 ")).toBe("Add paper [31m in cassette 1");
-    expect(sanitizePrinterDisplay("x".repeat(500)).length).toBeLessThanOrEqual(120);
+    expect(sanitizePrinterDisplay("x".repeat(500))!.length).toBeLessThanOrEqual(120);
     expect(sanitizePrinterDisplay(undefined)).toBeUndefined();
     expect(sanitizePrinterDisplay("   ")).toBeUndefined();
   });
