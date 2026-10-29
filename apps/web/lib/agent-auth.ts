@@ -1,5 +1,5 @@
 import "server-only";
-import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 /**
@@ -15,6 +15,19 @@ export function generateDeviceSecret(): string {
   return randomBytes(32).toString("base64url");
 }
 
+/**
+ * The device secret is 32 random bytes, so a slow KDF adds nothing: a plain SHA-256 is enough and costs
+ * microseconds instead of tens of ms of CPU per request. Rows stored as `sha256:<hex>` verify the fast way;
+ * legacy `salt:hash` (scrypt) rows still verify.
+ */
+const FAST_PREFIX = "sha256:";
+
+function sha256Hex(secret: string): string {
+  return createHash("sha256").update(secret).digest("hex");
+}
+
+// Step 1 of a two-step rollout: new secrets are still written in the legacy format, so reverting this
+// release is safe. Step 2 switches writing (and the lazy upgrade) to `sha256:`.
 export function hashDeviceSecret(secret: string): string {
   const salt = randomBytes(16);
   const hash = scryptSync(secret, salt, 64);
@@ -22,6 +35,11 @@ export function hashDeviceSecret(secret: string): string {
 }
 
 export function verifyDeviceSecret(secret: string, stored: string): boolean {
+  if (stored.startsWith(FAST_PREFIX)) {
+    const expected = Buffer.from(stored.slice(FAST_PREFIX.length), "hex");
+    const candidate = Buffer.from(sha256Hex(secret), "hex");
+    return candidate.length === expected.length && timingSafeEqual(candidate, expected);
+  }
   const [saltHex, hashHex] = stored.split(":");
   if (!saltHex || !hashHex) return false;
   const salt = Buffer.from(saltHex, "hex");

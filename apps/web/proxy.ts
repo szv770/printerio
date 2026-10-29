@@ -11,7 +11,8 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     // Skip static assets and image optimization; every route that could read
-    // the session runs through here so it always sees a fresh token.
-    "/((?!_next/static|_next/image|favicon.ico|pdfjs/|sw\\.js$|manifest\\.webmanifest$|share-target$|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // the session runs through here so it always sees a fresh token. The Agent and gateway APIs use bearer
+    // secrets (never cookies), so they skip the Supabase getUser round trip.
+    "/((?!_next/static|_next/image|favicon.ico|pdfjs/|api/agents/|api/gateway/|sw\\.js$|manifest\\.webmanifest$|share-target$|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
