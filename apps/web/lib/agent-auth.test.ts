@@ -9,8 +9,6 @@ vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: () => f
 
 import { authenticateAgentRequest, generateDeviceSecret, hashDeviceSecret, verifyDeviceSecret } from "./agent-auth";
 
-const fastHash = (secret: string) => `sha256:${createHash("sha256").update(secret).digest("hex")}`;
-
 function legacyHash(secret: string): string {
   const salt = randomBytes(16);
   return `${salt.toString("hex")}:${scryptSync(secret, salt, 64).toString("hex")}`;
@@ -19,10 +17,10 @@ const req = (token: string) => new Request("http://x/api/agents/heartbeat", { he
 const updates = () => fake.calls.filter((c) => c.table === "agents" && c.op === "update");
 
 describe("device secret hashing", () => {
-  it("verifies the fast sha256: format; new hashes are still legacy in step 1", () => {
+  it("new hashes use the fast sha256: format and verify", () => {
     const secret = generateDeviceSecret();
-    expect(hashDeviceSecret(secret)).not.toMatch(/^sha256:/);
-    const stored = fastHash(secret);
+    const stored = hashDeviceSecret(secret);
+    expect(stored).toBe(`sha256:${createHash("sha256").update(secret).digest("hex")}`);
     expect(verifyDeviceSecret(secret, stored)).toBe(true);
     expect(verifyDeviceSecret(secret + "x", stored)).toBe(false);
     expect(verifyDeviceSecret(secret, "sha256:abcd")).toBe(false);
@@ -46,14 +44,31 @@ describe("authenticateAgentRequest", () => {
     fake = fakeSupabase((c) => respond(c));
   });
 
-  it("legacy hash: authenticates with no write (upgrade arrives in step 2)", async () => {
+  it("legacy hash: authenticates and upgrades the stored hash, guarded by the old value", async () => {
+    const old = row!.device_secret_hash;
     const agent = await authenticateAgentRequest(req(`a1.${secret}`));
     expect(agent).toEqual({ id: "a1", organizationId: "org-1", paused: false });
-    expect(updates()).toHaveLength(0);
+    expect(updates()).toHaveLength(1);
+    expect(updates()[0]!.values).toEqual({ device_secret_hash: hashDeviceSecret(secret) });
+    expect(updates()[0]!.filters).toEqual(expect.arrayContaining([["eq", "id", "a1"], ["eq", "device_secret_hash", old]]));
+  });
+
+  it("a failed upgrade does not fail the request", async () => {
+    respond = (c) => (c.op === "select" ? ok(row) : { data: null, error: { message: "boom" } });
+    fake = fakeSupabase((c) => respond(c));
+    expect(await authenticateAgentRequest(req(`a1.${secret}`))).not.toBeNull();
+  });
+
+  it("an upgrade that throws does not fail the request", async () => {
+    fake = fakeSupabase((c) => {
+      if (c.op === "select") return ok(row);
+      throw new Error("network");
+    });
+    expect(await authenticateAgentRequest(req(`a1.${secret}`))).not.toBeNull();
   });
 
   it("new-format hash: authenticates with no write", async () => {
-    row!.device_secret_hash = fastHash(secret);
+    row!.device_secret_hash = hashDeviceSecret(secret);
     expect(await authenticateAgentRequest(req(`a1.${secret}`))).not.toBeNull();
     expect(updates()).toHaveLength(0);
   });
@@ -68,7 +83,7 @@ describe("authenticateAgentRequest", () => {
     row = null;
     expect(await authenticateAgentRequest(req(`a1.${secret}`))).toBeNull();
     expect(updates()).toHaveLength(0);
-    row = { id: "a1", organization_id: "org-1", status: "active", paused: true, device_secret_hash: fastHash(secret) };
+    row = { id: "a1", organization_id: "org-1", status: "active", paused: true, device_secret_hash: hashDeviceSecret(secret) };
     expect((await authenticateAgentRequest(req(`a1.${secret}`)))?.paused).toBe(true);
   });
 });
