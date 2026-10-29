@@ -27,6 +27,8 @@ export interface PrinterRow {
   id: string;
   name: string;
   status: string;
+  /** The printer's own last message (what it reports when it needs someone). Display only. */
+  statusDetail?: string | null;
 }
 
 export interface AttentionInput {
@@ -211,7 +213,7 @@ export function buildRightNow(input: RightNowInput): RightNowRow[] {
   for (const p of input.printers) {
     const job = byPrinter.get(p.id);
     if (p.status === "offline") rows.push({ key: p.id, kind: "printer", name: p.name, detail: "Not reachable", tone: "danger", word: "Offline" });
-    else if (p.status === "error") rows.push({ key: p.id, kind: "printer", name: p.name, detail: "Reported a problem", tone: "danger", word: "Problem" });
+    else if (p.status === "error") rows.push({ key: p.id, kind: "printer", name: p.name, detail: p.statusDetail?.trim() ? p.statusDetail.trim() : "Reported a problem", tone: "danger", word: "Problem" });
     else if (job) rows.push({ key: p.id, kind: "printer", name: p.name, detail: jobDetail(job), tone: "live", word: "Busy" });
     else if (p.status === "online") rows.push({ key: p.id, kind: "printer", name: p.name, detail: "Nothing printing", tone: "success", word: "Ready" });
     else rows.push({ key: p.id, kind: "printer", name: p.name, detail: "Status not reported", tone: "neutral", word: "Unknown" });

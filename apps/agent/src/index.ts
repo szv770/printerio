@@ -20,6 +20,7 @@ import { saveCredentials, loadCredentials } from "./secure-storage.js";
 import { createJobQueue } from "./job-queue.js";
 import { createPrinterManager } from "./printer-manager.js";
 import { createSpoolerMonitor } from "./spooler-monitor.js";
+import { checkRawTarget } from "./raw-host-policy.js";
 import { createHealthMonitor } from "./health-monitor.js";
 import { createOrchestrator } from "./orchestrator.js";
 import { installService, uninstallService } from "./windows-service.js";
@@ -143,7 +144,9 @@ async function runStart(): Promise<void> {
   const jobQueue = createJobQueue(config.localStoragePath, logger);
   const printerManager = createPrinterManager(config.localStoragePath, logger);
   const spoolerMonitor = createSpoolerMonitor(config.localStoragePath, logger);
-  const healthMonitor = createHealthMonitor(cloudClient, printerManager, logger);
+  const healthMonitor = createHealthMonitor(cloudClient, printerManager, logger, {
+    checkTarget: (target) => checkRawTarget(target, { allowedHosts: config.rawAllowedHosts }),
+  });
 
   const orchestrator = createOrchestrator({
     config,

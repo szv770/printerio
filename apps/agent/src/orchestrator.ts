@@ -23,6 +23,7 @@ import { findNewJobId } from "./spooler-monitor.js";
 import type { HealthMonitor } from "./health-monitor.js";
 import { buildPrintSettingsString, executePrint } from "./print-executor.js";
 import { checkRawTarget as defaultCheckRawTarget, type RawTargetCheck } from "./raw-host-policy.js";
+import { trackSending } from "./send-activity.js";
 import { RAW_DEFERRED_STATUSES, RAW_SUCCESS_STATUSES, executeRawPrint, type RawTimeouts } from "./raw-print-executor.js";
 import { PROFILE_COOLDOWN_MS, decideDownloadFailure, decideRawFailure, type WaitKind } from "./retry-policy.js";
 import { handleCommand } from "./commands.js";
@@ -419,12 +420,15 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           await safeReportStatus(claimable.jobId, "failed", `raw print: ${target.reason}`);
           return procOutcome;
         }
-        const result = await rawPrint({
-          raw: { ...dl.printRequest.raw, host: target.host, port: target.port },
-          request: dl.printRequest,
-          pdf: readFileSync(localFilePath),
-          timeouts: deps.rawTimeouts,
-        });
+        const rawTarget = dl.printRequest.raw;
+        const result = await trackSending(() =>
+          rawPrint({
+            raw: { ...rawTarget, host: target.host, port: target.port },
+            request: dl.printRequest,
+            pdf: readFileSync(localFilePath),
+            timeouts: deps.rawTimeouts,
+          }),
+        );
         if (!result.ok) {
           const decision = holdsClaim ? decideRawFailure(result.failure) : ({ action: "fail" } as const);
           if (decision.action === "release") {

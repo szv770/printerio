@@ -1,10 +1,13 @@
 import { apiError } from "@/lib/api-errors";
 import { authenticateAgentRequest } from "@/lib/agent-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { narrowProbeReports, printerUpdateFromReport, rawPrinterTargets } from "@/lib/printers/probe-report";
 
 interface HeartbeatBody {
   version?: string;
   queues?: Array<{ windowsQueueName: string; driverName?: string; portName?: string; status?: string }>;
+  /** Optional (older Agent builds don't send it): what each direct-port printer said about itself. Display only; narrowed in lib/printers/probe-report.ts. */
+  rawPrinters?: unknown;
   /** Optional (older Agent builds don't send it) - see apps/agent/src/machine-info.ts. */
   machine?: {
     hostname?: unknown;
@@ -146,10 +149,21 @@ export async function POST(request: Request) {
     }
   }
 
+  // Direct-port printers: record what each one said about itself (only printers that belong to THIS agent, inside its
+  // organization), and tell the agent which printers to ask about next time. Display only (lib/printers/probe-report.ts).
+  const { data: rawRows } = await supabase
+    .from("printer_profiles")
+    .select("printer_id, output_mode, raw_host, raw_port")
+    .eq("agent_id", agent.id);
+  const rawTargets = rawPrinterTargets(rawRows ?? []);
+  for (const report of narrowProbeReports(body.rawPrinters, new Set(rawTargets.map((t) => t.printerId)))) {
+    await supabase.from("printers").update(printerUpdateFromReport(report, nowIso)).eq("id", report.printerId).eq("organization_id", agent.organizationId);
+  }
+
   // Tell the Agent whether an admin currently has it paused, so it can stop
   // asking for work client-side too (apps/agent/src/health-monitor.ts). This
   // is a courtesy, NOT the enforcement: /api/agents/jobs/claimable and
   // .../[jobId]/claim independently refuse a paused Agent, so ignoring this
   // field buys a modified Agent nothing.
-  return Response.json({ ok: true, serverTime: new Date().toISOString(), paused: agent.paused });
+  return Response.json({ ok: true, serverTime: new Date().toISOString(), paused: agent.paused, rawPrinters: rawTargets });
 }

@@ -24,7 +24,7 @@ export default async function PrintPage() {
     supabase
       .from("printer_profiles")
       .select(
-        "id, label, key, description, declared_paper_sizes, declared_capabilities, output_mode, is_default, printers!inner(id, name, organization_id, status)",
+        "id, label, key, description, declared_paper_sizes, declared_capabilities, output_mode, is_default, printers!inner(id, name, organization_id, status, status_detail)",
       )
       .eq("printers.organization_id", session.membership.organization_id)
       .order("is_default", { ascending: false }),
@@ -55,6 +55,8 @@ export default async function PrintPage() {
       punch: boolean;
     },
     printerOnline: p.printers.status === "online",
+    printerStatus: p.printers.status,
+    printerDetail: p.printers.status_detail,
   }));
 
   const maxUploadBytes = settings?.max_upload_size_bytes ?? DEFAULT_MAX_UPLOAD_BYTES;

@@ -1,3 +1,4 @@
+import { printerSaysLine } from "@/lib/printers/status-label";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, FileText, History } from "lucide-react";
@@ -59,6 +60,13 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
     .order("created_at", { ascending: true });
   const eventRows = events ?? [];
 
+  // While a job is waiting to be sent or just sent, say what the printer itself reports (paper out, a jam...). Display only.
+  let printerNote: string | null = null;
+  if (job.printer_id && ["approved", "claimed", "downloading", "downloaded", "printing", "submitted_to_spooler", "completed"].includes(job.status)) {
+    const { data: printer } = await supabase.from("printers").select("status, status_detail").eq("id", job.printer_id).maybeSingle();
+    if (printer) printerNote = printerSaysLine(printer.status, printer.status_detail);
+  }
+
 
   const plan = jobActionPlan({
     status: job.status,
@@ -119,6 +127,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         job={job}
         eventTypes={eventRows.map((e) => e.event_type)}
         rejectionReason={rejectionReasonFrom(eventRows)}
+        printerNote={printerNote}
         actions={actions}
       />
 
