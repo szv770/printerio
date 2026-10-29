@@ -55,6 +55,23 @@ describe("printer attributes", () => {
   });
 });
 
+describe("advertised paper sizes", () => {
+  const p = () => flatten({ tag: TAG.printer, attrs: build() });
+  it("offers Letter (default) and Ledger 11x17 only: no A4/A3 or other sizes", () => {
+    expect(p()["media-supported"]).toEqual(["na_letter_8.5x11in", "na_ledger_11x17in"]);
+    expect(p()["media-ready"]).toEqual(["na_letter_8.5x11in", "na_ledger_11x17in"]);
+    expect(p()["media-default"]).toBe("na_letter_8.5x11in");
+    expect(p()["media-col-database"]).toEqual([
+      { "media-size": { "x-dimension": 21590, "y-dimension": 27940 } },
+      { "media-size": { "x-dimension": 27940, "y-dimension": 43180 } },
+    ]);
+    expect(p()["media-col-ready"]).toEqual([
+      { "media-size": { "x-dimension": 21590, "y-dimension": 27940 } },
+      { "media-size": { "x-dimension": 27940, "y-dimension": 43180 } },
+    ]);
+  });
+});
+
 describe("advertised finishings", () => {
   const finishingsOf = (finishings?: readonly number[]) => {
     const attrs = buildPrinterAttributes({

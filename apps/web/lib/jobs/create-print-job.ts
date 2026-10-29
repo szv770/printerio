@@ -208,6 +208,11 @@ export async function createPrintJob(
     staple = mapped.finishing.staple;
     booklet = mapped.finishing.booklet;
     punch = false; // the raw builder has no punch setting, so it is never requested
+    if (opts.paperSize === "11x17" && !booklet) {
+      // Ledger from the print dialog: only for a printer that declares 11x17, never silently printed on Letter.
+      if (printerProfile.declared_paper_sizes.includes("11x17")) paperSize = "11x17";
+      else heldReason = heldReason ?? "This printer is not set up for 11x17 paper yet, so nothing was printed. Ask your administrator, or use the website.";
+    }
   } else {
     const mapped = mapQueueChoices(choices, { bookletBindingSide: profileBindingSide });
     ({ duplex, staple, booklet, staplePosition, bindingSide } = mapped);
@@ -578,7 +583,8 @@ export async function createPrintJob(
     copies,
     color_mode: colorMode,
     duplex,
-    paper_size: booklet && bookletSheet === "tabloid" ? "tabloid" : paperSize,
+    // "tabloid" is the stored word for 11x17 (the agent turns it into PAPER=LEDGER); policy and pricing see "11x17".
+    paper_size: (booklet && bookletSheet === "tabloid") || paperSize === "11x17" ? "tabloid" : paperSize,
     finishing: {
       staple,
       booklet,

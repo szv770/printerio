@@ -614,3 +614,25 @@ describe("printer escape sequences never reach the derived file (security review
     expect(await run(poisoned)).toMatchObject({ ok: false, code: "bad_pdf", error: expect.stringMatching(/printer control codes/) });
   });
 });
+
+describe("createPrintJob: 11x17 (ledger) jobs from the print dialog", () => {
+  const ledgerProfile = () => profileRow({ declared_paper_sizes: ["letter", "11x17"] });
+  it("a plain 11x17 job is stored as tabloid (so the agent sends PAPER=LEDGER) and is priced and checked as 11x17", async () => {
+    use({ profile: ledgerProfile() });
+    const res = await run(pdf3, baseOpts({ paperSize: "11x17" }));
+    expect(res.ok).toBe(true);
+    expect(insertedJob()).toMatchObject({ paper_size: "tabloid", status: "approved", held_reason: null });
+    expect(evaluateJobPolicy.mock.calls[0]![1]).toMatchObject({ paperSize: "11x17" });
+  });
+  it("a printer that does not declare 11x17 holds the job with a plain reason instead of printing on Letter", async () => {
+    const res = await run(pdf3, baseOpts({ paperSize: "11x17" }));
+    expect(res.ok).toBe(true);
+    expect(insertedJob()).toMatchObject({ status: "held", paper_size: "letter" });
+    expect(String(insertedJob().held_reason)).toMatch(/11x17/);
+  });
+  it("a Letter job is unchanged", async () => {
+    use({ profile: ledgerProfile() });
+    await run(pdf3, baseOpts({ paperSize: "letter" }));
+    expect(insertedJob()).toMatchObject({ paper_size: "letter" });
+  });
+});

@@ -19,15 +19,21 @@ export type IppAttributes = Record<string, unknown>;
 
 export interface IppChoicesResult {
   choices: PrintChoices;
+  /** The paper the dialog asked for: Letter (the default) or 11x17 (Ledger). Same keys as printer_profiles.declared_paper_sizes. */
+  paperSize: "letter" | "11x17";
   /** Plain-language reason the job must be held instead of printed, or null. */
   heldReason: string | null;
 }
 
 const LETTER_KEYWORD = "na_letter_8.5x11in";
+const LEDGER_KEYWORD = "na_ledger_11x17in";
 /** Letter in hundredths of a millimetre (21590 x 27940), with the tolerance the contract allows. */
 const LETTER_X = 21590;
 const LETTER_Y = 27940;
 const LETTER_TOLERANCE = 100;
+/** Ledger (11x17) in hundredths of a millimetre; a dialog may send the sides either way round. */
+const LEDGER_X = 27940;
+const LEDGER_Y = 43180;
 /** Some clients send "to the end of the document" as an enormous upper bound. */
 const OPEN_ENDED_HI = 2147483647;
 const MAX_RANGES = 100;
@@ -100,36 +106,54 @@ function mapPageRanges(raw: unknown, reasons: string[]): string {
     .join(", ");
 }
 
-function isLetterSize(x: unknown, y: unknown): boolean {
+type Paper = "letter" | "11x17";
+
+function sizeFromDims(x: unknown, y: unknown): Paper | null {
   const xi = toInt(x);
   const yi = toInt(y);
-  return xi !== null && yi !== null && Math.abs(xi - LETTER_X) <= LETTER_TOLERANCE && Math.abs(yi - LETTER_Y) <= LETTER_TOLERANCE;
+  if (xi === null || yi === null) return null;
+  const near = (a: number, b: number) => Math.abs(a - b) <= LETTER_TOLERANCE;
+  if (near(xi, LETTER_X) && near(yi, LETTER_Y)) return "letter";
+  if ((near(xi, LEDGER_X) && near(yi, LEDGER_Y)) || (near(xi, LEDGER_Y) && near(yi, LEDGER_X))) return "11x17";
+  return null;
 }
 
-function mapMedia(attrs: IppAttributes, reasons: string[]): void {
+function mapMedia(attrs: IppAttributes, reasons: string[]): Paper {
   const notAvailable = (what: string) =>
-    reasons.push(`Paper size ${what} is not available yet; only Letter can be printed from the print dialog. Use the website for other sizes.`);
+    reasons.push(`Paper size ${what} is not available yet; only Letter or Ledger (11x17) can be printed from the print dialog. Use the website for other sizes.`);
 
+  let fromKeyword: Paper | null = null;
   if (attrs["media"] !== undefined) {
     const v = asList(attrs["media"])[0];
-    if (typeof v !== "string" || v.trim().toLowerCase() !== LETTER_KEYWORD) {
+    const k = typeof v === "string" ? v.trim().toLowerCase() : "";
+    if (k === LETTER_KEYWORD) fromKeyword = "letter";
+    else if (k === LEDGER_KEYWORD) fromKeyword = "11x17";
+    else {
       notAvailable(describe(v));
-      return;
+      return "letter";
     }
   }
+  let fromCol: Paper | null = null;
   if (attrs["media-col"] !== undefined) {
     const col = asList(attrs["media-col"])[0];
     const size = col && typeof col === "object" ? (col as Record<string, unknown>)["media-size"] : undefined;
     const dims = size && typeof size === "object" ? (size as Record<string, unknown>) : null;
     // A media-col without a media-size (only a tray or type) does not change the paper size: ignore it.
     if (dims && (dims["x-dimension"] !== undefined || dims["y-dimension"] !== undefined)) {
-      if (!isLetterSize(dims["x-dimension"], dims["y-dimension"])) {
+      fromCol = sizeFromDims(dims["x-dimension"], dims["y-dimension"]);
+      if (!fromCol) {
         const x = toInt(dims["x-dimension"]);
         const y = toInt(dims["y-dimension"]);
         notAvailable(x !== null && y !== null ? `${(x / 100).toFixed(0)} x ${(y / 100).toFixed(0)} mm` : "from the print dialog");
+        return "letter";
       }
     }
   }
+  if (fromKeyword && fromCol && fromKeyword !== fromCol) {
+    notAvailable("from the print dialog");
+    return "letter";
+  }
+  return fromKeyword ?? fromCol ?? "letter";
 }
 
 /**
@@ -223,13 +247,14 @@ export function mapIppChoices(attributes: IppAttributes | null | undefined): Ipp
 
   const copies = mapCopies(attrs["copies"], reasons);
   const pageRange = mapPageRanges(attrs["page-ranges"], reasons);
-  mapMedia(attrs, reasons);
+  const paperSize = mapMedia(attrs, reasons);
   const fin = mapFinishings(attrs["finishings"], attrs["orientation-requested"], attrs["sides"], reasons);
   const mappedSides = mapSides(attrs["sides"], reasons);
   // orientation-requested, print-quality, print-color-mode, printer-resolution, print-scaling, document-format,
   // job-name and everything else: deliberately ignored here (printer defaults; the PDF carries its orientation).
 
   return {
+    paperSize,
     choices: {
       // A booklet is always double-sided whatever flip the dialog asked for (the short-edge flip is part of it).
       sides: fin.booklet ? "two" : mappedSides.sides,

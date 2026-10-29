@@ -225,3 +225,38 @@ describe("mapIppChoices: booklet from the print dialog is held for a binding cho
     expect(choices.booklet).toBe("none");
   });
 });
+
+describe("mapIppChoices: Ledger (11x17) is a second supported paper size", () => {
+  const LEDGER_COL = { "media-size": { "x-dimension": 27940, "y-dimension": 43180 } };
+  it("defaults to Letter", () => {
+    expect(mapIppChoices({}).paperSize).toBe("letter");
+    expect(mapIppChoices({ media: "na_letter_8.5x11in" }).paperSize).toBe("letter");
+    expect(mapIppChoices({ "media-col": LETTER_COL }).paperSize).toBe("letter");
+  });
+  it.each([
+    ["ledger keyword", { media: "na_ledger_11x17in" }],
+    ["ledger keyword, any case", { media: "NA_LEDGER_11X17IN" }],
+    ["ledger media-col", { "media-col": LEDGER_COL }],
+    ["ledger media-col within tolerance", { "media-col": { "media-size": { "x-dimension": 27900, "y-dimension": 43200 } } }],
+    ["ledger media-col with the sides swapped (landscape)", { "media-col": { "media-size": { "x-dimension": 43180, "y-dimension": 27940 } } }],
+    ["ledger keyword and matching media-col", { media: "na_ledger_11x17in", "media-col": LEDGER_COL }],
+  ])("accepts %s and asks for 11x17 without holding the job", (_n, attrs) => {
+    const r = mapIppChoices(attrs);
+    expect(r.paperSize).toBe("11x17");
+    expect(r.heldReason).toBeNull();
+  });
+  it("holds a conflicting keyword and media-col, never guessing", () => {
+    expect(mapIppChoices({ media: "na_letter_8.5x11in", "media-col": LEDGER_COL }).heldReason).toMatch(/not available yet/i);
+    expect(mapIppChoices({ media: "na_ledger_11x17in", "media-col": { "media-size": { "x-dimension": 21590, "y-dimension": 27940 } } }).heldReason).toMatch(/not available yet/i);
+  });
+  it.each([
+    ["A3", { media: "iso_a3_297x420mm" }],
+    ["A4", { media: "iso_a4_210x297mm" }],
+    ["legal", { media: "na_legal_8.5x14in" }],
+    ["A3 media-col", { "media-col": { "media-size": { "x-dimension": 29700, "y-dimension": 42000 } } }],
+  ])("still holds %s, and says only Letter and Ledger work", (_n, attrs) => {
+    const r = mapIppChoices(attrs);
+    expect(r.heldReason).toMatch(/Letter or Ledger/i);
+    expect(r.paperSize).toBe("letter");
+  });
+});

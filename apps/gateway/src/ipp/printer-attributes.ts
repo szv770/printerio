@@ -1,5 +1,5 @@
 // The printer description advertised to the OS. Ported from tools/ipp-spike/server.mjs `printerAttrs`
-// (accepted by Windows 11 and Android). Contract changes vs the spike: Letter is the default size,
+// (accepted by Windows 11 and Android). Contract changes vs the spike: Letter is the default size (Ledger 11x17 also offered),
 // `finishings` is "none" only, and the setup page / profile URLs are gone.
 import { createHash } from "node:crypto";
 import { attr, OP, TAG, type IppAttr } from "./codec.js";
@@ -7,10 +7,10 @@ import { attr, OP, TAG, type IppAttr } from "./codec.js";
 /** Same list the spike advertised by default. Only PDF is actually accepted (see handlers). */
 export const DOCUMENT_FORMATS = ["application/pdf", "image/pwg-raster", "image/jpeg", "application/octet-stream"];
 
+/** Letter and Ledger (11x17) only: the sizes this print room uses. No A4/A3 or other sizes, so the dialog cannot pick them. */
 export const MEDIA_SIZES = [
   { key: "na_letter_8.5x11in", x: 21590, y: 27940 },
-  { key: "iso_a4_210x297mm", x: 21000, y: 29700 },
-  { key: "iso_a3_297x420mm", x: 29700, y: 42000 },
+  { key: "na_ledger_11x17in", x: 27940, y: 43180 },
 ] as const;
 
 /** none, staple, staple-top-left, staple-top-right, saddle-stitch, booklet-maker. */
@@ -114,9 +114,9 @@ export function buildPrinterAttributes(input: PrinterAttrsInput): IppAttr[] {
     attr(TAG.resolution, "printer-resolution-supported", dpi600),
     attr(TAG.keyword, "media-default", letter.key),
     attr(TAG.keyword, "media-supported", ...MEDIA_SIZES.map((s) => s.key)),
-    attr(TAG.keyword, "media-ready", letter.key),
+    attr(TAG.keyword, "media-ready", ...MEDIA_SIZES.map((s) => s.key)),
     attr(TAG.begCollection, "media-col-default", mediaCol(letter)),
-    attr(TAG.begCollection, "media-col-ready", mediaCol(letter)),
+    attr(TAG.begCollection, "media-col-ready", ...MEDIA_SIZES.map(mediaCol)),
     attr(TAG.begCollection, "media-col-database", ...MEDIA_SIZES.map(mediaCol)),
     attr(TAG.keyword, "media-col-supported", "media-size"),
     attr(
