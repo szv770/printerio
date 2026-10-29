@@ -40,6 +40,9 @@ export interface AgentConfig {
   downloadAllowedHosts?: string[];
 }
 
+/** The fastest the agent polls the website (see loadConfig). */
+export const MIN_POLL_INTERVAL_SECONDS = 60;
+
 const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"];
 const PRINT_FIT_MODES: readonly PrintFitMode[] = ["fit", "shrink", "noscale"];
 
@@ -116,10 +119,11 @@ export function loadConfig(options: LoadConfigOptions = {}): AgentConfig {
     );
   }
 
-  const pollIntervalSeconds = parsePositiveInt(
-    "PRINTIO_POLL_INTERVAL_SECONDS",
-    env.PRINTIO_POLL_INTERVAL_SECONDS,
-    15,
+  // Each cycle is 3 calls on the website (Vercel Active CPU is the scarce resource), so there is a floor: an old
+  // .env that still says 15 is raised to it. Lower MIN_POLL_INTERVAL_SECONDS to go back to faster polling.
+  const pollIntervalSeconds = Math.max(
+    MIN_POLL_INTERVAL_SECONDS,
+    parsePositiveInt("PRINTIO_POLL_INTERVAL_SECONDS", env.PRINTIO_POLL_INTERVAL_SECONDS, MIN_POLL_INTERVAL_SECONDS),
   );
   const maxPollIntervalSeconds = parsePositiveInt(
     "PRINTIO_MAX_POLL_INTERVAL_SECONDS",
