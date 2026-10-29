@@ -7,6 +7,8 @@ import { createClient } from "@/lib/supabase/client";
 import { routes } from "@/lib/routes";
 import { ButtonLink, EmptyState } from "@/components/ui";
 import { jobListBucket } from "@/lib/job-progress";
+import { startVisibleInterval } from "@/lib/ui/visible-interval";
+import { ACTIVE_JOB_REFRESH_MS } from "@/lib/ui/refresh-intervals";
 import { JobListItem } from "./JobListItem";
 
 export interface JobRow {
@@ -127,8 +129,7 @@ export function JobsList({
   const anyActive = useMemo(() => jobs.some((j) => jobListBucket(j.status) === "active"), [jobs]);
   useEffect(() => {
     if (!anyActive) return;
-    const interval = setInterval(() => router.refresh(), 4000);
-    return () => clearInterval(interval);
+    return startVisibleInterval(() => router.refresh(), ACTIVE_JOB_REFRESH_MS, document);
   }, [anyActive, router]);
 
   const counts = useMemo(() => {

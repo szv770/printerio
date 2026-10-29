@@ -16,6 +16,8 @@ import { JobProgressBar } from "../JobProgressBar";
 import { JobProgressStepper } from "./JobProgressStepper";
 import { HeldBookletCard } from "./HeldBookletCard";
 import { BOOKLET_BINDING_REASON } from "@/lib/gateway/ipp-choices";
+import { startVisibleInterval } from "@/lib/ui/visible-interval";
+import { ACTIVE_JOB_REFRESH_MS } from "@/lib/ui/refresh-intervals";
 
 type PrintJob = Tables<"print_jobs">;
 
@@ -161,8 +163,7 @@ export function JobStatusLive({
   const stillMoving = !progress.halted || progress.retryable;
   useEffect(() => {
     if (!stillMoving) return;
-    const interval = setInterval(() => router.refresh(), 4000);
-    return () => clearInterval(interval);
+    return startVisibleInterval(() => router.refresh(), ACTIVE_JOB_REFRESH_MS, document);
   }, [stillMoving, router]);
 
   // Only ticks while the job is sitting in the claim queue - the one place
