@@ -36,7 +36,7 @@ describe("describeJob: state -> (job-state, reasons, message)", () => {
     ["draft", undefined, 4, "job-hold-until-specified", "Printio is getting this job ready"],
     ["held", HELD.booklet, 4, "job-hold-until-specified", "Open Printio > My jobs to choose Left or Right binding"],
     ["held", HELD.shortEdge, 4, "job-hold-until-specified", "Flip on the short edge is not supported. Open Printio > My jobs to choose another"],
-    ["held", HELD.paper, 4, "job-hold-until-specified", "This paper size is not supported. Open Printio > My jobs to choose Letter"],
+    ["held", HELD.paper, 4, "job-hold-until-specified", "This paper size is not supported. Open Printio > My jobs to choose Letter or Ledger (11x17)"],
     ["held", HELD.copies, 4, "job-hold-until-specified", "The number of copies is not supported. Open Printio > My jobs to choose again"],
     ["held", HELD.pages, 4, "job-hold-until-specified", "The page range could not be used. Open Printio > My jobs to choose the pages"],
     ["held", HELD.pagesGone, 4, "job-hold-until-specified", "The page range could not be used. Open Printio > My jobs to choose the pages"],

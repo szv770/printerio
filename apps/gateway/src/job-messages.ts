@@ -25,7 +25,7 @@ const trim = (s: string): string => (s.length <= MAX_MESSAGE ? s : `${s.slice(0,
 const HELD_KINDS: { test: RegExp; message: string }[] = [
   { test: /choose left or right binding/i, message: `${ACT} to choose Left or Right binding` },
   { test: /short edge/i, message: `Flip on the short edge is not supported. ${ACT} to choose another` },
-  { test: /paper size/i, message: `This paper size is not supported. ${ACT} to choose Letter` },
+  { test: /paper size/i, message: `This paper size is not supported. ${ACT} to choose Letter or Ledger (11x17)` },
   { test: /number of copies/i, message: `The number of copies is not supported. ${ACT} to choose again` },
   { test: /page range|pages you chose/i, message: `The page range could not be used. ${ACT} to choose the pages` },
   { test: /sides setting/i, message: `That double-sided setting is not supported. ${ACT} to choose again` },
