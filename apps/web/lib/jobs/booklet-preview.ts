@@ -7,8 +7,8 @@ import type { BindingSide, BookletFit } from "@/lib/pdf/imposition";
 import { planPageSubset } from "@/lib/print-choices";
 import type { StampStrength } from "@/lib/jobs/user-code";
 
-/** The imposed preview is sent back in one response (serverless response bodies are limited to about 4.5 MB). */
-export const MAX_PREVIEW_PDF_BYTES = 3_300_000;
+/** The imposed preview is handed over as a signed storage URL (not in the response body), so only the browser's render time bounds it. */
+export const MAX_PREVIEW_PDF_BYTES = 15_000_000;
 /** Source files above this are not previewed (the print itself is unaffected). */
 export const MAX_PREVIEW_SOURCE_BYTES = 20 * 1024 * 1024;
 
