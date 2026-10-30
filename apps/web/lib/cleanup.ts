@@ -187,3 +187,23 @@ export async function pruneHousekeeping(supabase: Client, options: HousekeepingO
   }
   return { remoteCommandsDeleted: ids.length };
 }
+
+/**
+ * Deletes private.rate_limit_buckets windows older than a day (the table only prunes the calling key's own old
+ * windows, so keys never used again would stay for ever). Goes through public.prune_rate_limit_buckets (migration
+ * 0048; private.* is not reachable from the Data API). Never throws: until that migration is applied the RPC errors,
+ * which is logged and counted as 0.
+ */
+export async function prunePrivateRateLimits(supabase: Client): Promise<number> {
+  try {
+    const { data, error } = await supabase.rpc("prune_rate_limit_buckets", { p_older_than: "1 day" });
+    if (error) {
+      logger.warn("housekeeping: rate-limit prune skipped", { step: "housekeeping", error: error.message });
+      return 0;
+    }
+    return typeof data === "number" ? data : 0;
+  } catch (err) {
+    logger.warn("housekeeping: rate-limit prune failed", { step: "housekeeping", error: err instanceof Error ? err.message : String(err) });
+    return 0;
+  }
+}

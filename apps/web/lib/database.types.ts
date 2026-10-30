@@ -1411,6 +1411,10 @@ export type Database = {
         Args: { p_key: string; p_max_count: number; p_window_seconds: number }
         Returns: boolean
       }
+      prune_rate_limit_buckets: {
+        Args: { p_older_than?: string }
+        Returns: number
+      }
       join_org_by_domain: {
         Args: { p_user_id: string }
         Returns: string | null
