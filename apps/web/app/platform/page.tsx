@@ -29,10 +29,10 @@ export default async function PlatformOverviewPage() {
     { data: jobsLast30d },
     { data: ownMemberships },
   ] = await Promise.all([
-    supabase.from("organizations").select("id, name, slug").order("name", { ascending: true }),
-    supabase.from("organization_members").select("organization_id"),
-    supabase.from("printers").select("organization_id"),
-    supabase.from("agents").select("organization_id, last_seen_at"),
+    supabase.from("organizations").select("id, name, slug").order("name", { ascending: true }).limit(500),
+    supabase.from("organization_members").select("organization_id").limit(10000),
+    supabase.from("printers").select("organization_id").limit(5000),
+    supabase.from("agents").select("organization_id, last_seen_at").limit(5000),
     // Admin test prints are excluded from this per-organization job count for
     // the same reason they're excluded from Reports: they measure whether a
     // queue works, not what an organization printed (0024_*.sql).
@@ -40,8 +40,9 @@ export default async function PlatformOverviewPage() {
       .from("print_jobs")
       .select("organization_id")
       .eq("is_test_print", false)
-      .gte("created_at", thirtyDaysAgo.toISOString()),
-    supabase.from("organization_members").select("organization_id, role").eq("user_id", session.userId),
+      .gte("created_at", thirtyDaysAgo.toISOString())
+      .limit(20000),
+    supabase.from("organization_members").select("organization_id, role").eq("user_id", session.userId).limit(500),
   ]);
 
   if (orgsError) {
