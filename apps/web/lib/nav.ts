@@ -197,3 +197,17 @@ export function avatarInitial(name: string | null | undefined, email?: string | 
   const src = (name ?? "").trim() || (email ?? "").trim();
   return src ? src.charAt(0).toUpperCase() : "?";
 }
+
+/** Admin pages that run heavy queries; the nav must not prefetch them on hover/viewport (each prefetch is an invocation). */
+const NO_PREFETCH_HREFS: readonly string[] = [
+  routes.adminReports,
+  routes.adminAudit,
+  routes.adminStorage,
+  routes.adminUsers,
+  routes.adminAgents,
+  routes.adminApprovals,
+];
+
+export function shouldPrefetchNavHref(href: string): boolean {
+  return !NO_PREFETCH_HREFS.includes(href);
+}

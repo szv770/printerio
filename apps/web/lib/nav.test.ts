@@ -163,3 +163,13 @@ describe("user chip helpers", () => {
     expect(avatarInitial(null, null)).toBe("?");
   });
 });
+
+import { shouldPrefetchNavHref } from "./nav";
+describe("shouldPrefetchNavHref", () => {
+  it("does not prefetch heavy admin pages", () => {
+    for (const h of ["/admin/reports", "/admin/audit", "/admin/storage", "/admin/users", "/admin/agents", "/admin/approvals"]) {
+      expect(shouldPrefetchNavHref(h)).toBe(false);
+    }
+    expect(shouldPrefetchNavHref("/admin")).toBe(true);
+  });
+});
