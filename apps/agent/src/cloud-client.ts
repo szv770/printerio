@@ -169,6 +169,26 @@ export class CloudClient {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
+  /** Consecutive 401/403 answers to the polls (heartbeat, commands, claimable); 0 after any other answer. The orchestrator backs off when this stays high. */
+  consecutiveAuthFailures = 0;
+
+  /**
+   * One of the three idempotent polls. NOT retried inside the request: the next cycle (60 s or more away) is the
+   * retry, and an in-request retry loop against a struggling server multiplies the invocations it is already failing
+   * to serve. Also tracks consecutive 401/403 so a revoked agent can slow itself down.
+   */
+  private async poll<T>(method: string, urlPath: string, body?: unknown): Promise<T> {
+    try {
+      const res = await this.request<T>(method, urlPath, body, { auth: true, retry: false });
+      this.consecutiveAuthFailures = 0;
+      return res;
+    } catch (err) {
+      if (err instanceof CloudApiError && (err.status === 401 || err.status === 403)) this.consecutiveAuthFailures += 1;
+      else if (err instanceof CloudApiError) this.consecutiveAuthFailures = 0;
+      throw err;
+    }
+  }
+
   /** Called after a successful `register()` so subsequent calls are authenticated. */
   setCredentials(agentId: string, deviceSecret: string): void {
     this.agentId = agentId;
@@ -305,20 +325,17 @@ export class CloudClient {
     machine?: HeartbeatMachineInfo,
     rawPrinters?: HeartbeatRawPrinter[],
   ): Promise<HeartbeatResponse> {
-    return this.request<HeartbeatResponse>(
-      "POST",
-      "/api/agents/heartbeat",
-      { version, queues, ...(machine ? { machine } : {}), ...(rawPrinters && rawPrinters.length > 0 ? { rawPrinters } : {}) },
-      { auth: true, retry: true },
-    );
+    return this.poll<HeartbeatResponse>("POST", "/api/agents/heartbeat", {
+      version,
+      queues,
+      ...(machine ? { machine } : {}),
+      ...(rawPrinters && rawPrinters.length > 0 ? { rawPrinters } : {}),
+    });
   }
 
   /** GET /api/agents/jobs/claimable */
   async getClaimableJobs(): Promise<ClaimableJob[]> {
-    const res = await this.request<{ jobs: ClaimableJob[] }>("GET", "/api/agents/jobs/claimable", undefined, {
-      auth: true,
-      retry: true,
-    });
+    const res = await this.poll<{ jobs: ClaimableJob[] }>("GET", "/api/agents/jobs/claimable");
     return res.jobs;
   }
 
@@ -393,10 +410,7 @@ export class CloudClient {
 
   /** GET /api/agents/commands */
   async getCommands(): Promise<RemoteCommandEnvelope[]> {
-    const res = await this.request<{ commands: RemoteCommandEnvelope[] }>("GET", "/api/agents/commands", undefined, {
-      auth: true,
-      retry: true,
-    });
+    const res = await this.poll<{ commands: RemoteCommandEnvelope[] }>("GET", "/api/agents/commands");
     return res.commands;
   }
 

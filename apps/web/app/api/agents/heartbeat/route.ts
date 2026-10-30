@@ -1,3 +1,4 @@
+import type { Database } from "@/lib/database.types";
 import { apiError } from "@/lib/api-errors";
 import { authenticateAgentRequest } from "@/lib/agent-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
@@ -18,6 +19,20 @@ interface HeartbeatBody {
 }
 
 const MAX_MACHINE_FIELD_LENGTH = 200;
+
+/** A printer whose status is unchanged still gets its "last heard from" stamp refreshed this often. */
+const STATUS_STAMP_REFRESH_MS = 5 * 60_000;
+
+/** True when the stored discovered_queues equal the reported queues, ignoring the per-queue reportedAt stamp. */
+function sameQueues(stored: unknown, incoming: unknown[]): boolean {
+  if (!Array.isArray(stored) || stored.length !== incoming.length) return false;
+  const strip = (q: unknown) => {
+    if (typeof q !== "object" || q === null) return q;
+    const { reportedAt: _ignored, ...rest } = q as Record<string, unknown>;
+    return rest;
+  };
+  return JSON.stringify(stored.map(strip)) === JSON.stringify(incoming.map(strip));
+}
 const MAX_IP_ADDRESSES = 20;
 
 /** Trims and length-caps a self-reported string. Returns undefined (leave the column alone) for anything that isn't a usable string. */
@@ -120,45 +135,67 @@ export async function POST(request: Request) {
   // heartbeat with no queues[] (or an empty array) leaves it untouched -
   // silence isn't the same as "this Agent now sees zero queues" (see
   // supabase/migrations/0018_agents_discovered_queues.sql).
-  const { error } = await supabase
-    .from("agents")
-    .update({
-      last_seen_at: nowIso,
-      version: body.version ?? null,
-      ...(body.queues && body.queues.length > 0
-        ? { discovered_queues: body.queues.map((q) => ({ ...q, reportedAt: nowIso })) }
-        : {}),
-      ...buildMachineUpdate(body.machine),
-    })
-    .eq("id", agent.id);
+  //
+  // Only last_seen_at is written every time. version / discovered_queues / machine fields are written only when
+  // they differ from what authentication already loaded for this agent (per-queue reportedAt is ignored in the
+  // comparison), so a steady-state heartbeat is one tiny UPDATE instead of a rewrite of the whole row.
+  const reported = agent.reported;
+  const agentUpdate: Record<string, unknown> = { last_seen_at: nowIso };
+  const newVersion = body.version ?? null;
+  if (!reported || reported.version !== newVersion) agentUpdate.version = newVersion;
+  if (body.queues && body.queues.length > 0 && (!reported || !sameQueues(reported.discovered_queues, body.queues))) {
+    agentUpdate.discovered_queues = body.queues.map((q) => ({ ...q, reportedAt: nowIso }));
+  }
+  for (const [column, value] of Object.entries(buildMachineUpdate(body.machine))) {
+    if (!reported || JSON.stringify(reported[column as keyof typeof reported]) !== JSON.stringify(value)) agentUpdate[column] = value;
+  }
+
+  // One read of this agent's profiles (with each printer's current status) serves both the queue-status updates and
+  // the direct-port targets; it is independent of the agents UPDATE, so they run together.
+  const [{ error }, { data: profiles }] = await Promise.all([
+    supabase.from("agents").update(agentUpdate as Database["public"]["Tables"]["agents"]["Update"]).eq("id", agent.id),
+    supabase
+      .from("printer_profiles")
+      .select("printer_id, windows_queue_name, output_mode, raw_host, raw_port, printers(status, last_status_at)")
+      .eq("agent_id", agent.id),
+  ]);
   if (error) return apiError(500, "internal_error", "Failed to record heartbeat.");
 
   if (body.queues && body.queues.length > 0) {
-    const { data: profiles } = await supabase
-      .from("printer_profiles")
-      .select("printer_id, windows_queue_name")
-      .eq("agent_id", agent.id);
-
+    // Only printers whose status changed (or whose "last heard from" stamp is stale) are written, grouped by new
+    // status into one UPDATE each, scoped to this organization.
+    const staleBefore = Date.now() - STATUS_STAMP_REFRESH_MS;
+    const idsByStatus = new Map<string, string[]>();
     for (const queue of body.queues) {
       const profile = profiles?.find((p) => p.windows_queue_name === queue.windowsQueueName);
       if (!profile) continue; // queue not yet registered as a printer_profile - nothing to update
-      await supabase
-        .from("printers")
-        .update({ status: toPrinterStatus(queue.status), last_status_at: nowIso })
-        .eq("id", profile.printer_id);
+      const status = toPrinterStatus(queue.status);
+      const printer = Array.isArray(profile.printers) ? profile.printers[0] : profile.printers;
+      const stampedAt = printer?.last_status_at ? Date.parse(printer.last_status_at) : 0;
+      if (printer && printer.status === status && stampedAt > staleBefore) continue;
+      const ids = idsByStatus.get(status) ?? [];
+      if (!ids.includes(profile.printer_id)) ids.push(profile.printer_id);
+      idsByStatus.set(status, ids);
     }
+    await Promise.all(
+      [...idsByStatus].map(([status, ids]) =>
+        supabase
+          .from("printers")
+          .update({ status: status as ReturnType<typeof toPrinterStatus>, last_status_at: nowIso })
+          .in("id", ids)
+          .eq("organization_id", agent.organizationId),
+      ),
+    );
   }
 
   // Direct-port printers: record what each one said about itself (only printers that belong to THIS agent, inside its
   // organization), and tell the agent which printers to ask about next time. Display only (lib/printers/probe-report.ts).
-  const { data: rawRows } = await supabase
-    .from("printer_profiles")
-    .select("printer_id, output_mode, raw_host, raw_port")
-    .eq("agent_id", agent.id);
-  const rawTargets = rawPrinterTargets(rawRows ?? []);
-  for (const report of narrowProbeReports(body.rawPrinters, new Set(rawTargets.map((t) => t.printerId)))) {
-    await supabase.from("printers").update(printerUpdateFromReport(report, nowIso)).eq("id", report.printerId).eq("organization_id", agent.organizationId);
-  }
+  const rawTargets = rawPrinterTargets(profiles ?? []);
+  await Promise.all(
+    narrowProbeReports(body.rawPrinters, new Set(rawTargets.map((t) => t.printerId))).map((report) =>
+      supabase.from("printers").update(printerUpdateFromReport(report, nowIso)).eq("id", report.printerId).eq("organization_id", agent.organizationId),
+    ),
+  );
 
   // Tell the Agent whether an admin currently has it paused, so it can stop
   // asking for work client-side too (apps/agent/src/health-monitor.ts). This

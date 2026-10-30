@@ -7,6 +7,7 @@ type Row = Record<string, unknown>;
 let commands: Row[];
 let audits: Row[];
 let lastOr: string | null;
+let lastLimit: number | null;
 let failMark = false;
 
 function builder(table: string) {
@@ -27,6 +28,7 @@ function builder(table: string) {
       return q;
     },
     order: () => q,
+    limit: (n: number) => ((lastLimit = n), q),
     maybeSingle: () => Promise.resolve({ data: commands.filter((r) => filters.every((f) => f(r)))[0] ?? null, error: null }),
     then: (resolve: (v: unknown) => void) => {
       if (table === "audit_logs") {
@@ -60,10 +62,16 @@ beforeEach(() => {
   commands = [];
   audits = [];
   lastOr = null;
+  lastLimit = null;
   failMark = false;
 });
 
 describe("GET /api/agents/commands", () => {
+  it("never returns an unbounded list (limit 20)", async () => {
+    await GET(new Request("http://x"));
+    expect(lastLimit).toBe(20);
+  });
+
   it("hands out pending commands (id, command, payload only) and marks them picked up so the page can say Running...", async () => {
     commands = [cmd("c1", "pending")];
     const body = await (await GET(new Request("http://x"))).json();

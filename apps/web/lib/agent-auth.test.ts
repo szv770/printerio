@@ -44,10 +44,19 @@ describe("authenticateAgentRequest", () => {
     fake = fakeSupabase((c) => respond(c));
   });
 
+  it("selects only the columns it uses (not *), and exposes the last reported state for the heartbeat", async () => {
+    row = { ...row!, version: "1.2.3", hostname: "pc", discovered_queues: [{ windowsQueueName: "q" }] };
+    const agent = await authenticateAgentRequest(req(`a1.${secret}`));
+    const select = fake.calls.find((c) => c.op === "select")!;
+    expect(select.columns).not.toBe("*");
+    expect(select.columns).toContain("device_secret_hash");
+    expect(agent?.reported).toMatchObject({ version: "1.2.3", hostname: "pc" });
+  });
+
   it("legacy hash: authenticates and upgrades the stored hash, guarded by the old value", async () => {
     const old = row!.device_secret_hash;
     const agent = await authenticateAgentRequest(req(`a1.${secret}`));
-    expect(agent).toEqual({ id: "a1", organizationId: "org-1", paused: false });
+    expect(agent).toMatchObject({ id: "a1", organizationId: "org-1", paused: false });
     expect(updates()).toHaveLength(1);
     expect(updates()[0]!.values).toEqual({ device_secret_hash: hashDeviceSecret(secret) });
     expect(updates()[0]!.filters).toEqual(expect.arrayContaining([["eq", "id", "a1"], ["eq", "device_secret_hash", old]]));

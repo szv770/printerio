@@ -10,7 +10,7 @@ vi.mock("@/lib/jobs/lifecycle", () => ({
 }));
 vi.mock("@/lib/logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-import { recoverExpiredLeases, recoverExpiredLeasesForAgent, OPPORTUNISTIC_GRACE_MS } from "./lease-recovery";
+import { recoverExpiredLeases, recoverExpiredLeasesForAgent, resetLeaseRecoveryThrottle, OPPORTUNISTIC_GRACE_MS, OPPORTUNISTIC_MIN_INTERVAL_MS } from "./lease-recovery";
 
 type Row = Record<string, unknown>;
 let jobs: Row[];
@@ -60,6 +60,7 @@ const job = (id: string, over: Row = {}): Row => ({
 });
 
 beforeEach(() => {
+  resetLeaseRecoveryThrottle();
   jobs = [];
   events = [];
   selectLimits = [];
@@ -173,6 +174,16 @@ describe("recoverExpiredLeasesForAgent (the claimable poll)", () => {
     const r = await recoverExpiredLeasesForAgent(supabase, scope, NOW);
     expect(r?.failedFromStaleLease).toBe(0);
     expect(jobs[0]!.status).toBe("printing");
+  });
+
+  it("runs at most once per interval per agent, then again after it; other agents are not throttled", async () => {
+    jobs = [job("a")];
+    expect(await recoverExpiredLeasesForAgent(supabase, scope, NOW)).not.toBeNull();
+    const queriesAfterFirst = selectLimits.length;
+    expect(await recoverExpiredLeasesForAgent(supabase, scope, new Date(NOW.getTime() + 60_000))).toBeNull();
+    expect(selectLimits.length).toBe(queriesAfterFirst); // no queries at all while throttled
+    expect(await recoverExpiredLeasesForAgent(supabase, { ...scope, agentId: "agent2" }, new Date(NOW.getTime() + 60_000))).not.toBeNull();
+    expect(await recoverExpiredLeasesForAgent(supabase, scope, new Date(NOW.getTime() + OPPORTUNISTIC_MIN_INTERVAL_MS + 1))).not.toBeNull();
   });
 
   it("does nothing for an agent with no printer profiles", async () => {

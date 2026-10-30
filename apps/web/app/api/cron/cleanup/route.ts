@@ -1,10 +1,10 @@
 import { rejectUnlessCronAuthorized } from "@/lib/cron-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { sweepRetention } from "@/lib/retention";
-import { pruneHousekeeping, sweepOrphans } from "@/lib/cleanup";
+import { pruneHousekeeping, prunePrivateRateLimits, sweepOrphans } from "@/lib/cleanup";
 import { logger } from "@/lib/logger";
 
-/** Same per-step cap the 15-minute sweep uses; a capped run just continues next week. */
+/** Same per-step cap the 15-minute sweep uses; a capped run just continues on the next daily run. */
 const LIMIT = 500;
 
 export const maxDuration = 60;
@@ -16,7 +16,7 @@ export const maxDuration = 60;
  *     /api/cron/sweep does this too; running it here is a harmless idempotent
  *     backstop (files_purged_at is null filter) in case that sweep is paused.
  *  2. orphaned storage objects (gateway-intake > 24h, job files with no row);
- *  3. bounded-table housekeeping.
+ *  3. bounded-table housekeeping (finished remote commands; rate-limit windows older than a day).
  * Each step is independent: one failing does not stop the others.
  */
 export async function GET(request: Request) {
@@ -31,6 +31,7 @@ export async function GET(request: Request) {
     intakeDeleted: 0,
     jobOrphansDeleted: 0,
     remoteCommandsDeleted: 0,
+    rateLimitBucketsDeleted: 0,
     truncated: false,
   };
   const errors: string[] = [];
@@ -58,8 +59,9 @@ export async function GET(request: Request) {
   } catch (err) {
     errors.push(`housekeeping: ${err instanceof Error ? err.message : String(err)}`);
   }
+  results.rateLimitBucketsDeleted = await prunePrivateRateLimits(supabase);
 
-  logger.info("weekly cleanup finished", { step: "weekly_cleanup", ...results, errors });
+  logger.info("cleanup finished", { step: "cleanup", ...results, errors });
   return Response.json({ ok: errors.length === 0, ranAt: now.toISOString(), results, orphanPaths, errors });
 }
 

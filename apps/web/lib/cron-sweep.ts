@@ -105,3 +105,26 @@ export function groupJobsByAttemptCount<T extends { id: string; attemptCount: nu
 export function jobsHoldingQuota<T extends { status: string }>(jobs: T[]): T[] {
   return jobs.filter((j) => j.status === "pending_approval");
 }
+
+/**
+ * Selects failed jobs that still have attempts left. PostgREST cannot compare two columns
+ * (attempt_count < max_attempts), so the condition is applied here; to stop a block of exhausted rows (they stay
+ * `failed` for good) from filling the whole first page and starving newer retryable ones, this PAGES through the
+ * oldest-first list until `limit` retryable rows are found, the list ends, `maxPages` is reached, or `shouldStop`
+ * (the sweep's wall-clock guard, checked before each page) says to stop.
+ */
+export async function collectRetryableFailed<T extends { attempt_count: number; max_attempts: number }>(
+  fetchPage: (offset: number, size: number) => Promise<T[]>,
+  opts: { limit: number; pageSize: number; maxPages: number; shouldStop?: () => boolean },
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let page = 0; page < opts.maxPages && out.length < opts.limit; page += 1) {
+    if (opts.shouldStop?.()) break;
+    const rows = await fetchPage(page * opts.pageSize, opts.pageSize);
+    for (const row of rows) {
+      if (row.attempt_count < row.max_attempts && out.length < opts.limit) out.push(row);
+    }
+    if (rows.length < opts.pageSize) break;
+  }
+  return out;
+}

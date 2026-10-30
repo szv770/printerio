@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pruneHousekeeping, sweepOrphans, ORPHAN_MIN_AGE_MS } from "./cleanup";
+import { prunePrivateRateLimits, pruneHousekeeping, sweepOrphans, ORPHAN_MIN_AGE_MS } from "./cleanup";
 
 const NOW = new Date("2026-10-25T03:00:00Z");
 const old = new Date(NOW.getTime() - ORPHAN_MIN_AGE_MS - 60_000).toISOString();
@@ -121,5 +121,19 @@ describe("pruneHousekeeping", () => {
     const r = await pruneHousekeeping(f.client, { now: NOW, limit: 2 });
     expect(f.deletedCommandIds).toEqual(["c1", "c2"]);
     expect(r.remoteCommandsDeleted).toBe(2);
+  });
+});
+
+describe("prunePrivateRateLimits", () => {
+  it("calls prune_rate_limit_buckets for windows older than a day and returns the count", async () => {
+    const calls: Array<[string, unknown]> = [];
+    const client = { rpc: async (name: string, args: unknown) => (calls.push([name, args]), { data: 7, error: null }) } as never;
+    expect(await prunePrivateRateLimits(client)).toBe(7);
+    expect(calls).toEqual([["prune_rate_limit_buckets", { p_older_than: "1 day" }]]);
+  });
+
+  it("never throws: an RPC error (migration not applied yet) is reported as 0", async () => {
+    const client = { rpc: async () => ({ data: null, error: { message: "function does not exist" } }) } as never;
+    expect(await prunePrivateRateLimits(client)).toBe(0);
   });
 });

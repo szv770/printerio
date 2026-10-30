@@ -143,6 +143,21 @@ export function computeNextPollDelayMs(
   return Math.min(scaledMs, maxMs);
 }
 
+/** After this many consecutive 401/403 answers the credentials are almost certainly revoked: stop hammering the cloud. */
+export const AUTH_FAILURE_THRESHOLD = 5;
+export const AUTH_FAILURE_BACKOFF_MS = 10 * 60_000;
+
+/** Continuous 0-10% on top of a cycle sleep (never shortens it), so a fleet cannot stay phase-locked. */
+export function applyCycleJitter(delayMs: number, random: () => number = Math.random): number {
+  return delayMs * (1 + random() * 0.1);
+}
+
+/** The sleep before the next cycle: the computed delay, raised to the auth backoff once credentials keep being refused, plus jitter. */
+export function nextSleepMs(delayMs: number, consecutiveAuthFailures: number, random: () => number = Math.random): number {
+  const base = consecutiveAuthFailures >= AUTH_FAILURE_THRESHOLD ? Math.max(delayMs, AUTH_FAILURE_BACKOFF_MS) : delayMs;
+  return applyCycleJitter(base, random);
+}
+
 async function downloadJobFile(
   downloadUrl: string,
   destPath: string,
@@ -826,7 +841,12 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           delayMs += jitterMs;
         }
 
-        await sleep(delayMs);
+        if (cloudClient.consecutiveAuthFailures >= AUTH_FAILURE_THRESHOLD) {
+          logger.warn("the cloud keeps refusing this agent's credentials (revoked or re-enrolled?) - polling only every ~10 minutes until that changes", {
+            consecutiveAuthFailures: cloudClient.consecutiveAuthFailures,
+          });
+        }
+        await sleep(nextSleepMs(delayMs, cloudClient.consecutiveAuthFailures));
       }
     },
     stop(): void {

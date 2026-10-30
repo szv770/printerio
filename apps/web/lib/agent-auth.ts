@@ -63,7 +63,20 @@ export interface AuthenticatedAgent {
    * learns it is paused) - only job claiming is refused.
    */
   paused: boolean;
+  /** What this agent last reported (already loaded by auth), so the heartbeat can skip rewriting identical values. Absent in test doubles. */
+  reported?: {
+    version: string | null;
+    discovered_queues: unknown;
+    hostname: string | null;
+    os_version: string | null;
+    ip_addresses: string[] | null;
+    is_git_checkout: boolean | null;
+  };
 }
+
+/** Only the columns authentication and the heartbeat's change-detection use. */
+const AGENT_AUTH_COLUMNS =
+  "id, organization_id, status, paused, device_secret_hash, version, discovered_queues, hostname, os_version, ip_addresses, is_git_checkout";
 
 /** Parses and verifies the `Authorization: Bearer <agentId>.<deviceSecret>` header. */
 export async function authenticateAgentRequest(request: Request): Promise<AuthenticatedAgent | null> {
@@ -78,7 +91,7 @@ export async function authenticateAgentRequest(request: Request): Promise<Authen
   if (!agentId || !secret) return null;
 
   const supabase = createServiceRoleClient();
-  const { data: agent } = await supabase.from("agents").select("*").eq("id", agentId).maybeSingle();
+  const { data: agent } = await supabase.from("agents").select(AGENT_AUTH_COLUMNS).eq("id", agentId).maybeSingle();
   if (!agent || agent.status !== "active" || !agent.device_secret_hash) return null;
   if (!verifyDeviceSecret(secret, agent.device_secret_hash)) return null;
 
@@ -96,5 +109,17 @@ export async function authenticateAgentRequest(request: Request): Promise<Authen
     }
   }
 
-  return { id: agent.id, organizationId: agent.organization_id, paused: agent.paused };
+  return {
+    id: agent.id,
+    organizationId: agent.organization_id,
+    paused: agent.paused,
+    reported: {
+      version: agent.version,
+      discovered_queues: agent.discovered_queues,
+      hostname: agent.hostname,
+      os_version: agent.os_version,
+      ip_addresses: agent.ip_addresses,
+      is_git_checkout: agent.is_git_checkout,
+    },
+  };
 }

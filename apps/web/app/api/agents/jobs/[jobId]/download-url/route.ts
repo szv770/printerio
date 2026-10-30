@@ -7,6 +7,10 @@ import type { ResolvedPrintRequest } from "@printio/shared";
 
 const SIGNED_URL_TTL_SECONDS = 300;
 
+const JOB_COLUMNS =
+  "id, organization_id, created_by, status, lease_owner_agent_id, lease_expires_at, printer_profile_id, derived_file_path, original_file_path, original_file_name, finishing, source_pdf_pages, booklet_padding_added, booklet_binding_side, staple_position, copies, color_mode, duplex, paper_size";
+const PROFILE_COLUMNS = "id, windows_queue_name, output_mode, raw_host, raw_port, raw_staple_position, booklet_binding_side";
+
 /**
  * See docs/agent-api.md. Requires an active lease held by this agent.
  * Resolves the logical print request - `windowsQueueName` is only ever
@@ -19,7 +23,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
   const { jobId } = await params;
 
   const supabase = createServiceRoleClient();
-  const { data: job } = await supabase.from("print_jobs").select("*").eq("id", jobId).maybeSingle();
+  const { data: job } = await supabase.from("print_jobs").select(JOB_COLUMNS).eq("id", jobId).maybeSingle();
   if (!job || job.organization_id !== agent.organizationId) return apiError(404, "not_found", "Job not found.");
   if (job.lease_owner_agent_id !== agent.id || !job.lease_expires_at || new Date(job.lease_expires_at) < new Date()) {
     return apiError(403, "no_lease", "You do not hold an active lease on this job.");
@@ -31,7 +35,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
 
   const { data: profile } = await supabase
     .from("printer_profiles")
-    .select("*")
+    .select(PROFILE_COLUMNS)
     .eq("id", job.printer_profile_id)
     .maybeSingle();
   if (!profile) return apiError(500, "internal_error", "Printer profile missing.");

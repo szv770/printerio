@@ -122,8 +122,7 @@ describe("CloudClient retry/backoff", () => {
       });
       const client = new CloudClient({ apiUrl: "https://c", agentId: "a", deviceSecret: "s", logger, fetchImpl: fetchImpl as unknown as typeof fetch });
 
-      const result = await client.heartbeat("1.0.0", []);
-      expect(result.ok).toBe(true);
+      await client.reportStatus("job-1", "printing");
       expect(calls).toBe(3);
     },
     10_000,
@@ -135,6 +134,36 @@ describe("CloudClient retry/backoff", () => {
 
     await expect(client.heartbeat("1.0.0", [])).rejects.toThrow(CloudApiError);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry the idempotent polls (heartbeat, commands, claimable) on 5xx or network errors: the next cycle is the retry", async () => {
+    for (const call of [
+      (c: CloudClient) => c.heartbeat("1.0.0", []),
+      (c: CloudClient) => c.getCommands(),
+      (c: CloudClient) => c.getClaimableJobs(),
+    ]) {
+      const f5xx = mockFetch(async () => jsonResponse(503, { error: { code: "UNAVAILABLE", message: "x" } }));
+      await expect(call(new CloudClient({ apiUrl: "https://c", agentId: "a", deviceSecret: "s", logger, fetchImpl: f5xx as unknown as typeof fetch }))).rejects.toThrow(CloudApiError);
+      expect(f5xx).toHaveBeenCalledTimes(1);
+      const fNet = mockFetch(async () => {
+        throw new TypeError("fetch failed");
+      });
+      await expect(call(new CloudClient({ apiUrl: "https://c", agentId: "a", deviceSecret: "s", logger, fetchImpl: fNet as unknown as typeof fetch }))).rejects.toBeInstanceOf(CloudNetworkError);
+      expect(fNet).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("counts consecutive 401/403 answers to the polls and resets on any success", async () => {
+    let status = 401;
+    const fetchImpl = mockFetch(async () => (status === 200 ? jsonResponse(200, { jobs: [] }) : jsonResponse(status, { error: { code: "unauthenticated", message: "x" } })));
+    const client = new CloudClient({ apiUrl: "https://c", agentId: "a", deviceSecret: "s", logger, fetchImpl: fetchImpl as unknown as typeof fetch });
+    await client.getClaimableJobs().catch(() => undefined);
+    status = 403;
+    await client.getClaimableJobs().catch(() => undefined);
+    expect(client.consecutiveAuthFailures).toBe(2);
+    status = 200;
+    await client.getClaimableJobs();
+    expect(client.consecutiveAuthFailures).toBe(0);
   });
 
   it(

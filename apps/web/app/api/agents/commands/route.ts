@@ -6,6 +6,8 @@ import { logger } from "@/lib/logger";
 /** A command the Agent picked up (acknowledged) but never answered for this long is offered again (it crashed mid-way). */
 export const REDELIVER_ACKNOWLEDGED_AFTER_MS = 15 * 60_000;
 
+const COMMANDS_LIMIT = 20;
+
 /** See docs/agent-api.md. `command` is always one of the fixed allow-listed
  *  values (docs/architecture.md sec 12) - never a raw string to execute. */
 export async function GET(request: Request) {
@@ -19,7 +21,9 @@ export async function GET(request: Request) {
     .select("id, command, payload, status")
     .eq("agent_id", agent.id)
     .or(`status.eq.pending,and(status.eq.acknowledged,created_at.lt.${staleIso})`)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true })
+    // Bounded: the rest are offered on the next poll once these are answered.
+    .limit(COMMANDS_LIMIT);
 
   if (error) return apiError(500, "internal_error", "Failed to list commands.");
   const list = commands ?? [];
