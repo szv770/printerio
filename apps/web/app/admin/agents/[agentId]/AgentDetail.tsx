@@ -389,10 +389,10 @@ function QueueRowItem({
           </p>
           <p className="mt-2 text-xs text-[var(--color-muted)]">
             {queue.usage.totalJobs === 0
-              ? "No print jobs have ever been sent to this queue."
+              ? "No print jobs sent to this queue in the last 30 days."
               : (
                   <>
-                    {queue.usage.totalJobs} job{queue.usage.totalJobs === 1 ? "" : "s"} sent ({queue.usage.printedJobs} reached the printer) •
+                    {queue.usage.totalJobs} job{queue.usage.totalJobs === 1 ? "" : "s"} sent in the last 30 days ({queue.usage.printedJobs} reached the printer) •
                     last used <LocalTime value={queue.usage.lastUsedAt} />
                   </>
                 )}
