@@ -74,6 +74,7 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
         .eq("organization_id", orgId)
         .in("printer_profile_id", profileIds)
         // Bounded: recent usage only (this page's usage numbers cover the last 30 days).
+        // eslint-disable-next-line react-hooks/purity
         .gte("created_at", new Date(Date.now() - 30 * 86_400_000).toISOString())
         .order("created_at", { ascending: false })
         .limit(1000)
