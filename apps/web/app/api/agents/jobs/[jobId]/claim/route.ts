@@ -51,7 +51,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ job
     .from("organization_settings")
     .select("job_lease_minutes")
     .eq("organization_id", agent.organizationId)
-    .single();
+    .maybeSingle();
   const leaseMinutes = settings?.job_lease_minutes ?? 10;
   const nowIso = new Date().toISOString();
   const leaseExpiresAt = new Date(Date.now() + leaseMinutes * 60_000).toISOString();

@@ -19,6 +19,10 @@ const EVENT_FOR_STATUS: Partial<Record<JobState, string>> = {
   failed: "PRINT_FAILED",
 };
 
+/** Only what this route reads (transition check, quota amounts, retry decision). */
+const JOB_COLUMNS =
+  "id, organization_id, created_by, status, lease_owner_agent_id, attempt_count, max_attempts, device_id, is_test_print, source_pdf_pages, copies, estimated_printed_sides, estimated_physical_sheets, color_mode";
+
 interface StatusBody {
   status?: string;
   message?: string;
@@ -43,7 +47,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ job
   }
 
   const supabase = createServiceRoleClient();
-  const { data: job } = await supabase.from("print_jobs").select("*").eq("id", jobId).maybeSingle();
+  const { data: job } = await supabase.from("print_jobs").select(JOB_COLUMNS).eq("id", jobId).maybeSingle();
   if (!job || job.organization_id !== agent.organizationId) return apiError(404, "not_found", "Job not found.");
   if (job.lease_owner_agent_id !== agent.id) return apiError(403, "no_lease", "You do not hold the lease on this job.");
 
