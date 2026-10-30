@@ -22,6 +22,8 @@ import { liveSummaryLine, summarizeAdvanced, summarizeFinishing, summarizePages,
 import dynamic from "next/dynamic";
 import { submitPrintJobAction, type SubmitJobState } from "./actions";
 import { previewBookletAction, type BookletPreviewState } from "./preview-action";
+import { createUploadSlotAction } from "./stage-upload-action";
+import { DIRECT_UPLOAD_THRESHOLD_BYTES, browserUpload, stageLargeFile } from "@/lib/pdf/direct-upload";
 import type { BookletPreviewData } from "./BookletPreview";
 
 // Loaded only when a preview is asked for: it pulls in pdfjs-dist, which most visits never need.
@@ -101,6 +103,13 @@ function writeSavedChoices(c: SavedChoices) {
   }
 }
 
+const STAGED_REUSE_MS = 20 * 60 * 1000;
+const stagedNow = () => Date.now();
+/** The path of an earlier direct upload of this very file, while it is fresh enough that the weekly cleanup cannot have taken it. */
+function reusableStagedPath(entry: { file: File; path: string; at: number } | null, file: File): string | null {
+  return entry && entry.file === file && stagedNow() - entry.at < STAGED_REUSE_MS ? entry.path : null;
+}
+
 function clampCopies(n: number): number {
   return Math.min(MAX_COPIES, Math.max(1, n));
 }
@@ -145,6 +154,10 @@ export function PrintForm({
   /** In-memory copy of the picked file, taken on the first Print press so the answer to the blank-pages question
    *  re-sends it however long the member waits (the browser's handle on the disk file can go stale; lib/print-submit.ts). */
   const fileSnapshots = useRef(createFileSnapshotCache());
+  /** A large file already uploaded straight to storage (see prepareLargeFile); reused by the answer to the blank-pages question and by Preview. */
+  const staged = useRef<{ file: File; path: string; at: number } | null>(null);
+  /** True while a large file is on its way to storage (before the print action itself runs). */
+  const [uploading, setUploading] = useState(false);
   /** Bumped whenever a different file is picked, so the booklet prompt below cannot outlive the file it asked about. */
   const [fileVersion, setFileVersion] = useState(0);
   /** What the form looked like when the server last asked the padding question (null = not asked / cleared). */
@@ -281,6 +294,7 @@ export function PrintForm({
     const file = input.files?.[0];
     setFileVersion((v) => v + 1);
     fileSnapshots.current.clear();
+    staged.current = null;
     setEstimatedPages(null);
     setPickedBytes(null);
     setFileError(null);
@@ -338,6 +352,31 @@ export function PrintForm({
     }
   }
 
+  /**
+   * Vercel rejects Server Action bodies over about 4.5 MB, so a bigger PDF is uploaded straight to storage first and
+   * the action gets only its staged path (lib/jobs/staged-upload.ts). Small files keep travelling inside the form.
+   * Returns an error message (shown to the member) or null once `data` carries stagedPath + fileName instead of the file.
+   */
+  async function prepareLargeFile(data: FormData, snapshot: File): Promise<string | null> {
+    if (snapshot.size <= DIRECT_UPLOAD_THRESHOLD_BYTES) return null;
+    let path = reusableStagedPath(staged.current, snapshot);
+    if (!path) {
+      setUploading(true);
+      try {
+        const r = await stageLargeFile(snapshot, { getSlot: createUploadSlotAction, upload: browserUpload });
+        if (!r.ok) return r.error;
+        path = r.path;
+        staged.current = { file: snapshot, path, at: stagedNow() };
+      } finally {
+        setUploading(false);
+      }
+    }
+    data.delete("file");
+    data.set("stagedPath", path);
+    data.set("fileName", snapshot.name);
+    return null;
+  }
+
   const canSubmit = hasPrinters && !rangeError && copiesValid && !fileError;
 
   /**
@@ -349,7 +388,7 @@ export function PrintForm({
    */
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (pending) return;
+    if (pending || uploading) return;
     if (!canSubmit) {
       // The inline messages (copies, pages, file) are already on screen; this covers what has no field of its own.
       setClientError(
@@ -371,7 +410,13 @@ export function PrintForm({
     const picked = data.get("file");
     if (picked instanceof File && picked.size > 0) {
       try {
-        data.set("file", await fileSnapshots.current.get(picked));
+        const snapshot = await fileSnapshots.current.get(picked);
+        data.set("file", snapshot);
+        const uploadError = await prepareLargeFile(data, snapshot);
+        if (uploadError) {
+          setClientError(uploadError);
+          return;
+        }
       } catch (err) {
         // Nothing was sent; the choices and the question stay exactly as they are.
         setClientError(err instanceof Error ? err.message : "Choose the file again, then press Print.");
@@ -407,7 +452,13 @@ export function PrintForm({
     const signature = previewSignature;
     setPreview({ status: "loading" });
     try {
-      data.set("file", await fileSnapshots.current.get(picked));
+      const snapshot = await fileSnapshots.current.get(picked);
+      data.set("file", snapshot);
+      const uploadError = await prepareLargeFile(data, snapshot);
+      if (uploadError) {
+        setPreview({ status: "error", error: uploadError });
+        return;
+      }
       const res: BookletPreviewState = await previewBookletAction(data);
       if (!res.ok) {
         setPreview({ status: "error", error: res.fieldErrors?.pageRange ?? res.error });
@@ -416,7 +467,7 @@ export function PrintForm({
       setPreview({
         status: "ready",
         signature,
-        data: { pdfBase64: res.pdfBase64, bindingSide: res.bindingSide, sheets: res.sheets, blankPagesAdded: res.blankPagesAdded },
+        data: { pdfUrl: res.pdfUrl, bindingSide: res.bindingSide, sheets: res.sheets, blankPagesAdded: res.blankPagesAdded },
       });
     } catch {
       setPreview({ status: "error", error: "The preview didn't load (the connection dropped or the file is too large to preview). Printing is not affected." });
@@ -505,7 +556,7 @@ export function PrintForm({
                 Enter in Copies/Pages submits nothing while this question is open (no submit button exists).
                 `pending` matters because this re-uploads the whole file: a double-tap would otherwise print the
                 booklet twice. */}
-            <Button type="button" size="lg" pending={pending} pendingLabel="Submitting..." onClick={confirmBookletPadding}>
+            <Button type="button" size="lg" pending={pending || uploading} pendingLabel={uploading ? "Uploading your file..." : "Submitting..."} onClick={confirmBookletPadding}>
               Add blank pages &amp; print
             </Button>
           </div>
@@ -972,8 +1023,8 @@ export function PrintForm({
             type="submit"
             size="lg"
             data-tour="print-submit-button"
-            pending={pending}
-            pendingLabel="Sending..."
+            pending={pending || uploading}
+            pendingLabel={uploading ? "Uploading your file..." : "Sending..."}
             disabled={!canSubmit || !fileName}
             className="mt-3 min-h-14 w-full text-lg font-semibold"
             title={hasPrinters ? undefined : "No printer is connected yet."}

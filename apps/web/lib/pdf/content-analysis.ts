@@ -17,7 +17,10 @@ import type { Box, PageContent } from "./crop";
  */
 
 const MAX_PAGES_ANALYSED = 300;
-const TIME_BUDGET_MS = 12_000;
+/** Lower than it used to be (12 s / 8 s): this runs inside a billed serverless function, and a document that needs longer stays whole. */
+export const TIME_BUDGET_MS = 4_000;
+/** Documents bigger than this skip the analysis (crop for 'fill' fit): the pdfjs parse alone costs seconds of CPU, and they stay whole. */
+export const MAX_ANALYSIS_BYTES = 8 * 1024 * 1024;
 
 // Image-only pages (scans) are looked at as pictures: rendered small and measured, because the operator list can only
 // say "one image covers the page". Everything here only ever makes the box LARGER than the true ink (never cut ink).
@@ -30,7 +33,7 @@ const RASTER_PAD_PT = 8;
 /** An image covering at least this share of the page makes it a scan. */
 const SCAN_IMAGE_SHARE = 0.5;
 /** Rendering pages is the slow part: at most this long per document; later scans stay whole (never an error). */
-const RASTER_BUDGET_MS = 8_000;
+export const RASTER_BUDGET_MS = 2_000;
 
 type Matrix = [number, number, number, number, number, number];
 const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
@@ -284,6 +287,7 @@ async function measureInk(doc: PdfjsDoc, page: PdfjsPage): Promise<Box | "blank"
  */
 export async function analyzePdfContent(bytes: Uint8Array): Promise<PageContent[] | null> {
   let doc: PdfjsDoc | null = null;
+  if (bytes.byteLength > MAX_ANALYSIS_BYTES) return null;
   try {
     const pdfjs = await loadPdfjs();
     // pdfjs takes ownership of (transfers) the buffer it is given, so hand it a copy.

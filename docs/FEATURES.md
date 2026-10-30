@@ -58,6 +58,7 @@ a hosted option that needs no server in the building. Pricing and billing do not
 | Print from the normal Print button on Mac (Terminal or IP tab steps) | Built, testing |
 | Print from the normal Print button on Chromebook | Built, testing |
 | Upload and print a PDF on the website, with page ranges and a preview | Proven |
+| Large PDFs (over about 3.5 MB, e.g. a 14 MB booklet) upload straight to storage instead of through the server (Vercel rejects bodies over ~4.5 MB); the booklet preview is fetched by link instead of inside the response | Built, testing |
 | Double-sided (long edge) and single-sided | Proven |
 | Flip on the short edge from the print dialog | Built, testing |
 | Staple top-left or top-right | Proven |

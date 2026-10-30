@@ -6,10 +6,22 @@ import { Spinner } from "@/components/ui";
 import { pdfjsAssetOptions } from "@/lib/pdf/pdfjs-options";
 
 export interface BookletPreviewData {
-  pdfBase64: string;
+  /** Where to fetch the imposed PDF (a short-lived signed URL from the preview action). */
+  pdfUrl?: string;
+  /** Inline alternative used by the dev preview page. */
+  pdfBase64?: string;
   bindingSide: "left" | "right";
   sheets: number;
   blankPagesAdded: number;
+}
+
+async function loadBytes(data: BookletPreviewData): Promise<Uint8Array> {
+  if (data.pdfUrl) {
+    const res = await fetch(data.pdfUrl);
+    if (!res.ok) throw new Error(`preview download failed (${res.status})`);
+    return new Uint8Array(await res.arrayBuffer());
+  }
+  return base64ToBytes(data.pdfBase64 ?? "");
 }
 
 const RENDER_WIDTH_CSS_PX = 560;
@@ -44,7 +56,7 @@ export function BookletPreview({ data }: { data: BookletPreviewData }) {
       try {
         const pdfjs = await import("pdfjs-dist");
         pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
-        const pdf = await pdfjs.getDocument({ data: base64ToBytes(data.pdfBase64), ...pdfjsAssetOptions() }).promise;
+        const pdf = await pdfjs.getDocument({ data: await loadBytes(data), ...pdfjsAssetOptions() }).promise;
         if (cancelled) return;
         setSides(pdf.numPages);
         // Wait a frame so the canvases for the real page count exist.
@@ -78,7 +90,7 @@ export function BookletPreview({ data }: { data: BookletPreviewData }) {
     return () => {
       cancelled = true;
     };
-  }, [data.pdfBase64]);
+  }, [data.pdfUrl, data.pdfBase64]);
 
   function go(delta: number) {
     const el = scroller.current;

@@ -20,7 +20,7 @@ const session = { userId: "u1", membership: { organization_id: "org1", role: "st
 vi.mock("@/lib/auth/session", () => ({ requireSessionOrRedirect: async () => session }));
 const supabase = { marker: "user-client" };
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => supabase }));
-const serviceClient = { marker: "service-role-client" };
+const serviceClient: Record<string, unknown> = { marker: "service-role-client" };
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: () => serviceClient }));
 
 import { submitPrintJobAction } from "./actions";
@@ -112,3 +112,42 @@ describe("submitPrintJobAction", () => {
     }
   });
 });
+
+describe("submitPrintJobAction with a staged (direct-uploaded) file", () => {
+  const UID = "u1";
+  const path = `gateway-intake/${UID}/0b3c1f7e-1111-4222-8333-444455556666.pdf`;
+  function stageStorage(blob: Blob | null, limit = 1000) {
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    const bucket = {
+      list: async () => ({ data: [{ name, metadata: { size: blob?.size ?? 0 } }], error: null }),
+      download: async () => (blob ? { data: blob, error: null } : { data: null, error: { message: "x" } }),
+      remove: async () => ({ error: null }),
+    };
+    serviceClient.storage = { from: () => bucket };
+    serviceClient.from = () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { max_upload_size_bytes: limit } }) }) }) });
+  }
+
+  it("downloads the staged object with the service role and runs the pipeline on its bytes and the posted file name", async () => {
+    stageStorage(new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46, 1])]));
+    createPrintJob.mockResolvedValue({ ok: true, jobId: "job-9", jobNumber: "JOB-1", status: "approved", heldReason: null, policyReasons: [] });
+    await expect(submitPrintJobAction({}, form({ stagedPath: path, fileName: "big.pdf" }, null))).rejects.toMatchObject({ to: "/jobs/job-9" });
+    const [, , bytes, name] = createPrintJob.mock.calls[0]!;
+    expect(Array.from(bytes as Uint8Array)).toEqual([0x25, 0x50, 0x44, 0x46, 1]);
+    expect(name).toBe("big.pdf");
+  });
+
+  it("refuses a staged object over the organization's size limit, before any job exists", async () => {
+    stageStorage(new Blob([new Uint8Array(50)]), 10);
+    const res = await submitPrintJobAction({}, form({ stagedPath: path, fileName: "big.pdf" }, null));
+    expect(res.error).toMatch(/larger than/i);
+    expect(createPrintJob).not.toHaveBeenCalled();
+  });
+
+  it("refuses somebody else's staged path", async () => {
+    stageStorage(new Blob([new Uint8Array(5)]));
+    const res = await submitPrintJobAction({}, form({ stagedPath: "gateway-intake/other-user/0b3c1f7e-1111-4222-8333-444455556666.pdf", fileName: "x.pdf" }, null));
+    expect(res.error).toMatch(/didn't finish uploading/i);
+    expect(createPrintJob).not.toHaveBeenCalled();
+  });
+});
+
