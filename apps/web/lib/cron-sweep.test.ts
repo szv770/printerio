@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { groupQuotaReleases, filterAffectedRows, groupJobsByAttemptCount, jobsHoldingQuota } from "./cron-sweep";
+import { groupQuotaReleases, filterAffectedRows, groupJobsByAttemptCount, jobsHoldingQuota, collectRetryableFailed } from "./cron-sweep";
 import { usageAmountsForJob, type QuotaReleaseJobInput } from "./quota";
 
 function releaseJob(overrides: Partial<QuotaReleaseJobInput>): QuotaReleaseJobInput {
@@ -107,5 +107,27 @@ describe("jobsHoldingQuota", () => {
       { id: "b", status: "held" },
     ];
     expect(jobsHoldingQuota(rows).map((r) => r.id)).toEqual(["a"]);
+  });
+});
+
+describe("collectRetryableFailed (the failed-jobs selection pages past exhausted rows)", () => {
+  type J = { id: string; attempt_count: number; max_attempts: number };
+  const exhausted = (id: string): J => ({ id, attempt_count: 1, max_attempts: 1 });
+  const open = (id: string): J => ({ id, attempt_count: 0, max_attempts: 1 });
+  const pager = (rows: J[]) => async (offset: number, size: number) => rows.slice(offset, offset + size);
+
+  it("is not starved by a full page of exhausted rows in front of newer retryable ones", async () => {
+    const rows = [...Array.from({ length: 6 }, (_, i) => exhausted(`x${i}`)), open("a"), open("b")];
+    const out = await collectRetryableFailed(pager(rows), { limit: 5, pageSize: 3, maxPages: 10 });
+    expect(out.map((j) => j.id)).toEqual(["a", "b"]);
+  });
+
+  it("stops at the limit, at maxPages, and when shouldStop says so", async () => {
+    const rows = Array.from({ length: 20 }, (_, i) => open(`o${i}`));
+    expect(await collectRetryableFailed(pager(rows), { limit: 4, pageSize: 3, maxPages: 10 })).toHaveLength(4);
+    expect(await collectRetryableFailed(pager(rows), { limit: 100, pageSize: 3, maxPages: 2 })).toHaveLength(6);
+    let calls = 0;
+    const out = await collectRetryableFailed(pager(rows), { limit: 100, pageSize: 3, maxPages: 10, shouldStop: () => ++calls > 1 });
+    expect(out).toHaveLength(3);
   });
 });
