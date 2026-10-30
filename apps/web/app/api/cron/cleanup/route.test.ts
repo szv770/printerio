@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const sweepRetention = vi.fn();
 const sweepOrphans = vi.fn();
 const pruneHousekeeping = vi.fn();
+const prunePrivateRateLimits = vi.fn();
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: () => ({ marker: "service" }) }));
 vi.mock("@/lib/retention", () => ({ sweepRetention: (...a: unknown[]) => sweepRetention(...a) }));
 vi.mock("@/lib/cleanup", () => ({
   sweepOrphans: (...a: unknown[]) => sweepOrphans(...a),
   pruneHousekeeping: (...a: unknown[]) => pruneHousekeeping(...a),
+  prunePrivateRateLimits: (...a: unknown[]) => prunePrivateRateLimits(...a),
 }));
 
 import { GET } from "./route";
@@ -20,6 +22,7 @@ beforeEach(() => {
   sweepRetention.mockReset().mockResolvedValue({ filesDeleted: 4, jobsPurged: 3 });
   sweepOrphans.mockReset().mockResolvedValue({ intakeDeleted: 1, jobOrphansDeleted: 2, orphanPaths: [], truncated: false });
   pruneHousekeeping.mockReset().mockResolvedValue({ remoteCommandsDeleted: 5 });
+  prunePrivateRateLimits.mockReset().mockResolvedValue(9);
 });
 
 describe("GET /api/cron/cleanup", () => {
@@ -37,7 +40,7 @@ describe("GET /api/cron/cleanup", () => {
     const res = await GET(req(`Bearer ${SECRET}`));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.results).toMatchObject({ filesDeleted: 4, jobsPurged: 3, intakeDeleted: 1, jobOrphansDeleted: 2, remoteCommandsDeleted: 5 });
+    expect(body.results).toMatchObject({ filesDeleted: 4, jobsPurged: 3, intakeDeleted: 1, jobOrphansDeleted: 2, remoteCommandsDeleted: 5, rateLimitBucketsDeleted: 9 });
     expect(sweepRetention).toHaveBeenCalledTimes(1);
   });
 
