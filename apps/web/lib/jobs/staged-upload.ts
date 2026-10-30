@@ -14,7 +14,6 @@ import { PRINT_JOBS_BUCKET } from "@/lib/storage";
 export { DIRECT_UPLOAD_THRESHOLD_BYTES } from "@/lib/pdf/direct-upload";
 
 // The helper only needs the storage API, so any typed client fits.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Db = SupabaseClient<any, any, any>;
 
 export function stagedPathFor(userId: string, id: string = randomUUID()): string {

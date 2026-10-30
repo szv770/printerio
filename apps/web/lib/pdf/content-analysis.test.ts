@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 // The first call loads pdfjs (a large module); allow for a cold start.
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 120_000 });
 import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib";
-import { analyzePdfContent } from "./content-analysis";
+import { analyzePdfContent, MAX_ANALYSIS_BYTES, TIME_BUDGET_MS, RASTER_BUDGET_MS } from "./content-analysis";
 
 // A 2x2 red PNG, drawn at a known position and size.
 const PNG_2X2 = Uint8Array.from(
@@ -88,5 +88,16 @@ describe("analyzePdfContent", () => {
 
   it("returns null for bytes that are not a PDF", async () => {
     expect(await analyzePdfContent(new Uint8Array([1, 2, 3, 4]))).toBeNull();
+  });
+});
+
+describe("analysis cost limits", () => {
+  it("skips (returns null, so the booklet stays whole) a document above the size threshold without parsing it", async () => {
+    const big = new Uint8Array(MAX_ANALYSIS_BYTES + 1);
+    expect(await analyzePdfContent(big)).toBeNull();
+  });
+  it("uses short time budgets", () => {
+    expect(TIME_BUDGET_MS).toBeLessThanOrEqual(4_000);
+    expect(RASTER_BUDGET_MS).toBeLessThanOrEqual(2_000);
   });
 });

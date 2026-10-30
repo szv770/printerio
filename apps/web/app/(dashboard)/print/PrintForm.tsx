@@ -103,6 +103,13 @@ function writeSavedChoices(c: SavedChoices) {
   }
 }
 
+const STAGED_REUSE_MS = 20 * 60 * 1000;
+const stagedNow = () => Date.now();
+/** The path of an earlier direct upload of this very file, while it is fresh enough that the weekly cleanup cannot have taken it. */
+function reusableStagedPath(entry: { file: File; path: string; at: number } | null, file: File): string | null {
+  return entry && entry.file === file && stagedNow() - entry.at < STAGED_REUSE_MS ? entry.path : null;
+}
+
 function clampCopies(n: number): number {
   return Math.min(MAX_COPIES, Math.max(1, n));
 }
@@ -352,15 +359,14 @@ export function PrintForm({
    */
   async function prepareLargeFile(data: FormData, snapshot: File): Promise<string | null> {
     if (snapshot.size <= DIRECT_UPLOAD_THRESHOLD_BYTES) return null;
-    const STAGED_REUSE_MS = 20 * 60 * 1000;
-    let path = staged.current && staged.current.file === snapshot && Date.now() - staged.current.at < STAGED_REUSE_MS ? staged.current.path : null;
+    let path = reusableStagedPath(staged.current, snapshot);
     if (!path) {
       setUploading(true);
       try {
         const r = await stageLargeFile(snapshot, { getSlot: createUploadSlotAction, upload: browserUpload });
         if (!r.ok) return r.error;
         path = r.path;
-        staged.current = { file: snapshot, path, at: Date.now() };
+        staged.current = { file: snapshot, path, at: stagedNow() };
       } finally {
         setUploading(false);
       }
