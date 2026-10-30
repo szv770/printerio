@@ -17,7 +17,7 @@ export default async function LibraryPage() {
 
   // Weeks of Sichos In English an admin added after the saved copy (signed-in members may read this table).
   const supabase = await createClient();
-  const { data: added } = await supabase.from("library_sie_entries").select("*").order("added_at", { ascending: true });
+  const { data: added } = await supabase.from("library_sie_entries").select("url, chelek, sefer, title, volume, page, from_page, to_page, page_count").order("added_at", { ascending: true }).limit(2000);
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">

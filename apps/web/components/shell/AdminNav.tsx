@@ -35,6 +35,7 @@ import {
   activeItemHref,
   adminMenu,
   openGroupIds,
+  shouldPrefetchNavHref,
   type NavGroup as NavGroupModel,
   type NavIcon,
   type NavItem,
@@ -324,6 +325,7 @@ function NavLink({
     <li>
       <Link
         href={item.href}
+        prefetch={shouldPrefetchNavHref(item.href) ? undefined : false}
         aria-current={active ? "page" : undefined}
         data-tour={item.tourAnchor}
         className={`${ROW} focus-visible:outline-none focus-visible:shadow-[var(--ring)] ${

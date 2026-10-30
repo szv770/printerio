@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { routes } from "@/lib/routes";
@@ -8,21 +9,43 @@ import type { OrgRole } from "@printio/shared";
 export interface CurrentSession {
   userId: string;
   email: string;
-  profile: Tables<"profiles">;
+  profile: SessionProfile;
   /** The user's first active organization membership (see docs/architecture.md
    *  sec 2.1 - schema supports multi-org membership; this build's UI assumes
    *  one active org per user, which is a UI simplification, not an RLS one). */
-  membership: Tables<"organization_members"> | null;
+  membership: SessionMembership | null;
 }
 
-export async function getCurrentSession(): Promise<CurrentSession | null> {
+/** Only the columns callers read; keeps the two per-request lookups narrow. */
+export type SessionProfile = Pick<
+  Tables<"profiles">,
+  "id" | "email" | "display_name" | "platform_role" | "last_authenticated_at"
+>;
+export type SessionMembership = Pick<
+  Tables<"organization_members">,
+  "user_id" | "organization_id" | "role" | "status" | "department" | "early_tools"
+>;
+
+/**
+ * Wrapped in React cache() so the layout, page and nested components of one
+ * request share a single lookup (one getUser + two table reads) instead of
+ * repeating it. Outside a React render (Server Actions, Route Handlers) cache()
+ * does not dedupe, so those behave exactly as before.
+ */
+export const getCurrentSession = cache(async function getCurrentSession(): Promise<CurrentSession | null> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single();
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("id, email, display_name, platform_role, last_authenticated_at")
+    .eq("id", user.id)
+    .maybeSingle();
+  // A failed lookup is an outage, not "signed out": surface it instead of bouncing the user to login.
+  if (profileError) throw profileError;
   if (!profile) return null; // profile row not created yet (auth trigger race) - treat as not-ready
 
   // Force a full interactive re-authentication at least every 30 days,
@@ -38,16 +61,17 @@ export async function getCurrentSession(): Promise<CurrentSession | null> {
     redirect(`${routes.login}?reason=reauth_required`);
   }
 
-  const { data: membership } = await supabase
+  const { data: membership, error: membershipError } = await supabase
     .from("organization_members")
-    .select("*")
+    .select("user_id, organization_id, role, status, department, early_tools")
     .eq("user_id", user.id)
     .eq("status", "active")
     .limit(1)
     .maybeSingle();
+  if (membershipError) throw membershipError;
 
   return { userId: user.id, email: user.email ?? profile.email, profile, membership: membership ?? null };
-}
+});
 
 export class AuthError extends Error {
   constructor(
@@ -87,7 +111,7 @@ export async function requireSessionOrRedirect(): Promise<CurrentSession> {
   }
 }
 
-export type SessionWithMembership = CurrentSession & { membership: Tables<"organization_members"> };
+export type SessionWithMembership = CurrentSession & { membership: SessionMembership };
 
 export async function requireOrgRole(roles: OrgRole[]): Promise<SessionWithMembership> {
   const session = await requireSession();

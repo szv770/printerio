@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { logger } from "@/lib/logger";
+import { hasSupabaseAuthCookie } from "@/lib/supabase/auth-cookie";
 
 /**
  * Refreshes the Supabase session cookie on every request. Required because
@@ -10,6 +11,11 @@ import { logger } from "@/lib/logger";
  */
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
+
+  // No Supabase auth cookie means no session to refresh (the proxy never
+  // redirects; pages and routes enforce auth themselves), so skip the client
+  // construction and getUser() call entirely.
+  if (!hasSupabaseAuthCookie(request.cookies.getAll())) return supabaseResponse;
 
   // This proxy/middleware runs on essentially every request (see
   // apps/web/proxy.ts's matcher) - a real production incident happened
