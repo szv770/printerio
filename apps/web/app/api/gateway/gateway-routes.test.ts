@@ -150,6 +150,17 @@ describe("POST /api/gateway/device/resolve", () => {
     expect(seen.values).not.toHaveProperty("first_seen_at");
   });
 
+  it("does not rewrite last_seen_at when it is under 5 minutes old, but does once it is older", async () => {
+    const seenAt = (ageMs: number) => new Date(Date.now() - ageMs).toISOString();
+    use(standardResponder({ device: { ...device, first_seen_at: seenAt(3_600_000), last_seen_at: seenAt(60_000) } as unknown as typeof device }));
+    expect((await resolvePOST(req("/api/gateway/device/resolve", { tokenHash: HASH }))).status).toBe(200);
+    expect(fake.calls.find((c) => c.table === "member_devices" && c.op === "update")).toBeUndefined();
+
+    use(standardResponder({ device: { ...device, first_seen_at: seenAt(3_600_000), last_seen_at: seenAt(10 * 60_000) } as unknown as typeof device }));
+    await resolvePOST(req("/api/gateway/device/resolve", { tokenHash: HASH }));
+    expect(fake.calls.find((c) => c.table === "member_devices" && c.op === "update")).toBeDefined();
+  });
+
   it("404 unknown_device, 403 revoked, 403 inactive_member", async () => {
     use(standardResponder({ device: null }));
     let res = await resolvePOST(req("/api/gateway/device/resolve", { tokenHash: HASH }));
