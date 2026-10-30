@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { routes } from "@/lib/routes";
 import { ButtonLink, EmptyState } from "@/components/ui";
 import { jobListBucket } from "@/lib/job-progress";
+import { debounce } from "@/lib/ui/debounce";
 import { startVisibleInterval } from "@/lib/ui/visible-interval";
 import { ACTIVE_JOB_REFRESH_MS } from "@/lib/ui/refresh-intervals";
 import { JobListItem } from "./JobListItem";
@@ -94,6 +95,8 @@ export function JobsList({
    */
   useEffect(() => {
     const supabase = createClient();
+    // Realtime bursts (a job moving through several statuses) collapse into one server re-render.
+    const refreshSoon = debounce(() => router.refresh(), 2_000);
     const channel = supabase
       .channel(`jobs-own-${userId}`)
       .on(
@@ -110,7 +113,7 @@ export function JobsList({
             const row = payload.new as JobRow;
             setLiveRows((prev) => ({ ...prev, [row.id]: row }));
           }
-          router.refresh();
+          refreshSoon();
         },
       )
       .subscribe((status) => {
@@ -118,6 +121,7 @@ export function JobsList({
       });
 
     return () => {
+      refreshSoon.cancel();
       supabase.removeChannel(channel);
     };
   }, [userId, router]);

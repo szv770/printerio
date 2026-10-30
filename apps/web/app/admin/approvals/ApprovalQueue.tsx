@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Tables } from "@/lib/database.types";
+import { debounce } from "@/lib/ui/debounce";
+import { affectsApprovalQueue } from "@/lib/ui/realtime-refresh";
 import { ApprovalList } from "./ApprovalList";
 
 type PrintJob = Tables<"print_jobs">;
@@ -22,6 +24,10 @@ export function ApprovalQueue({
   printerLabels: Record<string, string>;
 }) {
   const router = useRouter();
+  const shownIds = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    shownIds.current = new Set(initialJobs.map((j) => j.id));
+  }, [initialJobs]);
 
   /**
    * Live queue, per docs/architecture.md sec 15: any change to a print_jobs
@@ -46,13 +52,15 @@ export function ApprovalQueue({
    */
   useEffect(() => {
     const supabase = createClient();
+    // Only events that add/remove a queue entry matter, and bursts collapse into one refresh.
+    const refreshSoon = debounce(() => router.refresh(), 2_000);
     const channel = supabase
       .channel(`approvals-${organizationId}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "print_jobs", filter: `organization_id=eq.${organizationId}` },
-        () => {
-          router.refresh();
+        (payload) => {
+          if (affectsApprovalQueue(payload, shownIds.current)) refreshSoon();
         },
       )
       .subscribe((status) => {
@@ -60,6 +68,7 @@ export function ApprovalQueue({
       });
 
     return () => {
+      refreshSoon.cancel();
       supabase.removeChannel(channel);
     };
   }, [organizationId, router]);
