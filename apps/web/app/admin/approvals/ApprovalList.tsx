@@ -9,7 +9,12 @@ import { formatFileSize } from "@/lib/pdf/client-precheck";
 import { renderPdfPageToCanvas } from "@/lib/pdf/render-page";
 import { approveJobAction, createJobFileUrlAction, rejectJobAction, type ApprovalActionState } from "./actions";
 
-type PrintJob = Tables<"print_jobs">;
+type PrintJob = Pick<
+  Tables<"print_jobs">,
+  | "id" | "job_number" | "original_file_name" | "created_at" | "created_by" | "printer_profile_id" | "color_mode"
+  | "duplex" | "copies" | "paper_size" | "finishing" | "source_pdf_pages" | "estimated_physical_sheets"
+  | "file_size_bytes" | "policy_reasons" | "status"
+>;
 
 const initialActionState: ApprovalActionState = {};
 const PREVIEW_MAX_WIDTH_PX = 260;

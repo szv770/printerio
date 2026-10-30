@@ -8,7 +8,12 @@ import { debounce } from "@/lib/ui/debounce";
 import { affectsApprovalQueue } from "@/lib/ui/realtime-refresh";
 import { ApprovalList } from "./ApprovalList";
 
-type PrintJob = Tables<"print_jobs">;
+type PrintJob = Pick<
+  Tables<"print_jobs">,
+  | "id" | "job_number" | "original_file_name" | "created_at" | "created_by" | "printer_profile_id" | "color_mode"
+  | "duplex" | "copies" | "paper_size" | "finishing" | "source_pdf_pages" | "estimated_physical_sheets"
+  | "file_size_bytes" | "policy_reasons" | "status"
+>;
 
 export function ApprovalQueue({
   initialJobs,

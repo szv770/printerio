@@ -44,8 +44,11 @@ import {
 // value for useActionState lives here instead of alongside the action.
 const initialPrinterActionState: PrinterActionState = {};
 
-type Printer = Tables<"printers">;
-type PrinterProfile = Tables<"printer_profiles">;
+type Printer = Pick<
+  Tables<"printers">,
+  "id" | "name" | "vendor" | "model" | "location" | "status" | "status_detail" | "status_code" | "last_status_at"
+>;
+type PrinterProfile = Omit<Tables<"printer_profiles">, "created_at" | "pricing">;
 interface AgentInfo {
   id: string;
   name: string;

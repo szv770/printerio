@@ -10,17 +10,18 @@ export default async function GroupsPage() {
   const orgId = session.membership.organization_id;
 
   const [{ data: groups }, { data: members }] = await Promise.all([
-    supabase.from("groups").select("*").eq("organization_id", orgId).order("name"),
+    supabase.from("groups").select("id, name, kind").eq("organization_id", orgId).order("name").limit(500),
     supabase
       .from("organization_members")
       .select("user_id, profiles(email, display_name)")
-      .eq("organization_id", orgId),
+      .eq("organization_id", orgId)
+      .limit(2000),
   ]);
 
   const groupIds = (groups ?? []).map((g) => g.id);
   const { data: groupMembers } =
     groupIds.length > 0
-      ? await supabase.from("group_members").select("group_id, user_id").in("group_id", groupIds)
+      ? await supabase.from("group_members").select("group_id, user_id").in("group_id", groupIds).limit(5000)
       : { data: [] };
 
   return (

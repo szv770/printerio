@@ -16,7 +16,7 @@ import {
 // value for useActionState lives here instead of alongside the action.
 const initialGroupActionState: GroupActionState = {};
 
-type Group = Tables<"groups">;
+type Group = Pick<Tables<"groups">, "id" | "name" | "kind">;
 interface GroupMember {
   group_id: string;
   user_id: string;
