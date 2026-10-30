@@ -27,17 +27,8 @@ export async function GET(request: Request) {
   const profileIds = (profiles ?? []).map((p) => p.id);
   if (profileIds.length === 0) return Response.json({ jobs: [] });
 
-  // Self-healing: this Agent polls every few seconds, so use the poll to recover ITS OWN jobs whose lease expired
-  // (an Agent that crashed mid-print) instead of waiting for the daily sweep. Same function as the sweep, bounded,
-  // conditional, and never allowed to fail this call.
-  await recoverExpiredLeasesForAgent(supabase, {
-    organizationId: agent.organizationId,
-    agentId: agent.id,
-    printerProfileIds: profileIds,
-  });
-
   const nowIso = new Date().toISOString();
-  const { data: jobs, error } = await supabase
+  const claimableQuery = supabase
     .from("print_jobs")
     .select("id, job_number, printer_profile_id, lease_expires_at")
     .eq("organization_id", agent.organizationId)
@@ -51,6 +42,18 @@ export async function GET(request: Request) {
     .order("created_at", { ascending: true })
     .order("id", { ascending: true })
     .limit(CLAIMABLE_LIMIT);
+
+  // Self-healing: use the poll to recover THIS Agent's jobs whose lease expired (an Agent that crashed mid-print)
+  // instead of waiting for the daily sweep. Throttled inside (at most once per ~5 minutes per agent per server
+  // instance), never allowed to fail this call, and run alongside the list query instead of in front of it.
+  const [{ data: jobs, error }] = await Promise.all([
+    claimableQuery,
+    recoverExpiredLeasesForAgent(supabase, {
+      organizationId: agent.organizationId,
+      agentId: agent.id,
+      printerProfileIds: profileIds,
+    }),
+  ]);
 
   if (error) return apiError(500, "internal_error", "Failed to list claimable jobs.");
 
