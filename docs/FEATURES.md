@@ -94,7 +94,7 @@ a hosted option that needs no server in the building. Pricing and billing do not
 | Feature | Status |
 |---|---|
 | Sign in with an emailed link; sign-in code box for a different browser | Built, testing |
-| Sign in with Google (any Google account; it gives no access without an invite or an allowed domain). Needs the Google provider switched on in Supabase and the Google consent screen published; privacy and terms pages | Built, testing. Not tried yet with a real Google account |
+| Sign in with Google (any Google account; it gives no access without an invite or an allowed domain). Off until the Google provider is enabled in Supabase, the Google consent screen is published, and NEXT_PUBLIC_GOOGLE_SIGNIN=1 is set at build time (until then the button is greyed "Coming soon"); privacy and terms pages | Built, testing. Not tried yet with a real Google account |
 | Invite people with a link; the link carries the code through sign-in | Built, testing |
 | Paste an invite link or code on the "you need an invite" page | Built, testing |
 | Groups, page limits, approvals, who can print what | Proven |

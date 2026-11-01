@@ -20,3 +20,14 @@ describe("googleErrorMessage", () => {
     expect(googleErrorMessage("some internal thing")).toBe("Google sign-in didn't start. Try again, or use your email instead.");
   });
 });
+
+import { googleSignInEnabled } from "./google";
+
+describe("googleSignInEnabled", () => {
+  it("is off unless explicitly switched on (the provider must be enabled in Supabase first)", () => {
+    expect(googleSignInEnabled(undefined)).toBe(false);
+    expect(googleSignInEnabled("")).toBe(false);
+    expect(googleSignInEnabled("0")).toBe(false);
+    expect(googleSignInEnabled("1")).toBe(true);
+  });
+});
