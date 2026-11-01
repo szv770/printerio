@@ -13,6 +13,7 @@ export function liveSummaryLine(c: {
   sides: SidesChoice;
   staple: StapleChoice;
   booklet: BookletChoice;
+  punch?: boolean;
 }): string {
   const parts: string[] = [];
   if (c.pages && c.pages > 0) parts.push(plural(c.pages, "page", "pages"));
@@ -21,7 +22,9 @@ export function liveSummaryLine(c: {
     parts.push("booklet");
   } else {
     parts.push(c.sides === "two" ? "double-sided" : "single-sided");
-    if (c.staple !== "none") parts.push("stapled");
+    if (c.staple === "dual-left") parts.push("two staples");
+    else if (c.staple !== "none") parts.push("stapled");
+    if (c.punch) parts.push("hole punch");
   }
   return parts.join(" · ");
 }
@@ -34,13 +37,14 @@ export function summarizePages(rangeText: string, _total: number | null, selecte
 }
 
 /** Closed "Finishing" section. */
-export function summarizeFinishing(c: { staple: StapleChoice; booklet: BookletChoice }): string {
+export function summarizeFinishing(c: { staple: StapleChoice; booklet: BookletChoice; punch?: boolean }): string {
   if (c.booklet !== "none") {
     return c.booklet === "right" ? "Booklet, bound on the right" : c.booklet === "left" ? "Booklet, bound on the left" : "Booklet";
   }
-  if (c.staple === "top-left") return "Staple, top left";
-  if (c.staple === "top-right") return "Staple, top right";
-  if (c.staple === "profile") return "Staple";
+  const punch = c.punch ? "hole punch (3 holes, left)" : null;
+  const staple = c.staple === "top-left" ? "Staple, top left" : c.staple === "top-right" ? "Staple, top right" : c.staple === "dual-left" ? "Two staples, left" : c.staple === "profile" ? "Staple" : null;
+  if (staple) return punch ? `${staple}, ${punch}` : staple;
+  if (punch) return "Hole punch (3 holes, left)";
   return "No stapling or booklet";
 }
 
