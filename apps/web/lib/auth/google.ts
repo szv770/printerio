@@ -11,3 +11,8 @@ export function googleErrorMessage(raw: string): string {
   }
   return "Google sign-in didn't start. Try again, or use your email instead.";
 }
+
+/** The Google button only works once the Google provider is enabled in Supabase; until then it stays "coming soon". */
+export function googleSignInEnabled(flag: string | undefined): boolean {
+  return flag === "1";
+}

@@ -50,7 +50,7 @@ $lines = @(
   "GATEWAY_BASE_DOMAIN=$baseDomain",
   "PRINTIO_CRON_SECRET=$cron"
 )
-foreach ($k in "PRINTIO_BOOTSTRAP_ADMIN_EMAIL", "PRINTIO_BOOTSTRAP_ORG_NAME") { if ($old[$k]) { $lines += "$k=$($old[$k])" } }
+foreach ($k in "PRINTIO_BOOTSTRAP_ADMIN_EMAIL", "PRINTIO_BOOTSTRAP_ORG_NAME", "NEXT_PUBLIC_GOOGLE_SIGNIN") { if ($old[$k]) { $lines += "$k=$($old[$k])" } }
 [IO.File]::WriteAllLines($envFile, $lines, (New-Object Text.UTF8Encoding $false))
 Write-Host "Wrote $envFile"
 
@@ -107,4 +107,14 @@ if ($SwitchServices) {
   }
   Get-Service "*Printio*" -ErrorAction SilentlyContinue | ForEach-Object { Restart-Service $_ -Force; Write-Host "Restarted $($_.Name)" }
 }
+# The print agent runs from this same checkout: make it ask for work every 3 seconds and load the new code now.
+$agentEnv = Join-Path $repo (Join-Path "apps" (Join-Path "agent" ".env"))
+if (Test-Path $agentEnv) {
+  $c = Get-Content $agentEnv | Where-Object { $_ -notmatch "^\s*#?\s*PRINTIO_POLL_INTERVAL_SECONDS\s*=" }
+  $c += "PRINTIO_POLL_INTERVAL_SECONDS=3"
+  Set-Content $agentEnv $c
+  Write-Host "Agent now checks for jobs every 3 seconds."
+}
+$agentSvc = Get-Service "Printio Print Agent" -ErrorAction SilentlyContinue
+if ($agentSvc) { try { Restart-Service $agentSvc -Force; Write-Host "Restarted the print agent (it now runs the newest code)." } catch { Write-Host "Could not restart the print agent: $($_.Exception.Message). Run: Restart-Service 'Printio Print Agent'" } }
 Write-Host "`nDone. Remaining by hand: the Cloudflare hostname $Domain -> http://localhost:$Port and the Supabase redirect URL (docs/self-host.md)."

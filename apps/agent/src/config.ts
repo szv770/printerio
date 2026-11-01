@@ -41,7 +41,8 @@ export interface AgentConfig {
 }
 
 /** The fastest the agent polls the website (see loadConfig). */
-export const MIN_POLL_INTERVAL_SECONDS = 60;
+export const MIN_POLL_INTERVAL_SECONDS = 2;
+export const DEFAULT_POLL_INTERVAL_SECONDS = 3;
 
 const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"];
 const PRINT_FIT_MODES: readonly PrintFitMode[] = ["fit", "shrink", "noscale"];
@@ -119,11 +120,12 @@ export function loadConfig(options: LoadConfigOptions = {}): AgentConfig {
     );
   }
 
-  // Each cycle is 3 calls on the website (Vercel Active CPU is the scarce resource), so there is a floor: an old
-  // .env that still says 15 is raised to it. Lower MIN_POLL_INTERVAL_SECONDS to go back to faster polling.
+  // Each cycle is 3 calls on the website. On Vercel's Hobby plan that cost Active CPU, so the floor was 60s; with the
+  // website on the owner's own PC there is no quota, so jobs are picked up within seconds (default 3s, floor 2s).
+  // If the website ever goes back to Vercel, raise DEFAULT/MIN here again.
   const pollIntervalSeconds = Math.max(
     MIN_POLL_INTERVAL_SECONDS,
-    parsePositiveInt("PRINTIO_POLL_INTERVAL_SECONDS", env.PRINTIO_POLL_INTERVAL_SECONDS, MIN_POLL_INTERVAL_SECONDS),
+    parsePositiveInt("PRINTIO_POLL_INTERVAL_SECONDS", env.PRINTIO_POLL_INTERVAL_SECONDS, DEFAULT_POLL_INTERVAL_SECONDS),
   );
   const maxPollIntervalSeconds = parsePositiveInt(
     "PRINTIO_MAX_POLL_INTERVAL_SECONDS",
