@@ -43,6 +43,14 @@ export interface AgentConfig {
 /** The fastest the agent polls the website (see loadConfig). */
 export const MIN_POLL_INTERVAL_SECONDS = 2;
 export const DEFAULT_POLL_INTERVAL_SECONDS = 3;
+/** The longest an admin can set the poll interval to from the website. */
+export const MAX_ADMIN_POLL_INTERVAL_SECONDS = 300;
+
+/** The poll interval to use: the admin's website setting when it is valid, otherwise this PC's own setting. */
+export function effectivePollSeconds(configSeconds: number, adminSeconds: number | null): number {
+  if (adminSeconds !== null && Number.isInteger(adminSeconds) && adminSeconds >= MIN_POLL_INTERVAL_SECONDS && adminSeconds <= MAX_ADMIN_POLL_INTERVAL_SECONDS) return adminSeconds;
+  return configSeconds;
+}
 
 const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"];
 const PRINT_FIT_MODES: readonly PrintFitMode[] = ["fit", "shrink", "noscale"];

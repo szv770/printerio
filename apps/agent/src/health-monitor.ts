@@ -56,6 +56,8 @@ export interface HealthMonitor {
    * HeartbeatResponse.paused).
    */
   isPaused(): boolean;
+  /** The poll interval an admin set on the website (from the latest successful heartbeat), or null to use the PC's own setting. */
+  adminPollSeconds(): number | null;
 }
 
 export function createHealthMonitor(
@@ -65,6 +67,7 @@ export function createHealthMonitor(
   options: HealthMonitorOptions = {},
 ): HealthMonitor {
   let paused = false;
+  let adminPoll: number | null = null;
   // The direct-port printers to ask about: learned from the cloud's last answer, never invented here.
   let printerTargets: Array<{ printerId: string; host: string; port: number }> = [];
   const probe = options.probe ?? probePrinter;
@@ -120,6 +123,7 @@ export function createHealthMonitor(
           );
         }
         paused = nowPaused;
+        adminPoll = typeof res.pollIntervalSeconds === "number" && Number.isInteger(res.pollIntervalSeconds) ? res.pollIntervalSeconds : null;
         logger.debug("heartbeat ok", { serverTime: res.serverTime, queueCount: queues.length, paused });
         return true;
       } catch (err) {
@@ -132,6 +136,10 @@ export function createHealthMonitor(
 
     isPaused(): boolean {
       return paused;
+    },
+
+    adminPollSeconds(): number | null {
+      return adminPoll;
     },
   };
 }

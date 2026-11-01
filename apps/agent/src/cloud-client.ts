@@ -67,6 +67,8 @@ export interface HeartbeatRawPrinter {
 export interface HeartbeatResponse {
   ok: true;
   serverTime: string;
+  /** Seconds between polls chosen by an admin on the website (2-300), or null/absent to use this PC's own setting. */
+  pollIntervalSeconds?: number | null;
   /** The direct-port printers this agent should ask about with its next heartbeat. Absent from an older cloud. */
   rawPrinters?: Array<{ printerId: string; host: string; port: number }>;
   /**

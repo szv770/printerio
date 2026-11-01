@@ -63,6 +63,8 @@ export interface AuthenticatedAgent {
    * learns it is paused) - only job claiming is refused.
    */
   paused: boolean;
+  /** `agents.poll_interval_seconds`: an admin-chosen poll speed handed back in the heartbeat; null = the PC's own setting. */
+  pollIntervalSeconds?: number | null;
   /** What this agent last reported (already loaded by auth), so the heartbeat can skip rewriting identical values. Absent in test doubles. */
   reported?: {
     version: string | null;
@@ -76,7 +78,7 @@ export interface AuthenticatedAgent {
 
 /** Only the columns authentication and the heartbeat's change-detection use. */
 const AGENT_AUTH_COLUMNS =
-  "id, organization_id, status, paused, device_secret_hash, version, discovered_queues, hostname, os_version, ip_addresses, is_git_checkout";
+  "id, organization_id, status, paused, device_secret_hash, version, discovered_queues, hostname, os_version, ip_addresses, is_git_checkout, poll_interval_seconds";
 
 /** Parses and verifies the `Authorization: Bearer <agentId>.<deviceSecret>` header. */
 export async function authenticateAgentRequest(request: Request): Promise<AuthenticatedAgent | null> {
@@ -113,6 +115,7 @@ export async function authenticateAgentRequest(request: Request): Promise<Authen
     id: agent.id,
     organizationId: agent.organization_id,
     paused: agent.paused,
+    pollIntervalSeconds: agent.poll_interval_seconds ?? null,
     reported: {
       version: agent.version,
       discovered_queues: agent.discovered_queues,

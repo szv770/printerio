@@ -8,6 +8,7 @@ import { describeDatabaseError } from "@/lib/action-errors";
 import { routes } from "@/lib/routes";
 import { generateEnrollmentCode } from "@/lib/auth/invitations";
 import { issueRemoteCommand } from "@/lib/remote-commands";
+import { parsePollSeconds } from "@/lib/poll-interval";
 
 export interface AgentActionState {
   error?: string;
@@ -405,5 +406,25 @@ export async function deleteAgentAction(_prev: AgentActionState, formData: FormD
   });
 
   revalidatePath(routes.adminAgents);
+  return {};
+}
+
+/** Lets an org admin choose how often this print server asks the website for work (blank = the PC's own setting). The agent
+ *  picks it up with its next heartbeat; no file on the PC needs editing. */
+export async function setAgentPollIntervalAction(_prev: AgentActionState, formData: FormData): Promise<AgentActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const agentId = String(formData.get("agentId") ?? "");
+  const parsed = parsePollSeconds(String(formData.get("seconds") ?? ""));
+  if (!parsed.ok) return { error: "Choose a speed from the list." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("agents")
+    .update({ poll_interval_seconds: parsed.value })
+    .eq("id", agentId)
+    .eq("organization_id", session.membership.organization_id);
+  if (error) return { error: describeDatabaseError(error, "Couldn't save that speed.") };
+
+  revalidatePath(routes.adminAgentDetail(agentId));
   return {};
 }

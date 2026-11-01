@@ -202,5 +202,5 @@ export async function POST(request: Request) {
   // is a courtesy, NOT the enforcement: /api/agents/jobs/claimable and
   // .../[jobId]/claim independently refuse a paused Agent, so ignoring this
   // field buys a modified Agent nothing.
-  return Response.json({ ok: true, serverTime: new Date().toISOString(), paused: agent.paused, rawPrinters: rawTargets });
+  return Response.json({ ok: true, serverTime: new Date().toISOString(), paused: agent.paused, pollIntervalSeconds: agent.pollIntervalSeconds ?? null, rawPrinters: rawTargets });
 }

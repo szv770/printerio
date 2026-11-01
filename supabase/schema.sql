@@ -3423,3 +3423,10 @@ comment on function public.prune_rate_limit_buckets is 'Deletes rate_limit_bucke
 
 revoke execute on function public.prune_rate_limit_buckets(interval) from public, anon, authenticated;
 grant execute on function public.prune_rate_limit_buckets(interval) to service_role;
+
+
+-- 0049_agent_poll_interval: an admin can set how often a print server polls the website (null = the PC's own setting).
+alter table agents
+  add column if not exists poll_interval_seconds integer
+  check (poll_interval_seconds is null or (poll_interval_seconds between 2 and 300));
+comment on column agents.poll_interval_seconds is 'Admin-chosen seconds between Agent polls (2-300), or null to use the Agent''s own setting.';

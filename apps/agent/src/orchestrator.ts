@@ -14,7 +14,7 @@
 import { createWriteStream, mkdirSync, readFileSync, rmSync, statSync, unlinkSync } from "node:fs";
 import { Readable } from "node:stream";
 import path from "node:path";
-import type { AgentConfig } from "./config.js";
+import { effectivePollSeconds, type AgentConfig } from "./config.js";
 import type { CloudClient, ClaimableJob } from "./cloud-client.js";
 import type { JobQueue } from "./job-queue.js";
 import type { PrinterManager } from "./printer-manager.js";
@@ -819,10 +819,12 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           });
         }
 
+        // An admin can change the speed on the website (Print servers page); it arrives with the heartbeat.
+        const baseSeconds = effectivePollSeconds(config.pollIntervalSeconds, healthMonitor.adminPollSeconds?.() ?? null);
         let delayMs = computeNextPollDelayMs(
           consecutiveFailures,
-          config.pollIntervalSeconds,
-          config.maxPollIntervalSeconds,
+          baseSeconds,
+          Math.max(config.maxPollIntervalSeconds, baseSeconds),
         );
 
         if (outcome === "failure") {
