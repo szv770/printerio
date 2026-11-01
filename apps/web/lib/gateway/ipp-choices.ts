@@ -4,7 +4,7 @@
  *
  * Pure and total: it never throws, whatever the print dialog sent. Anything it cannot honour is not guessed at;
  * it comes back as `heldReason`, a plain sentence the member can act on, and the caller creates the job as held.
- * Staple (top-left / top-right) and booklet come from the `finishings` enum, see mapFinishings. A staple with a
+ * Staple (top-left / top-right / two staples left = 28), hole punch (5, 78) and booklet come from the `finishings` enum, see mapFinishings. A staple with a
  * short-edge flip or a non-portrait page, several staples, or an unlisted finishing is held, and then carries
  * staple "none" / booklet "none" so a held request never promises finishing it did not check. The one exception
  * is a plain booklet request (8 / 13): it is held only to ask left or right binding and keeps booklet set.
@@ -170,60 +170,83 @@ function mapMedia(attrs: IppAttributes, reasons: string[]): Paper {
 /** Shown to the member as the held reason; the job page recognises a held booklet by its finishing, not this text. */
 export const BOOKLET_BINDING_REASON = "Booklet: choose left or right binding.";
 const FIN_NONE = 3;
+const FIN_PUNCH = 5;
 const FIN_STAPLE = 4;
 const FIN_SADDLE_STITCH = 8;
 const FIN_BOOKLET_MAKER = 13;
 const FIN_STAPLE_TOP_LEFT = 20;
 const FIN_STAPLE_TOP_RIGHT = 22;
+const FIN_STAPLE_DUAL_LEFT = 28;
+const FIN_PUNCH_TRIPLE_LEFT = 78;
 /** orientation-requested: 3 portrait, 4 landscape, 5 reverse-landscape, 6 reverse-portrait. */
 const NON_PORTRAIT = new Set([4, 5, 6]);
 
 interface Finishing {
-  staple: "none" | "top-left" | "top-right";
+  staple: "none" | "top-left" | "top-right" | "dual-left";
   booklet: boolean;
+  punch: boolean;
 }
 
 function mapFinishings(raw: unknown, orientation: unknown, sidesRaw: unknown, reasons: string[]): Finishing {
-  const none: Finishing = { staple: "none", booklet: false };
+  const none: Finishing = { staple: "none", booklet: false, punch: false };
   if (raw === undefined) return none;
   const values = asList(raw).map(toInt);
-  const unknown = values.filter((v) => v === null || ![FIN_NONE, FIN_STAPLE, FIN_STAPLE_TOP_LEFT, FIN_STAPLE_TOP_RIGHT, FIN_SADDLE_STITCH, FIN_BOOKLET_MAKER].includes(v));
+  const unknown = values.filter((v) => v === null || ![FIN_NONE, FIN_STAPLE, FIN_STAPLE_TOP_LEFT, FIN_STAPLE_TOP_RIGHT, FIN_STAPLE_DUAL_LEFT, FIN_PUNCH, FIN_PUNCH_TRIPLE_LEFT, FIN_SADDLE_STITCH, FIN_BOOKLET_MAKER].includes(v));
   if (unknown.length > 0) {
     const first = unknown[0];
     reasons.push(
-      `The finishing option (${first === null || first === undefined ? "unknown" : describe(first)}) from the print dialog is not available yet, so nothing was printed. Only staple and booklet can be chosen; choose it on the website.`,
+      `The finishing option (${first === null || first === undefined ? "unknown" : describe(first)}) from the print dialog is not available yet, so nothing was printed. Only staple (top-left, top-right or two staples on the left), hole punch (3 holes, left) and booklet can be chosen; choose it on the website.`,
     );
     return none;
   }
-  const staples = new Set<"top-left" | "top-right">();
+  const staples = new Set<"top-left" | "top-right" | "dual-left">();
   let booklet = false;
+  let punch = false;
   for (const v of values) {
     if (v === FIN_STAPLE || v === FIN_STAPLE_TOP_LEFT) staples.add("top-left");
     else if (v === FIN_STAPLE_TOP_RIGHT) staples.add("top-right");
+    else if (v === FIN_STAPLE_DUAL_LEFT) staples.add("dual-left");
+    else if (v === FIN_PUNCH || v === FIN_PUNCH_TRIPLE_LEFT) punch = true;
     else if (v === FIN_SADDLE_STITCH || v === FIN_BOOKLET_MAKER) booklet = true;
   }
   if (staples.size > 1) {
     reasons.push("The print dialog asked for more than one staple position, so nothing was printed. Choose one corner on the website.");
     return none;
   }
-  const staple = staples.size === 1 ? ([...staples][0] as "top-left" | "top-right") : "none";
+  const staple = staples.size === 1 ? ([...staples][0] as "top-left" | "top-right" | "dual-left") : "none";
+  if (punch && staple === "dual-left") {
+    reasons.push("Hole punch cannot be combined with two staples yet, so nothing was printed. Choose one of them, or use the website.");
+    return none;
+  }
+  if (booklet && punch) {
+    reasons.push("A booklet cannot also have hole punch, so nothing was printed. Choose either a booklet or hole punch.");
+    return none;
+  }
   if (booklet && staple !== "none") {
     reasons.push("A booklet is stapled for you, so it cannot also be stapled in a corner. Choose either a booklet or a staple.");
     return none;
   }
   if (booklet) reasons.push(BOOKLET_BINDING_REASON);
-  if (staple !== "none") {
+  if (staple !== "none" || punch) {
     if (asList(sidesRaw)[0] === "two-sided-short-edge") {
-      reasons.push("A corner staple cannot be combined with a flip on the short edge yet, so nothing was printed. Choose double-sided (long edge) with the staple, or use the website.");
+      reasons.push(
+        staple === "top-left" || staple === "top-right"
+          ? "A corner staple cannot be combined with a flip on the short edge yet, so nothing was printed. Choose double-sided (long edge) with the staple, or use the website."
+          : "Hole punch or two staples cannot be combined with a flip on the short edge yet, so nothing was printed. Choose double-sided (long edge), or use the website.",
+      );
       return none;
     }
     const o = toInt(asList(orientation)[0]);
     if (o !== null && NON_PORTRAIT.has(o)) {
-      reasons.push("The staple corner is only checked on portrait pages, so nothing was printed. Choose the staple on the website.");
+      reasons.push(
+        staple === "top-left" || staple === "top-right"
+          ? "The staple corner is only checked on portrait pages, so nothing was printed. Choose the staple on the website."
+          : "Hole punch and two staples are only checked on portrait pages, so nothing was printed. Choose it on the website.",
+      );
       return none;
     }
   }
-  return { staple, booklet };
+  return { staple, booklet, punch };
 }
 
 /** "Quarterly report.docx" style job names -> a safe `<name>.pdf`: letters, digits, space and . _ - only, max 60. */
@@ -260,6 +283,7 @@ export function mapIppChoices(attributes: IppAttributes | null | undefined): Ipp
       sides: fin.booklet ? "two" : mappedSides.sides,
       ...(!fin.booklet && mappedSides.flip ? { flip: mappedSides.flip } : {}),
       staple: fin.staple,
+      ...(fin.punch ? { punch: true } : {}),
       booklet: fin.booklet ? "profile" : "none",
       copies,
       pageRange,
