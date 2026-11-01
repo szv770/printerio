@@ -22,6 +22,8 @@ export const routes = {
   print: "/print",
   jobs: "/jobs",
   job: (jobId: string) => `/jobs/${jobId}`,
+  /** Opens a job's stored PDF (sender and same-organization admins/approvers): which = the original, or "sent" (what went to the printer). */
+  jobFile: (jobId: string, which: "original" | "sent") => `/jobs/${jobId}/file?which=${which}`,
   profile: "/profile",
   devices: "/devices",
   usage: "/usage",

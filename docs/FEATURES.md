@@ -90,6 +90,7 @@ a hosted option that needs no server in the building. Pricing and billing do not
 | Library: "Print this file" for a single choice goes straight to the Print screen; "Make a booklet" (the wizard) only when asked | Built, testing |
 | Booklet wizard: choose Letter or Ledger 11x17; the Print screen opens with the right binding side (Hebrew = right) and the chosen size | Built, testing. The printer is told to use 11x17 paper (PAPER=LEDGER), proven by a real print 2026-10-26 |
 | Print from the normal Print button on 11x17 (Ledger) paper as well as Letter: the print dialog offers only Letter and Ledger (no A4/A3 or other sizes); a Ledger job is sent with PAPER=LEDGER, and a printer that does not declare 11x17 holds the job with a plain reason | Built, testing. Not seen yet from a real Windows/Android print dialog; the printer side (PAPER=LEDGER) is proven by a booklet print |
+| View a printed job's document: the person who sent it and the admins/approvers of the same organization can open the stored PDF from the job page ("View original file" and "View as sent to the printer"), until the retention window ends or the sender deletes it; a short-lived link is made on each click; no access across organizations and none for a platform super admin | Built, testing |
 
 ### People and rules
 
