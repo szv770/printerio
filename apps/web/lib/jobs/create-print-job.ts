@@ -194,12 +194,13 @@ export async function createPrintJob(
   let staplePosition: "top-left" | "top-right" | null;
   let bindingSide: BindingSide | null;
   let duplexEdge: "short" | null = null;
+  let stapleStyle: "dual-left" | null = null;
   let heldReason: string | null = null;
   const copies = choices.copies;
   if (printerProfile.output_mode === "raw") {
-    const caps = printerProfile.declared_capabilities as { duplex?: boolean; staple?: boolean; booklet?: boolean } | null;
+    const caps = printerProfile.declared_capabilities as { duplex?: boolean; staple?: boolean; booklet?: boolean; punch?: boolean } | null;
     const mapped = mapRawChoices(choices, {
-      capabilities: { duplex: !!caps?.duplex, staple: !!caps?.staple, booklet: !!caps?.booklet },
+      capabilities: { duplex: !!caps?.duplex, staple: !!caps?.staple, booklet: !!caps?.booklet, punch: !!caps?.punch },
       bookletBindingSide: profileBindingSide,
       stapleDefault: printerProfile.raw_staple_position === "top-right" ? "top-right" : "top-left",
       declaredPaperSizes: printerProfile.declared_paper_sizes,
@@ -208,7 +209,9 @@ export async function createPrintJob(
     duplexEdge = mapped.duplexEdge;
     staple = mapped.finishing.staple;
     booklet = mapped.finishing.booklet;
-    punch = false; // the raw builder has no punch setting, so it is never requested
+    // Hole punch and two staples (left) are proven single-sided (PROVEN_FINISHING_COMBOS in packages/shared/src/pjl.ts); mapRawChoices holds the rest.
+    punch = mapped.finishing.punch;
+    stapleStyle = mapped.finishing.stapleStyle ?? null;
     if (opts.paperSize === "11x17" && !booklet) {
       // Ledger from the print dialog: only for a printer that declares 11x17, never silently printed on Letter.
       if (printerProfile.declared_paper_sizes.includes("11x17")) paperSize = "11x17";
@@ -217,7 +220,10 @@ export async function createPrintJob(
   } else {
     const mapped = mapQueueChoices(choices, { bookletBindingSide: profileBindingSide });
     ({ duplex, staple, booklet, staplePosition, bindingSide } = mapped);
-    ({ colorMode, paperSize, punch } = opts);
+    ({ colorMode, paperSize } = opts);
+    punch = opts.punch || !!choices.punch;
+    // A Windows queue staples at its own fixed corner: it cannot be told to staple twice on the left.
+    if (choices.staple === "dual-left") return fail("This printer can't do Two staples (left). Choose a corner staple or no staple.", "unsupported_option");
     // The server is the authority on what a queue printer offers: refuse (inline, not held) anything the
     // profile does not declare, instead of sending it to a queue that would silently ignore it.
     const unsupported = checkQueueCapabilities(
@@ -607,6 +613,7 @@ export async function createPrintJob(
       staple,
       booklet,
       punch,
+      ...(stapleStyle ? { stapleStyle } : {}),
       ...(booklet ? { bookletFit, ...(bookletSheet === "tabloid" ? { bookletSheet } : {}) } : {}),
       ...(duplexEdge ? { duplexEdge } : {}),
     },

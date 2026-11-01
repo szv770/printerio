@@ -689,3 +689,41 @@ describe("createPrintJob: 11x17 (ledger) jobs from the print dialog", () => {
     expect(insertedJob()).toMatchObject({ paper_size: "letter" });
   });
 });
+
+
+describe("createPrintJob: two staples (left) and hole punch on a raw printer", () => {
+  const caps = { duplex: true, staple: true, booklet: true, punch: true };
+  const choicesOf = (over: Record<string, unknown>) => ({ sides: "one" as const, staple: "none" as const, booklet: "none" as const, copies: 1, pageRange: "", ...over });
+
+  it("two staples (left): finishing carries the style, no corner is stored", async () => {
+    use({ profile: profileRow({ declared_capabilities: caps }) });
+    const res = await run(pdf3, baseOpts({ choices: choicesOf({ staple: "dual-left" }) }));
+    expect(res).toMatchObject({ ok: true, status: "approved", heldReason: null });
+    expect(insertedJob()).toMatchObject({ finishing: { staple: true, stapleStyle: "dual-left", punch: false }, staple_position: null });
+  });
+
+  it("hole punch: finishing.punch is stored when the profile declares punch", async () => {
+    use({ profile: profileRow({ declared_capabilities: caps }) });
+    const res = await run(pdf3, baseOpts({ choices: choicesOf({ punch: true }) }));
+    expect(res).toMatchObject({ ok: true, status: "approved", heldReason: null });
+    expect(insertedJob()).toMatchObject({ finishing: { staple: false, punch: true }, staple_position: null });
+  });
+
+  it("hole punch is held with the capability message while the profile does not declare punch", async () => {
+    use({ profile: profileRow() });
+    const res = await run(pdf3, baseOpts({ choices: choicesOf({ punch: true }) }));
+    expect(res).toMatchObject({ ok: true, status: "held", heldReason: expect.stringMatching(/Hole punch/) });
+  });
+
+  it("not-yet-tested combinations are held (double-sided punch)", async () => {
+    use({ profile: profileRow({ declared_capabilities: caps }) });
+    const res = await run(pdf3, baseOpts({ choices: choicesOf({ sides: "two", punch: true }) }));
+    expect(res).toMatchObject({ ok: true, status: "held", heldReason: expect.stringMatching(/not tested on this printer yet/) });
+  });
+
+  it("a Windows-queue printer refuses two staples (left) instead of stapling a corner", async () => {
+    use({ profile: profileRow({ output_mode: "queue", windows_queue_name: "Q", declared_capabilities: { ...caps } }) });
+    const res = await run(pdf3, baseOpts({ choices: choicesOf({ staple: "dual-left" }) }));
+    expect(res).toMatchObject({ ok: false, error: expect.stringMatching(/Two staples \(left\)/) });
+  });
+});
