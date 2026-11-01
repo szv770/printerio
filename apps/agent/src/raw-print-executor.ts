@@ -36,6 +36,11 @@ export const RAW_CLOSE_GRACE_MS = 20_000;
 /** Hard ceiling for one send, however slowly a busy printer takes the data. */
 export const RAW_MAX_SEND_MS = 60 * 60_000;
 const WRITE_CHUNK_BYTES = 256 * 1024;
+/** The printer's own defaults for the USTATUS reports (read with @PJL INFO USTATUS): DEVICE=ON, JOB=ON, PAGE=OFF, TIMED=0. */
+const USTATUS_RESTORE = Buffer.from(
+  ["\u001b%-12345X@PJL", "@PJL USTATUS DEVICE=ON", "@PJL USTATUS JOB=ON", "@PJL USTATUS PAGE=OFF", "@PJL USTATUS TIMED=0", "\u001b%-12345X"].join("\r\n"),
+  "latin1",
+);
 
 /**
  * What went wrong, as data, so the orchestrator decides "wait for the
@@ -275,6 +280,9 @@ export function sendRawBytesListening(
     /** end() now, destroy() shortly after: never leave the printer's connection hanging on our side. */
     const closeOurSide = () => {
       try {
+        // The Kyocera REMEMBERS the USTATUS settings we turned on (measured 2026-11-01), so every later connection would get
+        // stray PAGE/TIMED messages. Put the defaults back on our own connection before closing it.
+        if (socket.writable) socket.write(USTATUS_RESTORE);
         socket.end();
       } catch {
         /* already closed */

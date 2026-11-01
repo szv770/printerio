@@ -72,6 +72,34 @@ describe("printer feedback: the bytes", () => {
   });
 });
 
+describe("printer feedback: the printer remembers USTATUS settings, so we put them back", () => {
+  // Measured 2026-11-01: PAGE=ON / TIMED=5 / DEVICE=VERBOSE stay set on the Kyocera after our job, and every later connection
+  // (including the agent's own status checks) then receives stray PAGE and TIMED messages.
+  it("writes the restore commands (DEVICE=ON, JOB=ON, PAGE=OFF, TIMED=0) on our own connection before closing, after a confirmed job", async () => {
+    const fake = await fakePrinter(async (s) => {
+      s.write(START + page(1) + page(2) + page(3) + page(4));
+    });
+    const verdict = await run(fake, { expectedSheets: 4, ...fast });
+    expect(verdict).toMatchObject({ outcome: "confirmed" });
+    await sleep(150);
+    const all = Buffer.concat(fake.received).toString("latin1");
+    const tail = all.slice(all.lastIndexOf("@PJL EOJ"));
+    expect(tail).toContain("@PJL USTATUS PAGE=OFF");
+    expect(tail).toContain("@PJL USTATUS TIMED=0");
+    expect(tail).toContain("@PJL USTATUS DEVICE=ON");
+  });
+
+  it("also restores them when the printer stays quiet (a stall)", async () => {
+    const fake = await fakePrinter(async (s) => {
+      s.write(START);
+    });
+    const verdict = await run(fake, { expectedSheets: 4, stallMs: 120, ...fast });
+    expect(verdict).toMatchObject({ outcome: "unconfirmed", reason: "stalled" });
+    await sleep(150);
+    expect(Buffer.concat(fake.received).toString("latin1")).toContain("@PJL USTATUS PAGE=OFF");
+  });
+});
+
 describe("printer feedback: confirmed", () => {
   it("several PAGE messages in one chunk and one split mid-message: confirmed 4 of 4, our side stays open until then, then end() and destroy()", async () => {
     const fake = await fakePrinter(async (s, f) => {
