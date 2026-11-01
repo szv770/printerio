@@ -288,7 +288,7 @@ function PollSpeedCard({ agent }: { agent: Tables<"agents"> }) {
           name="seconds"
           defaultValue={current === null ? "" : String(current)}
           aria-label="Speed"
-          className="h-10 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 text-sm"
+          className="h-10 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 text-base md:text-sm"
         >
           <option value="">The PC&apos;s own setting (usually every 3 seconds)</option>
           {POLL_PRESETS.map((p) => (
