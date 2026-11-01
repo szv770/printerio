@@ -20,7 +20,8 @@ Next steps are listed at the bottom of `docs/ipp-printing.md` (Apple tests, Chro
 replay, then Phase 1 gateway).
 
 ## Where things stand (gateway build)
-Read `docs/HANDOFF.md` first: what is built, what is untested, the follow-ups, and the owner's remaining steps.
+Read `docs/STATE-2026-11-01.md` first (newest: where it runs now - the owner's own PC, not Vercel -, printer facts, what is built, what is next,
+how the owner likes to work, practical gotchas). Then `docs/HANDOFF.md` (older: the gateway build) for what was built, what is untested and the follow-ups.
 
 ## Gotchas
 - Supabase Data API grants (Supabase's Oct 30, 2026 change): new tables in `public` no longer get
