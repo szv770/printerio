@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getCurrentSession } from "@/lib/auth/session";
 import { getGatewayEnv } from "@/lib/env";
+import { isSameOrigin } from "@/lib/http/public-origin";
 import { buildAirPrintProfile, isDeviceHostname } from "@/lib/devices/airprint-profile";
 
 /**
@@ -14,8 +15,7 @@ function fail(status: number, message: string): Response {
 }
 
 export async function POST(request: Request) {
-  const origin = request.headers.get("origin");
-  if (origin !== null && origin !== new URL(request.url).origin) return fail(403, "Not allowed.");
+  if (!isSameOrigin(request)) return fail(403, "Not allowed.");
 
   const session = await getCurrentSession();
   if (!session) return fail(401, "Sign in first.");
