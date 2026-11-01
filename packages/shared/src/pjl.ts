@@ -23,9 +23,9 @@ export interface FinishingCombo {
 export const PROVEN_FINISHING_COMBOS: FinishingCombo[] = [
   { duplex: false, staple: "dual-left", punch: false, proven: true, proof: "2026-11-01 labelled print: 2 sheets single-sided gave two staples on the left (OUTBIN=OPTIONFACEDOWN STAPLEOPTION=TWO FINISH=STAPLE)." },
   { duplex: false, staple: "none", punch: true, proven: true, proof: "2026-11-01 labelled print: 3 holes on the left edge of every sheet (OUTBIN=OPTIONFACEDOWN FINISH=KPUNCH)." },
-  { duplex: true, staple: "none", punch: true, proven: false, proof: "Pending: DUPLEX=ON BINDING=LONGEDGE FINISH=KPUNCH not printed yet." },
-  { duplex: false, staple: "top-left", punch: true, proven: false, proof: "Pending: FINISH=KPNCHANDSTPL STAPLEOPTION=ONE not printed yet." },
-  { duplex: true, staple: "dual-left", punch: false, proven: false, proof: "Pending: dual staple on a double-sided long-edge job not printed yet." },
+  { duplex: true, staple: "none", punch: true, proven: true, proof: "2026-11-01 labelled print P1: double-sided long edge gave 3 holes on the left (DUPLEX=ON BINDING=LONGEDGE OUTBIN=OPTIONFACEDOWN FINISH=KPUNCH)." },
+  { duplex: false, staple: "top-left", punch: true, proven: true, proof: "2026-11-01 labelled print P2: single-sided gave a top-left staple and 3 holes on the left (OUTBIN=OPTIONFACEDOWN STAPLEOPTION=ONE FINISH=KPNCHANDSTPL)." },
+  { duplex: true, staple: "dual-left", punch: false, proven: false, proof: "2026-11-01 labelled print P3 did NOT work: double-sided long edge with STAPLEOPTION=TWO gave ONE top-left staple, not two on the left. Held." },
 ];
 
 

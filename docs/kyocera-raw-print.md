@@ -219,7 +219,7 @@ Checking every 10 s for the job's `JOB END` message usually MISSES it: the print
 | T2 | `DUPLEX=OFF OUTBIN=OPTIONFACEDOWN FINISH=KPUNCH` | **3 holes punched on both pages. Proven** (main punch unit, US 3-hole). |
 | T3 | `DUPLEX=OFF MEDIATYPE=PLAIN` | Printed normally, single sided. **Proven** (paper type is accepted; which tray it picks was not tested). |
 
-**Used by Printio (2026-11-01):** T1B (two staples, left) and T2 (3-hole punch) are wired into `packages/shared/src/pjl.ts` as `staple: "dual-left"` and `punch: true`, delivered only for the combinations listed in `PROVEN_FINISHING_COMBOS` (single-sided portrait are `proven: true`; double-sided punch, punch + corner staple `KPNCHANDSTPL`, and double-sided two staples are listed with `proven: false` and are held with "not tested on this printer yet" until a labelled print flips the flag). Stored on the job as `finishing.stapleStyle = "dual-left"` / `finishing.punch = true`; Agent 0.2.1 or newer is required (older Agents are refused for such jobs). Print dialog: finishings 28 and 5/78 (advertised). Not yet run through the real dialog/agent.
+**Used by Printio (2026-11-01):** T1B (two staples, left) and T2 (3-hole punch) are wired into `packages/shared/src/pjl.ts` as `staple: "dual-left"` and `punch: true`, delivered only for the combinations listed in `PROVEN_FINISHING_COMBOS` (single-sided portrait are `proven: true`; double-sided long-edge punch (P1) and punch + top-left staple single-sided (`KPNCHANDSTPL`, P2) were proven by labelled prints on 2026-11-01 and are `proven: true`; double-sided two staples (P3) did NOT work, the printer made one top-left staple instead of two on the left, so it stays `proven: false` and is held with "not tested on this printer yet"). Stored on the job as `finishing.stapleStyle = "dual-left"` / `finishing.punch = true`; Agent 0.2.1 or newer is required (older Agents are refused for such jobs). Print dialog: finishings 28 and 5/78 (advertised). Not yet run through the real dialog/agent.
 
 ## What the printer sends back on port 9100 (measured 2026-11-01)
 
@@ -282,3 +282,11 @@ node tools/raw-print/send-labelled.mjs tools/raw-print/hebrew-out/C-mixed.pdf  <
 Each page says which file it is in large Latin letters and what to expect. Record here which of A, B, C printed correctly.
 If all print fine, the printer handles ordinary TrueType Hebrew and the culprit is the source file's font type; then ask
 whoever regenerates the PDF to export from a tool that embeds TrueType (not Type 3) fonts, or print it via Chrome's Save as PDF.
+
+### Labelled tests, finishing combinations (2026-11-01, second round)
+
+| Test | Settings sent | What came out |
+|---|---|---|
+| P1 | `DUPLEX=ON BINDING=LONGEDGE OUTBIN=OPTIONFACEDOWN FINISH=KPUNCH` (4 pages, 2 sheets) | **Double-sided, 3 holes on the left side. Proven.** |
+| P2 | `DUPLEX=OFF OUTBIN=OPTIONFACEDOWN STAPLEOPTION=ONE FINISH=KPNCHANDSTPL` (4 single-sided sheets) | **A staple at the top left and 3 holes on the left. Proven.** |
+| P3 | `DUPLEX=ON BINDING=LONGEDGE OUTBIN=OPTIONFACEDOWN STAPLEOPTION=TWO FINISH=STAPLE` (4 pages, 2 sheets) | Double-sided, but **one staple at the top left**, not two on the left. **Not as asked: held.** (Single-sided `STAPLEOPTION=TWO` does give two left staples, T1B.) |

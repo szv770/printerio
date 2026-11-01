@@ -210,30 +210,31 @@ describe("buildPjlSettings: dual staple left and 3-hole punch", () => {
     expect(ok({ ...base, punch: true })).toEqual(["DUPLEX=OFF", "OUTBIN=OPTIONFACEDOWN", "FINISH=KPUNCH", "QTY=1"]);
   });
 
-  it("pending combinations are held with a plain reason until the proven flag is flipped", () => {
-    const cases = [
-      { ...base, duplex: true, punch: true },
-      { ...base, punch: true, staple: "top-left" as const },
-      { ...base, duplex: true, staple: "dual-left" as const },
-    ];
-    for (const c of cases) {
-      const r = buildPjlSettings(c);
-      expect(r.ok).toBe(false);
-      if (!r.ok) expect(r.reason).toMatch(/not tested on this printer yet/i);
-    }
+  it("3-hole punch, double-sided long edge: proven by a labelled print (P1, 2026-11-01)", () => {
+    expect(ok({ ...base, duplex: true, punch: true })).toEqual(["DUPLEX=ON", "BINDING=LONGEDGE", "OUTBIN=OPTIONFACEDOWN", "FINISH=KPUNCH", "QTY=1"]);
   });
 
-  it("the table lists exactly two proven and three pending entries", () => {
-    expect(PROVEN_FINISHING_COMBOS.filter((c) => c.proven)).toHaveLength(2);
-    expect(PROVEN_FINISHING_COMBOS.filter((c) => !c.proven)).toHaveLength(3);
+  it("3-hole punch with a top-left staple, single-sided: proven by a labelled print (P2, 2026-11-01)", () => {
+    expect(ok({ ...base, punch: true, staple: "top-left" })).toEqual(["DUPLEX=OFF", "OUTBIN=OPTIONFACEDOWN", "STAPLEOPTION=ONE", "FINISH=KPNCHANDSTPL", "QTY=1"]);
+  });
+
+  it("dual staple on a double-sided job stays held: the printer gave ONE top-left staple, not two on the left (P3, 2026-11-01)", () => {
+    const r = buildPjlSettings({ ...base, duplex: true, staple: "dual-left" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/not tested on this printer yet/i);
+  });
+
+  it("the table lists four proven entries and one that did not work", () => {
+    expect(PROVEN_FINISHING_COMBOS.filter((c) => c.proven)).toHaveLength(4);
+    expect(PROVEN_FINISHING_COMBOS.filter((c) => !c.proven)).toHaveLength(1);
     for (const c of PROVEN_FINISHING_COMBOS) expect(c.proof.length).toBeGreaterThan(5);
   });
 
   it("an entry flipped to proven is delivered", () => {
-    const entry = PROVEN_FINISHING_COMBOS.find((c) => c.duplex && c.punch && c.staple === "none")!;
+    const entry = PROVEN_FINISHING_COMBOS.find((c) => c.duplex && c.staple === "dual-left")!;
     entry.proven = true;
     try {
-      expect(ok({ ...base, duplex: true, punch: true })).toEqual(["DUPLEX=ON", "BINDING=LONGEDGE", "OUTBIN=OPTIONFACEDOWN", "FINISH=KPUNCH", "QTY=1"]);
+      expect(ok({ ...base, duplex: true, staple: "dual-left" })).toEqual(["DUPLEX=ON", "BINDING=LONGEDGE", "OUTBIN=OPTIONFACEDOWN", "STAPLEOPTION=TWO", "FINISH=STAPLE", "QTY=1"]);
     } finally {
       entry.proven = false;
     }

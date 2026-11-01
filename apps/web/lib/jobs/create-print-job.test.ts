@@ -715,9 +715,15 @@ describe("createPrintJob: two staples (left) and hole punch on a raw printer", (
     expect(res).toMatchObject({ ok: true, status: "held", heldReason: expect.stringMatching(/Hole punch/) });
   });
 
-  it("not-yet-tested combinations are held (double-sided punch)", async () => {
+  it("double-sided punch is allowed (proven by labelled print P1)", async () => {
     use({ profile: profileRow({ declared_capabilities: caps }) });
     const res = await run(pdf3, baseOpts({ choices: choicesOf({ sides: "two", punch: true }) }));
+    expect(res).toMatchObject({ ok: true, status: "approved", heldReason: null });
+  });
+
+  it("combinations the printer did not do correctly are held (double-sided dual staple gave one corner staple)", async () => {
+    use({ profile: profileRow({ declared_capabilities: caps }) });
+    const res = await run(pdf3, baseOpts({ choices: choicesOf({ sides: "two", staple: "dual-left" }) }));
     expect(res).toMatchObject({ ok: true, status: "held", heldReason: expect.stringMatching(/not tested on this printer yet/) });
   });
 

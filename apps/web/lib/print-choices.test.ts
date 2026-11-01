@@ -292,8 +292,11 @@ describe("dual staple (left) and hole punch", () => {
     expect(m.pjl.punch).toBe(true);
   });
 
+  it("double-sided punch is allowed (proven by labelled print P1, 2026-11-01)", () => {
+    expect(mapRawChoices(choices({ sides: "two", punch: true }), profile).heldReason).toBeFalsy();
+  });
+
   it("not-yet-tested combinations are held", () => {
-    expect(mapRawChoices(choices({ sides: "two", punch: true }), profile).heldReason).toMatch(/not tested/i);
     expect(mapRawChoices(choices({ sides: "two", staple: "dual-left" }), profile).heldReason).toMatch(/not tested/i);
     expect(mapRawChoices(choices({ sides: "one", punch: true, staple: "dual-left" }), profile).heldReason).toMatch(/hole punch/i);
     expect(mapRawChoices(choices({ booklet: "left", punch: true }), profile).heldReason).toMatch(/booklet/i);
