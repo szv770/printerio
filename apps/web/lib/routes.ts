@@ -15,6 +15,8 @@ export const routes = {
   login: "/login",
   authCallback: "/auth/callback",
   noAccess: "/no-access",
+  privacy: "/privacy",
+  terms: "/terms",
 
   dashboard: "/home",
   print: "/print",

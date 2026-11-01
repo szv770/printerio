@@ -94,6 +94,7 @@ a hosted option that needs no server in the building. Pricing and billing do not
 | Feature | Status |
 |---|---|
 | Sign in with an emailed link; sign-in code box for a different browser | Built, testing |
+| Sign in with Google (any Google account; it gives no access without an invite or an allowed domain). Needs the Google provider switched on in Supabase and the Google consent screen published; privacy and terms pages | Built, testing. Not tried yet with a real Google account |
 | Invite people with a link; the link carries the code through sign-in | Built, testing |
 | Paste an invite link or code on the "you need an invite" page | Built, testing |
 | Groups, page limits, approvals, who can print what | Proven |
@@ -139,7 +140,7 @@ a hosted option that needs no server in the building. Pricing and billing do not
 
 Browse a library (Mafteiach first) and print from it; a booklet builder that combines
 several texts with a cover and contents page; tap-to-pick pages; saved booklets; email alerts when a printer or the
-server goes offline; printer status (jam, toner, paper); a test lab for printer settings; Google sign-in; students and
+server goes offline; printer status (jam, toner, paper); a test lab for printer settings; students and
 Chromebooks with their own limits.
 
 ---

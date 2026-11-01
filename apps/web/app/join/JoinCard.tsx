@@ -2,7 +2,7 @@ import { Printer, TriangleAlert } from "lucide-react";
 import { routes } from "@/lib/routes";
 import { Card, ButtonLink } from "@/components/ui";
 import { MagicLinkForm } from "@/app/login/MagicLinkForm";
-import { GoogleComingSoon } from "@/app/login/GoogleComingSoon";
+import { GoogleSignInButton } from "@/app/login/GoogleSignInButton";
 import { RememberInvite } from "./RememberInvite";
 
 export const JOIN_PROBLEMS: Record<string, { title: string; body: string }> = {
@@ -56,7 +56,7 @@ export function JoinCard({ code, orgName, problem }: { code?: string; orgName: s
               or
               <div className="h-px flex-1 bg-[var(--color-border)]" />
             </div>
-            <GoogleComingSoon />
+            <GoogleSignInButton inviteCode={code} />
           </div>
         )}
       </Card>
