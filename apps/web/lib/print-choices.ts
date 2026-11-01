@@ -14,7 +14,8 @@ import { buildPjlSettings, computeBookletPadding, computePrintMath, parsePageRan
 
 export type SidesChoice = "one" | "two";
 /** "profile" is internal only (re-printing an old job that never stored a corner): use the printer's own default. */
-export type StapleChoice = "none" | "top-left" | "top-right" | "profile";
+/** "dual-left" = two staples on the left edge (stored as finishing.stapleStyle, not as a corner). */
+export type StapleChoice = "none" | "top-left" | "top-right" | "dual-left" | "profile";
 /** Which edge the booklet is bound on. "profile" is internal only (re-printing an old job that never stored a side). */
 export type BookletChoice = "none" | "left" | "right" | "profile";
 export type BindingSide = "left" | "right";
@@ -25,6 +26,8 @@ export interface PrintChoices {
   staple: StapleChoice;
   booklet: BookletChoice;
   copies: number;
+  /** 3-hole punch, left edge. Absent = no punch. */
+  punch?: boolean;
   /** Double-sided only: "short" flips on the short edge (like a notepad). Absent = the usual long edge. */
   flip?: "short";
   /** Raw text as typed ("1-5, 8"); empty = the whole document. Parsed with parsePageRange. */
@@ -35,6 +38,8 @@ export interface ChoiceCapabilities {
   duplex: boolean;
   staple: boolean;
   booklet: boolean;
+  /** Hole punch; absent = not offered. */
+  punch?: boolean;
 }
 
 export const MAX_COPIES = 99;
@@ -51,7 +56,9 @@ export function parseChoices(get: (name: string) => FormDataEntryValue | null): 
     return typeof v === "string" ? v : "";
   };
   const booklet: BookletChoice = str("booklet") === "left" ? "left" : str("booklet") === "right" ? "right" : "none";
-  const staple: StapleChoice = str("staple") === "top-left" ? "top-left" : str("staple") === "top-right" ? "top-right" : "none";
+  const stapleRaw = str("staple");
+  const staple: StapleChoice = stapleRaw === "top-left" || stapleRaw === "top-right" || stapleRaw === "dual-left" ? stapleRaw : "none";
+  const punch = ["on", "true", "1"].includes(str("punch")) ? ({ punch: true } as const) : {};
   // A booklet is always double-sided, so its `sides` value is irrelevant. For anything else the form always
   // sends `sides` (Segmented submits a hidden input even when its control is locked), so a missing or junk value
   // means a broken request: refuse it rather than guess.
@@ -63,7 +70,7 @@ export function parseChoices(get: (name: string) => FormDataEntryValue | null): 
   const n = parseInt(str("copies"), 10);
   const copies = Number.isFinite(n) && n >= 1 ? Math.min(n, MAX_COPIES) : 1;
   const flip = sides === "two" && booklet === "none" && str("flip") === "short" ? ({ flip: "short" } as const) : {};
-  return { ok: true, choices: { sides, staple, booklet, copies, ...flip, pageRange: str("pageRange").trim() } };
+  return { ok: true, choices: { sides, staple, booklet, copies, ...punch, ...flip, pageRange: str("pageRange").trim() } };
 }
 
 export type PageSubsetPlan =
@@ -95,7 +102,7 @@ export function checkQueueCapabilities(
   if (requested.booklet && !declared?.booklet) return "This printer can't make booklets. Turn the booklet option off.";
   if (requested.staple && !declared?.staple) return "This printer can't staple. Turn the staple option off.";
   if (requested.duplex && !declared?.duplex) return "This printer can't print double-sided. Choose single-sided.";
-  if (requested.punch && !declared?.punch) return "This printer can't punch holes. Turn the hole punch option off.";
+  if (requested.punch && !declared?.punch) return "This printer can't punch holes. Turn the Hole punch option off.";
   return null;
 }
 
@@ -110,7 +117,7 @@ export interface RawProfileContext {
 
 export interface MappedRawOptions {
   duplex: boolean;
-  finishing: { staple: boolean; booklet: boolean; punch: false };
+  finishing: { staple: boolean; booklet: boolean; punch: boolean; stapleStyle?: "dual-left" };
   /** print_jobs.staple_position: non-null exactly when the job is stapled. */
   staplePosition: StaplePosition | null;
   /** print_jobs.booklet_binding_side: non-null exactly for booklet jobs. */
@@ -141,6 +148,8 @@ export function mapRawChoices(c: PrintChoices, profile: RawProfileContext): Mapp
   const duplex = isBooklet || c.sides === "two";
   const duplexEdge: "short" | null = !isBooklet && c.sides === "two" && c.flip === "short" ? "short" : null;
   const stapled = c.staple !== "none";
+  const dual = c.staple === "dual-left";
+  const punch = !!c.punch;
   const staplePosition: StaplePosition | null =
     c.staple === "top-left" || c.staple === "top-right" ? c.staple : c.staple === "profile" ? profile.stapleDefault : null;
   const paperSize = profile.declaredPaperSizes.includes("letter") ? "letter" : (profile.declaredPaperSizes[0] ?? "letter");
@@ -150,7 +159,8 @@ export function mapRawChoices(c: PrintChoices, profile: RawProfileContext): Mapp
     colorMode: "bw",
     duplex,
     ...(duplexEdge ? { duplexEdge } : {}),
-    ...(staplePosition ? { staple: staplePosition } : {}),
+    ...(dual ? { staple: "dual-left" as const } : staplePosition ? { staple: staplePosition } : {}),
+    ...(punch ? { punch: true } : {}),
     booklet: isBooklet,
     ...(bindingSide ? { bindingSide } : {}),
   };
@@ -158,12 +168,22 @@ export function mapRawChoices(c: PrintChoices, profile: RawProfileContext): Mapp
   let heldReason: string | null = null;
   if (isBooklet && stapled) {
     heldReason = "A booklet is stapled for you, so it cannot also be stapled in a corner. Choose either a booklet or a staple.";
+  } else if (isBooklet && punch) {
+    heldReason = "A booklet cannot also have Hole punch, so nothing was printed. Choose either a booklet or Hole punch.";
+  } else if (punch && dual) {
+    heldReason = "Hole punch cannot be combined with Two staples (left) yet, so nothing was printed.";
+  } else if (punch && !profile.capabilities.punch) {
+    heldReason = "This printer is not set up for Hole punch, so nothing was printed.";
+  } else if (dual && !profile.capabilities.staple) {
+    heldReason = "This printer is not set up for Two staples (left), so nothing was printed.";
   } else if (stapled && !profile.capabilities.staple) {
     heldReason = "This printer is not set up to staple, so nothing was printed.";
   } else if (isBooklet && !profile.capabilities.booklet) {
     heldReason = "This printer is not set up to make booklets, so nothing was printed.";
   } else if (duplex && !profile.capabilities.duplex) {
     heldReason = "This printer is not set up for double-sided printing, so nothing was printed.";
+  } else if (duplexEdge && (dual || punch)) {
+    heldReason = "Hole punch or Two staples (left) cannot be combined with a flip on the short edge yet, so nothing was printed.";
   } else if (duplexEdge && stapled) {
     heldReason = "A corner staple cannot be combined with a flip on the short edge yet, so nothing was printed.";
   } else {
@@ -174,7 +194,7 @@ export function mapRawChoices(c: PrintChoices, profile: RawProfileContext): Mapp
 
   return {
     duplex,
-    finishing: { staple: stapled, booklet: isBooklet, punch: false },
+    finishing: { staple: stapled, booklet: isBooklet, punch, ...(dual ? { stapleStyle: "dual-left" as const } : {}) },
     staplePosition,
     bindingSide,
     duplexEdge,
@@ -247,7 +267,7 @@ export function describeAvailability(
 }
 
 /** Plain wording for a stapled / double-sided choice, used by the live summary. */
-export function describeChoices(c: Pick<PrintChoices, "sides" | "staple" | "booklet">): string[] {
+export function describeChoices(c: Pick<PrintChoices, "sides" | "staple" | "booklet"> & { punch?: boolean }): string[] {
   const parts: string[] = [];
   if (c.booklet !== "none") {
     parts.push(c.booklet === "right" ? "booklet, bound on the right" : c.booklet === "left" ? "booklet, bound on the left" : "booklet");
@@ -255,6 +275,8 @@ export function describeChoices(c: Pick<PrintChoices, "sides" | "staple" | "book
     parts.push(c.sides === "two" ? "double-sided" : "single-sided");
     if (c.staple === "top-left") parts.push("stapled top-left");
     if (c.staple === "top-right") parts.push("stapled top-right");
+    if (c.staple === "dual-left") parts.push("two staples, left");
+    if (c.punch) parts.push("hole punch (3 holes, left)");
     if (c.staple === "profile") parts.push("stapled");
   }
   return parts;
@@ -280,6 +302,7 @@ export function buildSummary(input: {
   sides: SidesChoice;
   staple: StapleChoice;
   booklet: BookletChoice;
+  punch?: boolean;
 }): PrintSummary | null {
   const { pages, copies } = input;
   if (!pages || pages < 1 || !Number.isInteger(copies) || copies < 1) return null;
