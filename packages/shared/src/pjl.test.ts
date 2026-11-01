@@ -158,3 +158,19 @@ describe("buildRawJob", () => {
     expect(r.ok).toBe(false);
   });
 });
+
+describe("buildRawJob: printer feedback (USTATUS)", () => {
+  const dec = (b: Uint8Array) => Buffer.from(b).toString("latin1");
+  const pdf = new TextEncoder().encode("%PDF-1.4 x");
+  it("off (the default): byte-identical to before, no USTATUS lines", () => {
+    const r = buildRawJob(base, pdf);
+    if (!r.ok) throw new Error(r.reason);
+    expect(dec(r.bytes)).not.toContain("USTATUS");
+  });
+  it("on: DEVICE=VERBOSE, JOB=ON, PAGE=ON, TIMED=5 come before the JOB line", () => {
+    const r = buildRawJob({ ...base, ustatus: true }, pdf);
+    if (!r.ok) throw new Error(r.reason);
+    const s = dec(r.bytes);
+    expect(s).toContain("@PJL\r\n@PJL USTATUS DEVICE=VERBOSE\r\n@PJL USTATUS JOB=ON\r\n@PJL USTATUS PAGE=ON\r\n@PJL USTATUS TIMED=5\r\n@PJL JOB NAME=");
+  });
+});

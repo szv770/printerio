@@ -18,6 +18,8 @@ export interface RawPrintOptions {
   bindingSide?: "left" | "right";
   /** "ledger" = 11x17 sheets (an 11x17 booklet). Without it the printer uses its default paper (letter) and shrinks the pages. Proven by a real booklet print 2026-10-26: PAPER=LEDGER with the booklet settings. */
   paper?: "ledger";
+  /** Printer feedback: ask the printer to report on this connection (@PJL USTATUS DEVICE=VERBOSE / JOB=ON / PAGE=ON / TIMED=5, see pjl-ustatus.ts). Off by default: the bytes are then identical to before. */
+  ustatus?: boolean;
 }
 
 import { containsPjlEscape, PJL_ESCAPE_MESSAGE } from "./pjl-escape";
