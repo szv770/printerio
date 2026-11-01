@@ -54,8 +54,8 @@ export interface OrchestratorDeps {
   rawPrint?: typeof executeRawPrint;
   /** Raw connect/write timeouts, injectable for tests. */
   rawTimeouts?: RawTimeouts;
-  /** Printer-feedback timings (stall window, overall cap, end-to-destroy delay), injectable for tests. */
-  rawFeedbackTimings?: Pick<RawListen, "stallMs" | "capMs" | "destroyAfterMs">;
+  /** Printer-feedback timings (poll interval, read time, overall cap), injectable for tests. */
+  rawFeedbackTimings?: Pick<RawListen, "pollIntervalMs" | "readMs" | "capMs">;
   /** Decides whether a raw target may be sent to (private-LAN only, optional allow-list); injectable for tests. */
   checkRawTarget?: (target: { host: string; port: number }) => Promise<RawTargetCheck>;
   /** Tests/dev only: allow http / loopback download URLs (production requires a public https host). */
@@ -247,7 +247,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
   let restartRequested = false;
   /** printerProfileId -> epoch ms until which its queued jobs are left alone (see PROFILE_COOLDOWN_MS). */
   const profileCooldownUntil = new Map<string, number>();
-  /** jobId -> printerProfileId of raw jobs whose connection is still open for printer feedback. Their final report waits for the verdict, and the same printer's next job waits too (a second connection to port 9100 gets no answer while one is open). */
+  /** jobId -> printerProfileId of raw jobs that are being confirmed by polling the printer. Their final report waits for the verdict, and the same printer's next job waits too (one job at a time per printer, and the printer's queued messages must not mix between jobs). */
   const listening = new Map<string, string>();
 
   async function safeReportStatus(jobId: string, status: Parameters<CloudClient["reportStatus"]>[1], message?: string, metadata?: Record<string, unknown>) {
@@ -488,6 +488,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           leaseCapMs !== null
             ? {
                 expectedPages: expectedPages as number,
+                jobToken: claimable.jobId.replace(/[^A-Za-z0-9]/g, "").slice(0, 8),
                 capMs: leaseCapMs,
                 ...deps.rawFeedbackTimings,
                 onUpdate: (u) => {
@@ -748,7 +749,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     // The cloud lists jobs oldest first and we keep that order, one at a time.
     for (const job of jobs) {
       if ([...listening.values()].includes(job.printerProfileId)) {
-        logger.debug("a job for this printer is still listening for the printer's page reports - leaving its queued jobs alone for now", { jobId: job.jobId, printerProfileId: job.printerProfileId });
+        logger.debug("a job for this printer is still being confirmed by the printer - leaving its queued jobs alone for now", { jobId: job.jobId, printerProfileId: job.printerProfileId });
         continue;
       }
       const until = profileCooldownUntil.get(job.printerProfileId);

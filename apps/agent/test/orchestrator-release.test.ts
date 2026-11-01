@@ -567,59 +567,82 @@ describe("raw host policy (security review F8): the agent only sends to private-
   });
 });
 
-// ---- printer feedback (PRINTIO_PRINTER_FEEDBACK): the real executor against a fake printer replaying the measured USTATUS bytes
-const FB_PAGE = (n: number) => `@PJL USTATUS PAGE\r\n${n}\n\r\n\f`;
-const FB_DEVICE = (code: number, text: string) => `@PJL USTATUS DEVICE\r\nCODE=${code}\r\nDISPLAY="${text}"\r\nONLINE=TRUE\r\n\f`;
-const fbSleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// ---- printer feedback (PRINTIO_PRINTER_FEEDBACK): the real executor against a fake printer replaying the measured behaviour
+// (the job connection closes on FIN; later short INFO STATUS connections get the queued messages once the job has ended)
+const FB_END = (name: string, pages: number) => `@PJL USTATUS JOB\r\nEND\r\nNAME="${name}"\r\nPAGES=${pages}\r\n\f`;
+const FB_INFO = (code: number, text: string) => `@PJL INFO STATUS\r\nCODE=${code}\r\nDISPLAY="${text}"\r\nONLINE=TRUE\r\n\f`;
 const fbConfig = (on: boolean) => ({ localStoragePath: h.dir, pollIntervalSeconds: 1, maxPollIntervalSeconds: 2, printerFeedback: on });
-const fbTimings = { stallMs: 500, capMs: 1200, destroyAfterMs: 30 };
+const fbTimings = { pollIntervalMs: 40, readMs: 60, capMs: 1200 };
 const lastReport = (calls: Array<{ fn: string; args: unknown[] }>) => calls.filter((c) => c.fn === "reportStatus").pop()!;
 
-describe("printer feedback in the orchestrator", () => {
-  it("every expected page reported: completed with 'Printer confirmed 2 of 2 pages'", async () => {
-    const printer = await startPrinter((s) => {
-      s.once("data", async () => {
-        await fbSleep(30);
-        s.write(FB_PAGE(1));
-        await fbSleep(30);
-        s.write(FB_PAGE(2));
+/** First connection = the job (closed on FIN, silent); every later one answers INFO STATUS with reply(pollIndex, ourJobName). */
+async function pollingPrinter(reply: (poll: number, name: string) => string) {
+  let conns = 0;
+  let polls = 0;
+  let received: Buffer[] = [];
+  const nameOf = () => /@PJL JOB NAME="([^"]*)"/.exec(Buffer.concat(received).toString("latin1"))?.[1] ?? "";
+  const p = await startPrinter((s) => {
+    const isJob = conns++ === 0;
+    if (isJob) s.on("end", () => s.end());
+    else
+      s.on("data", (d) => {
+        if (!d.toString("latin1").includes("INFO STATUS")) return;
+        const out = reply(polls++, nameOf());
+        if (out) s.write(out, "latin1");
       });
-    });
+  });
+  received = p.received;
+  return { ...p, connections: () => conns, polls: () => polls };
+}
+
+describe("printer feedback in the orchestrator", () => {
+  it("our JOB END with every page: completed with 'Printer confirmed 2 of 2 pages'; the job name carries the job id token", async () => {
+    const printer = await pollingPrinter((i, name) => (i >= 1 ? FB_END(name, 2) : ""));
     const { client, calls } = fakeCloud({ rawPort: printer.port, expectedPages: 2 });
     const { orch, jobQueue } = makeOrchestrator(client, { config: fbConfig(true), rawFeedbackTimings: fbTimings });
     await orch.processJob(job(1));
     await vi.waitFor(() => expect(statuses(calls).at(-1)).toBe("completed"), { timeout: 6000 });
     expect(statuses(calls)).toEqual(["downloading", "downloaded", "printing", "submitted_to_spooler", "completed"]);
     expect(lastReport(calls).args[2]).toBe("Printer confirmed 2 of 2 pages");
-    expect(Buffer.concat(printer.received).toString("latin1")).toContain("@PJL USTATUS PAGE=ON");
+    const sent = Buffer.concat(printer.received).toString("latin1");
+    expect(sent).toContain("@PJL USTATUS JOB=ON");
+    expect(sent).not.toMatch(/PAGE=|TIMED|VERBOSE/);
+    expect(sent).toMatch(/@PJL JOB NAME="[^"]* job1"/); // token = the job id without dashes, first 8 characters
     expect(jobQueue.getJob("job-1")).toBeUndefined();
   });
 
-  it("the printer goes quiet: falls back to today's behaviour, completed with the unconfirmed wording", async () => {
-    const printer = await startPrinter();
+  it("the printer never answers: falls back to today's behaviour, completed with the unconfirmed wording", async () => {
+    const printer = await pollingPrinter(() => "");
     const { client, calls } = fakeCloud({ rawPort: printer.port, expectedPages: 3 });
-    const { orch } = makeOrchestrator(client, { config: fbConfig(true), rawFeedbackTimings: fbTimings });
+    const { orch } = makeOrchestrator(client, { config: fbConfig(true), rawFeedbackTimings: { ...fbTimings, capMs: 400 } });
     await orch.processJob(job(1));
     await vi.waitFor(() => expect(statuses(calls).at(-1)).toBe("completed"), { timeout: 6000 });
     expect(lastReport(calls).args[2]).toBe("Sent to the printer; it did not confirm each page");
     expect(fns(calls)).not.toContain("releaseJob");
   });
 
-  it("attention until the cap: the job is reported failed with the printer's words, never released, never sent twice", async () => {
-    let connections = 0;
-    const printer = await startPrinter((s) => {
-      connections += 1;
-      s.once("data", () => s.write(FB_DEVICE(40022, "Paper jam")));
-    });
+  it("the printer finished with fewer pages: reported failed with the honest words, never released, never sent twice", async () => {
+    const printer = await pollingPrinter((i, name) => (i === 0 ? FB_END(name, 1) : ""));
     const { client, calls } = fakeCloud({ rawPort: printer.port, expectedPages: 3 });
     const { orch, jobQueue } = makeOrchestrator(client, { config: fbConfig(true), rawFeedbackTimings: fbTimings });
+    await orch.processJob(job(1));
+    await vi.waitFor(() => expect(statuses(calls).at(-1)).toBe("failed"), { timeout: 6000 });
+    expect(lastReport(calls).args[2]).toBe("[printio:printer-error v1] The printer finished the job but reported only 1 of 3 pages");
+    expect(fns(calls)).not.toContain("releaseJob");
+    expect(Buffer.concat(printer.received).toString("latin1").match(/@PJL ENTER LANGUAGE/g)).toHaveLength(1);
+    expect(jobQueue.getJob("job-1")).toBeUndefined();
+  });
+
+  it("attention until the cap: the job is reported failed with the printer's words, never released, never sent twice", async () => {
+    const printer = await pollingPrinter(() => FB_INFO(40022, "Paper jam"));
+    const { client, calls } = fakeCloud({ rawPort: printer.port, expectedPages: 3 });
+    const { orch, jobQueue } = makeOrchestrator(client, { config: fbConfig(true), rawFeedbackTimings: { ...fbTimings, capMs: 500 } });
     await orch.processJob(job(1));
     await vi.waitFor(() => expect(statuses(calls).at(-1)).toBe("failed"), { timeout: 6000 });
     expect(statuses(calls)).toEqual(["downloading", "downloaded", "printing", "submitted_to_spooler", "failed"]);
     expect(lastReport(calls).args[2]).toBe("[printio:printer-error v1 code=40022] Paper jam");
     expect(fns(calls)).not.toContain("releaseJob");
-    await fbSleep(50);
-    expect(connections).toBe(1);
+    expect(Buffer.concat(printer.received).toString("latin1").match(/@PJL ENTER LANGUAGE/g)).toHaveLength(1);
     expect(jobQueue.getJob("job-1")).toBeUndefined();
   });
 
@@ -642,12 +665,12 @@ describe("printer feedback in the orchestrator", () => {
     expect(Buffer.concat(printer.received).toString("latin1")).not.toContain("USTATUS");
   });
 
-  it("while a job's connection is open the same printer's next job is left alone (a second connection gets no answer)", async () => {
-    const printer = await startPrinter();
+  it("while a job is being confirmed the same printer's next job is left alone", async () => {
+    const printer = await pollingPrinter(() => "");
     const { client, calls } = fakeCloud({ rawPort: printer.port, expectedPages: 3 });
-    const { orch } = makeOrchestrator(client, { config: fbConfig(true), rawFeedbackTimings: { stallMs: 800, capMs: 1500, destroyAfterMs: 30 } }, [job(1), job(2)]);
+    const { orch } = makeOrchestrator(client, { config: fbConfig(true), rawFeedbackTimings: { ...fbTimings, capMs: 1000 } }, [job(1), job(2)]);
     await orch.pollClaimableJobs();
-    await orch.pollClaimableJobs(); // job-1 is still listening: job-2 must not even be claimed
+    await orch.pollClaimableJobs(); // job-1 is still being confirmed: job-2 must not even be claimed
     expect(calls.filter((c) => c.fn === "claimJob").map((c) => c.args[0])).toEqual(["job-1"]);
     await vi.waitFor(() => expect(statuses(calls).at(-1)).toBe("completed"), { timeout: 6000 });
   });

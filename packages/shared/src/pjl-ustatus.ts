@@ -1,6 +1,6 @@
 /**
  * Printer feedback over the raw port: parsing the PJL USTATUS messages the Kyocera TASKalfa MZ8500i sends back on the
- * SAME connection as the job, after `@PJL USTATUS DEVICE=VERBOSE` / `JOB=ON` / `PAGE=ON` (docs/kyocera-raw-print.md,
+ * connection that is opened AFTER the job ends (the agent polls with `@PJL INFO STATUS`; the printer's defaults JOB=ON / DEVICE=ON are enough) (docs/kyocera-raw-print.md,
  * "What the printer sends back on port 9100 (measured 2026-11-01)"). Formats, all ending in a form feed:
  *   @PJL USTATUS JOB\r\nSTART\r\nNAME="<job name>"\r\n\f
  *   @PJL USTATUS PAGE\r\n<n>\n\r\n\f            one per finished PAGE = printed SIDE (n = 1, 2, 3 ...), several can share a TCP chunk
@@ -31,6 +31,9 @@ const MAX_REPORTS = 200;
 const MAX_DISPLAY = 120;
 const MAX_NAME = 60;
 const HEADER = "@PJL USTATUS";
+const INFO_HEADER = "@PJL INFO STATUS";
+/** The answer to `@PJL INFO STATUS` has the same CODE/DISPLAY/ONLINE lines as a DEVICE message: read it as one. */
+const INFO_STATUS_RE = /@PJL[ \t]+INFO[ \t]+STATUS/gi;
 
 /** Printer-supplied text is untrusted: letters, digits and a little punctuation only, spaces collapsed, capped. */
 export function sanitizePrinterText(input: string, max = MAX_DISPLAY): string {
@@ -84,8 +87,9 @@ function parseFrame(body: string): UstatusReport | null {
 /** How much of `s`'s end could be the beginning of a header that has not fully arrived yet. */
 function partialHeaderTail(s: string): number {
   const up = s.toUpperCase();
-  for (let n = Math.min(HEADER.length - 1, s.length); n > 0; n--) {
-    if (HEADER.startsWith(up.slice(up.length - n))) return n;
+  for (let n = Math.min(INFO_HEADER.length - 1, s.length); n > 0; n--) {
+    const tail = up.slice(up.length - n);
+    if (HEADER.startsWith(tail) || INFO_HEADER.startsWith(tail)) return n;
   }
   return 0;
 }
@@ -96,7 +100,8 @@ function partialHeaderTail(s: string): number {
  * bounded work and bounded output.
  */
 export function parseUstatus(text: string): ParsedUstatus {
-  const s = typeof text === "string" && text.length > MAX_INPUT ? text.slice(0, MAX_INPUT) : typeof text === "string" ? text : "";
+  const input = typeof text === "string" && text.length > MAX_INPUT ? text.slice(0, MAX_INPUT) : typeof text === "string" ? text : "";
+  const s = input.replace(INFO_STATUS_RE, "@PJL USTATUS DEVICE");
   const starts: number[] = [];
   const re = /@PJL[ \t]+USTATUS/gi;
   for (let m = re.exec(s); m; m = re.exec(s)) starts.push(m.index);
@@ -152,10 +157,30 @@ export class UstatusFeedback {
   attention: PrinterAttention | null = null;
   private rest = "";
 
-  constructor(readonly expectedPages: number) {}
+  /**
+   * With `jobName` (polling mode: fresh connections, so leftovers of earlier jobs can arrive): only OUR job's JOB START /
+   * JOB END count, and PAGE messages (which carry no name) are ignored. `pages` is then the PAGES of our JOB END.
+   */
+  constructor(
+    readonly expectedPages: number,
+    readonly jobName?: string,
+  ) {}
+
+  private isOurs(name: string | undefined): boolean {
+    if (this.jobName === undefined) return true;
+    if (!name) return false;
+    const token = this.jobName.split(" ").pop() ?? "";
+    return name === this.jobName || (token.length >= 6 && name.endsWith(token));
+  }
 
   get complete(): boolean {
+    if (this.jobName !== undefined) return this.ended && this.expectedPages > 0 && this.pages >= this.expectedPages;
     return this.ended || (this.expectedPages > 0 && this.pages >= this.expectedPages);
+  }
+
+  /** Named mode: the printer reported the end of our job with fewer pages than expected (cancelled at the panel, or lost pages). */
+  get finishedShort(): boolean {
+    return this.jobName !== undefined && this.ended && !this.complete;
   }
 
   /** Feed received bytes (as latin1 text). Returns the reports they completed. */
@@ -163,11 +188,16 @@ export class UstatusFeedback {
     const parsed = parseUstatus(this.rest + chunk);
     this.rest = parsed.rest;
     for (const r of parsed.reports) {
-      if (r.kind === "job_start") this.started = true;
-      else if (r.kind === "job_end") {
+      if (r.kind === "job_start") {
+        if (this.isOurs(r.name)) this.started = true;
+      } else if (r.kind === "job_end") {
+        if (!this.isOurs(r.name)) continue;
         this.ended = true;
         if (r.pages !== undefined) this.pages = Math.max(this.pages, r.pages);
-      } else if (r.kind === "page") this.pages = Math.max(this.pages, r.pages);
+      } else if (r.kind === "page") {
+        if (this.jobName === undefined) this.pages = Math.max(this.pages, r.pages);
+      }
+      else if (r.kind !== "device") continue;
       else if (isAttentionCode(r.code)) this.attention = { ...(r.code !== undefined ? { code: r.code } : {}), text: r.display || `printer code ${r.code}` };
       else if (r.code !== undefined) this.attention = null;
     }

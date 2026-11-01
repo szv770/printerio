@@ -143,3 +143,57 @@ describe("printer-attention marker", () => {
     expect(printerErrorDetail({ code: 1, text: "Paper jam." })).toMatch(/^Paper jam\. .*may still print/);
   });
 });
+
+
+describe("INFO STATUS answers (the polling query)", () => {
+  const info = (code: number, text: string) => `@PJL INFO STATUS\r\nCODE=${code}\r\nDISPLAY="${text}"\r\nONLINE=TRUE\r\n\f`;
+  it("is read as a device report", () => {
+    expect(parseUstatus(info(10001, "Ready.")).reports).toEqual([{ kind: "device", code: 10001, display: "Ready." }]);
+  });
+  it("a header split across chunks is completed", () => {
+    const f = new UstatusFeedback(1);
+    const s = info(40022, "Paper jam");
+    f.push(s.slice(0, 9));
+    f.push(s.slice(9));
+    expect(f.attention).toEqual({ code: 40022, text: "Paper jam" });
+  });
+});
+
+describe("UstatusFeedback by job name (polling: leftovers of other jobs are ignored)", () => {
+  const end = (name: string, n: number) => `@PJL USTATUS JOB\r\nEND\r\nNAME="${name}"\r\nPAGES=${n}\r\n\f`;
+  it("another job's END and PAGE messages count for nothing", () => {
+    const f = new UstatusFeedback(5, "Report a1b2c3d4");
+    f.push(page(1) + page(5) + end("Other job ffffffff", 8));
+    expect(f.ended).toBe(false);
+    expect(f.complete).toBe(false);
+    expect(f.pages).toBe(0);
+  });
+  it("our END with enough pages is complete", () => {
+    const f = new UstatusFeedback(5, "Report a1b2c3d4");
+    f.push(end("Other job ffffffff", 8) + end("Report a1b2c3d4", 5));
+    expect(f.complete).toBe(true);
+    expect(f.finishedShort).toBe(false);
+    expect(f.pages).toBe(5);
+  });
+  it("our END with fewer pages is finished but short, not complete", () => {
+    const f = new UstatusFeedback(8, "Report a1b2c3d4");
+    f.push(end("Report a1b2c3d4", 6));
+    expect(f.ended).toBe(true);
+    expect(f.complete).toBe(false);
+    expect(f.finishedShort).toBe(true);
+    expect(f.pages).toBe(6);
+  });
+  it("an END split over two pushes is completed", () => {
+    const f = new UstatusFeedback(2, "Report a1b2c3d4");
+    const s = end("Report a1b2c3d4", 2);
+    f.push(s.slice(0, 30));
+    expect(f.ended).toBe(false);
+    f.push(s.slice(30));
+    expect(f.complete).toBe(true);
+  });
+  it("matches by the unique token when the printer shortens the name", () => {
+    const f = new UstatusFeedback(2, "A very long title a1b2c3d4");
+    f.push(end("Some other prefix a1b2c3d4", 2));
+    expect(f.complete).toBe(true);
+  });
+});

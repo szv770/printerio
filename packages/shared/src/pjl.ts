@@ -18,7 +18,7 @@ export interface RawPrintOptions {
   bindingSide?: "left" | "right";
   /** "ledger" = 11x17 sheets (an 11x17 booklet). Without it the printer uses its default paper (letter) and shrinks the pages. Proven by a real booklet print 2026-10-26: PAPER=LEDGER with the booklet settings. */
   paper?: "ledger";
-  /** Printer feedback: ask the printer to report on this connection (@PJL USTATUS DEVICE=VERBOSE / JOB=ON / PAGE=ON / TIMED=5, see pjl-ustatus.ts). Off by default: the bytes are then identical to before. */
+  /** Printer feedback: state the printer's default reporting (@PJL USTATUS JOB=ON / DEVICE=ON; see pjl-ustatus.ts). Off by default: the bytes are then identical to before. */
   ustatus?: boolean;
 }
 
@@ -34,6 +34,17 @@ const MAX_TEXT = 60;
 export function sanitizePjlText(input: string): string {
   const s = input.replace(/[^A-Za-z0-9 ._-]/g, "").trim().slice(0, MAX_TEXT).trim();
   return s || "printio";
+}
+
+/**
+ * A job name that is unique per job: the sanitised title plus a short token (letters and digits only), 60 characters at
+ * most. The token survives truncation of a long title, so the printer's JOB END message can be matched to exactly one job.
+ */
+export function uniquePjlJobName(title: string, token: string): string {
+  const t = token.replace(/[^A-Za-z0-9]/g, "").slice(0, 16);
+  const base = sanitizePjlText(title);
+  if (!t) return base;
+  return `${base.slice(0, MAX_TEXT - 1 - t.length).trim()} ${t}`;
 }
 
 export function buildPjlSettings(o: RawPrintOptions): PjlSettingsResult {
@@ -84,7 +95,8 @@ export function buildRawJob(o: RawPrintOptions, pdf: Uint8Array): RawJobResult {
   // printer. Callers already refuse such files earlier; this makes it impossible to build the job at all.
   if (containsPjlEscape(pdf)) throw new Error(PJL_ESCAPE_MESSAGE);
   const name = sanitizePjlText(o.jobName);
-  const ustatus = o.ustatus ? "@PJL USTATUS DEVICE=VERBOSE\r\n@PJL USTATUS JOB=ON\r\n@PJL USTATUS PAGE=ON\r\n@PJL USTATUS TIMED=5\r\n" : "";
+  // Only the printer's own defaults (JOB and DEVICE messages on): PAGE/TIMED/VERBOSE are never set, the Kyocera remembers them.
+  const ustatus = o.ustatus ? "@PJL USTATUS JOB=ON\r\n@PJL USTATUS DEVICE=ON\r\n" : "";
   let head = `${UEL}@PJL\r\n${ustatus}@PJL JOB NAME="${name}"\r\n`;
   for (const line of s.settings) head += `@PJL SET ${line}\r\n`;
   head += "@PJL ENTER LANGUAGE=PDF\r\n";

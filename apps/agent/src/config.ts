@@ -34,7 +34,7 @@ export interface AgentConfig {
   skipDependencyCheck: boolean;
   /** PRINTIO_RAW_ONLY: a missing SumatraPDF is only a startup warning (raw-port jobs do not need it). */
   rawOnly: boolean;
-  /** PRINTIO_PRINTER_FEEDBACK: for a raw-port job, keep the connection open after the data and read the printer's own PJL USTATUS messages (sheets finished, attention), so the job can say 'Printer confirmed N of N sheets'. Off by default until the owner has verified it on the real printer; when off the Agent behaves exactly as before. */
+  /** PRINTIO_PRINTER_FEEDBACK: for a raw-port job, after sending it as usual poll the printer (short PJL INFO STATUS connections) for the JOB END of this job's unique name, so the job can say 'Printer confirmed N of N pages'. Off by default until the owner has verified it on the real printer; when off the Agent behaves exactly as before. */
   printerFeedback: boolean;
   /** PRINTIO_RAW_ALLOWED_HOSTS: if set, raw print jobs are only ever sent to these hosts (lower-case, comma separated in the env). Always on top of the private-LAN-only rule. */
   rawAllowedHosts?: string[];

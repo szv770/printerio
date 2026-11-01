@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPjlSettings, buildRawJob, sanitizePjlText } from "./pjl";
+import { buildPjlSettings, buildRawJob, sanitizePjlText, uniquePjlJobName } from "./pjl";
 
 const base = { copies: 1, colorMode: "color" as const, duplex: true, jobName: "Quiz 3" };
 
@@ -167,10 +167,29 @@ describe("buildRawJob: printer feedback (USTATUS)", () => {
     if (!r.ok) throw new Error(r.reason);
     expect(dec(r.bytes)).not.toContain("USTATUS");
   });
-  it("on: DEVICE=VERBOSE, JOB=ON, PAGE=ON, TIMED=5 come before the JOB line", () => {
+  it("on: only JOB=ON and DEVICE=ON (the printer's defaults) come before the JOB line; never PAGE, TIMED or VERBOSE", () => {
     const r = buildRawJob({ ...base, ustatus: true }, pdf);
     if (!r.ok) throw new Error(r.reason);
     const s = dec(r.bytes);
-    expect(s).toContain("@PJL\r\n@PJL USTATUS DEVICE=VERBOSE\r\n@PJL USTATUS JOB=ON\r\n@PJL USTATUS PAGE=ON\r\n@PJL USTATUS TIMED=5\r\n@PJL JOB NAME=");
+    expect(s).toContain("@PJL\r\n@PJL USTATUS JOB=ON\r\n@PJL USTATUS DEVICE=ON\r\n@PJL JOB NAME=");
+    expect(s).not.toMatch(/PAGE=|TIMED|VERBOSE/);
+  });
+});
+
+describe("uniquePjlJobName", () => {
+  it("appends the token to the title", () => {
+    expect(uniquePjlJobName("Report", "a1b2c3d4")).toBe("Report a1b2c3d4");
+  });
+  it("keeps the token when the title is too long (60 chars total)", () => {
+    const n = uniquePjlJobName("x".repeat(100), "a1b2c3d4");
+    expect(n.length).toBe(60);
+    expect(n.endsWith(" a1b2c3d4")).toBe(true);
+  });
+  it("sanitises the title and the token, and falls back to printio", () => {
+    expect(uniquePjlJobName('a"b@PJL', "ab-cd!ef")).toBe("abPJL abcdef");
+    expect(uniquePjlJobName("", "abc")).toBe("printio abc");
+  });
+  it("the same title with different tokens differs", () => {
+    expect(uniquePjlJobName("Same", "aaaaaaaa")).not.toBe(uniquePjlJobName("Same", "bbbbbbbb"));
   });
 });

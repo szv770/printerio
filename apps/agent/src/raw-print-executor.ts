@@ -12,8 +12,10 @@
  * (retry-policy.ts) whether the job waits for the printer or fails.
  */
 
+import { randomBytes } from "node:crypto";
 import net from "node:net";
-import { buildRawJob, UstatusFeedback, type PrinterAttention, type RawTarget } from "@printio/shared";
+import { buildRawJob, sanitizePjlText, uniquePjlJobName, UstatusFeedback, type PrinterAttention, type RawTarget } from "@printio/shared";
+import { holdSending } from "./send-activity.js";
 
 /**
  * Statuses reported after a successful raw send, in order. The cloud state
@@ -36,12 +38,6 @@ export const RAW_CLOSE_GRACE_MS = 20_000;
 /** Hard ceiling for one send, however slowly a busy printer takes the data. */
 export const RAW_MAX_SEND_MS = 60 * 60_000;
 const WRITE_CHUNK_BYTES = 256 * 1024;
-/** The printer's own defaults for the USTATUS reports (read with @PJL INFO USTATUS): DEVICE=ON, JOB=ON, PAGE=OFF, TIMED=0. */
-const USTATUS_RESTORE = Buffer.from(
-  ["\u001b%-12345X@PJL", "@PJL USTATUS DEVICE=ON", "@PJL USTATUS JOB=ON", "@PJL USTATUS PAGE=OFF", "@PJL USTATUS TIMED=0", "\u001b%-12345X"].join("\r\n"),
-  "latin1",
-);
-
 /**
  * What went wrong, as data, so the orchestrator decides "wait for the
  * printer" vs "fail" without parsing message text (see retry-policy.ts).
@@ -194,23 +190,25 @@ export function sendRawBytes(
 
 /** What the printer said about one job when printer feedback is on (see pjl-ustatus.ts for the message formats). */
 export type PrinterVerdict =
-  /** Every expected page was reported finished. */
+  /** Our job's JOB END reported at least the expected number of pages. */
   | { outcome: "confirmed"; pages: number; expected: number }
-  /** The printer went quiet, closed, or reset without reporting every page and without an attention message: counts as sent, as before. */
+  /** Nothing conclusive within the cap: counts as sent, as before. */
   | { outcome: "unconfirmed"; reason: "stalled" | "closed" | "cap" | "error"; pages: number; expected: number }
-  /** The printer's latest device message was outside the normal 10xxx range when we gave up waiting: it needs a person. */
+  /** The printer needs a person: a device code outside the normal range at the cap, or our job ended with fewer pages than expected. */
   | { outcome: "attention"; pages: number; expected: number; code?: number; text: string };
 
 export interface RawListen {
   /** Pages the printer should report (expectedRawPages). Must be a positive integer. */
   expectedPages: number;
-  /** No finished page for this long (and no attention showing) = give up and fall back to "sent". Default 90 s. */
-  stallMs?: number;
-  /** Overall cap after the data is flushed. Default listenCapMs(expectedPages). */
+  /** Short unique token appended to the PJL job name so the printer's JOB END can be matched to this job. Default: random. */
+  jobToken?: string;
+  /** Gap between polls (each poll is a fresh short connection). Default 3 s. */
+  pollIntervalMs?: number;
+  /** How long each poll reads the printer's reply before closing. Default 1.5 s. */
+  readMs?: number;
+  /** Overall cap after the data is sent. Default listenCapMs(expectedPages). */
   capMs?: number;
-  /** After end(), how long until destroy(). Default 2 s. */
-  destroyAfterMs?: number;
-  /** Called when a message changes the page count or the attention state. */
+  /** Called when a message changes the attention state. */
   onUpdate?: (u: { pages: number; expected: number; attention: PrinterAttention | null }) => void;
 }
 
@@ -220,9 +218,9 @@ export function listenCapMs(expectedPages: number): number {
 }
 
 /**
- * How long a job may be listened to: the scaling cap, but never past its lease (the stale-lease sweep fails a job that is
+ * How long a job may be waited on: the scaling cap, but never past its lease (the stale-lease sweep fails a job that is
  * still mid-flight when its lease ends, and a failed job can be re-sent). Keeps a 60 s margin; null = too little lease left,
- * so do not listen at all (the old behaviour).
+ * so do not wait at all (the old behaviour).
  */
 export function feedbackCapMs(expectedPages: number, leaseExpiresAt: string, nowMs: number): number | null {
   const leaseEnd = Date.parse(leaseExpiresAt);
@@ -232,185 +230,82 @@ export function feedbackCapMs(expectedPages: number, leaseExpiresAt: string, now
   return Math.min(listenCapMs(expectedPages), room);
 }
 
-export const RAW_FEEDBACK_STALL_MS = 90_000;
-export const RAW_FEEDBACK_DESTROY_AFTER_MS = 2_000;
+export const RAW_FEEDBACK_POLL_MS = 3_000;
+export const RAW_FEEDBACK_READ_MS = 1_500;
+const POLL_CONNECT_MS = 3_000;
+const UEL = String.fromCharCode(27) + "%-12345X";
+const INFO_STATUS_QUERY = `${UEL}@PJL\r\n@PJL INFO STATUS\r\n${UEL}`;
+
+/** One short connection: write the INFO STATUS question, read for `readMs`, destroy. Resolves with what came back ("" on any error). */
+function pollOnce(host: string, port: number, readMs: number): Promise<string> {
+  return new Promise((resolve) => {
+    let text = "";
+    let done = false;
+    const socket = new net.Socket();
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(text);
+    };
+    // Connect failures (refused while the printer is busy or asleep) are normal: the caller just polls again.
+    let timer = setTimeout(finish, POLL_CONNECT_MS);
+    socket.on("data", (d: Buffer) => {
+      text += d.toString("latin1");
+    });
+    socket.on("error", finish);
+    socket.on("close", finish);
+    socket.connect(port, host, () => {
+      clearTimeout(timer);
+      timer = setTimeout(finish, readMs);
+      socket.write(INFO_STATUS_QUERY, "latin1");
+    });
+  });
+}
 
 /**
- * Like sendRawBytes, but with printer feedback: the data is written WITHOUT half-closing (a FIN right after the data
- * makes the Kyocera close at once and say nothing), and once it is flushed this resolves with `outcome`, a promise that
- * settles (never rejects) with a PrinterVerdict. Everything that goes wrong AFTER the flush (silence, reset, garbage,
- * attention) only ever yields a verdict: the bytes are at the printer, so nothing here may fail the send or send again.
- * Failures BEFORE the flush reject exactly like sendRawBytes. Our side is always closed with end() and then destroy().
+ * After the job was sent (data, then FIN, exactly like the normal path), asks the printer how it went. The Kyocera reports
+ * only to a connection that opens AFTER the job ends: every `pollIntervalMs` a fresh short connection asks INFO STATUS and
+ * the reply (queued USTATUS messages such as JOB END, plus the status itself) is fed to the parser, which keeps unfinished
+ * messages between polls. Only the JOB END carrying OUR unique name counts; messages for other names are leftovers.
+ * Never rejects, never sends anything but the status question.
  */
-export function sendRawBytesListening(
-  host: string,
-  port: number,
-  bytes: Uint8Array,
-  timeouts: RawTimeouts,
-  listen: RawListen,
-): Promise<{ outcome: Promise<PrinterVerdict> }> {
-  const connectMs = timeouts.connectTimeoutMs ?? RAW_CONNECT_TIMEOUT_MS;
-  const writeMs = timeouts.writeTimeoutMs ?? RAW_WRITE_TIMEOUT_MS;
-  const stallMs = listen.stallMs ?? RAW_FEEDBACK_STALL_MS;
-  const capMs = listen.capMs ?? listenCapMs(listen.expectedPages);
-  const destroyAfterMs = listen.destroyAfterMs ?? RAW_FEEDBACK_DESTROY_AFTER_MS;
-
-  return new Promise((resolve, reject) => {
-    const socket = new net.Socket();
-    const fb = new UstatusFeedback(listen.expectedPages);
-    let connected = false;
-    let sentPhaseOver = false; // resolved or rejected
-    let flushed = false;
-    let concluded = false;
-    let stallTimer: NodeJS.Timeout | undefined;
-    let capTimer: NodeJS.Timeout | undefined;
-    let destroyTimer: NodeJS.Timeout | undefined;
-    let watch: NodeJS.Timeout | undefined;
-    let concludeOutcome!: (v: PrinterVerdict) => void;
-    const outcome = new Promise<PrinterVerdict>((r) => {
-      concludeOutcome = r;
-    });
-    const base = () => ({ pages: fb.pages, expected: fb.expectedPages });
-
-    const clearTimers = () => {
-      for (const t of [connectTimer, stallTimer, capTimer, watch]) if (t) clearTimeout(t);
-      if (watch) clearInterval(watch);
-    };
-
-    /** end() now, destroy() shortly after: never leave the printer's connection hanging on our side. */
-    const closeOurSide = () => {
-      try {
-        // The Kyocera REMEMBERS the USTATUS settings we turned on (measured 2026-11-01), so every later connection would get
-        // stray PAGE/TIMED messages. Put the defaults back on our own connection before closing it.
-        if (socket.writable) socket.write(USTATUS_RESTORE);
-        socket.end();
-      } catch {
-        /* already closed */
-      }
-      if (socket.destroyed) return;
-      destroyTimer = setTimeout(() => socket.destroy(), destroyAfterMs);
-      socket.once("close", () => destroyTimer && clearTimeout(destroyTimer));
-    };
-
-    const conclude = (v: PrinterVerdict) => {
-      if (concluded) return;
-      concluded = true;
-      clearTimers();
-      closeOurSide();
-      concludeOutcome(v);
-    };
-    const giveUp = (reason: "stalled" | "closed" | "cap" | "error") =>
-      conclude(fb.attention ? { outcome: "attention", ...base(), ...(fb.attention.code !== undefined ? { code: fb.attention.code } : {}), text: fb.attention.text } : { outcome: "unconfirmed", reason, ...base() });
-
-    const fail = (err: RawSendError) => {
-      if (sentPhaseOver) return;
-      sentPhaseOver = true;
-      concluded = true;
-      clearTimers();
-      if (err.failure.bytesWritten === undefined && connected) err.failure.bytesWritten = socket.bytesWritten;
-      socket.destroy();
-      reject(err);
-      concludeOutcome({ outcome: "unconfirmed", reason: "error", ...base() });
-    };
-
-    const armStall = () => {
-      if (stallTimer) clearTimeout(stallTimer);
-      // While attention is showing the job keeps waiting (until the overall cap); a stall only ends a quiet, healthy job.
-      stallTimer = setTimeout(() => {
-        if (!fb.attention) giveUp("stalled");
-      }, stallMs);
-    };
-
-    const sent = () => {
-      if (sentPhaseOver) return;
-      sentPhaseOver = true;
-      flushed = true;
-      if (connectTimer) clearTimeout(connectTimer);
-      if (watch) clearInterval(watch);
-      resolve({ outcome });
-      if (concluded) return;
-      armStall();
-      capTimer = setTimeout(() => giveUp("cap"), Math.max(1, capMs));
-    };
-
-    const connectTimer = setTimeout(
-      () => fail(new RawSendError(`raw print connect to ${host}:${port} timed out after ${connectMs}ms`, { kind: "connect_timeout" })),
-      connectMs,
-    );
-
-    socket.on("data", (d: Buffer) => {
-      if (concluded) return; // data that arrives before our flush callback still counts (a fast printer)
-      const beforePages = fb.pages;
-      const beforeAttention = fb.attention?.text;
-      let reports;
-      try {
-        reports = fb.push(d.toString("latin1"));
-      } catch {
-        return; // the parser never throws; garbage is ignored
-      }
-      const changed = fb.pages !== beforePages || fb.attention?.text !== beforeAttention;
-      if (changed) {
+export async function pollPrinterVerdict(host: string, port: number, jobName: string, listen: RawListen): Promise<PrinterVerdict> {
+  const interval = listen.pollIntervalMs ?? RAW_FEEDBACK_POLL_MS;
+  const readMs = listen.readMs ?? RAW_FEEDBACK_READ_MS;
+  const capMs = Math.max(1, listen.capMs ?? listenCapMs(listen.expectedPages));
+  const fb = new UstatusFeedback(listen.expectedPages, jobName);
+  const base = () => ({ pages: fb.pages, expected: fb.expectedPages });
+  const deadline = Date.now() + capMs;
+  let lastAttention: string | undefined;
+  try {
+    for (;;) {
+      const wait = Math.min(interval, deadline - Date.now());
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      if (Date.now() >= deadline) break;
+      const text = await pollOnce(host, port, Math.max(1, Math.min(readMs, deadline - Date.now() + 200)));
+      if (text) fb.push(text);
+      if (fb.attention?.text !== lastAttention) {
+        lastAttention = fb.attention?.text;
         try {
           listen.onUpdate?.({ ...base(), attention: fb.attention });
         } catch {
           /* a progress callback must never disturb the job */
         }
       }
-      if (fb.complete) {
-        conclude({ outcome: "confirmed", ...base() });
-        return;
+      if (fb.complete) return { outcome: "confirmed", ...base() };
+      if (fb.finishedShort) {
+        return { outcome: "attention", ...base(), text: `The printer finished the job but reported only ${fb.pages} of ${fb.expectedPages} pages` };
       }
-      // Only a finished page (or attention appearing/clearing) shows the job is moving; TIMED device repeats do not.
-      if (flushed && (reports.some((r) => r.kind === "page") || fb.attention?.text !== beforeAttention)) armStall();
-    });
-    socket.on("error", (e: NodeJS.ErrnoException) => {
-      if (!sentPhaseOver) {
-        fail(new RawSendError(`raw print connection to ${host}:${port} failed: ${e.message}`, { kind: classifySocketError(e.code, connected), code: e.code }));
-      } else giveUp("error");
-    });
-    socket.on("close", (hadError) => {
-      if (!sentPhaseOver) {
-        // The printer closed before our flush callback: fine only if every byte had already left this machine.
-        if (hadError || socket.bytesWritten < bytes.length) {
-          fail(new RawSendError(`raw print connection to ${host}:${port} closed with an error`, { kind: classifySocketError(undefined, connected) }));
-          return;
-        }
-        sent();
-      }
-      giveUp("closed");
-    });
-
-    socket.connect(port, host, () => {
-      connected = true;
-      if (connectTimer) clearTimeout(connectTimer);
-      const startedAt = Date.now();
-      let lastPending = bytes.byteLength;
-      let lastProgressAt = Date.now();
-      watch = setInterval(
-        () => {
-          if (sentPhaseOver) return;
-          const pending = socket.writableLength;
-          if (pending < lastPending) {
-            lastPending = pending;
-            lastProgressAt = Date.now();
-          }
-          const stalled = Date.now() - lastProgressAt >= writeMs;
-          const tooLong = Date.now() - startedAt >= RAW_MAX_SEND_MS;
-          if (stalled || tooLong) {
-            fail(new RawSendError(`raw print write to ${host}:${port} timed out after ${tooLong ? RAW_MAX_SEND_MS : writeMs}ms${stalled ? " without the printer taking any more data" : ""}`, { kind: "write_timeout", flushed: false }));
-          }
-        },
-        Math.max(50, Math.min(1000, Math.floor(writeMs / 4))),
-      );
-      // Chunked like sendRawBytes; NO end(): the connection stays open so the printer can answer. The last callback = flushed.
-      for (let off = 0; off < bytes.byteLength; off += WRITE_CHUNK_BYTES) {
-        const last = off + WRITE_CHUNK_BYTES >= bytes.byteLength;
-        socket.write(Buffer.from(bytes.buffer, bytes.byteOffset + off, Math.min(WRITE_CHUNK_BYTES, bytes.byteLength - off)), (err) => {
-          if (!err && last) sent();
-        });
-      }
-    });
-  });
+    }
+  } catch {
+    return { outcome: "unconfirmed", reason: "error", ...base() };
+  }
+  if (fb.attention) {
+    return { outcome: "attention", ...base(), ...(fb.attention.code !== undefined ? { code: fb.attention.code } : {}), text: fb.attention.text };
+  }
+  return { outcome: "unconfirmed", reason: "cap", ...base() };
 }
 
 export interface RawPrintRequest {
@@ -434,10 +329,12 @@ export async function executeRawPrint(args: {
   request: RawPrintRequest;
   pdf: Uint8Array;
   timeouts?: RawTimeouts;
-  /** Printer feedback (off when absent): ask the printer for USTATUS messages and listen on the open connection (see sendRawBytesListening). */
+  /** Printer feedback (off when absent): send exactly like the normal path, then poll the printer for our job's JOB END (see pollPrinterVerdict). */
   feedback?: RawListen;
 }): Promise<RawPrintResult> {
   const { raw, request, pdf, timeouts, feedback } = args;
+  // With feedback every raw job gets a UNIQUE PJL name (title + token) so the printer's JOB END can only ever be ours.
+  const jobName = feedback ? uniquePjlJobName(raw.jobName, feedback.jobToken ?? randomBytes(4).toString("hex")) : raw.jobName;
   let job: ReturnType<typeof buildRawJob>;
   try {
     job = buildRawJob(
@@ -445,7 +342,7 @@ export async function executeRawPrint(args: {
         copies: request.copies,
         colorMode: request.colorMode,
         duplex: request.duplex,
-        jobName: raw.jobName,
+        jobName: jobName,
         ...(raw.duplexEdge ? { duplexEdge: raw.duplexEdge } : {}),
         ...(raw.paper ? { paper: raw.paper } : {}),
         staple: request.finishing.staple ? raw.staplePosition : undefined,
@@ -462,8 +359,13 @@ export async function executeRawPrint(args: {
   if (!job.ok) return { ok: false, reason: job.reason, failure: { kind: "invalid_job" } };
   try {
     if (feedback) {
-      const { outcome } = await sendRawBytesListening(raw.host, raw.port, job.bytes, timeouts ?? {}, feedback);
-      return { ok: true, bytesSent: job.bytes.length, printerOutcome: outcome };
+      await sendRawBytes(raw.host, raw.port, job.bytes, timeouts);
+      // The agent's own status probe must stay off port 9100 until the verdict: it would swallow our JOB END message.
+      const release = holdSending();
+      const printerOutcome = pollPrinterVerdict(raw.host, raw.port, sanitizePjlText(jobName), feedback)
+        .catch((): PrinterVerdict => ({ outcome: "unconfirmed", reason: "error", pages: 0, expected: feedback.expectedPages }))
+        .finally(release);
+      return { ok: true, bytesSent: job.bytes.length, printerOutcome };
     }
     await sendRawBytes(raw.host, raw.port, job.bytes, timeouts);
     return { ok: true, bytesSent: job.bytes.length };
