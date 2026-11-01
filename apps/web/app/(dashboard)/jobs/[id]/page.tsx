@@ -31,6 +31,17 @@ function rejectionReasonFrom(events: { event_type: string; metadata: unknown }[]
   return null;
 }
 
+/** The words the Agent sent with the completed report when the printer confirmed the sheets (printer feedback). Only that exact wording is passed on. */
+function printerConfirmationFrom(events: { event_type: string; metadata: unknown }[]): string | null {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    if (!event || event.event_type !== "JOB_COMPLETED") continue;
+    const message = (event.metadata as { message?: unknown } | null)?.message;
+    return typeof message === "string" && /^Printer confirmed [0-9]+ of [0-9]+ sheets?$/.test(message.trim()) ? message.trim() : null;
+  }
+  return null;
+}
+
 /** Plain words for what was asked for, from the per-job fields (older jobs have no corner / side stored). */
 function finishingLabel(job: { finishing: unknown; staple_position: string | null; booklet_binding_side: string | null }): string {
   const f = job.finishing as { staple?: boolean; booklet?: boolean; punch?: boolean } | null;
@@ -127,6 +138,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         job={job}
         eventTypes={eventRows.map((e) => e.event_type)}
         rejectionReason={rejectionReasonFrom(eventRows)}
+        printerConfirmation={printerConfirmationFrom(eventRows)}
         printerNote={printerNote}
         actions={actions}
       />

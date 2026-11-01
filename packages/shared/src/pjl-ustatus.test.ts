@@ -54,7 +54,8 @@ describe("isAttentionCode", () => {
     expect(isAttentionCode(10023)).toBe(false);
     expect(isAttentionCode(10999)).toBe(false);
     expect(isAttentionCode(40022)).toBe(true);
-    expect(isAttentionCode(35078)).toBe(true);
+    expect(isAttentionCode(35078)).toBe(false); // "Sleeping...": a normal state the printer reports when idle (docs/kyocera-raw-print.md)
+    expect(isAttentionCode(40022)).toBe(true);
     expect(isAttentionCode(undefined)).toBe(false);
   });
 });

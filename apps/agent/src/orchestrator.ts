@@ -25,7 +25,7 @@ import type { HealthMonitor } from "./health-monitor.js";
 import { buildPrintSettingsString, executePrint } from "./print-executor.js";
 import { checkRawTarget as defaultCheckRawTarget, type RawTargetCheck } from "./raw-host-policy.js";
 import { trackSending } from "./send-activity.js";
-import { RAW_DEFERRED_STATUSES, RAW_SUCCESS_STATUSES, executeRawPrint, listenCapMs, type PrinterVerdict, type RawListen, type RawTimeouts } from "./raw-print-executor.js";
+import { RAW_DEFERRED_STATUSES, RAW_SUCCESS_STATUSES, executeRawPrint, feedbackCapMs, type PrinterVerdict, type RawListen, type RawTimeouts } from "./raw-print-executor.js";
 import { PROFILE_COOLDOWN_MS, decideDownloadFailure, decideRawFailure, type WaitKind } from "./retry-policy.js";
 import { handleCommand } from "./commands.js";
 import { createSelfUpdateDeps, performSelfUpdate, performUpdateCheck } from "./self-update.js";
@@ -39,9 +39,6 @@ import {
 } from "./input-validation.js";
 import { CloudApiError, DownloadValidationError, PrintExecutionError, SpoolerError, TransientDownloadError } from "./errors.js";
 import type { Logger } from "./logger.js";
-
-/** Longest we hold a raw connection open for printer feedback: under the default 10 minute job lease, so the stale-lease sweep never fails a job we are still listening to. */
-const MAX_LISTEN_HOLD_MS = 8 * 60_000;
 
 export interface OrchestratorDeps {
   config: AgentConfig;
@@ -485,12 +482,13 @@ export function createOrchestrator(deps: OrchestratorDeps) {
         const rawTarget = dl.printRequest.raw;
         // Printer feedback needs a known sheet count (older servers do not send one: then nothing changes).
         const expectedSheets = dl.printRequest.expectedSheets;
+        // The listen is held to the job's real lease (leaseExpiresAt from the claim): past it the stale-lease sweep would fail a job that may still print.
+        const leaseCapMs = config.printerFeedback && Number.isInteger(expectedSheets) && (expectedSheets as number) > 0 ? feedbackCapMs(expectedSheets as number, leaseExpiresAt, now()) : null;
         const feedback: RawListen | undefined =
-          config.printerFeedback && Number.isInteger(expectedSheets) && (expectedSheets as number) > 0
+          leaseCapMs !== null
             ? {
                 expectedSheets: expectedSheets as number,
-                // The job's lease is 10 minutes by default and a longer silence would let the stale-lease sweep fail it: never listen past 8.
-                capMs: Math.min(listenCapMs(expectedSheets as number), MAX_LISTEN_HOLD_MS),
+                capMs: leaseCapMs,
                 ...deps.rawFeedbackTimings,
                 onUpdate: (u) => {
                   if (u.attention) jobLogger.warn("printer says it needs attention", { code: u.attention.code, text: u.attention.text, sheets: u.sheets, expected: u.expected });

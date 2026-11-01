@@ -652,3 +652,15 @@ describe("printer feedback in the orchestrator", () => {
     await vi.waitFor(() => expect(statuses(calls).at(-1)).toBe("completed"), { timeout: 6000 });
   });
 });
+
+describe("printer feedback and the job lease", () => {
+  it("a lease that is about to expire: no feedback, the old path (a longer hold would let the stale-lease sweep fail the job)", async () => {
+    const printer = await startPrinter((s) => s.on("end", () => s.end()));
+    const { client, calls } = fakeCloud({ rawPort: printer.port, expectedSheets: 2, claim: () => ({ ok: true as const, leaseExpiresAt: new Date(Date.now() + 20_000).toISOString() }) });
+    const { orch } = makeOrchestrator(client, { config: fbConfig(true) });
+    await orch.processJob(job(1));
+    expect(statuses(calls).at(-1)).toBe("completed");
+    expect(lastReport(calls).args[2]).toBe("sent to printer raw port");
+    expect(Buffer.concat(printer.received).toString("latin1")).not.toContain("USTATUS");
+  });
+});

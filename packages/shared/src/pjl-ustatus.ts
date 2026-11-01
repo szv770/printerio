@@ -122,9 +122,12 @@ export function parseUstatus(text: string): ParsedUstatus {
   return { reports, rest };
 }
 
-/** 10xxx = the printer's normal states (10001 Ready., 10023 Processing...). Anything else with a code needs a look. */
+/** 35078 "Sleeping...": measured as a normal idle state (docs/kyocera-raw-print.md); the printer can doze right after a job, so it must never read as a fault. */
+const NORMAL_CODES: ReadonlySet<number> = new Set([35078]);
+
+/** 10xxx = the printer's normal states (10001 Ready., 10023 Processing...), plus the known idle state 35078. Anything else with a code needs a look. */
 export function isAttentionCode(code: number | undefined): boolean {
-  return code !== undefined && !(code >= 10000 && code < 11000);
+  return code !== undefined && !(code >= 10000 && code < 11000) && !NORMAL_CODES.has(code);
 }
 
 export interface PrinterAttention {

@@ -214,6 +214,19 @@ export function listenCapMs(expectedSheets: number): number {
   return Math.min(30 * 60_000, 60_000 + 6_000 * Math.max(0, expectedSheets));
 }
 
+/**
+ * How long a job may be listened to: the scaling cap, but never past its lease (the stale-lease sweep fails a job that is
+ * still mid-flight when its lease ends, and a failed job can be re-sent). Keeps a 60 s margin; null = too little lease left,
+ * so do not listen at all (the old behaviour).
+ */
+export function feedbackCapMs(expectedSheets: number, leaseExpiresAt: string, nowMs: number): number | null {
+  const leaseEnd = Date.parse(leaseExpiresAt);
+  if (!Number.isFinite(leaseEnd)) return null;
+  const room = leaseEnd - nowMs - 60_000;
+  if (room < 30_000) return null;
+  return Math.min(listenCapMs(expectedSheets), room);
+}
+
 export const RAW_FEEDBACK_STALL_MS = 90_000;
 export const RAW_FEEDBACK_DESTROY_AFTER_MS = 2_000;
 
@@ -244,7 +257,6 @@ export function sendRawBytesListening(
     let sentPhaseOver = false; // resolved or rejected
     let flushed = false;
     let concluded = false;
-    let connectTimer: NodeJS.Timeout | undefined;
     let stallTimer: NodeJS.Timeout | undefined;
     let capTimer: NodeJS.Timeout | undefined;
     let destroyTimer: NodeJS.Timeout | undefined;
@@ -313,7 +325,7 @@ export function sendRawBytesListening(
       capTimer = setTimeout(() => giveUp("cap"), Math.max(1, capMs));
     };
 
-    connectTimer = setTimeout(
+    const connectTimer = setTimeout(
       () => fail(new RawSendError(`raw print connect to ${host}:${port} timed out after ${connectMs}ms`, { kind: "connect_timeout" })),
       connectMs,
     );

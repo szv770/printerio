@@ -38,3 +38,20 @@ describe("jobHeadline: printer attention", () => {
     expect(jobHeadline("failed", "raw print: boom")).toMatchObject({ sentence: "It didn't print" });
   });
 });
+
+describe("jobHeadline: the printer confirmed the sheets", () => {
+  it("a completed job with the printer's confirmation says it finished, with the sheet count", () => {
+    expect(jobHeadline("completed", null, "Printer confirmed 4 of 4 sheets")).toEqual({
+      sentence: "The printer finished printing",
+      tone: "success",
+      detail: "It reported 4 of 4 sheets done.",
+    });
+    expect(jobHeadline("completed", null, "Printer confirmed 1 of 1 sheet").detail).toBe("It reported 1 of 1 sheet done.");
+  });
+  it("anything else (the unconfirmed wording, junk, other states) keeps the usual headline", () => {
+    expect(jobHeadline("completed", null, "Sent to the printer; it did not confirm each sheet").sentence).toBe("Sent to the printer");
+    expect(jobHeadline("completed", null, "Printer confirmed lots").sentence).toBe("Sent to the printer");
+    expect(jobHeadline("completed").sentence).toBe("Sent to the printer");
+    expect(jobHeadline("failed", "boom", "Printer confirmed 4 of 4 sheets").sentence).toBe("It didn't print");
+  });
+});

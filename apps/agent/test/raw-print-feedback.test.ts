@@ -1,6 +1,6 @@
 import net from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { executeRawPrint, listenCapMs, type PrinterVerdict } from "../src/raw-print-executor.js";
+import { executeRawPrint, feedbackCapMs, listenCapMs, type PrinterVerdict } from "../src/raw-print-executor.js";
 
 // A fake printer that replays the byte formats MEASURED on the TASKalfa MZ8500i (docs/kyocera-raw-print.md).
 const START = '@PJL USTATUS JOB\r\nSTART\r\nNAME="My Job"\r\n\f';
@@ -228,5 +228,22 @@ describe("listenCapMs", () => {
     expect(listenCapMs(1)).toBe(66_000);
     expect(listenCapMs(10)).toBe(120_000);
     expect(listenCapMs(100_000)).toBe(30 * 60_000);
+  });
+});
+
+describe("feedbackCapMs (never listen past the job's lease)", () => {
+  const now = 1_000_000;
+  it("normal job with a fresh 10 minute lease: the scaling cap", () => {
+    expect(feedbackCapMs(10, new Date(now + 600_000).toISOString(), now)).toBe(120_000);
+  });
+  it("held to the lease minus a 60 s margin", () => {
+    expect(feedbackCapMs(10, new Date(now + 100_000).toISOString(), now)).toBe(40_000);
+  });
+  it("less than 30 s of lease left after the margin: no feedback (null)", () => {
+    expect(feedbackCapMs(10, new Date(now + 85_000).toISOString(), now)).toBeNull();
+    expect(feedbackCapMs(10, new Date(now - 5_000).toISOString(), now)).toBeNull();
+  });
+  it("an unreadable lease: no feedback", () => {
+    expect(feedbackCapMs(10, "nonsense", now)).toBeNull();
   });
 });
