@@ -167,3 +167,21 @@ Three numbered test prints of the same 11x17-imposed 4-page booklet (labelled sh
 2. The same plus **`PAPER=LEDGER`**: a proper ledger booklet. **This is the setting.**
 3. `DUPLEX=ON BINDING=SHORTEDGE PAPER=LEDGER` (no fold/booklet tray): plain ledger, short-edge duplex.
 So an 11x17 booklet (print_jobs.paper_size = "tabloid") now sends `PAPER=LEDGER` right after the booklet settings (packages/shared/src/pjl.ts, `paper: "ledger"`).
+
+
+## What the printer says it supports (asked over port 9100, 2026-11-01)
+
+A read-only query (`@PJL INFO CONFIG`, `@PJL INFO VARIABLES`, sent with no job, nothing printed) returned the printer's own description. This is what it reports; **nothing below counts as proven until a labelled print shows it works.**
+
+- **Paper input trays** (PJL INFO CONFIG): BYPASS (Letter, CARDSTOCK default, 250 sheets), TRAY1 (Letter, plain, 550), TRAY2 (Ledger, plain, 550), TRAY3 (Letter, plain, 1500), TRAY4 (Letter, plain, 1500). The only tray-related settable variables are read-only (`INTRAYnSIZE`); there is no `MEDIASOURCE` variable in the list, so tray choice is probably made by the printer from `PAPER` + `MEDIATYPE` (to confirm).
+- **`PAPER=`** accepts (39): MONARCH, COM10, DL, C5, EXECUTIVE, LETTER, LEGAL, A4, B5, A3, B4, LEDGER, A5, A6, B6, COM9, COM6, ISOB5, CUSTOM, C4, JPOST, JPOSTD, OFICIO2, FB12X18, ROC8K, ROC16K, MO216X340, P13X19, SRA3, KAKUGATA2, NAGAGATA3, YOUNAGA3, NAGAGATA4, P13X19.2, STATEMENT, FOLIO, YOUKEI2, YOUKEI4, LSIZE. (Only LEDGER is proven.)
+- **`MEDIATYPE=`** accepts (28): AUTO, PLAIN, TRANSPARENCY, PREPRINTED, LABELS, BOND, RECYCLED, VELLUM, ROUGH, LETTERHEAD, COLOR, PREPUNCHED, ENVELOPE, CARDSTOCK, COATED, THICK, FINE, INDEXTABS, CUSTOM1..CUSTOM8, THINPAPER, NONE.
+- **`OUTBIN=`** accepts (16): KJOBSEPARATOR2FACEDOWN, OPTIONFACEDOWN, KOPTIONSUBFACEDOWN, KTRAY1FACEDOWN/FACEUP ... KTRAY5FACEDOWN/FACEUP, KOPTIONSUB2FACEDOWN, KLEFTTRAYFACEUP, KBOOKLET. The out-tray list in INFO CONFIG also shows the finisher's BOOKLET tray. (OPTIONFACEDOWN and KBOOKLET are proven.)
+- **`FINISH=`** accepts: NONE, STAPLE, ON, **KPUNCH**, **KPNCHANDSTPL**, KFOLD, KREVERSEFOLD (do not use; it scrambles pages).
+- **`STAPLEOPTION=`** accepts: DEFAULT, ONE, **TWO** (dual staple), ONEOPPOSED.
+- **Punch unit exists**: MAIN 3 holes (US), SUB 2 holes (US).
+- Also settable: `DUPLEX`, `BINDING` (LONGEDGE/SHORTEDGE), `QTY` (1-9999), `ECOPRINT`, `JOBOFFSET`, `HOLD` (OFF/ON/STORE/PROOF/KUSERBOX), `HOLDTYPE`, `ORIENTATION`, `RESOLUTION`.
+- Job messages: `@PJL USTATUS` types DEVICE, JOB, PAGE, TIMED are supported (see docs/ROADMAP.md for what a probe showed).
+- The script that asked: send `<ESC>%-12345X@PJL` + `@PJL INFO VARIABLES` + `<ESC>%-12345X` to port 9100 and read for a few seconds (the printer may be asleep, status 35078 "Sleeping...", and answers anyway).
+
+Labelled tests sent 2026-11-01 (results to be recorded here): T1 `STAPLEOPTION=TWO FINISH=STAPLE` (dual staple), T2 `FINISH=KPUNCH` (punch), T3 `MEDIATYPE=PLAIN`.
