@@ -14,7 +14,8 @@ import {
 import { hasActiveCommand } from "@/lib/command-result";
 import { deriveUpdateView, isUpdateLive } from "@/lib/update-progress";
 import { AgentDetail } from "./AgentDetail";
-import { CommandAutoRefresh, refreshIntervalMs } from "./CommandAutoRefresh";
+import { CommandAutoRefresh } from "./CommandAutoRefresh";
+import { refreshIntervalMs } from "@/lib/ui/command-refresh";
 
 /** How many recently-issued remote commands to show. Enough to see whether the
  *  button you just pressed was actually picked up and what the Agent answered,
