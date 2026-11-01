@@ -13,8 +13,11 @@ describe("PRINTIO_RAW_ALLOWED_HOSTS", () => {
 });
 
 describe("PRINTIO_PRINTER_FEEDBACK", () => {
-  it("is OFF by default (not yet verified on the real printer)", () => {
-    expect(loadConfig({ env: base }).printerFeedback).toBe(false);
+  it("is ON by default (the owner asked for it; set it to false to switch it off)", () => {
+    expect(loadConfig({ env: base }).printerFeedback).toBe(true);
+  });
+  it("is switched off with false", () => {
+    expect(loadConfig({ env: { ...base, PRINTIO_PRINTER_FEEDBACK: "false" } }).printerFeedback).toBe(false);
   });
   it("is switched on with true", () => {
     expect(loadConfig({ env: { ...base, PRINTIO_PRINTER_FEEDBACK: "true" } }).printerFeedback).toBe(true);
