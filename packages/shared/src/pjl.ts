@@ -3,7 +3,31 @@
 // TASKalfa MZ8500i - see docs/kyocera-raw-print.md. Anything not proven
 // returns { ok: false } so the caller can HOLD the job instead of guessing.
 
-export type StaplePosition = "top-left" | "top-right" | "bottom-left";
+/** "dual-left" = two staples on the left edge (not a corner). */
+export type StaplePosition = "top-left" | "top-right" | "bottom-left" | "dual-left";
+
+/**
+ * EVERY dual-staple / 3-hole-punch combination the printer may be sent. Edit this table (flip `proven`) after a
+ * labelled real-printer print; nothing else needs to change. A combination that is not listed, or listed with
+ * `proven: false`, is HELD with a plain reason. Portrait pages, long-edge duplex only (booklet, short-edge flip and
+ * landscape are never listed). "none" staple = no staple at all; "top-left" = the corner staple (STAPLEOPTION=ONE).
+ */
+export interface FinishingCombo {
+  duplex: boolean;
+  staple: "none" | "top-left" | "dual-left";
+  punch: boolean;
+  proven: boolean;
+  /** One line: which labelled print proved it, or why it is pending. */
+  proof: string;
+}
+export const PROVEN_FINISHING_COMBOS: FinishingCombo[] = [
+  { duplex: false, staple: "dual-left", punch: false, proven: true, proof: "2026-11-01 labelled print: 2 sheets single-sided gave two staples on the left (OUTBIN=OPTIONFACEDOWN STAPLEOPTION=TWO FINISH=STAPLE)." },
+  { duplex: false, staple: "none", punch: true, proven: true, proof: "2026-11-01 labelled print: 3 holes on the left edge of every sheet (OUTBIN=OPTIONFACEDOWN FINISH=KPUNCH)." },
+  { duplex: true, staple: "none", punch: true, proven: false, proof: "Pending: DUPLEX=ON BINDING=LONGEDGE FINISH=KPUNCH not printed yet." },
+  { duplex: false, staple: "top-left", punch: true, proven: false, proof: "Pending: FINISH=KPNCHANDSTPL STAPLEOPTION=ONE not printed yet." },
+  { duplex: true, staple: "dual-left", punch: false, proven: false, proof: "Pending: dual staple on a double-sided long-edge job not printed yet." },
+];
+
 
 export interface RawPrintOptions {
   copies: number;
@@ -13,6 +37,8 @@ export interface RawPrintOptions {
   /** Double-sided only: which edge the sheet flips on. Default "long" (the usual). "short" = BINDING=SHORTEDGE (flip like a notepad); not combinable with a corner staple. Ignored for booklets and single-sided. */
   duplexEdge?: "long" | "short";
   staple?: StaplePosition;
+  /** 3-hole punch on the left edge (FINISH=KPUNCH). Only the combinations in PROVEN_FINISHING_COMBOS are sent. */
+  punch?: boolean;
   booklet?: boolean;
   /** Only used with booklet; must match how the PDF was imposed. */
   bindingSide?: "left" | "right";
@@ -47,6 +73,17 @@ export function uniquePjlJobName(title: string, token: string): string {
   return `${base.slice(0, MAX_TEXT - 1 - t.length).trim()} ${t}`;
 }
 
+function findFinishingCombo(o: RawPrintOptions): { ok: true } | { ok: false; reason: string } {
+  const staple = o.staple ?? "none";
+  if (o.punch && staple === "dual-left") return { ok: false, reason: "hole punch together with two staples is not supported" };
+  if (o.duplex && o.duplexEdge === "short") return { ok: false, reason: "hole punch or two staples together with a short-edge flip is not supported" };
+  if (staple !== "none" && staple !== "dual-left" && staple !== "top-left") return { ok: false, reason: "this finishing combination is not supported" };
+  const hit = PROVEN_FINISHING_COMBOS.find((c) => c.duplex === o.duplex && c.punch === !!o.punch && c.staple === staple);
+  if (!hit) return { ok: false, reason: "this finishing combination is not supported" };
+  if (!hit.proven) return { ok: false, reason: "this finishing combination is not tested on this printer yet" };
+  return { ok: true };
+}
+
 export function buildPjlSettings(o: RawPrintOptions): PjlSettingsResult {
   if (!Number.isInteger(o.copies) || o.copies < 1 || o.copies > 999) {
     return { ok: false, reason: `invalid copies: ${o.copies}` };
@@ -60,17 +97,33 @@ export function buildPjlSettings(o: RawPrintOptions): PjlSettingsResult {
     if (o.staple) {
       return { ok: false, reason: "booklet together with a separate staple is not supported" };
     }
+    if (o.punch) {
+      return { ok: false, reason: "booklet together with hole punch is not supported" };
+    }
     // Proven 2026-10-19 (E1 left, F1 right): the PDF is imposed for the binding side
     // (mirrored for right) in normal sheet order; the printer setting is the same for both.
     // KREVERSEFOLD scrambles pages - do not use.
     settings.push("DUPLEX=ON", "BINDING=SHORTEDGE", "OUTBIN=KBOOKLET", "FINISH=KFOLD");
   } else {
+    const dual = o.staple === "dual-left";
+    if (dual || o.punch) {
+      const combo = findFinishingCombo(o);
+      if (!combo.ok) return combo;
+    }
     if (o.duplex && o.duplexEdge === "short" && o.staple) {
       return { ok: false, reason: "a short-edge flip together with a corner staple is not supported" };
     }
     if (o.duplex) settings.push("DUPLEX=ON", o.duplexEdge === "short" ? "BINDING=SHORTEDGE" : "BINDING=LONGEDGE");
     else settings.push("DUPLEX=OFF");
-    if (o.staple) {
+    if (o.punch) {
+      // Proven 2026-11-01: single-sided KPUNCH = 3 holes on the left edge. With a corner staple: KPNCHANDSTPL (pending).
+      settings.push("OUTBIN=OPTIONFACEDOWN");
+      if (o.staple === "top-left") settings.push("STAPLEOPTION=ONE", "FINISH=KPNCHANDSTPL");
+      else settings.push("FINISH=KPUNCH");
+    } else if (dual) {
+      // Proven 2026-11-01: single-sided, two staples on the left edge.
+      settings.push("OUTBIN=OPTIONFACEDOWN", "STAPLEOPTION=TWO", "FINISH=STAPLE");
+    } else if (o.staple) {
       // Position map from labelled real-printer tests (portrait page, duplex long edge):
       //   ONE                         -> top-left      (S2, S3)
       //   ONE + KFEEDEDGE=SHORTEDGE   -> top-right     (P1)
