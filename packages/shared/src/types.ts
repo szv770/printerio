@@ -48,6 +48,8 @@ export interface ResolvedPrintRequest {
   duplex: boolean;
   paperSize: string;
   finishing: FinishingOptions;
+  /** Sheets the printer should report finished for this job (copies x sheets; a booklet counts imposed sheets). Optional: older servers omit it, older Agents ignore it. Used only by printer feedback. */
+  expectedSheets?: number;
   /**
    * Optional per-job override of the Agent's own configured
    * `PRINTIO_PRINT_FIT_MODE` default. Absent for the vast majority of jobs,
