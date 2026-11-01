@@ -11,6 +11,7 @@
  * independent connections.
  */
 
+import { formatPrinterErrorMarker } from "@printio/shared";
 import { createWriteStream, mkdirSync, readFileSync, rmSync, statSync, unlinkSync } from "node:fs";
 import { Readable } from "node:stream";
 import path from "node:path";
@@ -24,7 +25,7 @@ import type { HealthMonitor } from "./health-monitor.js";
 import { buildPrintSettingsString, executePrint } from "./print-executor.js";
 import { checkRawTarget as defaultCheckRawTarget, type RawTargetCheck } from "./raw-host-policy.js";
 import { trackSending } from "./send-activity.js";
-import { RAW_DEFERRED_STATUSES, RAW_SUCCESS_STATUSES, executeRawPrint, type RawTimeouts } from "./raw-print-executor.js";
+import { RAW_DEFERRED_STATUSES, RAW_SUCCESS_STATUSES, executeRawPrint, listenCapMs, type PrinterVerdict, type RawListen, type RawTimeouts } from "./raw-print-executor.js";
 import { PROFILE_COOLDOWN_MS, decideDownloadFailure, decideRawFailure, type WaitKind } from "./retry-policy.js";
 import { handleCommand } from "./commands.js";
 import { createSelfUpdateDeps, performSelfUpdate, performUpdateCheck } from "./self-update.js";
@@ -38,6 +39,9 @@ import {
 } from "./input-validation.js";
 import { CloudApiError, DownloadValidationError, PrintExecutionError, SpoolerError, TransientDownloadError } from "./errors.js";
 import type { Logger } from "./logger.js";
+
+/** Longest we hold a raw connection open for printer feedback: under the default 10 minute job lease, so the stale-lease sweep never fails a job we are still listening to. */
+const MAX_LISTEN_HOLD_MS = 8 * 60_000;
 
 export interface OrchestratorDeps {
   config: AgentConfig;
@@ -53,6 +57,8 @@ export interface OrchestratorDeps {
   rawPrint?: typeof executeRawPrint;
   /** Raw connect/write timeouts, injectable for tests. */
   rawTimeouts?: RawTimeouts;
+  /** Printer-feedback timings (stall window, overall cap, end-to-destroy delay), injectable for tests. */
+  rawFeedbackTimings?: Pick<RawListen, "stallMs" | "capMs" | "destroyAfterMs">;
   /** Decides whether a raw target may be sent to (private-LAN only, optional allow-list); injectable for tests. */
   checkRawTarget?: (target: { host: string; port: number }) => Promise<RawTargetCheck>;
   /** Tests/dev only: allow http / loopback download URLs (production requires a public https host). */
@@ -244,6 +250,8 @@ export function createOrchestrator(deps: OrchestratorDeps) {
   let restartRequested = false;
   /** printerProfileId -> epoch ms until which its queued jobs are left alone (see PROFILE_COOLDOWN_MS). */
   const profileCooldownUntil = new Map<string, number>();
+  /** jobId -> printerProfileId of raw jobs whose connection is still open for printer feedback. Their final report waits for the verdict, and the same printer's next job waits too (a second connection to port 9100 gets no answer while one is open). */
+  const listening = new Map<string, string>();
 
   async function safeReportStatus(jobId: string, status: Parameters<CloudClient["reportStatus"]>[1], message?: string, metadata?: Record<string, unknown>) {
     try {
@@ -301,17 +309,19 @@ export function createOrchestrator(deps: OrchestratorDeps) {
    * each one. Stops quietly on a network/server problem (the next poll tries again); drops the record when the web app
    * says the job is no longer ours (409/403/404: e.g. the sweep re-queued it), so it is never retried for ever.
    */
-  async function driveSentReports(jobId: string, jobLogger: Logger): Promise<void> {
+  async function driveSentReports(jobId: string, jobLogger: Logger, opts: { holdLast?: boolean } = {}): Promise<void> {
     for (;;) {
       const rec = jobQueue.getJob(jobId);
       const next = rec?.sentUnreported?.[0];
       if (!rec || !next) return;
+      // Printer feedback: the last report (completed, or failed when the printer needs attention) waits for the printer's verdict.
+      if (opts.holdLast && (rec.sentUnreported?.length ?? 0) <= 1) return;
       const sentChain = next === "submitted_to_spooler" || next === "completed";
       try {
         await cloudClient.reportStatus(
           jobId,
           next as Parameters<CloudClient["reportStatus"]>[1],
-          sentChain ? "sent to printer raw port" : undefined,
+          next === "completed" && rec.reportNote ? rec.reportNote : sentChain ? "sent to printer raw port" : next === "failed" ? rec.lastError : undefined,
           sentChain ? { bytesSent: rec.bytesSent } : undefined,
         );
       } catch (err) {
@@ -328,7 +338,8 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       }
       const rest = (rec.sentUnreported ?? []).slice(1);
       if (rest.length === 0) {
-        jobQueue.upsertJob(jobId, { state: "completed", sentUnreported: [] }); // completed prunes the record
+        if (next === "failed") jobQueue.removeJob(jobId); // the printer's attention message is reported: nothing more to track, and the job is never sent again
+        else jobQueue.upsertJob(jobId, { state: "completed", sentUnreported: [] }); // completed prunes the record
         return;
       }
       jobQueue.upsertJob(jobId, { sentUnreported: rest });
@@ -337,9 +348,45 @@ export function createOrchestrator(deps: OrchestratorDeps) {
 
   async function redriveUnreported(): Promise<void> {
     for (const record of jobQueue.listActiveJobs()) {
+      if (listening.has(record.jobId)) continue; // still waiting for the printer's verdict
       if (record.sentUnreported && record.sentUnreported.length > 0) {
         await driveSentReports(record.jobId, logger.child({ jobId: record.jobId }));
       }
+    }
+  }
+
+  /**
+   * Printer feedback: the printer's verdict decides the LAST report of a job that was already sent. Confirmed or
+   * unconfirmed (silence, a close, a reset) both end as `completed` - only the words differ; the printer needing
+   * attention when we stopped waiting ends as `failed` with the printer's own words (the web app never re-queues
+   * that). Nothing here ever sends the document again. Runs in the background so the poll loop is not held.
+   */
+  async function finishAfterPrinterVerdict(jobId: string, verdict: Promise<PrinterVerdict>, jobLogger: Logger): Promise<void> {
+    let v: PrinterVerdict | undefined;
+    try {
+      v = await verdict;
+    } catch {
+      /* the verdict never rejects; unconfirmed it is */
+    }
+    listening.delete(jobId);
+    try {
+      const rec = jobQueue.getJob(jobId);
+      if (!rec?.sentUnreported?.length) return; // dropped meanwhile (the web app no longer accepts reports)
+      if (v?.outcome === "attention") {
+        const message = formatPrinterErrorMarker({ ...(v.code !== undefined ? { code: v.code } : {}), text: v.text });
+        jobLogger.warn("the printer needs attention and did not finish this job in time", { code: v.code, text: v.text, sheets: v.sheets, expected: v.expected });
+        jobQueue.upsertJob(jobId, { sentUnreported: [...rec.sentUnreported.filter((x) => x !== "completed"), "failed"], lastError: message });
+      } else if (v?.outcome === "confirmed") {
+        const n = Math.min(v.sheets, v.expected);
+        jobLogger.info("printer confirmed every sheet", { sheets: v.sheets, expected: v.expected });
+        jobQueue.upsertJob(jobId, { reportNote: `Printer confirmed ${n} of ${v.expected} sheet${v.expected === 1 ? "" : "s"}` });
+      } else {
+        jobLogger.info("printer did not confirm every sheet - counted as sent, as before", { reason: v?.reason, sheets: v?.sheets, expected: v?.expected });
+        jobQueue.upsertJob(jobId, { reportNote: "Sent to the printer; it did not confirm each sheet" });
+      }
+      await driveSentReports(jobId, jobLogger);
+    } catch (err) {
+      jobLogger.error("could not report the printer's verdict - the remaining reports are re-driven on the next poll", { error: err instanceof Error ? err.message : String(err) });
     }
   }
 
@@ -436,12 +483,28 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           return procOutcome;
         }
         const rawTarget = dl.printRequest.raw;
+        // Printer feedback needs a known sheet count (older servers do not send one: then nothing changes).
+        const expectedSheets = dl.printRequest.expectedSheets;
+        const feedback: RawListen | undefined =
+          config.printerFeedback && Number.isInteger(expectedSheets) && (expectedSheets as number) > 0
+            ? {
+                expectedSheets: expectedSheets as number,
+                // The job's lease is 10 minutes by default and a longer silence would let the stale-lease sweep fail it: never listen past 8.
+                capMs: Math.min(listenCapMs(expectedSheets as number), MAX_LISTEN_HOLD_MS),
+                ...deps.rawFeedbackTimings,
+                onUpdate: (u) => {
+                  if (u.attention) jobLogger.warn("printer says it needs attention", { code: u.attention.code, text: u.attention.text, sheets: u.sheets, expected: u.expected });
+                  else jobLogger.info("printer progress", { sheets: u.sheets, expected: u.expected });
+                },
+              }
+            : undefined;
         const result = await trackSending(() =>
           rawPrint({
             raw: { ...rawTarget, host: target.host, port: target.port },
             request: dl.printRequest,
             pdf: readFileSync(localFilePath),
             timeouts: deps.rawTimeouts,
+            ...(feedback ? { feedback } : {}),
           }),
         );
         if (!result.ok) {
@@ -466,7 +529,14 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           sentUnreported: [...(holdsClaim ? RAW_DEFERRED_STATUSES : RAW_SUCCESS_STATUSES)],
           bytesSent: result.bytesSent,
         });
-        await driveSentReports(claimable.jobId, jobLogger);
+        if (result.printerOutcome) {
+          // Report everything except the last status now, then wait (in the background) for the printer to say how it went.
+          listening.set(claimable.jobId, claimable.printerProfileId);
+          await driveSentReports(claimable.jobId, jobLogger, { holdLast: true });
+          void finishAfterPrinterVerdict(claimable.jobId, result.printerOutcome, jobLogger);
+        } else {
+          await driveSentReports(claimable.jobId, jobLogger);
+        }
         jobLogger.info("job sent to the printer (raw port)", { bytesSent: result.bytesSent });
         return procOutcome;
       }
@@ -594,6 +664,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     for (const record of jobQueue.listActiveJobs()) {
       const jobLogger = logger.child({ jobId: record.jobId });
       // Sent to the printer before we died: only the reports are missing. Never release or fail it (a re-send prints twice).
+      if (listening.has(record.jobId)) continue;
       if (record.sentUnreported && record.sentUnreported.length > 0) {
         jobLogger.info("a job that was already sent to the printer is missing its status reports - sending them now");
         await driveSentReports(record.jobId, jobLogger);
@@ -678,6 +749,10 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     }
     // The cloud lists jobs oldest first and we keep that order, one at a time.
     for (const job of jobs) {
+      if ([...listening.values()].includes(job.printerProfileId)) {
+        logger.debug("a job for this printer is still listening for the printer's sheet reports - leaving its queued jobs alone for now", { jobId: job.jobId, printerProfileId: job.printerProfileId });
+        continue;
+      }
       const until = profileCooldownUntil.get(job.printerProfileId);
       if (until !== undefined) {
         if (now() < until) {

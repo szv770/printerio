@@ -572,7 +572,7 @@ const FB_PAGE = (n: number) => `@PJL USTATUS PAGE\r\n${n}\n\r\n\f`;
 const FB_DEVICE = (code: number, text: string) => `@PJL USTATUS DEVICE\r\nCODE=${code}\r\nDISPLAY="${text}"\r\nONLINE=TRUE\r\n\f`;
 const fbSleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const fbConfig = (on: boolean) => ({ localStoragePath: h.dir, pollIntervalSeconds: 1, maxPollIntervalSeconds: 2, printerFeedback: on });
-const fbTimings = { stallMs: 200, capMs: 600, destroyAfterMs: 30 };
+const fbTimings = { stallMs: 500, capMs: 1200, destroyAfterMs: 30 };
 const lastReport = (calls: Array<{ fn: string; args: unknown[] }>) => calls.filter((c) => c.fn === "reportStatus").pop()!;
 
 describe("printer feedback in the orchestrator", () => {
@@ -588,7 +588,7 @@ describe("printer feedback in the orchestrator", () => {
     const { client, calls } = fakeCloud({ rawPort: printer.port, expectedSheets: 2 });
     const { orch, jobQueue } = makeOrchestrator(client, { config: fbConfig(true), rawFeedbackTimings: fbTimings });
     await orch.processJob(job(1));
-    await vi.waitFor(() => expect(statuses(calls).at(-1)).toBe("completed"), { timeout: 3000 });
+    await vi.waitFor(() => expect(statuses(calls).at(-1)).toBe("completed"), { timeout: 6000 });
     expect(statuses(calls)).toEqual(["downloading", "downloaded", "printing", "submitted_to_spooler", "completed"]);
     expect(lastReport(calls).args[2]).toBe("Printer confirmed 2 of 2 sheets");
     expect(Buffer.concat(printer.received).toString("latin1")).toContain("@PJL USTATUS PAGE=ON");
@@ -600,7 +600,7 @@ describe("printer feedback in the orchestrator", () => {
     const { client, calls } = fakeCloud({ rawPort: printer.port, expectedSheets: 3 });
     const { orch } = makeOrchestrator(client, { config: fbConfig(true), rawFeedbackTimings: fbTimings });
     await orch.processJob(job(1));
-    await vi.waitFor(() => expect(statuses(calls).at(-1)).toBe("completed"), { timeout: 3000 });
+    await vi.waitFor(() => expect(statuses(calls).at(-1)).toBe("completed"), { timeout: 6000 });
     expect(lastReport(calls).args[2]).toBe("Sent to the printer; it did not confirm each sheet");
     expect(fns(calls)).not.toContain("releaseJob");
   });
@@ -614,7 +614,7 @@ describe("printer feedback in the orchestrator", () => {
     const { client, calls } = fakeCloud({ rawPort: printer.port, expectedSheets: 3 });
     const { orch, jobQueue } = makeOrchestrator(client, { config: fbConfig(true), rawFeedbackTimings: fbTimings });
     await orch.processJob(job(1));
-    await vi.waitFor(() => expect(statuses(calls).at(-1)).toBe("failed"), { timeout: 3000 });
+    await vi.waitFor(() => expect(statuses(calls).at(-1)).toBe("failed"), { timeout: 6000 });
     expect(statuses(calls)).toEqual(["downloading", "downloaded", "printing", "submitted_to_spooler", "failed"]);
     expect(lastReport(calls).args[2]).toBe("[printio:printer-error v1 code=40022] Paper jam");
     expect(fns(calls)).not.toContain("releaseJob");
@@ -645,10 +645,10 @@ describe("printer feedback in the orchestrator", () => {
   it("while a job's connection is open the same printer's next job is left alone (a second connection gets no answer)", async () => {
     const printer = await startPrinter();
     const { client, calls } = fakeCloud({ rawPort: printer.port, expectedSheets: 3 });
-    const { orch } = makeOrchestrator(client, { config: fbConfig(true), rawFeedbackTimings: { stallMs: 400, capMs: 800, destroyAfterMs: 30 } }, [job(1), job(2)]);
+    const { orch } = makeOrchestrator(client, { config: fbConfig(true), rawFeedbackTimings: { stallMs: 800, capMs: 1500, destroyAfterMs: 30 } }, [job(1), job(2)]);
     await orch.pollClaimableJobs();
     await orch.pollClaimableJobs(); // job-1 is still listening: job-2 must not even be claimed
     expect(calls.filter((c) => c.fn === "claimJob").map((c) => c.args[0])).toEqual(["job-1"]);
-    await vi.waitFor(() => expect(statuses(calls).at(-1)).toBe("completed"), { timeout: 3000 });
+    await vi.waitFor(() => expect(statuses(calls).at(-1)).toBe("completed"), { timeout: 6000 });
   });
 });

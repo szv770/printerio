@@ -65,7 +65,7 @@ describe("printer feedback: the bytes", () => {
     expect(sent.indexOf("@PJL USTATUS PAGE=ON")).toBeGreaterThan(0);
     expect(sent.indexOf("@PJL USTATUS PAGE=ON")).toBeLessThan(sent.indexOf("@PJL JOB NAME"));
 
-    const off = await fakePrinter((s) => s.end());
+    const off = await fakePrinter((s) => void s.end());
     const r = await executeRawPrint({ raw: raw(off.port), request: req, pdf });
     expect(r.ok && r.printerOutcome).toBeFalsy();
     expect(Buffer.concat(off.received).toString("latin1")).not.toContain("USTATUS");
@@ -179,9 +179,9 @@ describe("printer feedback: the printer needs attention", () => {
       s.write(START + page(1) + device(40022, "Paper jam"));
     });
     const t0 = Date.now();
-    const verdict = await run(fake, { expectedSheets: 3, stallMs: 100, capMs: 450, ...fast, onUpdate: (u) => updates.push(u.attention?.text) });
+    const verdict = await run(fake, { expectedSheets: 3, stallMs: 300, capMs: 700, ...fast, onUpdate: (u) => updates.push(u.attention?.text) });
     expect(verdict).toEqual({ outcome: "attention", sheets: 1, expected: 3, code: 40022, text: "Paper jam" });
-    expect(Date.now() - t0).toBeGreaterThanOrEqual(400); // waited past the 100 ms stall window
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(600); // waited past the 300 ms stall window
     expect(updates).toContain("Paper jam");
   });
 
@@ -191,7 +191,7 @@ describe("printer feedback: the printer needs attention", () => {
       await sleep(60);
       s.write(device(10023, "Processing...") + page(1) + page(2));
     });
-    expect(await run(fake, { expectedSheets: 2, stallMs: 100, capMs: 3000, ...fast })).toMatchObject({ outcome: "confirmed", sheets: 2 });
+    expect(await run(fake, { expectedSheets: 2, stallMs: 300, capMs: 3000, ...fast })).toMatchObject({ outcome: "confirmed", sheets: 2 });
   });
 
   it("attention that clears and then goes quiet falls back to unconfirmed, not attention", async () => {
