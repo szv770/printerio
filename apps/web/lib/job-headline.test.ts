@@ -26,3 +26,32 @@ describe("jobHeadline", () => {
     expect(jobHeadline("wat")).toEqual({ sentence: "Status unknown", tone: "neutral" });
   });
 });
+
+describe("jobHeadline: printer attention", () => {
+  it("a failed job carrying the printer-attention marker says so in the printer's words", () => {
+    const h = jobHeadline("failed", "[printio:printer-error v1 code=40022] Paper jam");
+    expect(h).toMatchObject({ sentence: "The printer needs attention", tone: "danger" });
+    expect(h.detail).toMatch(/^Paper jam\. .*may still print/);
+  });
+  it("the marker only counts on a failed job; other failures keep the old headline", () => {
+    expect(jobHeadline("completed", "[printio:printer-error v1 code=1] x").sentence).toBe("Sent to the printer");
+    expect(jobHeadline("failed", "raw print: boom")).toMatchObject({ sentence: "It didn't print" });
+  });
+});
+
+describe("jobHeadline: the printer confirmed the pages", () => {
+  it("a completed job with the printer's confirmation says it finished, with the page count", () => {
+    expect(jobHeadline("completed", null, "Printer confirmed 4 of 4 pages")).toEqual({
+      sentence: "The printer finished printing",
+      tone: "success",
+      detail: "It reported 4 of 4 pages done.",
+    });
+    expect(jobHeadline("completed", null, "Printer confirmed 1 of 1 page").detail).toBe("It reported 1 of 1 page done.");
+  });
+  it("anything else (the unconfirmed wording, junk, other states) keeps the usual headline", () => {
+    expect(jobHeadline("completed", null, "Sent to the printer; it did not confirm each page").sentence).toBe("Sent to the printer");
+    expect(jobHeadline("completed", null, "Printer confirmed lots").sentence).toBe("Sent to the printer");
+    expect(jobHeadline("completed").sentence).toBe("Sent to the printer");
+    expect(jobHeadline("failed", "boom", "Printer confirmed 4 of 4 pages").sentence).toBe("It didn't print");
+  });
+});

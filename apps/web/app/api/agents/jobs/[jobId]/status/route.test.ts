@@ -88,6 +88,24 @@ describe("agent status route: failure path", () => {
     expect(adjust.mock.calls[0]![5]).toBe("release");
   });
 
+  it("a printer-attention failure is NEVER auto-retried (a resend could print twice), even with auto-retry ON: stays failed with the printer words and its reservation", async () => {
+    settings = { auto_retry_failed_prints: true };
+    const marker = "[printio:printer-error v1 code=40022] Paper jam";
+    const res = await call("failed", marker);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(job).toMatchObject({ status: "failed", attempt_count: 1, error_message: marker });
+    expect(events.map((e) => e.event_type)).toEqual(["PRINT_FAILED"]);
+    expect(adjust).not.toHaveBeenCalled();
+  });
+
+  it("a printer-attention failure at max_attempts still releases the reservation once", async () => {
+    job = printing({ attempt_count: 2 });
+    await call("failed", "[printio:printer-error v1 code=40022] Paper jam");
+    expect(adjust).toHaveBeenCalledTimes(1);
+    expect(adjust.mock.calls[0]![5]).toBe("release");
+  });
+
   it("auto-retry OFF at max_attempts releases once", async () => {
     job = printing({ attempt_count: 2 });
     await call("failed", "x");

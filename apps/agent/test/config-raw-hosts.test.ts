@@ -11,3 +11,15 @@ describe("PRINTIO_RAW_ALLOWED_HOSTS", () => {
     expect(loadConfig({ env: { ...base, PRINTIO_RAW_ALLOWED_HOSTS: " 192.168.100.168 , Printer.LAN " } }).rawAllowedHosts).toEqual(["192.168.100.168", "printer.lan"]);
   });
 });
+
+describe("PRINTIO_PRINTER_FEEDBACK", () => {
+  it("is ON by default (the owner asked for it; set it to false to switch it off)", () => {
+    expect(loadConfig({ env: base }).printerFeedback).toBe(true);
+  });
+  it("is switched off with false", () => {
+    expect(loadConfig({ env: { ...base, PRINTIO_PRINTER_FEEDBACK: "false" } }).printerFeedback).toBe(false);
+  });
+  it("is switched on with true", () => {
+    expect(loadConfig({ env: { ...base, PRINTIO_PRINTER_FEEDBACK: "true" } }).printerFeedback).toBe(true);
+  });
+});

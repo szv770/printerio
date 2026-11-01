@@ -122,6 +122,8 @@ export interface DownloadUrlResponse {
     duplex: boolean;
     paperSize: string;
     finishing: { staple: boolean; booklet: boolean; punch: boolean };
+    /** Pages the printer should report finished (printer feedback); absent from older servers. */
+    expectedPages?: number;
     /** Per-job override of this Agent's own PRINTIO_PRINT_FIT_MODE default - set by the cloud only for a booklet job (always "noscale"), absent otherwise. See config.ts's PrintFitMode and orchestrator.ts's fallback. */
     fitMode?: "fit" | "shrink" | "noscale";
     /** Present only for output_mode='raw' profiles: send straight to host:port, no Windows queue (windowsQueueName is ""). */

@@ -2,12 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import { CloudClient } from "../src/cloud-client.js";
 import { createHealthMonitor } from "../src/health-monitor.js";
 import { createLogger } from "../src/logger.js";
+import { holdSending } from "../src/send-activity.js";
 
 const logger = createLogger({ level: "error" });
 const PRINTER = "11111111-1111-4111-8111-111111111111";
 const TARGET = { printerId: PRINTER, host: "192.168.100.168", port: 9100 };
 
-function setup(opts: { responses?: Array<Record<string, unknown>>; sending?: boolean; probe?: ReturnType<typeof vi.fn>; check?: ReturnType<typeof vi.fn>; probeIntervalMs?: number } = {}) {
+function setup(opts: { responses?: Array<Record<string, unknown>>; sending?: boolean; probe?: ReturnType<typeof vi.fn>; check?: ReturnType<typeof vi.fn>; probeIntervalMs?: number; realGuard?: boolean } = {}) {
   const bodies: Array<Record<string, unknown>> = [];
   const responses = [...(opts.responses ?? [{ ok: true, serverTime: "t", rawPrinters: [TARGET] }])];
   const fetchImpl = vi.fn(async (_u: unknown, init?: RequestInit) => {
@@ -21,7 +22,7 @@ function setup(opts: { responses?: Array<Record<string, unknown>>; sending?: boo
   const monitor = createHealthMonitor(client, { discoverQueues: vi.fn(async () => []), restartSpooler: vi.fn(async () => {}) }, logger, {
     probe,
     checkTarget: check,
-    isSending: () => opts.sending === true,
+    ...(opts.realGuard ? {} : { isSending: () => opts.sending === true }),
     probeIntervalMs: opts.probeIntervalMs ?? 0,
   });
   return { monitor, bodies, probe, check };
@@ -88,5 +89,19 @@ describe("heartbeat: asking the direct-port printers how they are", () => {
     await older.monitor.sendHeartbeat();
     expect(older.probe).not.toHaveBeenCalled();
     expect(bodies).toHaveLength(2);
+  });
+});
+
+describe("heartbeat: the status probe stays off the printer while a job is being confirmed (printer feedback)", () => {
+  it("is skipped from the moment the job is sent until the verdict releases the hold, then asks again", async () => {
+    const { monitor, probe } = setup({ realGuard: true });
+    await monitor.sendHeartbeat(); // learns the printers
+    const release = holdSending();
+    await monitor.sendHeartbeat();
+    await monitor.sendHeartbeat();
+    expect(probe).not.toHaveBeenCalled();
+    release();
+    await monitor.sendHeartbeat();
+    expect(probe).toHaveBeenCalledTimes(1);
   });
 });

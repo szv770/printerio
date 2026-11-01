@@ -67,3 +67,20 @@ describe("download-url: keepClaimed (lets the agent release a job it could not s
     expect((await get("?keepClaimed=1")).status).toBe(200);
   });
 });
+
+describe("download-url: expectedPages (PAGE messages count printed sides: what the printer should report, for printer feedback)", () => {
+  it("plain duplex: copies x pages (a duplex job still reports one PAGE per side)", async () => {
+    job = { ...job, source_pdf_pages: 4, copies: 2, duplex: true };
+    expect((await (await get("?keepClaimed=1")).json()).printRequest.expectedPages).toBe(8);
+  });
+  it("plain single-sided: copies x pages", async () => {
+    job = { ...job, source_pdf_pages: 3, copies: 2, duplex: false };
+    expect((await (await get("?keepClaimed=1")).json()).printRequest.expectedPages).toBe(6);
+  });
+  it("booklet: ceil((pages + padding) / 2) x copies, and the old expectedSheets field is gone", async () => {
+    job = { ...job, finishing: { staple: false, booklet: true, punch: false }, source_pdf_pages: 6, booklet_padding_added: 2, copies: 3, duplex: true, derived_file_path: "d/x.pdf", booklet_binding_side: "left" };
+    const pr = (await (await get("?keepClaimed=1")).json()).printRequest;
+    expect(pr.expectedPages).toBe(12);
+    expect(pr.expectedSheets).toBeUndefined();
+  });
+});

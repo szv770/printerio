@@ -3,7 +3,7 @@ import { authenticateAgentRequest } from "@/lib/agent-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { rawTargetFromProfile } from "@/lib/printers/raw-target";
-import type { ResolvedPrintRequest } from "@printio/shared";
+import { expectedRawPages, type ResolvedPrintRequest } from "@printio/shared";
 
 const SIGNED_URL_TTL_SECONDS = 300;
 
@@ -109,6 +109,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
     duplex: job.duplex,
     paperSize: job.paper_size,
     finishing,
+    // PAGE messages the printer should report (they count printed sides; printer feedback on a raw port); older Agents ignore it.
+    expectedPages: expectedRawPages({ sourcePages: job.source_pdf_pages, bookletPaddingAdded: job.booklet_padding_added, copies: job.copies, booklet: !!finishing.booklet }),
     // Printio has already imposed and independently scaled a booklet job's
     // pages to the exact target sheet size - request the driver print it at
     // 100%, never fit/shrink (which would re-scale an already-correct page

@@ -186,6 +186,30 @@ A read-only query (`@PJL INFO CONFIG`, `@PJL INFO VARIABLES`, sent with no job, 
 
 Labelled tests sent 2026-11-01 (results to be recorded here): T1 `STAPLEOPTION=TWO FINISH=STAPLE` (dual staple), T2 `FINISH=KPUNCH` (punch), T3 `MEDIATYPE=PLAIN`.
 
+## Printer feedback in the Agent (polling design, built 2026-11-01, untested on the real agent)
+
+What the Agent does when `PRINTIO_PRINTER_FEEDBACK=true` (default **off**; with it off the bytes and behaviour are exactly as before).
+
+**Why not listen on the job's own connection (tried first, abandoned).** Measured on the real printer: while we stay connected the printer reports only the first pages of a multi-copy job (PAGE 1..4 of 8) and withholds the rest, and the messages it has queued **leak onto the next connection**: job B's connection received job A's PAGE 5..8 and the parser said "confirmed 6 of 5". Also the printer **remembers** `USTATUS` settings (PAGE=ON, TIMED, VERBOSE stay set), so every later connection got stray messages. So no PAGE/TIMED/VERBOSE setting is used any more and nothing is listened for on the job connection.
+
+**Measured, reliable behaviour.** Send the job exactly like the normal path (data, then FIN; the printer closes at once). Then open a fresh short connection every 3 s, write `<UEL>@PJL` + `@PJL INFO STATUS` + `<UEL>` and read about 1.5 s. Polls at +3..+15 s returned nothing. The first poll after the job finished (+18 s) returned, in one reply: `@PJL USTATUS PAGE` 7, `PAGE` 8, `@PJL USTATUS JOB / END / NAME="EXPC mvy3xdvv" / PAGES=8` and `@PJL USTATUS DEVICE / CODE=10001 / DISPLAY="Ready."`. The job NAME matched ours and **PAGES=8 = pages printed**. `JOB` and `DEVICE` messages are on by default on this printer, so no setting is needed.
+
+**PAGE counts pages (printed sides), not sheets.** 4-page duplex x 2 copies = 8; a 5-page duplex job reported PAGES=5 (the blank back is not counted). Expected pages come from the web app (`printRequest.expectedPages`: copies x pages, booklets count the imposed sides); an older server that sends none = feedback is skipped.
+
+**What the Agent does**
+- Header: `@PJL USTATUS JOB=ON` and `DEVICE=ON` (the printer's defaults) only (`packages/shared/src/pjl.ts`, `ustatus: true`).
+- Unique job name: the PJL job name is `<title> <token>` (token = first 8 letters/digits of the job id; `uniquePjlJobName`, 60 chars max, the token survives a long title), so the same title printed twice is never confusable.
+- Polling (`pollPrinterVerdict`, `apps/agent/src/raw-print-executor.ts`): every ~3 s a short connection, query above, read ~1.5 s, destroy. Everything received goes to the parser (`UstatusFeedback` in named mode, `packages/shared/src/pjl-ustatus.ts`), which keeps unfinished messages between polls and understands several messages per read and the `INFO STATUS` answer. A refused or failed poll is just skipped.
+- Only the `JOB END` with **our unique name** counts (other names, and all PAGE messages, are leftovers and ignored). PAGES >= expected: completed with "Printer confirmed N of N pages". END with fewer pages: not confirmed, reported `failed` (needs a person, never re-sent) with "The printer finished the job but reported only X of Y pages" (it may have been cancelled at the panel).
+- A DEVICE message or INFO STATUS code outside 10xxx and other than 35078 "Sleeping..." is attention: logged, polling continues to the cap, then the job is reported `failed` with the printer's own words (`[printio:printer-error v1 ...]`). 10023 "Processing..." is also the normal PJL state for a long time after a job: never a problem and never "done". Only our JOB END is done.
+- Cap: 60 s + 1.5 s per page (never more than 30 minutes, and never past the job's lease minus 60 s; under 30 s of lease to spare = no feedback). After the cap with nothing seen: completed as before with "Sent to the printer; it did not confirm each page" (counts as sent, not a failure).
+- The Agent's own status probe (health monitor, `isSending` guard) stays off the printer from the moment the job is sent until the verdict (`holdSending` in `send-activity.ts`): it would swallow our JOB END. The same printer's next job is not claimed while a job is being confirmed.
+- Tests: fake printer implementing the measured behaviour (`apps/agent/test/raw-print-feedback.test.ts`), orchestrator wiring (`orchestrator-release.test.ts`), probe guard (`health-monitor-printers.test.ts`).
+- Not done: live per-sheet job events (event types are a database check constraint), the gateway wording for the attention failure. Not yet run end to end through the real Agent.
+
+### Correction after more live tests (2026-11-01): the page counter is the dependable signal
+
+Checking every 10 s for the job's `JOB END` message usually MISSES it: the printer pushes that message only to a connection that is open at that moment (it is not queued for the next connection), and holding a connection open for the whole job would stall other people's jobs on this shared printer. What works at any time on a short connection is `@PJL INFO PAGECOUNT` (the printer's total pages printed). The agent now reads it once before sending (`countBaseline`), then checks `INFO STATUS` + `INFO PAGECOUNT` on one short connection (first check about 10 s + 0.5 s per page after sending, then every 10 s, easing to 20 s) and confirms when the counter has risen by at least the expected pages ("the printer's page counter rose by N"). Measured: a 4-page duplex job with 2 copies (8 pages) confirmed in about 30 s with 3 short connections; a 1-page job showed +1 after 13 s. Limits: someone else printing at the same moment can inflate the counter (it can only look further along; it still needs the expected number), and a booklet's expected count (imposed pages x copies) is not yet measured. If the JOB END message for our unique job name happens to be caught it still counts. Each short connection may show as an entry in the printer's own job log, which is why checks are few.
 
 ## Labelled tests 2026-11-01 (results)
 

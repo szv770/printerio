@@ -14,3 +14,17 @@ export async function trackSending<T>(work: () => Promise<T>): Promise<T> {
 }
 
 export const isSending = (): boolean => sending > 0;
+
+/**
+ * Marks the printer as busy beyond the send itself (printer feedback: until the verdict is reached). Returns the release
+ * function; calling it more than once is harmless.
+ */
+export function holdSending(): () => void {
+  sending++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    sending--;
+  };
+}

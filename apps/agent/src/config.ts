@@ -34,6 +34,8 @@ export interface AgentConfig {
   skipDependencyCheck: boolean;
   /** PRINTIO_RAW_ONLY: a missing SumatraPDF is only a startup warning (raw-port jobs do not need it). */
   rawOnly: boolean;
+  /** PRINTIO_PRINTER_FEEDBACK: for a raw-port job, after sending it as usual poll the printer (short PJL INFO STATUS connections) for the JOB END of this job's unique name, so the job can say 'Printer confirmed N of N pages'. On by default (the owner asked for it after the page-counter check was proven on the real printer); set PRINTIO_PRINTER_FEEDBACK=false and the Agent behaves exactly as before. */
+  printerFeedback: boolean;
   /** PRINTIO_RAW_ALLOWED_HOSTS: if set, raw print jobs are only ever sent to these hosts (lower-case, comma separated in the env). Always on top of the private-LAN-only rule. */
   rawAllowedHosts?: string[];
   /** PRINTIO_DOWNLOAD_ALLOWED_HOSTS: if set, job documents are only downloaded from these hosts (or their subdomains), e.g. supabase.co. */
@@ -174,6 +176,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AgentConfig {
       false,
     ),
     rawOnly: parseBool("PRINTIO_RAW_ONLY", env.PRINTIO_RAW_ONLY, false),
+    printerFeedback: parseBool("PRINTIO_PRINTER_FEEDBACK", env.PRINTIO_PRINTER_FEEDBACK, true),
     rawAllowedHosts: parseRawAllowedHosts(env.PRINTIO_RAW_ALLOWED_HOSTS),
     downloadAllowedHosts: parseAllowedDownloadHosts(env.PRINTIO_DOWNLOAD_ALLOWED_HOSTS),
   };
