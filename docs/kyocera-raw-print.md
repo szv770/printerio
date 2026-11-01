@@ -210,3 +210,34 @@ What the Agent does when `PRINTIO_PRINTER_FEEDBACK=true` (default **off**; with 
 ### Correction after more live tests (2026-11-01): the page counter is the dependable signal
 
 Checking every 10 s for the job's `JOB END` message usually MISSES it: the printer pushes that message only to a connection that is open at that moment (it is not queued for the next connection), and holding a connection open for the whole job would stall other people's jobs on this shared printer. What works at any time on a short connection is `@PJL INFO PAGECOUNT` (the printer's total pages printed). The agent now reads it once before sending (`countBaseline`), then checks `INFO STATUS` + `INFO PAGECOUNT` on one short connection (first check about 10 s + 0.5 s per page after sending, then every 10 s, easing to 20 s) and confirms when the counter has risen by at least the expected pages ("the printer's page counter rose by N"). Measured: a 4-page duplex job with 2 copies (8 pages) confirmed in about 30 s with 3 short connections; a 1-page job showed +1 after 13 s. Limits: someone else printing at the same moment can inflate the counter (it can only look further along; it still needs the expected number), and a booklet's expected count (imposed pages x copies) is not yet measured. If the JOB END message for our unique job name happens to be caught it still counts. Each short connection may show as an entry in the printer's own job log, which is why checks are few.
+
+## Labelled tests 2026-11-01 (results)
+
+| Test | Settings sent | What came out |
+|---|---|---|
+| T1B | `DUPLEX=OFF OUTBIN=OPTIONFACEDOWN STAPLEOPTION=TWO FINISH=STAPLE` (2 single-sided sheets) | **Two staples on the left edge. Proven (portrait).** (T1, the same with `DUPLEX=ON` and only 2 pages = one sheet, was not stapled: a printer cannot staple one sheet.) |
+| T2 | `DUPLEX=OFF OUTBIN=OPTIONFACEDOWN FINISH=KPUNCH` | **3 holes punched on both pages. Proven** (main punch unit, US 3-hole). |
+| T3 | `DUPLEX=OFF MEDIATYPE=PLAIN` | Printed normally, single sided. **Proven** (paper type is accepted; which tray it picks was not tested). |
+
+## What the printer sends back on port 9100 (measured 2026-11-01)
+
+Setting `@PJL USTATUS DEVICE=VERBOSE`, `JOB=ON`, `PAGE=ON` (and optionally `TIMED=5`) before the job, and keeping our side of the connection OPEN:
+- `@PJL USTATUS JOB / START / NAME="<job name>"` right after the job starts. **There is no END message.**
+- `@PJL USTATUS PAGE / <n>` once per finished **sheet** (a 4-page double-sided job with 2 copies sent 1,2,3,4: it counts sheets, not sides). They can arrive several in one TCP chunk.
+- `@PJL USTATUS DEVICE / CODE=10001 DISPLAY="Ready." ONLINE=TRUE` and `CODE=10023 DISPLAY="Processing..."` on state changes; `TIMED` repeats the device state every N seconds. Error codes (jam, paper out, etc.) have not been seen yet.
+- `@PJL INFO STATUS`, `@PJL INFO PAGECOUNT` (total pages the machine has ever printed) answer on a fresh connection when no job connection is open. **While a job connection is open, a second connection gets no answer.** `INFO JOBS`, `INFO LOG`, `INFO PRODINFO` and `INQUIRE PAGECOUNT` are not supported.
+- If our side closes (FIN) right after sending, as the agent did, the printer closes at once and sends **no** messages. So that close means "all data received", not "printed".
+- After the pages were reported the printer stayed at "Processing..." for minutes with the page counter static while the job connection had been closed by us; it later went back to Ready. Cause not understood (possibly the printer's own job timeout).
+- The printer's IPP interface (https port 443, `/ipp/print`) answers `Get-Jobs` with name and state, but only lists jobs submitted over IPP, not raw-port jobs.
+
+
+## Paper trays as loaded (owner, 2026-11-01)
+
+| Tray (printer name) | Holds | Notes |
+|---|---|---|
+| TRAY1 (INTRAY2) | Letter, loaded long-edge for **booklets** (the printer calls it LETTER-R) | Booklets need this orientation; Letter booklets already print from it |
+| TRAY2 (INTRAY3) | **Ledger** (11x17) | `PAPER=LEDGER` finds it by itself (proven 2026-10-26) |
+| TRAY3, TRAY4 (INTRAY5, INTRAY6) | regular Letter, portrait, 1500 sheets each | cannot make booklets (wrong orientation), fine for everything else |
+| BYPASS (INTRAY1) | **cardstock** is the tray's configured type (Letter) | the likely route for hardstock/labels; needs the right paper loaded or the printer waits |
+
+Rule that follows: the printer chooses the tray from `PAPER` (+ `MEDIATYPE`), so a job should ask for a size and type and not name a tray. **Never send a size or type nothing is loaded for** (Legal, A4, A3, Statement and so on are not loaded anywhere): the printer stops and asks for paper, and every later job waits behind it until someone cancels at the panel. Printio therefore advertises and accepts only Letter and Ledger for now.
