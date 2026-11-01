@@ -25,10 +25,22 @@ export default function PrivacyPage() {
         </p>
 
         <h2 className="pt-2 text-lg font-semibold">Who can see it</h2>
-        <p>
-          Your organization&apos;s administrators can see the people and print jobs of that organization. Printio does not sell your information and
-          does not show advertising.
-        </p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <strong>Your organization&apos;s administrators</strong> can see the people and print jobs of that organization, and can open the
+            documents sent in it, including documents sent from the print dialog on a computer or phone. Send a private document only if you are
+            comfortable with that.
+          </li>
+          <li>
+            <strong>Other organizations</strong> cannot see yours.
+          </li>
+          <li>
+            <strong>The people who run Printio</strong> keep the service running. Their account in Printio does not give them access to an
+            organization&apos;s print jobs or documents, and they do not look at your documents as part of running the service. Because they
+            operate the servers, they could technically reach stored files, and they will not do so unless you ask them to help with a problem.
+          </li>
+        </ul>
+        <p>Printio does not sell your information and does not show advertising.</p>
 
         <h2 className="pt-2 text-lg font-semibold">How long documents are kept</h2>
         <p>Documents are removed from storage after the retention period set by your organization&apos;s administrator. Job records can stay longer so usage can be reported.</p>
