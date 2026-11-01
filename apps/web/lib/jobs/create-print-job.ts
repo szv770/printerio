@@ -6,6 +6,7 @@ import type { BookletFit } from "@/lib/pdf/imposition";
 import { containsPjlEscape, PJL_ESCAPE_MESSAGE, computePrintMath, computeCostCents, computeBookletPadding, type PolicyAction, type PricingConfig, type OrgRole } from "@printio/shared";
 import { createPageSubsetPdf } from "@/lib/pdf/page-subset";
 import { stampFirstPage } from "@/lib/pdf/stamp";
+import { checkTextFidelity, TEXT_CHANGED_MESSAGE } from "@/lib/pdf/text-fidelity";
 import { buildStampText, normalizeStampSettings } from "@/lib/jobs/user-code";
 import { ensureMemberUserCode } from "@/lib/jobs/ensure-user-code";
 import { checkQueueCapabilities, mapQueueChoices, mapRawChoices, planPageSubset, type BindingSide, type PrintChoices } from "@/lib/print-choices";
@@ -230,7 +231,7 @@ export async function createPrintJob(
   // The caller can force a hold with its own plain-language reason (the IPP gateway does this for anything the
   // print dialog asked for that the website pipeline cannot honour). It wins over the printer's own reason.
   if (opts.forcedHeldReason) heldReason = opts.forcedHeldReason;
-  const held = heldReason !== null;
+  let held = heldReason !== null;
 
   const maxUploadBytes = settings?.max_upload_size_bytes ?? 52428800;
   const quotaBasis = (settings?.quota_basis ?? "physical_sheets") as
@@ -389,6 +390,23 @@ export async function createPrintJob(
         userId: session.userId,
         error: err instanceof Error ? err.message : String(err),
       });
+    }
+  }
+
+  // Text safeguard: whatever the steps above did, the file that prints must say what the upload said. Only runs
+  // when there is a derived file and the original has non-Latin text (Hebrew etc.); fails open (a check that errors
+  // or runs out of time lets the job through and logs a warning). A real mismatch holds the job with a plain reason:
+  // nothing is stored as derived, no quota is reserved, and releasing it re-runs this same check.
+  if (!held && derivedBytes) {
+    const fidelity = await checkTextFidelity({ original: originalBytes, derived: derivedBytes, sourcePages: plan.subsetPages ?? null, booklet });
+    if (fidelity.status === "changed") {
+      logger.error("derived PDF text differs from the upload; job held", { organizationId, printerProfileId, page: fidelity.page, booklet, pageRange: pageRangeText });
+      heldReason = TEXT_CHANGED_MESSAGE;
+      held = true;
+      derivedBytes = null;
+      effectivePageCount = booklet ? computeBookletPadding(sourcePages).paddedPages : sourcePages;
+    } else if (fidelity.status === "skipped" && fidelity.reason !== "no non-Latin text") {
+      logger.warn("text check skipped", { organizationId, reason: fidelity.reason });
     }
   }
 

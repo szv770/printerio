@@ -1,7 +1,8 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { readStamp } from "@/test/read-stamp";
 import { findActiveContent } from "@/lib/pdf/active-content";
+import { makeHebrewPdf } from "@/test/hebrew-fixtures";
 import { fakeSupabase, failure, ok, type FakeCall, type FakeResult } from "@/test/fake-supabase";
 
 const evaluateJobPolicy = vi.fn();
@@ -17,6 +18,7 @@ vi.mock("@/lib/pdf/stamp", async (importOriginal) => {
 // The pipeline's own tests do not need pdfjs (content analysis has its own tests): no analysis = pages stay whole.
 vi.mock("@/lib/pdf/content-analysis", () => ({ analyzePdfContent: async () => null }));
 
+import { TEXT_CHANGED_MESSAGE } from "@/lib/pdf/text-fidelity";
 import { createPrintJob, type JobOptions, type JobSession } from "./create-print-job";
 
 const ORG = "org-1";
@@ -469,6 +471,54 @@ describe("createPrintJob: user code stamp", () => {
     withStamp({});
     expect((await run(pdf3, baseOpts({ forcedHeldReason: "Pick options" }))).ok).toBe(true);
     expect(Object.keys(uploadsByName())).toEqual(["original"]);
+  });
+});
+
+describe("createPrintJob: text safeguard (Hebrew must reach the printer unchanged)", () => {
+  const SETTINGS = { max_upload_size_bytes: 52428800, quota_basis: "physical_sheets", job_approval_expiry_hours: 72 };
+  const member = { user_code: "SV42", profiles: { display_name: "Sam Vogel", email: "sam@x.org" } };
+  const useStamp = () => {
+    respond = (c) => {
+      if (c.table === "organization_settings") return ok(SETTINGS);
+      if (c.table === "organization_members") return c.op === "update" ? ok([{ user_code: "SV42" }]) : c.single ? ok(member) : ok([]);
+      return defaults()(c);
+    };
+    fake = fakeSupabase((c) => respond(c));
+  };
+  const derivedUpload = () => fake.calls.find((c) => c.op === "upload" && (c.values as { path: string }).path.endsWith("derived.pdf"));
+  let hebrew: Uint8Array;
+  let garbled: Uint8Array;
+  beforeAll(async () => {
+    hebrew = await makeHebrewPdf({ pages: [["שלום עולם"], ["ברוכים הבאים"]] });
+    garbled = await makeHebrewPdf({ pages: [["שלום עולן"], ["ברוכים הבאים"]] });
+  });
+  afterEach(() => {
+    stampOverride = null;
+  });
+
+  it("a Hebrew job whose derived text is intact goes through as before (stamped, derived stored)", async () => {
+    useStamp();
+    const res = await run(hebrew);
+    expect(res).toMatchObject({ ok: true, status: "approved", heldReason: null });
+    expect(derivedUpload()).toBeDefined();
+  });
+
+  it("holds the job with a plain reason, stores no derived file and reserves no quota when the text changed", async () => {
+    useStamp();
+    stampOverride = () => garbled;
+    const res = await run(hebrew);
+    expect(res).toMatchObject({ ok: true, status: "held", heldReason: TEXT_CHANGED_MESSAGE });
+    expect(derivedUpload()).toBeUndefined();
+    expect(insertedJob()).toMatchObject({ status: "held", derived_file_path: null, held_reason: TEXT_CHANGED_MESSAGE });
+    expect(rpcs("adjust_monthly_usage")).toHaveLength(0);
+    expect(evaluateJobPolicy).not.toHaveBeenCalled();
+  });
+
+  it("an ASCII-only job is not checked at all (a poisoned stamp result still goes through)", async () => {
+    useStamp();
+    stampOverride = () => garbled;
+    const res = await run(pdf3);
+    expect(res).toMatchObject({ ok: true, status: "approved" });
   });
 });
 
