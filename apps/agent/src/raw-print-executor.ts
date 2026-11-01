@@ -4,7 +4,9 @@
  * The PJL header + PDF is built by @printio/shared's buildRawJob() and
  * written straight to a TCP socket (normally printer:9100).
  *
- * Success = every byte flushed and the socket closed cleanly. There is no
+ * Success = every byte flushed to the printer (and the printer did not reset the connection). The Kyocera often keeps
+ * the socket open until its own job finishes, which can take many minutes for a big booklet, so a close is NOT awaited
+ * for long: after the flush we give it RAW_CLOSE_GRACE_MS to close or reset, then count the job as sent. There is no
  * spooler job to identify or monitor. Never retried here: any failure is
  * returned as { ok: false, failure } and the orchestrator decides
  * (retry-policy.ts) whether the job waits for the printer or fails.
@@ -29,6 +31,11 @@ export const RAW_DEFERRED_STATUSES = ["downloading", "downloaded", "printing", .
 
 export const RAW_CONNECT_TIMEOUT_MS = 15_000;
 export const RAW_WRITE_TIMEOUT_MS = 120_000;
+/** After every byte is flushed: how long to wait for the printer to close (or reset) before counting the job as sent. */
+export const RAW_CLOSE_GRACE_MS = 20_000;
+/** Hard ceiling for one send, however slowly a busy printer takes the data. */
+export const RAW_MAX_SEND_MS = 60 * 60_000;
+const WRITE_CHUNK_BYTES = 256 * 1024;
 
 /**
  * What went wrong, as data, so the orchestrator decides "wait for the
@@ -85,7 +92,9 @@ export function classifySocketError(code: string | undefined, connected: boolean
 
 export interface RawTimeouts {
   connectTimeoutMs?: number;
+  /** Fails the send when no byte has left this machine for this long (a stall), not when the whole job takes this long. */
   writeTimeoutMs?: number;
+  closeGraceMs?: number;
 }
 
 /** Connect, write all bytes, flush, close. Rejects (with a RawSendError) on refusal, error or timeout. */
@@ -97,6 +106,7 @@ export function sendRawBytes(
 ): Promise<void> {
   const connectMs = timeouts.connectTimeoutMs ?? RAW_CONNECT_TIMEOUT_MS;
   const writeMs = timeouts.writeTimeoutMs ?? RAW_WRITE_TIMEOUT_MS;
+  const graceMs = timeouts.closeGraceMs ?? RAW_CLOSE_GRACE_MS;
 
   return new Promise<void>((resolve, reject) => {
     const socket = new net.Socket();
@@ -142,20 +152,37 @@ export function sendRawBytes(
     socket.connect(port, host, () => {
       connected = true;
       if (timer) clearTimeout(timer);
-      timer = setTimeout(
-        () =>
-          finish(
-            new RawSendError(
-              flushed
-                ? `raw print write to ${host}:${port} timed out after ${writeMs}ms (all data was sent but the printer did not confirm)`
-                : `raw print write to ${host}:${port} timed out after ${writeMs}ms`,
-              { kind: "write_timeout", flushed },
-            ),
-          ),
-        writeMs,
+      const startedAt = Date.now();
+      let lastPending = bytes.byteLength;
+      let lastProgressAt = Date.now();
+      const watch = setInterval(
+        () => {
+          if (settled || flushed) return;
+          const pending = socket.writableLength;
+          if (pending < lastPending) {
+            lastPending = pending;
+            lastProgressAt = Date.now();
+          }
+          const stalled = Date.now() - lastProgressAt >= writeMs;
+          const tooLong = Date.now() - startedAt >= RAW_MAX_SEND_MS;
+          if (stalled || tooLong) {
+            clearInterval(watch);
+            finish(new RawSendError(`raw print write to ${host}:${port} timed out after ${tooLong ? RAW_MAX_SEND_MS : writeMs}ms${stalled ? " without the printer taking any more data" : ""}`, { kind: "write_timeout", flushed: false }));
+          }
+        },
+        Math.max(50, Math.min(1000, Math.floor(writeMs / 4))),
       );
-      // end() flushes pending data then sends FIN; "close" then means done.
-      socket.end(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+      socket.once("close", () => clearInterval(watch));
+      socket.once("finish", () => {
+        clearInterval(watch);
+        // Everything is with the printer. Wait briefly for a close or a reset; if it just stays open, the job is sent.
+        timer = setTimeout(() => finish(), graceMs);
+      });
+      // Written in chunks so progress (the queue draining) is visible while a busy printer takes the data slowly.
+      for (let off = 0; off < bytes.byteLength; off += WRITE_CHUNK_BYTES) {
+        socket.write(Buffer.from(bytes.buffer, bytes.byteOffset + off, Math.min(WRITE_CHUNK_BYTES, bytes.byteLength - off)));
+      }
+      socket.end();
     });
   });
 }
