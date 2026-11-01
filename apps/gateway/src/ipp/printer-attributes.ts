@@ -13,8 +13,8 @@ export const MEDIA_SIZES = [
   { key: "na_ledger_11x17in", x: 27940, y: 43180 },
 ] as const;
 
-/** none, staple, staple-top-left, staple-top-right, saddle-stitch, booklet-maker. */
-export const FINISHINGS_SUPPORTED = [3, 4, 20, 22, 8, 13] as const;
+/** none, staple, staple-top-left, staple-top-right, saddle-stitch, booklet-maker, punch (5 = 3 holes left), staple-dual-left (28). */
+export const FINISHINGS_SUPPORTED = [3, 4, 20, 22, 8, 13, 5, 28] as const;
 
 type MediaSize = (typeof MEDIA_SIZES)[number];
 
@@ -104,8 +104,9 @@ export function buildPrinterAttributes(input: PrinterAttrsInput): IppAttr[] {
     attr(TAG.integer, "number-up-supported", 1),
     // Only finishings the website maps AND the printer is proven to deliver (apps/web/lib/gateway/ipp-choices.ts,
     // docs/kyocera-raw-print.md). RFC 8011 / PWG 5100.1 values: 3 none, 4 staple, 20 staple-top-left,
-    // 22 staple-top-right, 8 saddle-stitch, 13 booklet-maker. NOT advertised on purpose: 21 bottom-left (no
-    // storage for it yet), 28-31 dual staples, punch, fold - the dialog must not offer what cannot be delivered.
+    // 22 staple-top-right, 8 saddle-stitch, 13 booklet-maker, 5 punch (3 holes, left, proven 2026-11-01), 28
+    // staple-dual-left (proven 2026-11-01). NOT advertised on purpose: 21 bottom-left (no storage for it yet),
+    // 29-31 other dual staples, 70+ other punch layouts, fold - the dialog must not offer what cannot be delivered.
     // UNVERIFIED: which of these Windows 11 / Android actually draw in their dialog (nothing is captured yet; the
     // OS may show only some, or only the generic "staple"). Whatever arrives that is not listed is held, never guessed.
     attr(TAG.enum, "finishings-default", 3),

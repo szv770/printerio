@@ -25,11 +25,11 @@ describe("printer attributes", () => {
     expect(p["page-ranges-supported"]).toBe(true);
   });
 
-  it("advertises exactly the finishings the website can deliver: none, staple, top-left, top-right, saddle-stitch, booklet-maker", () => {
+  it("advertises exactly the finishings the website can deliver: none, staple, top-left, top-right, saddle-stitch, booklet-maker, punch, dual-left", () => {
     const p = flatten({ tag: TAG.printer, attrs: build() });
-    expect(p["finishings-supported"]).toEqual([3, 4, 20, 22, 8, 13]);
+    expect(p["finishings-supported"]).toEqual([3, 4, 20, 22, 8, 13, 5, 28]);
     // Never advertise what cannot be delivered (bottom-left 21, dual staples 28-31, punch 5/70+, fold 10).
-    for (const v of [5, 10, 21, 23, 28, 29, 30, 31, 70]) expect(p["finishings-supported"]).not.toContain(v);
+    for (const v of [10, 21, 23, 29, 30, 31, 70, 78]) expect(p["finishings-supported"]).not.toContain(v);
   });
 
   it("keeps the sides and orientation options the dialog needs", () => {
@@ -86,7 +86,7 @@ describe("advertised finishings", () => {
   };
 
   it("advertises the full list by default", () => {
-    expect(finishingsOf()).toEqual([3, 4, 20, 22, 8, 13]);
+    expect(finishingsOf()).toEqual([3, 4, 20, 22, 8, 13, 5, 28]);
   });
   it("can advertise 'none' only, exactly what the spike sent when Windows 11 accepted the printer", () => {
     expect(finishingsOf([3])).toBe(3);
