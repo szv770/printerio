@@ -1,4 +1,5 @@
 import type { JobState } from "@printio/shared";
+import { parsePrinterErrorMarker, printerErrorDetail } from "@printio/shared";
 import { jobWaiting } from "./job-waiting";
 
 export type HeadlineTone = "neutral" | "live" | "success" | "warning" | "danger";
@@ -24,6 +25,11 @@ const HEADLINES: Record<JobState, { sentence: string; tone: HeadlineTone; detail
 
 /** The one big plain sentence at the top of a job's page. Display only: status itself is decided elsewhere. */
 export function jobHeadline(status: string, errorMessage?: string | null): { sentence: string; tone: HeadlineTone; detail?: string } {
+  // The printer itself said it needs attention (its own status message): say so, in its words.
+  if (status === "failed") {
+    const attention = parsePrinterErrorMarker(errorMessage);
+    if (attention) return { sentence: "The printer needs attention", tone: "danger", detail: printerErrorDetail(attention) };
+  }
   // A job the printer could not take right now is waiting, not failed: same headline, plus the plain reason.
   const waiting = jobWaiting(status, errorMessage);
   if (waiting) return { sentence: "Waiting for the printer", tone: "warning", detail: waiting.text };

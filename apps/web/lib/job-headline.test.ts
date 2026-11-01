@@ -26,3 +26,15 @@ describe("jobHeadline", () => {
     expect(jobHeadline("wat")).toEqual({ sentence: "Status unknown", tone: "neutral" });
   });
 });
+
+describe("jobHeadline: printer attention", () => {
+  it("a failed job carrying the printer-attention marker says so in the printer's words", () => {
+    const h = jobHeadline("failed", "[printio:printer-error v1 code=40022] Paper jam");
+    expect(h).toMatchObject({ sentence: "The printer needs attention", tone: "danger" });
+    expect(h.detail).toMatch(/^Paper jam\. .*may still print/);
+  });
+  it("the marker only counts on a failed job; other failures keep the old headline", () => {
+    expect(jobHeadline("completed", "[printio:printer-error v1 code=1] x").sentence).toBe("Sent to the printer");
+    expect(jobHeadline("failed", "raw print: boom")).toMatchObject({ sentence: "It didn't print" });
+  });
+});

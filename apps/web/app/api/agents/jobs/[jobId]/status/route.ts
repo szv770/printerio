@@ -2,7 +2,7 @@ import { apiError } from "@/lib/api-errors";
 import { authenticateAgentRequest } from "@/lib/agent-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { adjustMonthlyUsage, usageAmountsForJob } from "@/lib/quota";
-import { canTransition, type JobState } from "@printio/shared";
+import { canTransition, parsePrinterErrorMarker, type JobState } from "@printio/shared";
 import { isAutoRetryEnabled, requeueFailedJob } from "@/lib/jobs/lifecycle";
 import { logger } from "@/lib/logger";
 import { markDevicePrinted } from "@/lib/devices/devices";
@@ -129,6 +129,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ job
       // Finally abandoned: release the reservation (exactly once - this branch only runs for the request that won
       // the conditional update above).
       await adjustQuota("release");
+    } else if (parsePrinterErrorMarker(body.message)) {
+      // The printer itself said it needs attention (jam, paper out ...). The job may even still print once that is fixed, so
+      // sending it again automatically could print it twice: it stays failed with the printer's words and its
+      // reservation until the owner decides (Try again or cancel).
     } else if (await isAutoRetryEnabled(supabase, job.organization_id)) {
       // Keep the reservation and re-queue; the job is claimed again by the normal loop.
       const queued = await requeueFailedJob(supabase, { ...job, attempt_count: attemptsUsed }, { type: "system" });

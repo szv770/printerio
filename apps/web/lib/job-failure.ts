@@ -10,7 +10,7 @@
  * Pure and dependency-free so the job page, the job list and the progress model can all share it.
  */
 
-import { WAITING_UNAVAILABLE_TEXT } from "@printio/shared";
+import { WAITING_UNAVAILABLE_TEXT, parsePrinterErrorMarker, printerErrorDetail } from "@printio/shared";
 
 const FALLBACK = "This job did not print. The printer or the print computer reported a problem.";
 
@@ -20,6 +20,14 @@ interface Rule {
 }
 
 const RULES: readonly Rule[] = [
+  // The printer's own attention message from its PJL status reports (packages/shared/src/pjl-ustatus.ts): its words are sanitised.
+  {
+    test: /^\[printio:printer-error\b/,
+    say: (m) => {
+      const info = parsePrinterErrorMarker(m.input ?? m[0]);
+      return info ? `The printer needs attention: ${printerErrorDetail(info)}` : FALLBACK;
+    },
+  },
   // Written by the release route when a job waited out its window (packages/shared/src/waiting.ts): already plain words.
   { test: /^\[printio:gave-up\]\s*([\s\S]+)$/, say: (m) => (m[1] ?? "").trim() },
   // Defensive: a waiting marker on a job that is no longer waiting must never leak raw.
