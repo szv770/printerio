@@ -187,7 +187,7 @@ export function LibraryBrowser({ extraSie = [], canRefreshSie = false }: { extra
   const visibleList = list ? list.entries.filter((e) => matchesQuery([e.heading, e.title, e.series, e.note], query)) : [];
 
   return (
-    <div className="pb-28">
+    <div className="pb-[calc(var(--sticky-bottom,0px)+9rem)] sm:pb-28">
       <Segmented<Tab>
         label="Part of the library"
         value={tab}
@@ -375,23 +375,25 @@ export function LibraryBrowser({ extraSie = [], canRefreshSie = false }: { extra
       )}
 
       {cart.length > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-[var(--shadow-xs)]">
-          <div className="mx-auto flex max-w-2xl items-center gap-3">
-            <p className="min-w-0 flex-1 text-sm font-medium">
+        <div role="region" aria-label="Chosen files" className="fixed inset-x-0 bottom-[var(--sticky-bottom,0px)] z-40 border-t border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-[var(--shadow-pop)]">
+          <div className="mx-auto flex max-w-2xl flex-wrap items-center gap-x-3 gap-y-2">
+            <p className="min-w-0 flex-1 basis-32 text-sm font-medium">
               {cart.length} {cart.length === 1 ? "file" : "files"} chosen
             </p>
             <Button type="button" variant="ghost" size="sm" onClick={() => (clearCart(), setCart([]))}>
               Clear
             </Button>
+            <div className="flex w-full gap-2 sm:w-auto">
             {cart.length === 1 && (
-              <Button type="button" onClick={printOne} pending={printing} pendingLabel="Getting the file...">
+              <Button type="button" className="flex-1 sm:flex-none" onClick={printOne} pending={printing} pendingLabel="Getting the file...">
                 <Printer className="h-4 w-4" aria-hidden="true" />
                 Print this file
               </Button>
             )}
-            <Button type="button" variant={cart.length === 1 ? "secondary" : "primary"} onClick={() => router.push("/print/booklet")} disabled={printing}>
+            <Button type="button" className="flex-1 sm:flex-none" variant={cart.length === 1 ? "secondary" : "primary"} onClick={() => router.push("/print/booklet")} disabled={printing}>
               Make a booklet
             </Button>
+            </div>
           </div>
         </div>
       )}
