@@ -185,3 +185,23 @@ A read-only query (`@PJL INFO CONFIG`, `@PJL INFO VARIABLES`, sent with no job, 
 - The script that asked: send `<ESC>%-12345X@PJL` + `@PJL INFO VARIABLES` + `<ESC>%-12345X` to port 9100 and read for a few seconds (the printer may be asleep, status 35078 "Sleeping...", and answers anyway).
 
 Labelled tests sent 2026-11-01 (results to be recorded here): T1 `STAPLEOPTION=TWO FINISH=STAPLE` (dual staple), T2 `FINISH=KPUNCH` (punch), T3 `MEDIATYPE=PLAIN`.
+
+
+## Labelled tests 2026-11-01 (results)
+
+| Test | Settings sent | What came out |
+|---|---|---|
+| T1B | `DUPLEX=OFF OUTBIN=OPTIONFACEDOWN STAPLEOPTION=TWO FINISH=STAPLE` (2 single-sided sheets) | **Two staples on the left edge. Proven (portrait).** (T1, the same with `DUPLEX=ON` and only 2 pages = one sheet, was not stapled: a printer cannot staple one sheet.) |
+| T2 | `DUPLEX=OFF OUTBIN=OPTIONFACEDOWN FINISH=KPUNCH` | **3 holes punched on both pages. Proven** (main punch unit, US 3-hole). |
+| T3 | `DUPLEX=OFF MEDIATYPE=PLAIN` | Printed normally, single sided. **Proven** (paper type is accepted; which tray it picks was not tested). |
+
+## What the printer sends back on port 9100 (measured 2026-11-01)
+
+Setting `@PJL USTATUS DEVICE=VERBOSE`, `JOB=ON`, `PAGE=ON` (and optionally `TIMED=5`) before the job, and keeping our side of the connection OPEN:
+- `@PJL USTATUS JOB / START / NAME="<job name>"` right after the job starts. **There is no END message.**
+- `@PJL USTATUS PAGE / <n>` once per finished **sheet** (a 4-page double-sided job with 2 copies sent 1,2,3,4: it counts sheets, not sides). They can arrive several in one TCP chunk.
+- `@PJL USTATUS DEVICE / CODE=10001 DISPLAY="Ready." ONLINE=TRUE` and `CODE=10023 DISPLAY="Processing..."` on state changes; `TIMED` repeats the device state every N seconds. Error codes (jam, paper out, etc.) have not been seen yet.
+- `@PJL INFO STATUS`, `@PJL INFO PAGECOUNT` (total pages the machine has ever printed) answer on a fresh connection when no job connection is open. **While a job connection is open, a second connection gets no answer.** `INFO JOBS`, `INFO LOG`, `INFO PRODINFO` and `INQUIRE PAGECOUNT` are not supported.
+- If our side closes (FIN) right after sending, as the agent did, the printer closes at once and sends **no** messages. So that close means "all data received", not "printed".
+- After the pages were reported the printer stayed at "Processing..." for minutes with the page counter static while the job connection had been closed by us; it later went back to Ready. Cause not understood (possibly the printer's own job timeout).
+- The printer's IPP interface (https port 443, `/ipp/print`) answers `Get-Jobs` with name and state, but only lists jobs submitted over IPP, not raw-port jobs.
