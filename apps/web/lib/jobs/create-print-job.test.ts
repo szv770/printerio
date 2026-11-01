@@ -1,4 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+// The first job in this file loads pdfjs (the text safeguard), which takes seconds on a loaded machine.
+vi.setConfig({ testTimeout: 30_000 });
 import { PDFDocument } from "pdf-lib";
 import { readStamp } from "@/test/read-stamp";
 import { findActiveContent } from "@/lib/pdf/active-content";

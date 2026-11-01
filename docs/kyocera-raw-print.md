@@ -241,3 +241,42 @@ Setting `@PJL USTATUS DEVICE=VERBOSE`, `JOB=ON`, `PAGE=ON` (and optionally `TIME
 | BYPASS (INTRAY1) | **cardstock** is the tray's configured type (Letter) | the likely route for hardstock/labels; needs the right paper loaded or the printer waits |
 
 Rule that follows: the printer chooses the tray from `PAPER` (+ `MEDIATYPE`), so a job should ask for a size and type and not name a tray. **Never send a size or type nothing is loaded for** (Legal, A4, A3, Statement and so on are not loaded anywhere): the printer stops and asks for paper, and every later job waits behind it until someone cancels at the panel. Printio therefore advertises and accepts only Letter and Ledger for now.
+
+## Hebrew and fonts (2026-11-01)
+
+Trigger: a 2-page Hebrew study calendar (probably made by an AI/HTML tool, sent twice from the print dialog, 140 KB then
+1.3 MB) came out badly garbled. The stored files could not be inspected, so the question was whether Printio can corrupt
+Hebrew, and if the printer might.
+
+**Verified by tests (no real printer involved)**
+- `apps/web/lib/pdf/hebrew-fidelity.test.ts`: Hebrew PDFs (David Libre as subset, full font, mixed Hebrew/Latin/digits/nikud,
+  multi-page, with an attachment + JavaScript so the sanitizer rewrites the file, landscape and odd sizes, `/Rotate` 90/270,
+  object streams, Resources/MediaBox/Rotate inherited from the page tree) go through every stage in the order
+  `create-print-job.ts` uses: preflight + sanitize, page subset, booklet padding + imposition (left and right binding, fill and
+  keep), the stamp. For each, the text pdfjs extracts per page, the set of fonts per page and the ToUnicode maps are unchanged
+  (booklet sheet sides hold exactly their two source pages' characters). **No Printio step changed Hebrew text or dropped a
+  font in any of these.** pdf-lib copies font and CIDToGIDMap streams byte for byte; none of our steps re-encodes text.
+- Safeguard in the pipeline (`lib/pdf/text-fidelity.ts`): if the non-Latin text of the derived file differs from the upload
+  (per page, through the page-range and booklet page mapping), the job is held with "Printio could not prepare this file without
+  changing its text. Nothing was printed..." and nothing is sent. Fails open on errors or timeout.
+
+**Not verified**
+- Anything about the printer's own PDF interpreter. The check above proves Printio's file says the same as the upload, not
+  that the Kyocera draws it correctly.
+- Suspects on the printer side (not guessed at, not tested): Type 3 fonts (what some HTML-to-PDF tools emit for Hebrew web
+  fonts), CID TrueType fonts with unusual cmaps or a missing/odd CIDToGIDMap, fonts with an invalid or absent ToUnicode, very
+  large embedded fonts (the 1.3 MB version probably had the whole font), fonts with restricted embedding flags, and Hebrew text
+  that depends on OpenType shaping/positioning (nikud placement) instead of precomposed glyphs.
+- The two sends of the real file were not compared with a viewer first. The cheapest first step is: open the same PDF in
+  Chrome/Acrobat. If it is garbled there too, the PDF itself is broken (regenerate it); if fine there, test the printer below.
+
+**Real-printer check (owner)**
+```
+node tools/raw-print/make-hebrew-tests.mjs            # makes tools/raw-print/hebrew-out/A-subset.pdf, B-full.pdf, C-mixed.pdf
+node tools/raw-print/send-labelled.mjs tools/raw-print/hebrew-out/A-subset.pdf <printer-ip> "HEB A SUBSET"
+node tools/raw-print/send-labelled.mjs tools/raw-print/hebrew-out/B-full.pdf   <printer-ip> "HEB B FULL"
+node tools/raw-print/send-labelled.mjs tools/raw-print/hebrew-out/C-mixed.pdf  <printer-ip> "HEB C MIXED"
+```
+Each page says which file it is in large Latin letters and what to expect. Record here which of A, B, C printed correctly.
+If all print fine, the printer handles ordinary TrueType Hebrew and the culprit is the source file's font type; then ask
+whoever regenerates the PDF to export from a tool that embeds TrueType (not Type 3) fonts, or print it via Chrome's Save as PDF.

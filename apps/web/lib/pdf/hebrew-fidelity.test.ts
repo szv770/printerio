@@ -1,6 +1,9 @@
 // Does any step Printio applies to a PDF change its Hebrew text or drop a font? Every fixture goes through the real
 // stages in the order create-print-job.ts runs them; what a viewer extracts (pdfjs) and the fonts used must survive.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// The first test loads pdfjs, which takes seconds on a loaded machine.
+vi.setConfig({ testTimeout: 30_000 });
 import { PDFDocument } from "pdf-lib";
 import { bookletPageOrder } from "./imposition";
 import { fontsWithToUnicode, HEBREW_LINES, makeHebrewPdf, MIXED_LINES, nonAscii, pageFonts, pageTexts, type FixtureOptions } from "@/test/hebrew-fixtures";

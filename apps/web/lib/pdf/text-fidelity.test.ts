@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// The first test loads pdfjs, which takes seconds on a loaded machine.
+vi.setConfig({ testTimeout: 30_000 });
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { makeHebrewPdf, HEBREW_LINES, MIXED_LINES } from "@/test/hebrew-fixtures";
 import { padAndImposeBooklet } from "./booklet-build";
