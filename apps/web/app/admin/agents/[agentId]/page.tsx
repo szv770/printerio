@@ -140,11 +140,11 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
   return (
     <div className="mx-auto max-w-3xl">
       <Link
-        href={routes.adminAgents}
+        href={`${routes.adminAgents}?manage=1`}
         className="mb-4 inline-flex items-center gap-1 text-sm text-[var(--color-muted)] hover:underline"
       >
         <ArrowLeft className="h-4 w-4" />
-        Back to print servers
+        Manage print servers (rename, delete, setup code)
       </Link>
 
       <CommandAutoRefresh active={live} everyMs={refreshIntervalMs(updateLive)} />
