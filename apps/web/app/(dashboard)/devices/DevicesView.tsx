@@ -72,6 +72,7 @@ export function DevicesView({ devices, startAdding = false }: { devices: DeviceI
 
   return (
     <div className="flex flex-col gap-5">
+      <BetaNote />
       {adding ? (
         <AddFlow onClose={() => setAdding(false)} />
       ) : (
@@ -110,6 +111,20 @@ function StepMarker({ step, title }: { step: 1 | 2; title: string }) {
         <span className={`h-1 w-10 rounded-full ${step === 2 ? "bg-[var(--color-primary)]" : "bg-[var(--color-border-strong)]"}`} />
       </div>
       <h2 className="mt-2 text-xl font-semibold leading-7">{title}</h2>
+    </div>
+  );
+}
+
+/** Printing from the normal Print button is still being tested; devices added earlier hold old paper choices. */
+function BetaNote() {
+  return (
+    <div role="note" className="rounded-[var(--radius-control)] bg-[var(--color-warning-soft)] px-4 py-3 text-sm text-[var(--color-warning-ink)]">
+      <p className="font-medium">Beta</p>
+      <p className="mt-1">
+        Printing from the Print button is still being tested, so some choices may not work yet. If a job does not come out, use the Print page in
+        this app. If you added a Printio printer on this device before, remove it and add it again so the device picks up the current paper
+        choices (Letter and Ledger).
+      </p>
     </div>
   );
 }
