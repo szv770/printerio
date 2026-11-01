@@ -6,6 +6,7 @@
 param(
   [string]$Domain = "beta.printio.app",
   [int]$Port = 3010,
+  [switch]$SkipBuild,       # rerun without reinstalling/rebuilding
   [switch]$SwitchServices   # also point the agent + gateway at this local site and restart them
 )
 $ErrorActionPreference = "Stop"
@@ -53,12 +54,14 @@ foreach ($k in "PRINTIO_BOOTSTRAP_ADMIN_EMAIL", "PRINTIO_BOOTSTRAP_ORG_NAME") { 
 [IO.File]::WriteAllLines($envFile, $lines, (New-Object Text.UTF8Encoding $false))
 Write-Host "Wrote $envFile"
 
-Write-Host "Installing and building (a few minutes)..."
-corepack enable
-pnpm install --frozen-lockfile
-if ($LASTEXITCODE) { throw "pnpm install failed" }
-pnpm --filter "@printio/web" build
-if ($LASTEXITCODE) { throw "build failed" }
+if (-not $SkipBuild) {
+  Write-Host "Installing and building (a few minutes)..."
+  corepack enable
+  pnpm install --frozen-lockfile
+  if ($LASTEXITCODE) { throw "pnpm install failed" }
+  pnpm --filter "@printio/web" build
+  if ($LASTEXITCODE) { throw "build failed" }
+}
 
 function Register-Task($name, $trigger, $script, $argText) {
   $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$script`" $argText" -WorkingDirectory $repo
@@ -72,6 +75,7 @@ Register-Task "Printio cron sweep" (New-ScheduledTaskTrigger -Daily -At "08:00")
 Register-Task "Printio cron cleanup" (New-ScheduledTaskTrigger -Daily -At "03:00") $cronScript "-Job cleanup -Port $Port"
 
 Stop-ScheduledTask "Printio Web" -ErrorAction SilentlyContinue
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like "*next*start*$Port*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Start-ScheduledTask "Printio Web"
 Write-Host "Waiting for the site to answer on 127.0.0.1:$Port ..."
 $ok = $false
