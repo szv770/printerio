@@ -490,6 +490,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
                 expectedPages: expectedPages as number,
                 jobToken: claimable.jobId.replace(/[^A-Za-z0-9]/g, "").slice(0, 8),
                 capMs: leaseCapMs,
+                countBaseline: true, // read the printer's page counter before the job; the rise afterwards is the dependable confirmation
                 ...deps.rawFeedbackTimings,
                 onUpdate: (u) => {
                   if (u.attention) jobLogger.warn("printer says it needs attention", { code: u.attention.code, text: u.attention.text, pages: u.pages, expected: u.expected });

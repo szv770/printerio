@@ -130,7 +130,7 @@ describe("printer feedback: polling with fresh short connections", () => {
     expect(await p).toEqual({ outcome: "confirmed", pages: 8, expected: 8 });
     expect(fake.polls.length).toBeGreaterThanOrEqual(4);
     const esc = String.fromCharCode(27);
-    expect(fake.polls[0]!.toString("latin1")).toBe(`${esc}%-12345X@PJL\r\n@PJL INFO STATUS\r\n${esc}%-12345X`);
+    expect(fake.polls[0]!.toString("latin1")).toBe(`${esc}%-12345X@PJL\r\n@PJL INFO STATUS\r\n@PJL INFO PAGECOUNT\r\n${esc}%-12345X`);
   });
 
   it("the END split over two polls is put together", async () => {
@@ -267,5 +267,75 @@ describe("feedbackCapMs (never wait past the job's lease)", () => {
   });
   it("an unreadable lease: no feedback", () => {
     expect(feedbackCapMs(10, "nonsense", now)).toBeNull();
+  });
+});
+
+import { feedbackPollDelayMs } from "../src/raw-print-executor.js";
+
+describe("printer feedback: keep the number of connections to the printer small", () => {
+  // Every connection may show up as an entry in the printer's own job log, so a job is checked a handful of times, not dozens.
+  it("waits before the first check (longer for bigger jobs), then checks every 10 s, easing off to 20 s", () => {
+    expect(feedbackPollDelayMs(0, 8)).toBeGreaterThanOrEqual(10_000);
+    expect(feedbackPollDelayMs(0, 8)).toBeLessThanOrEqual(15_000);
+    expect(feedbackPollDelayMs(0, 400)).toBeGreaterThan(feedbackPollDelayMs(0, 8));
+    expect(feedbackPollDelayMs(0, 4000)).toBeLessThanOrEqual(60_000); // never wait more than a minute between checks
+    expect(feedbackPollDelayMs(1, 8)).toBe(10_000);
+    expect(feedbackPollDelayMs(3, 8)).toBe(10_000);
+    expect(feedbackPollDelayMs(8, 8)).toBe(20_000);
+  });
+
+  it("a normal 8-page job is checked at most ~4 times in its first 50 seconds", () => {
+    let t = 0;
+    let n = 0;
+    for (let i = 0; ; i++) {
+      t += feedbackPollDelayMs(i, 8);
+      if (t > 50_000) break;
+      n++;
+    }
+    expect(n).toBeLessThanOrEqual(4);
+  });
+});
+
+describe("printer feedback: the page counter (INFO PAGECOUNT works on any short connection, at any time)", () => {
+  // Measured 2026-11-01: the Kyocera pushes its JOB END message only to a connection that is open at that moment, so a few
+  // short checks usually miss it. The total page counter, however, can be read whenever we ask: it rose by exactly the pages printed.
+  const pc = (n: number) => `@PJL INFO PAGECOUNT\r\n${n}\r\n\f`;
+
+  it("reads the counter before sending and confirms once it has risen by at least the expected pages", async () => {
+    const fake = await fakePrinter((i) => (i <= 1 ? pc(100) : pc(108)), 0, false); // check 0 = the baseline read, 1 = job not finished yet
+    const v = await run(fake, { expectedPages: 8, countBaseline: true, ...fast });
+    expect(v).toEqual({ outcome: "confirmed", pages: 8, expected: 8 });
+  });
+
+  it("every status check also asks for the counter (one connection, two questions)", async () => {
+    const fake = await fakePrinter(() => pc(100), 0, false);
+    await run(fake, { expectedPages: 8, countBaseline: true, capMs: 150, ...fast });
+    const asked = fake.polls[0]!.toString("latin1");
+    expect(asked).toContain("@PJL INFO STATUS");
+    expect(asked).toContain("@PJL INFO PAGECOUNT");
+  });
+
+  it("a counter that rises by less than expected is not a confirmation (unconfirmed at the cap, with how far it got)", async () => {
+    const fake = await fakePrinter((i) => (i === 0 ? pc(100) : pc(103)), 0, false);
+    const v = await run(fake, { expectedPages: 8, countBaseline: true, capMs: 200, ...fast });
+    expect(v).toEqual({ outcome: "unconfirmed", reason: "cap", pages: 3, expected: 8 });
+  });
+
+  it("someone else printing at the same time can only make it look further along (it still needs the expected pages)", async () => {
+    const fake = await fakePrinter((i) => (i === 0 ? pc(100) : pc(112)), 0, false);
+    const v = await run(fake, { expectedPages: 8, countBaseline: true, ...fast });
+    expect(v).toMatchObject({ outcome: "confirmed", expected: 8 });
+  });
+
+  it("no baseline (the printer did not answer the first read): the counter is not used, nothing is invented", async () => {
+    const fake = await fakePrinter((i) => (i === 0 ? "" : pc(500)), 0, false);
+    const v = await run(fake, { expectedPages: 8, countBaseline: true, capMs: 200, ...fast });
+    expect(v).toMatchObject({ outcome: "unconfirmed", reason: "cap" });
+  });
+
+  it("a counter that goes backwards (printer restarted) is ignored", async () => {
+    const fake = await fakePrinter((i) => (i === 0 ? pc(1000) : pc(5)), 0, false);
+    const v = await run(fake, { expectedPages: 2, countBaseline: true, capMs: 200, ...fast });
+    expect(v).toMatchObject({ outcome: "unconfirmed" });
   });
 });

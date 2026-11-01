@@ -14,7 +14,7 @@
 
 import { randomBytes } from "node:crypto";
 import net from "node:net";
-import { buildRawJob, sanitizePjlText, uniquePjlJobName, UstatusFeedback, type PrinterAttention, type RawTarget } from "@printio/shared";
+import { buildRawJob, parsePageCount, sanitizePjlText, uniquePjlJobName, UstatusFeedback, type PrinterAttention, type RawTarget } from "@printio/shared";
 import { holdSending } from "./send-activity.js";
 
 /**
@@ -202,12 +202,16 @@ export interface RawListen {
   expectedPages: number;
   /** Short unique token appended to the PJL job name so the printer's JOB END can be matched to this job. Default: random. */
   jobToken?: string;
-  /** Gap between polls (each poll is a fresh short connection). Default 3 s. */
+  /** Gap between polls (each poll is a fresh short connection). Default: feedbackPollDelayMs (a first wait that grows with the job, then every 10-20 s). */
   pollIntervalMs?: number;
   /** How long each poll reads the printer's reply before closing. Default 1.5 s. */
   readMs?: number;
   /** Overall cap after the data is sent. Default listenCapMs(expectedPages). */
   capMs?: number;
+  /** Read the printer's page counter (INFO PAGECOUNT) once BEFORE sending, so a later rise of at least expectedPages confirms the job. Off by default. */
+  countBaseline?: boolean;
+  /** Set by executeRawPrint from the baseline read: the counter value before the job (null = unknown, counter not used). */
+  baselineCount?: number | null;
   /** Called when a message changes the attention state. */
   onUpdate?: (u: { pages: number; expected: number; attention: PrinterAttention | null }) => void;
 }
@@ -230,13 +234,21 @@ export function feedbackCapMs(expectedPages: number, leaseExpiresAt: string, now
   return Math.min(listenCapMs(expectedPages), room);
 }
 
-export const RAW_FEEDBACK_POLL_MS = 3_000;
+/**
+ * The wait before check number `index` (0 = the first). Each check is a new connection to the printer and may appear as an
+ * entry in its own job log, so a job is checked a handful of times: the first check waits roughly as long as the job takes
+ * to print (about 11 s plus 0.5 s per page, at most 60 s), then every 10 s, easing off to 20 s after 4 checks.
+ */
+export function feedbackPollDelayMs(index: number, expectedPages: number): number {
+  if (index === 0) return Math.min(60_000, 10_000 + 500 * Math.max(0, expectedPages));
+  return index < 5 ? 10_000 : 20_000;
+}
 export const RAW_FEEDBACK_READ_MS = 1_500;
 const POLL_CONNECT_MS = 3_000;
 const UEL = String.fromCharCode(27) + "%-12345X";
-const INFO_STATUS_QUERY = `${UEL}@PJL\r\n@PJL INFO STATUS\r\n${UEL}`;
+const INFO_STATUS_QUERY = `${UEL}@PJL\r\n@PJL INFO STATUS\r\n@PJL INFO PAGECOUNT\r\n${UEL}`;
 
-/** One short connection: write the INFO STATUS question, read for `readMs`, destroy. Resolves with what came back ("" on any error). */
+/** One short connection: write the INFO STATUS and INFO PAGECOUNT questions, read for `readMs`, destroy. Resolves with what came back ("" on any error). */
 function pollOnce(host: string, port: number, readMs: number): Promise<string> {
   return new Promise((resolve) => {
     let text = "";
@@ -272,20 +284,30 @@ function pollOnce(host: string, port: number, readMs: number): Promise<string> {
  * Never rejects, never sends anything but the status question.
  */
 export async function pollPrinterVerdict(host: string, port: number, jobName: string, listen: RawListen): Promise<PrinterVerdict> {
-  const interval = listen.pollIntervalMs ?? RAW_FEEDBACK_POLL_MS;
+  let checks = 0;
+  const nextWait = () => listen.pollIntervalMs ?? feedbackPollDelayMs(checks++, listen.expectedPages);
   const readMs = listen.readMs ?? RAW_FEEDBACK_READ_MS;
   const capMs = Math.max(1, listen.capMs ?? listenCapMs(listen.expectedPages));
   const fb = new UstatusFeedback(listen.expectedPages, jobName);
-  const base = () => ({ pages: fb.pages, expected: fb.expectedPages });
+  const baseline = typeof listen.baselineCount === "number" ? listen.baselineCount : null;
+  let counterPages = 0; // how far the printer's page counter has risen since before the job (never negative)
+  const base = () => ({ pages: Math.max(fb.pages, counterPages), expected: fb.expectedPages });
   const deadline = Date.now() + capMs;
   let lastAttention: string | undefined;
   try {
     for (;;) {
-      const wait = Math.min(interval, deadline - Date.now());
+      const wait = Math.min(nextWait(), deadline - Date.now());
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       if (Date.now() >= deadline) break;
       const text = await pollOnce(host, port, Math.max(1, Math.min(readMs, deadline - Date.now() + 200)));
       if (text) fb.push(text);
+      const counter = baseline === null ? null : parsePageCount(text);
+      if (counter !== null && baseline !== null && counter >= baseline) {
+        counterPages = counter - baseline;
+        // The counter is the dependable signal (the job-end message is only pushed to a connection that happens to be open).
+        // Someone else printing at the same time can inflate it, so this says "the printer's counter rose", nothing more.
+        if (counterPages >= listen.expectedPages) return { outcome: "confirmed", ...base() };
+      }
       if (fb.attention?.text !== lastAttention) {
         lastAttention = fb.attention?.text;
         try {
@@ -359,10 +381,14 @@ export async function executeRawPrint(args: {
   if (!job.ok) return { ok: false, reason: job.reason, failure: { kind: "invalid_job" } };
   try {
     if (feedback) {
+      // One short read of the page counter BEFORE the job, so the same counter read afterwards shows how many pages came out.
+      const baselineCount = feedback.countBaseline
+        ? parsePageCount(await pollOnce(raw.host, raw.port, feedback.readMs ?? RAW_FEEDBACK_READ_MS))
+        : (feedback.baselineCount ?? null);
       await sendRawBytes(raw.host, raw.port, job.bytes, timeouts);
       // The agent's own status probe must stay off port 9100 until the verdict: it would swallow our JOB END message.
       const release = holdSending();
-      const printerOutcome = pollPrinterVerdict(raw.host, raw.port, sanitizePjlText(jobName), feedback)
+      const printerOutcome = pollPrinterVerdict(raw.host, raw.port, sanitizePjlText(jobName), { ...feedback, baselineCount })
         .catch((): PrinterVerdict => ({ outcome: "unconfirmed", reason: "error", pages: 0, expected: feedback.expectedPages }))
         .finally(release);
       return { ok: true, bytesSent: job.bytes.length, printerOutcome };

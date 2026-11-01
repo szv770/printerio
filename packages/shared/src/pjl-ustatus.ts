@@ -250,3 +250,11 @@ export function parsePrinterErrorMarker(message: string | null | undefined): Pri
   const text = sanitizePrinterText(m[2] ?? "") || FALLBACK_TEXT;
   return { ...(codeMatch ? { code: Number.parseInt(codeMatch[1] as string, 10) } : {}), text };
 }
+
+/** The printer's total page counter from an `@PJL INFO PAGECOUNT` answer ("@PJL INFO PAGECOUNT\r\n52620\r\n"), or null if there is none. */
+export function parsePageCount(text: string): number | null {
+  const m = /INFO[ \t]+PAGECOUNT[ \t]*\r?\n[ \t]*(\d{1,12})\b/i.exec(typeof text === "string" ? text.slice(0, 20_000) : "");
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isSafeInteger(n) ? n : null;
+}
