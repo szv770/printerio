@@ -371,15 +371,15 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       if (!rec?.sentUnreported?.length) return; // dropped meanwhile (the web app no longer accepts reports)
       if (v?.outcome === "attention") {
         const message = formatPrinterErrorMarker({ ...(v.code !== undefined ? { code: v.code } : {}), text: v.text });
-        jobLogger.warn("the printer needs attention and did not finish this job in time", { code: v.code, text: v.text, sheets: v.sheets, expected: v.expected });
+        jobLogger.warn("the printer needs attention and did not finish this job in time", { code: v.code, text: v.text, pages: v.pages, expected: v.expected });
         jobQueue.upsertJob(jobId, { sentUnreported: [...rec.sentUnreported.filter((x) => x !== "completed"), "failed"], lastError: message });
       } else if (v?.outcome === "confirmed") {
-        const n = Math.min(v.sheets, v.expected);
-        jobLogger.info("printer confirmed every sheet", { sheets: v.sheets, expected: v.expected });
-        jobQueue.upsertJob(jobId, { reportNote: `Printer confirmed ${n} of ${v.expected} sheet${v.expected === 1 ? "" : "s"}` });
+        const n = Math.min(v.pages, v.expected);
+        jobLogger.info("printer confirmed every page", { pages: v.pages, expected: v.expected });
+        jobQueue.upsertJob(jobId, { reportNote: `Printer confirmed ${n} of ${v.expected} page${v.expected === 1 ? "" : "s"}` });
       } else {
-        jobLogger.info("printer did not confirm every sheet - counted as sent, as before", { reason: v?.reason, sheets: v?.sheets, expected: v?.expected });
-        jobQueue.upsertJob(jobId, { reportNote: "Sent to the printer; it did not confirm each sheet" });
+        jobLogger.info("printer did not confirm every page - counted as sent, as before", { reason: v?.reason, pages: v?.pages, expected: v?.expected });
+        jobQueue.upsertJob(jobId, { reportNote: "Sent to the printer; it did not confirm each page" });
       }
       await driveSentReports(jobId, jobLogger);
     } catch (err) {
@@ -480,19 +480,19 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           return procOutcome;
         }
         const rawTarget = dl.printRequest.raw;
-        // Printer feedback needs a known sheet count (older servers do not send one: then nothing changes).
-        const expectedSheets = dl.printRequest.expectedSheets;
+        // Printer feedback needs a known page count (older servers do not send one: then nothing changes).
+        const expectedPages = dl.printRequest.expectedPages;
         // The listen is held to the job's real lease (leaseExpiresAt from the claim): past it the stale-lease sweep would fail a job that may still print.
-        const leaseCapMs = config.printerFeedback && Number.isInteger(expectedSheets) && (expectedSheets as number) > 0 ? feedbackCapMs(expectedSheets as number, leaseExpiresAt, now()) : null;
+        const leaseCapMs = config.printerFeedback && Number.isInteger(expectedPages) && (expectedPages as number) > 0 ? feedbackCapMs(expectedPages as number, leaseExpiresAt, now()) : null;
         const feedback: RawListen | undefined =
           leaseCapMs !== null
             ? {
-                expectedSheets: expectedSheets as number,
+                expectedPages: expectedPages as number,
                 capMs: leaseCapMs,
                 ...deps.rawFeedbackTimings,
                 onUpdate: (u) => {
-                  if (u.attention) jobLogger.warn("printer says it needs attention", { code: u.attention.code, text: u.attention.text, sheets: u.sheets, expected: u.expected });
-                  else jobLogger.info("printer progress", { sheets: u.sheets, expected: u.expected });
+                  if (u.attention) jobLogger.warn("printer says it needs attention", { code: u.attention.code, text: u.attention.text, pages: u.pages, expected: u.expected });
+                  else jobLogger.info("printer progress", { pages: u.pages, expected: u.expected });
                 },
               }
             : undefined;
@@ -748,7 +748,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     // The cloud lists jobs oldest first and we keep that order, one at a time.
     for (const job of jobs) {
       if ([...listening.values()].includes(job.printerProfileId)) {
-        logger.debug("a job for this printer is still listening for the printer's sheet reports - leaving its queued jobs alone for now", { jobId: job.jobId, printerProfileId: job.printerProfileId });
+        logger.debug("a job for this printer is still listening for the printer's page reports - leaving its queued jobs alone for now", { jobId: job.jobId, printerProfileId: job.printerProfileId });
         continue;
       }
       const until = profileCooldownUntil.get(job.printerProfileId);

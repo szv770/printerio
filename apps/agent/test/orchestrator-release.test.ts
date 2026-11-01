@@ -72,8 +72,8 @@ interface CloudOpts {
   downloadUrlPath?: string;
   /** While set, reportStatus throws it (a network outage / a 409), without recording the report as delivered. */
   failReports?: { current: unknown | null };
-  /** printRequest.expectedSheets (current servers send it; absent = older server). */
-  expectedSheets?: number;
+  /** printRequest.expectedPages (current servers send it; absent = older server). */
+  expectedPages?: number;
 }
 
 function fakeCloud(o: CloudOpts) {
@@ -104,7 +104,7 @@ function fakeCloud(o: CloudOpts) {
           duplex: false,
           paperSize: "letter",
           finishing: o.finishing ?? { staple: false, booklet: false, punch: false },
-          ...(o.expectedSheets !== undefined ? { expectedSheets: o.expectedSheets } : {}),
+          ...(o.expectedPages !== undefined ? { expectedPages: o.expectedPages } : {}),
           raw: { host: o.rawHost ?? "127.0.0.1", port: o.rawPort, staplePosition: "top-left" as const, bindingSide: "left" as const, jobName: "a" },
         },
       };
@@ -576,7 +576,7 @@ const fbTimings = { stallMs: 500, capMs: 1200, destroyAfterMs: 30 };
 const lastReport = (calls: Array<{ fn: string; args: unknown[] }>) => calls.filter((c) => c.fn === "reportStatus").pop()!;
 
 describe("printer feedback in the orchestrator", () => {
-  it("every expected sheet reported: completed with 'Printer confirmed 2 of 2 sheets'", async () => {
+  it("every expected page reported: completed with 'Printer confirmed 2 of 2 pages'", async () => {
     const printer = await startPrinter((s) => {
       s.once("data", async () => {
         await fbSleep(30);
@@ -585,23 +585,23 @@ describe("printer feedback in the orchestrator", () => {
         s.write(FB_PAGE(2));
       });
     });
-    const { client, calls } = fakeCloud({ rawPort: printer.port, expectedSheets: 2 });
+    const { client, calls } = fakeCloud({ rawPort: printer.port, expectedPages: 2 });
     const { orch, jobQueue } = makeOrchestrator(client, { config: fbConfig(true), rawFeedbackTimings: fbTimings });
     await orch.processJob(job(1));
     await vi.waitFor(() => expect(statuses(calls).at(-1)).toBe("completed"), { timeout: 6000 });
     expect(statuses(calls)).toEqual(["downloading", "downloaded", "printing", "submitted_to_spooler", "completed"]);
-    expect(lastReport(calls).args[2]).toBe("Printer confirmed 2 of 2 sheets");
+    expect(lastReport(calls).args[2]).toBe("Printer confirmed 2 of 2 pages");
     expect(Buffer.concat(printer.received).toString("latin1")).toContain("@PJL USTATUS PAGE=ON");
     expect(jobQueue.getJob("job-1")).toBeUndefined();
   });
 
   it("the printer goes quiet: falls back to today's behaviour, completed with the unconfirmed wording", async () => {
     const printer = await startPrinter();
-    const { client, calls } = fakeCloud({ rawPort: printer.port, expectedSheets: 3 });
+    const { client, calls } = fakeCloud({ rawPort: printer.port, expectedPages: 3 });
     const { orch } = makeOrchestrator(client, { config: fbConfig(true), rawFeedbackTimings: fbTimings });
     await orch.processJob(job(1));
     await vi.waitFor(() => expect(statuses(calls).at(-1)).toBe("completed"), { timeout: 6000 });
-    expect(lastReport(calls).args[2]).toBe("Sent to the printer; it did not confirm each sheet");
+    expect(lastReport(calls).args[2]).toBe("Sent to the printer; it did not confirm each page");
     expect(fns(calls)).not.toContain("releaseJob");
   });
 
@@ -611,7 +611,7 @@ describe("printer feedback in the orchestrator", () => {
       connections += 1;
       s.once("data", () => s.write(FB_DEVICE(40022, "Paper jam")));
     });
-    const { client, calls } = fakeCloud({ rawPort: printer.port, expectedSheets: 3 });
+    const { client, calls } = fakeCloud({ rawPort: printer.port, expectedPages: 3 });
     const { orch, jobQueue } = makeOrchestrator(client, { config: fbConfig(true), rawFeedbackTimings: fbTimings });
     await orch.processJob(job(1));
     await vi.waitFor(() => expect(statuses(calls).at(-1)).toBe("failed"), { timeout: 6000 });
@@ -625,7 +625,7 @@ describe("printer feedback in the orchestrator", () => {
 
   it("the flag OFF: no USTATUS lines, the job completes straight away as before", async () => {
     const printer = await startPrinter((s) => s.on("end", () => s.end()));
-    const { client, calls } = fakeCloud({ rawPort: printer.port, expectedSheets: 2 });
+    const { client, calls } = fakeCloud({ rawPort: printer.port, expectedPages: 2 });
     const { orch } = makeOrchestrator(client, { config: fbConfig(false) });
     await orch.processJob(job(1));
     expect(statuses(calls)).toEqual(["downloading", "downloaded", "printing", "submitted_to_spooler", "completed"]);
@@ -633,7 +633,7 @@ describe("printer feedback in the orchestrator", () => {
     expect(Buffer.concat(printer.received).toString("latin1")).not.toContain("USTATUS");
   });
 
-  it("the flag ON but an older server sends no expectedSheets: nothing changes", async () => {
+  it("the flag ON but an older server sends no expectedPages: nothing changes", async () => {
     const printer = await startPrinter((s) => s.on("end", () => s.end()));
     const { client, calls } = fakeCloud({ rawPort: printer.port });
     const { orch } = makeOrchestrator(client, { config: fbConfig(true) });
@@ -644,7 +644,7 @@ describe("printer feedback in the orchestrator", () => {
 
   it("while a job's connection is open the same printer's next job is left alone (a second connection gets no answer)", async () => {
     const printer = await startPrinter();
-    const { client, calls } = fakeCloud({ rawPort: printer.port, expectedSheets: 3 });
+    const { client, calls } = fakeCloud({ rawPort: printer.port, expectedPages: 3 });
     const { orch } = makeOrchestrator(client, { config: fbConfig(true), rawFeedbackTimings: { stallMs: 800, capMs: 1500, destroyAfterMs: 30 } }, [job(1), job(2)]);
     await orch.pollClaimableJobs();
     await orch.pollClaimableJobs(); // job-1 is still listening: job-2 must not even be claimed
@@ -656,7 +656,7 @@ describe("printer feedback in the orchestrator", () => {
 describe("printer feedback and the job lease", () => {
   it("a lease that is about to expire: no feedback, the old path (a longer hold would let the stale-lease sweep fail the job)", async () => {
     const printer = await startPrinter((s) => s.on("end", () => s.end()));
-    const { client, calls } = fakeCloud({ rawPort: printer.port, expectedSheets: 2, claim: () => ({ ok: true as const, leaseExpiresAt: new Date(Date.now() + 20_000).toISOString() }) });
+    const { client, calls } = fakeCloud({ rawPort: printer.port, expectedPages: 2, claim: () => ({ ok: true as const, leaseExpiresAt: new Date(Date.now() + 20_000).toISOString() }) });
     const { orch } = makeOrchestrator(client, { config: fbConfig(true) });
     await orch.processJob(job(1));
     expect(statuses(calls).at(-1)).toBe("completed");

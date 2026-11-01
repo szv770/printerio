@@ -194,29 +194,29 @@ export function sendRawBytes(
 
 /** What the printer said about one job when printer feedback is on (see pjl-ustatus.ts for the message formats). */
 export type PrinterVerdict =
-  /** Every expected sheet was reported finished. */
-  | { outcome: "confirmed"; sheets: number; expected: number }
-  /** The printer went quiet, closed, or reset without reporting every sheet and without an attention message: counts as sent, as before. */
-  | { outcome: "unconfirmed"; reason: "stalled" | "closed" | "cap" | "error"; sheets: number; expected: number }
+  /** Every expected page was reported finished. */
+  | { outcome: "confirmed"; pages: number; expected: number }
+  /** The printer went quiet, closed, or reset without reporting every page and without an attention message: counts as sent, as before. */
+  | { outcome: "unconfirmed"; reason: "stalled" | "closed" | "cap" | "error"; pages: number; expected: number }
   /** The printer's latest device message was outside the normal 10xxx range when we gave up waiting: it needs a person. */
-  | { outcome: "attention"; sheets: number; expected: number; code?: number; text: string };
+  | { outcome: "attention"; pages: number; expected: number; code?: number; text: string };
 
 export interface RawListen {
-  /** Sheets the printer should report (expectedRawSheets). Must be a positive integer. */
-  expectedSheets: number;
-  /** No finished sheet for this long (and no attention showing) = give up and fall back to "sent". Default 90 s. */
+  /** Pages the printer should report (expectedRawPages). Must be a positive integer. */
+  expectedPages: number;
+  /** No finished page for this long (and no attention showing) = give up and fall back to "sent". Default 90 s. */
   stallMs?: number;
-  /** Overall cap after the data is flushed. Default listenCapMs(expectedSheets). */
+  /** Overall cap after the data is flushed. Default listenCapMs(expectedPages). */
   capMs?: number;
   /** After end(), how long until destroy(). Default 2 s. */
   destroyAfterMs?: number;
-  /** Called when a message changes the sheet count or the attention state. */
-  onUpdate?: (u: { sheets: number; expected: number; attention: PrinterAttention | null }) => void;
+  /** Called when a message changes the page count or the attention state. */
+  onUpdate?: (u: { pages: number; expected: number; attention: PrinterAttention | null }) => void;
 }
 
-/** 60 s plus 6 s per sheet, never more than 30 minutes. */
-export function listenCapMs(expectedSheets: number): number {
-  return Math.min(30 * 60_000, 60_000 + 6_000 * Math.max(0, expectedSheets));
+/** 60 s plus 1.5 s per page (the engine prints about 85 pages a minute), never more than 30 minutes. */
+export function listenCapMs(expectedPages: number): number {
+  return Math.min(30 * 60_000, 60_000 + 1_500 * Math.max(0, expectedPages));
 }
 
 /**
@@ -224,12 +224,12 @@ export function listenCapMs(expectedSheets: number): number {
  * still mid-flight when its lease ends, and a failed job can be re-sent). Keeps a 60 s margin; null = too little lease left,
  * so do not listen at all (the old behaviour).
  */
-export function feedbackCapMs(expectedSheets: number, leaseExpiresAt: string, nowMs: number): number | null {
+export function feedbackCapMs(expectedPages: number, leaseExpiresAt: string, nowMs: number): number | null {
   const leaseEnd = Date.parse(leaseExpiresAt);
   if (!Number.isFinite(leaseEnd)) return null;
   const room = leaseEnd - nowMs - 60_000;
   if (room < 30_000) return null;
-  return Math.min(listenCapMs(expectedSheets), room);
+  return Math.min(listenCapMs(expectedPages), room);
 }
 
 export const RAW_FEEDBACK_STALL_MS = 90_000;
@@ -252,12 +252,12 @@ export function sendRawBytesListening(
   const connectMs = timeouts.connectTimeoutMs ?? RAW_CONNECT_TIMEOUT_MS;
   const writeMs = timeouts.writeTimeoutMs ?? RAW_WRITE_TIMEOUT_MS;
   const stallMs = listen.stallMs ?? RAW_FEEDBACK_STALL_MS;
-  const capMs = listen.capMs ?? listenCapMs(listen.expectedSheets);
+  const capMs = listen.capMs ?? listenCapMs(listen.expectedPages);
   const destroyAfterMs = listen.destroyAfterMs ?? RAW_FEEDBACK_DESTROY_AFTER_MS;
 
   return new Promise((resolve, reject) => {
     const socket = new net.Socket();
-    const fb = new UstatusFeedback(listen.expectedSheets);
+    const fb = new UstatusFeedback(listen.expectedPages);
     let connected = false;
     let sentPhaseOver = false; // resolved or rejected
     let flushed = false;
@@ -270,7 +270,7 @@ export function sendRawBytesListening(
     const outcome = new Promise<PrinterVerdict>((r) => {
       concludeOutcome = r;
     });
-    const base = () => ({ sheets: fb.sheets, expected: fb.expectedSheets });
+    const base = () => ({ pages: fb.pages, expected: fb.expectedPages });
 
     const clearTimers = () => {
       for (const t of [connectTimer, stallTimer, capTimer, watch]) if (t) clearTimeout(t);
@@ -340,7 +340,7 @@ export function sendRawBytesListening(
 
     socket.on("data", (d: Buffer) => {
       if (concluded) return; // data that arrives before our flush callback still counts (a fast printer)
-      const beforeSheets = fb.sheets;
+      const beforePages = fb.pages;
       const beforeAttention = fb.attention?.text;
       let reports;
       try {
@@ -348,7 +348,7 @@ export function sendRawBytesListening(
       } catch {
         return; // the parser never throws; garbage is ignored
       }
-      const changed = fb.sheets !== beforeSheets || fb.attention?.text !== beforeAttention;
+      const changed = fb.pages !== beforePages || fb.attention?.text !== beforeAttention;
       if (changed) {
         try {
           listen.onUpdate?.({ ...base(), attention: fb.attention });
@@ -360,7 +360,7 @@ export function sendRawBytesListening(
         conclude({ outcome: "confirmed", ...base() });
         return;
       }
-      // Only a finished sheet (or attention appearing/clearing) shows the job is moving; TIMED device repeats do not.
+      // Only a finished page (or attention appearing/clearing) shows the job is moving; TIMED device repeats do not.
       if (flushed && (reports.some((r) => r.kind === "page") || fb.attention?.text !== beforeAttention)) armStall();
     });
     socket.on("error", (e: NodeJS.ErrnoException) => {

@@ -3,19 +3,20 @@
  * SAME connection as the job, after `@PJL USTATUS DEVICE=VERBOSE` / `JOB=ON` / `PAGE=ON` (docs/kyocera-raw-print.md,
  * "What the printer sends back on port 9100 (measured 2026-11-01)"). Formats, all ending in a form feed:
  *   @PJL USTATUS JOB\r\nSTART\r\nNAME="<job name>"\r\n\f
- *   @PJL USTATUS PAGE\r\n<n>\n\r\n\f            one per finished SHEET (n = 1, 2, 3 ...), several can share a TCP chunk
+ *   @PJL USTATUS PAGE\r\n<n>\n\r\n\f            one per finished PAGE = printed SIDE (n = 1, 2, 3 ...), several can share a TCP chunk
  *   @PJL USTATUS DEVICE\r\nCODE=<n>\r\nDISPLAY="<text>"\r\nONLINE=TRUE\r\n\f   (10001 Ready., 10023 Processing...)
- * There is NO job END message. Error codes (jam, paper out) have not been seen yet, so classification is cautious:
+ *   @PJL USTATUS JOB\r\nEND\r\nNAME="<job name>"\r\nPAGES=<n>\r\n\f   only while the connection is still open as the job ends
+ *   (measured: it can arrive on the NEXT connection instead).
+ * (PAGE counts printed sides, not sheets: a 4-page duplex x 2 copies job is PAGE 1..8.) Error codes (jam, paper out) have not been seen yet, so classification is cautious:
  * any DEVICE code outside 10xxx means "the printer needs attention" and is shown, never used to fail or re-send.
  *
  * Pure (no clock, no I/O) so the Agent, the web app and the tests share one definition.
  */
 
-import { computePrintMath } from "./print-math";
-
 export type UstatusReport =
   | { kind: "job_start"; name?: string }
-  | { kind: "page"; sheets: number }
+  | { kind: "page"; pages: number }
+  | { kind: "job_end"; name?: string; pages?: number }
   | { kind: "device"; code?: number; display?: string };
 
 export interface ParsedUstatus {
@@ -57,14 +58,18 @@ function parseFrame(body: string): UstatusReport | null {
     else if (line) bare.push(line);
   }
   if (type === "JOB") {
-    if (!bare.some((b) => b.toUpperCase() === "START")) return null;
+    const isStart = bare.some((b) => b.toUpperCase() === "START");
+    const isEnd = bare.some((b) => b.toUpperCase() === "END");
+    if (!isStart && !isEnd) return null;
     const nameRaw = fields.get("NAME");
     const name = nameRaw === undefined ? undefined : sanitizePrinterText(nameRaw, MAX_NAME);
-    return { kind: "job_start", ...(name ? { name } : {}) };
+    if (isStart) return { kind: "job_start", ...(name ? { name } : {}) };
+    const p = Number.parseInt(fields.get("PAGES") ?? "", 10);
+    return { kind: "job_end", ...(name ? { name } : {}), ...(Number.isFinite(p) && p >= 0 ? { pages: p } : {}) };
   }
   if (type === "PAGE") {
     const n = bare.find((b) => /^\d{1,6}$/.test(b));
-    return n === undefined ? null : { kind: "page", sheets: Number.parseInt(n, 10) };
+    return n === undefined ? null : { kind: "page", pages: Number.parseInt(n, 10) };
   }
   if (type === "DEVICE") {
     const codeRaw = fields.get("CODE");
@@ -136,19 +141,21 @@ export interface PrinterAttention {
 }
 
 /**
- * Follows one raw connection's messages. `sheets` is the highest finished-sheet number seen, `attention` is set while
+ * Follows one raw connection's messages. `pages` is the highest finished-page number seen, `attention` is set while
  * the LATEST device message is outside 10xxx (a later 10xxx clears it, e.g. after a jam is cleared).
  */
 export class UstatusFeedback {
-  sheets = 0;
+  pages = 0;
   started = false;
+  /** The printer sent JOB END (the strongest confirmation). */
+  ended = false;
   attention: PrinterAttention | null = null;
   private rest = "";
 
-  constructor(readonly expectedSheets: number) {}
+  constructor(readonly expectedPages: number) {}
 
   get complete(): boolean {
-    return this.expectedSheets > 0 && this.sheets >= this.expectedSheets;
+    return this.ended || (this.expectedPages > 0 && this.pages >= this.expectedPages);
   }
 
   /** Feed received bytes (as latin1 text). Returns the reports they completed. */
@@ -157,7 +164,10 @@ export class UstatusFeedback {
     this.rest = parsed.rest;
     for (const r of parsed.reports) {
       if (r.kind === "job_start") this.started = true;
-      else if (r.kind === "page") this.sheets = Math.max(this.sheets, r.sheets);
+      else if (r.kind === "job_end") {
+        this.ended = true;
+        if (r.pages !== undefined) this.pages = Math.max(this.pages, r.pages);
+      } else if (r.kind === "page") this.pages = Math.max(this.pages, r.pages);
       else if (isAttentionCode(r.code)) this.attention = { ...(r.code !== undefined ? { code: r.code } : {}), text: r.display || `printer code ${r.code}` };
       else if (r.code !== undefined) this.attention = null;
     }
@@ -165,9 +175,15 @@ export class UstatusFeedback {
   }
 }
 
-/** Sheets the printer should report for a job: copies x (duplex ? ceil(pages/2) : pages); a booklet counts imposed sheets. */
-export function expectedRawSheets(input: { pageCount: number; copies: number; duplex: boolean; booklet: boolean }): number {
-  return computePrintMath(input).physicalSheets;
+/**
+ * PAGE messages the printer should send for a job: they count printed SIDES (measured 2026-11-01: 4 pages duplex x 2
+ * copies = PAGE 1..8). Plain job: copies x pages sent, duplex or not. Booklet: the PDF sent is the imposed one with two
+ * logical pages per side, so ceil((pages + padding) / 2) x copies. (For an odd duplex page count the printer may or may
+ * not count the blank back: the listener treats count >= expected as done and never requires it.)
+ */
+export function expectedRawPages(input: { sourcePages: number; bookletPaddingAdded: number; copies: number; booklet: boolean }): number {
+  const sent = input.booklet ? Math.ceil((input.sourcePages + input.bookletPaddingAdded) / 2) : input.sourcePages;
+  return sent * input.copies;
 }
 
 const MARKER_PREFIX = "[printio:printer-error";

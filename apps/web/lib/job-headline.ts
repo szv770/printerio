@@ -25,10 +25,10 @@ const HEADLINES: Record<JobState, { sentence: string; tone: HeadlineTone; detail
 
 /** The one big plain sentence at the top of a job's page. Display only: status itself is decided elsewhere. */
 export function jobHeadline(status: string, errorMessage?: string | null, printerConfirmation?: string | null): { sentence: string; tone: HeadlineTone; detail?: string } {
-  // The printer reported every sheet finished (printer feedback on a raw port: the Agent's completed-report words).
+  // The printer reported every page finished (printer feedback on a raw port: the Agent's completed-report words).
   if (status === "completed" && printerConfirmation) {
-    const m = /^Printer confirmed ([0-9]+) of ([0-9]+) sheets?$/.exec(printerConfirmation.trim());
-    if (m) return { sentence: "The printer finished printing", tone: "success", detail: `It reported ${m[1]} of ${m[2]} sheet${m[2] === "1" ? "" : "s"} done.` };
+    const m = /^Printer confirmed ([0-9]+) of ([0-9]+) pages?$/.exec(printerConfirmation.trim());
+    if (m) return { sentence: "The printer finished printing", tone: "success", detail: `It reported ${m[1]} of ${m[2]} page${m[2] === "1" ? "" : "s"} done.` };
   }
   // The printer itself said it needs attention (its own status message): say so, in its words.
   if (status === "failed") {

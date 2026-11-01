@@ -64,7 +64,7 @@ export function JobStatusLive({
   rejectionReason: string | null;
   /** What the printer itself says (paper out, a jam), when the job is waiting on it. Null when the printer is fine or unknown. */
   printerNote?: string | null;
-  /** The Agent's completed-report words when the printer confirmed every sheet ("Printer confirmed 4 of 4 sheets"), from the JOB_COMPLETED event. */
+  /** The Agent's completed-report words when the printer confirmed every page ("Printer confirmed 4 of 4 pages"), from the JOB_COMPLETED event. */
   printerConfirmation?: string | null;
   /** The primary buttons (Cancel / Try again / Print again), rendered by the server page so each keeps its own action wiring. */
   actions?: React.ReactNode;

@@ -31,13 +31,13 @@ function rejectionReasonFrom(events: { event_type: string; metadata: unknown }[]
   return null;
 }
 
-/** The words the Agent sent with the completed report when the printer confirmed the sheets (printer feedback). Only that exact wording is passed on. */
+/** The words the Agent sent with the completed report when the printer confirmed the pages (printer feedback). Only that exact wording is passed on. */
 function printerConfirmationFrom(events: { event_type: string; metadata: unknown }[]): string | null {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i];
     if (!event || event.event_type !== "JOB_COMPLETED") continue;
     const message = (event.metadata as { message?: unknown } | null)?.message;
-    return typeof message === "string" && /^Printer confirmed [0-9]+ of [0-9]+ sheets?$/.test(message.trim()) ? message.trim() : null;
+    return typeof message === "string" && /^Printer confirmed [0-9]+ of [0-9]+ pages?$/.test(message.trim()) ? message.trim() : null;
   }
   return null;
 }

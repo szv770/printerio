@@ -70,7 +70,7 @@ a hosted option that needs no server in the building. Pricing and billing do not
 | 11x17 booklet with Letter pages at full size | Built, testing |
 | Duplicate protection (a repeat click within 30 seconds does not double print) | Proven |
 | A jam or toner change does not fail a job; waiting-for-printer state | Built, testing |
-| Printer feedback over port 9100: the job says "Printer confirmed N of N sheets" (or that the printer needs attention) from the printer's own sheet reports. Agent setting PRINTIO_PRINTER_FEEDBACK, off by default; tested against a fake printer replaying the measured bytes, **untested on the real agent until the owner runs it** | Built, testing |
+| Printer feedback over port 9100: the job says "Printer confirmed N of N pages" (or that the printer needs attention) from the printer's own page reports (the printer counts printed sides). Agent setting PRINTIO_PRINTER_FEEDBACK, off by default; tested against a fake printer replaying the measured bytes, **ran once on the real printer, where the PAGE counts proved to be printed sides (fixed to count pages); not yet re-verified end to end** | Built, testing |
 | Share a PDF into Printio from the phone's share sheet (installed app) | Built, testing |
 | Tap-to-pick pages: tap page thumbnails (with All / First page / Last 3 / Odd / Even / Swap / Clear) or type the range; both stay in step | Built, testing |
 | Print from a link to a PDF (public link or Google Drive / Docs file), admins plus anyone with early tools on; fetched safely on the server and placed in the normal Print form | Built, testing |
