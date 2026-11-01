@@ -58,3 +58,6 @@ apps/gateway/dist/
 apps/web/AGENTS.md
 apps/web/CLAUDE.md
 .playwright-mcp/
+
+# Hebrew printer test PDFs (tools/raw-print/make-hebrew-tests.mjs)
+tools/raw-print/hebrew-out/
