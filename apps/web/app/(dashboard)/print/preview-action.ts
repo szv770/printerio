@@ -76,9 +76,9 @@ export async function previewBookletAction(formData: FormData): Promise<BookletP
   let bindingSide: BindingSide | null;
   let paperSize: string;
   if (printerProfile.output_mode === "raw") {
-    const caps = printerProfile.declared_capabilities as { duplex?: boolean; staple?: boolean; booklet?: boolean } | null;
+    const caps = printerProfile.declared_capabilities as { duplex?: boolean; staple?: boolean; booklet?: boolean; punch?: boolean } | null;
     const mapped = mapRawChoices(choices, {
-      capabilities: { duplex: !!caps?.duplex, staple: !!caps?.staple, booklet: !!caps?.booklet },
+      capabilities: { duplex: !!caps?.duplex, staple: !!caps?.staple, booklet: !!caps?.booklet, punch: !!caps?.punch },
       bookletBindingSide: profileBindingSide,
       stapleDefault: printerProfile.raw_staple_position === "top-right" ? "top-right" : "top-left",
       declaredPaperSizes: printerProfile.declared_paper_sizes,

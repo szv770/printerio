@@ -69,3 +69,14 @@ describe("summarizeAdvanced", () => {
     expect(summarizeAdvanced({ punchAvailable: false, punch: false })).toBe("Saved choices");
   });
 });
+
+describe("two staples (left) and hole punch wording", () => {
+  it("summarizeFinishing names them", () => {
+    expect(summarizeFinishing({ staple: "dual-left", booklet: "none" })).toBe("Two staples, left");
+    expect(summarizeFinishing({ staple: "none", booklet: "none", punch: true })).toBe("Hole punch (3 holes, left)");
+    expect(summarizeFinishing({ staple: "top-left", booklet: "none", punch: true })).toBe("Staple, top left, hole punch (3 holes, left)");
+  });
+  it("liveSummaryLine mentions the punch", () => {
+    expect(liveSummaryLine({ pages: 2, copies: 1, sides: "one", staple: "dual-left", booklet: "none", punch: true })).toContain("hole punch");
+  });
+});

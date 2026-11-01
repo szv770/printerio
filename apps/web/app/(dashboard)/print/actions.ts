@@ -121,19 +121,20 @@ export async function reprintJobAction(_prev: SubmitJobState, formData: FormData
   }
   const originalBytes = new Uint8Array(await fileData.arrayBuffer());
 
-  const finishing = job.finishing as { staple: boolean; booklet: boolean; punch: boolean; bookletFit?: string; bookletSheet?: string };
+  const finishing = job.finishing as { staple: boolean; booklet: boolean; punch: boolean; stapleStyle?: string; bookletFit?: string; bookletSheet?: string };
 
   // The stored per-job choices go back through the same pipeline, applied to the untouched original. An
   // older job that never stored a staple corner / binding side falls back to the printer's own default.
   const choices: PrintChoices = {
     sides: job.duplex ? "two" : "one",
-    staple: finishing.staple ? (job.staple_position === "top-left" || job.staple_position === "top-right" ? job.staple_position : "profile") : "none",
+    staple: finishing.staple ? (finishing.stapleStyle === "dual-left" ? "dual-left" : job.staple_position === "top-left" || job.staple_position === "top-right" ? job.staple_position : "profile") : "none",
     booklet: finishing.booklet
       ? job.booklet_binding_side === "left" || job.booklet_binding_side === "right"
         ? job.booklet_binding_side
         : "profile"
       : "none",
     copies: job.copies,
+    ...(finishing.punch ? { punch: true } : {}),
     pageRange: job.page_range ?? "",
   };
 

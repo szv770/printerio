@@ -1,4 +1,5 @@
 import { printerSaysLine } from "@/lib/printers/status-label";
+import { finishingLabel } from "@/lib/jobs/finishing-label";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, FileText, History } from "lucide-react";
@@ -40,16 +41,6 @@ function printerConfirmationFrom(events: { event_type: string; metadata: unknown
     return typeof message === "string" && /^Printer confirmed [0-9]+ of [0-9]+ pages?$/.test(message.trim()) ? message.trim() : null;
   }
   return null;
-}
-
-/** Plain words for what was asked for, from the per-job fields (older jobs have no corner / side stored). */
-function finishingLabel(job: { finishing: unknown; staple_position: string | null; booklet_binding_side: string | null }): string {
-  const f = job.finishing as { staple?: boolean; booklet?: boolean; punch?: boolean } | null;
-  const parts: string[] = [];
-  if (f?.booklet) parts.push(job.booklet_binding_side ? `Booklet, bound on the ${job.booklet_binding_side}` : "Booklet");
-  if (f?.staple) parts.push(job.staple_position ? `Stapled ${job.staple_position}` : "Stapled");
-  if (f?.punch) parts.push("Hole punch");
-  return parts.length > 0 ? parts.join(", ") : "None";
 }
 
 export default async function JobDetailPage({ params }: { params: Promise<{ id: string }> }) {

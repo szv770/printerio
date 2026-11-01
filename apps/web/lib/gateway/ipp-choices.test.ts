@@ -78,8 +78,19 @@ describe("mapIppChoices: what is held, with a reason", () => {
     ["media of the wrong type", { media: 7 }, /not available yet/i],
     ["unknown finishing 100", { finishings: 100 }, /finishing option \(100\) .* choose it on the website/i],
     ["staple bottom-left (21)", { finishings: 21 }, /finishing option \(21\)/i],
-    ["dual staple left (28)", { finishings: 28 }, /finishing option \(28\)/i],
-    ["punch (5)", { finishings: 5 }, /finishing option \(5\)/i],
+    ["dual staple top (29)", { finishings: 29 }, /finishing option \(29\)/i],
+    ["dual staple bottom (30)", { finishings: 30 }, /finishing option \(30\)/i],
+    ["dual staple right (31)", { finishings: 31 }, /finishing option \(31\)/i],
+    ["punch top-left (70)", { finishings: 70 }, /finishing option \(70\)/i],
+    ["punch dual-left (74)", { finishings: 74 }, /finishing option \(74\)/i],
+    ["punch triple-top (79)", { finishings: 79 }, /finishing option \(79\)/i],
+    ["punch multiple-left (91)", { finishings: 91 }, /finishing option \(91\)/i],
+    ["punch and dual staple together", { finishings: [78, 28] }, /hole punch .* two staples/i],
+    ["punch and booklet", { finishings: [78, 13] }, /booklet cannot also have hole punch/i],
+    ["punch on a short-edge flip", { finishings: 78, sides: "two-sided-short-edge" }, /short edge/i],
+    ["dual staple on a short-edge flip", { finishings: 28, sides: "two-sided-short-edge" }, /short edge/i],
+    ["punch on a landscape page", { finishings: 5, "orientation-requested": 4 }, /only checked on portrait/i],
+    ["dual staple on a landscape page", { finishings: 28, "orientation-requested": 5 }, /only checked on portrait/i],
     ["fold (10)", { finishings: 10 }, /finishing option \(10\)/i],
     ["finishings of the wrong type", { finishings: "staple" }, /finishing option/i],
     ["two different staples", { finishings: [20, 22] }, /more than one staple/i],
@@ -258,5 +269,34 @@ describe("mapIppChoices: Ledger (11x17) is a second supported paper size", () =>
     const r = mapIppChoices(attrs);
     expect(r.heldReason).toMatch(/Letter or Ledger/i);
     expect(r.paperSize).toBe("letter");
+  });
+});
+
+describe("mapIppChoices: dual staple left and hole punch", () => {
+  it("28 = two staples on the left edge", () => {
+    const r = mapIppChoices({ finishings: 28 });
+    expect(r.heldReason).toBeNull();
+    expect(r.choices).toMatchObject({ staple: "dual-left", booklet: "none" });
+    expect(r.choices.punch).toBeFalsy();
+  });
+
+  it.each([5, 78])("%i = hole punch", (v) => {
+    const r = mapIppChoices({ finishings: v });
+    expect(r.heldReason).toBeNull();
+    expect(r.choices).toMatchObject({ staple: "none", punch: true });
+  });
+
+  it("works with a long-edge flip and portrait", () => {
+    const r = mapIppChoices({ finishings: 28, sides: "two-sided-long-edge", "orientation-requested": 3 });
+    expect(r.heldReason).toBeNull();
+    expect(r.choices).toMatchObject({ sides: "two", staple: "dual-left" });
+  });
+
+  it("a held request never promises punch", () => {
+    expect(mapIppChoices({ finishings: [78, 28] }).choices.punch).toBeFalsy();
+  });
+
+  it("the held message lists what is available", () => {
+    expect(mapIppChoices({ finishings: 100 }).heldReason).toMatch(/hole punch/i);
   });
 });

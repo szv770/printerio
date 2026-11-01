@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPjlSettings, buildRawJob, sanitizePjlText, uniquePjlJobName } from "./pjl";
+import { buildPjlSettings, buildRawJob, PROVEN_FINISHING_COMBOS, sanitizePjlText, uniquePjlJobName } from "./pjl";
 
 const base = { copies: 1, colorMode: "color" as const, duplex: true, jobName: "Quiz 3" };
 
@@ -191,5 +191,64 @@ describe("uniquePjlJobName", () => {
   });
   it("the same title with different tokens differs", () => {
     expect(uniquePjlJobName("Same", "aaaaaaaa")).not.toBe(uniquePjlJobName("Same", "bbbbbbbb"));
+  });
+});
+
+describe("buildPjlSettings: dual staple left and 3-hole punch", () => {
+  const base = { copies: 1, colorMode: "bw" as const, duplex: false, jobName: "t" };
+  const ok = (o: Parameters<typeof buildPjlSettings>[0]) => {
+    const r = buildPjlSettings(o);
+    if (!r.ok) throw new Error(r.reason);
+    return r.settings;
+  };
+
+  it("dual staple left, single-sided: the labelled-print settings (2026-11-01)", () => {
+    expect(ok({ ...base, staple: "dual-left" })).toEqual(["DUPLEX=OFF", "OUTBIN=OPTIONFACEDOWN", "STAPLEOPTION=TWO", "FINISH=STAPLE", "QTY=1"]);
+  });
+
+  it("3-hole punch, single-sided: the labelled-print settings (2026-11-01)", () => {
+    expect(ok({ ...base, punch: true })).toEqual(["DUPLEX=OFF", "OUTBIN=OPTIONFACEDOWN", "FINISH=KPUNCH", "QTY=1"]);
+  });
+
+  it("pending combinations are held with a plain reason until the proven flag is flipped", () => {
+    const cases = [
+      { ...base, duplex: true, punch: true },
+      { ...base, punch: true, staple: "top-left" as const },
+      { ...base, duplex: true, staple: "dual-left" as const },
+    ];
+    for (const c of cases) {
+      const r = buildPjlSettings(c);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toMatch(/not tested on this printer yet/i);
+    }
+  });
+
+  it("the table lists exactly two proven and three pending entries", () => {
+    expect(PROVEN_FINISHING_COMBOS.filter((c) => c.proven)).toHaveLength(2);
+    expect(PROVEN_FINISHING_COMBOS.filter((c) => !c.proven)).toHaveLength(3);
+    for (const c of PROVEN_FINISHING_COMBOS) expect(c.proof.length).toBeGreaterThan(5);
+  });
+
+  it("an entry flipped to proven is delivered", () => {
+    const entry = PROVEN_FINISHING_COMBOS.find((c) => c.duplex && c.punch && c.staple === "none")!;
+    entry.proven = true;
+    try {
+      expect(ok({ ...base, duplex: true, punch: true })).toEqual(["DUPLEX=ON", "BINDING=LONGEDGE", "OUTBIN=OPTIONFACEDOWN", "FINISH=KPUNCH", "QTY=1"]);
+    } finally {
+      entry.proven = false;
+    }
+  });
+
+  it("always held: booklet, short-edge flip, punch together with two staples", () => {
+    expect(buildPjlSettings({ ...base, duplex: true, booklet: true, bindingSide: "left", punch: true }).ok).toBe(false);
+    expect(buildPjlSettings({ ...base, duplex: true, booklet: true, bindingSide: "left", staple: "dual-left" }).ok).toBe(false);
+    expect(buildPjlSettings({ ...base, duplex: true, duplexEdge: "short", punch: true }).ok).toBe(false);
+    expect(buildPjlSettings({ ...base, duplex: true, duplexEdge: "short", staple: "dual-left" }).ok).toBe(false);
+    expect(buildPjlSettings({ ...base, punch: true, staple: "dual-left" }).ok).toBe(false);
+    expect(buildPjlSettings({ ...base, punch: true, staple: "top-right" }).ok).toBe(false);
+  });
+
+  it("existing corner staples are untouched", () => {
+    expect(ok({ ...base, staple: "top-left" })).toContain("STAPLEOPTION=ONE");
   });
 });

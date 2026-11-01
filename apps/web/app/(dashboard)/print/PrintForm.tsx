@@ -81,7 +81,7 @@ function readSavedChoices(): SavedChoices {
     const out: SavedChoices = {};
     if (typeof v.profileId === "string") out.profileId = v.profileId;
     if (v.sides === "one" || v.sides === "two") out.sides = v.sides;
-    if (v.staple === "none" || v.staple === "top-left" || v.staple === "top-right") out.staple = v.staple;
+    if (v.staple === "none" || v.staple === "top-left" || v.staple === "top-right" || v.staple === "dual-left") out.staple = v.staple;
     if (v.booklet === "none" || v.booklet === "left" || v.booklet === "right") out.booklet = v.booklet;
     if (typeof v.copies === "number" && Number.isInteger(v.copies) && v.copies >= 1 && v.copies <= MAX_COPIES) out.copies = v.copies;
     if (v.colorMode === "bw" || v.colorMode === "color") out.colorMode = v.colorMode;
@@ -507,7 +507,10 @@ export function PrintForm({
   const paperChoice = profile?.declaredPaperSizes.includes(paperSize) ? paperSize : (profile?.declaredPaperSizes[0] ?? "letter");
   const showPaperColor = !isRaw;
   const showPunch = !isRaw && caps.punch;
-  const liveLine = liveSummaryLine({ pages: selectedPages, copies, sides: effSides, staple: effStaple, booklet: effBooklet });
+  // A raw printer shows hole punch next to the staple choices; a booklet cannot also be punched (it stays in state, never sent).
+  const showPunchFinishing = isRaw && caps.punch;
+  const effPunch = punch && effBooklet === "none";
+  const liveLine = liveSummaryLine({ pages: selectedPages, copies, sides: effSides, staple: effStaple, booklet: effBooklet, punch: showPunchFinishing && effPunch });
   const barError = needsBookletConfirm ? null : (clientError ?? serverError);
 
   return (
@@ -831,7 +834,7 @@ export function PrintForm({
           title="Finishing"
           forceOpen={autoPreview || preview.status !== "idle"}
           icon={<Paperclip className="h-4 w-4" aria-hidden="true" />}
-          summary={summarizeFinishing({ staple: effStaple, booklet: effBooklet })}
+          summary={summarizeFinishing({ staple: effStaple, booklet: effBooklet, punch: showPunchFinishing && effPunch })}
         >
           <div className="flex flex-col gap-5">
             <Segmented<StapleChoice>
@@ -846,6 +849,7 @@ export function PrintForm({
                       { value: "none", label: "None" },
                       { value: "top-left", label: "Top-left" },
                       { value: "top-right", label: "Top-right" },
+                      ...(caps.staple ? [{ value: "dual-left" as const, label: "Two staples, left" }] : []),
                     ]
                   : [
                       { value: "none", label: "None" },
@@ -854,6 +858,16 @@ export function PrintForm({
               }
               hint={avail.stapleDisabledReason ?? undefined}
             />
+            {showPunchFinishing && (
+              <Switch
+                name="punch"
+                label="Hole punch (3 holes, left)"
+                description={effBooklet !== "none" ? "A booklet can't also be punched." : "Punches 3 holes along the left edge. Single-sided only for now; other combinations are held until tested."}
+                checked={effPunch}
+                disabled={effBooklet !== "none"}
+                onChange={(e) => setPunch(e.target.checked)}
+              />
+            )}
             <Segmented<BookletChoice>
               name="booklet"
               label="Booklet"

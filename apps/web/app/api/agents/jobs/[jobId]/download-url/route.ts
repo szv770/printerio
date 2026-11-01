@@ -3,7 +3,7 @@ import { authenticateAgentRequest } from "@/lib/agent-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { rawTargetFromProfile } from "@/lib/printers/raw-target";
-import { expectedRawPages, type ResolvedPrintRequest } from "@printio/shared";
+import { compareAgentVersions, expectedRawPages, FINISHING_MIN_AGENT_VERSION, type ResolvedPrintRequest } from "@printio/shared";
 
 const SIGNED_URL_TTL_SECONDS = 300;
 
@@ -39,6 +39,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
     .eq("id", job.printer_profile_id)
     .maybeSingle();
   if (!profile) return apiError(500, "internal_error", "Printer profile missing.");
+
+  const jobFinishing = job.finishing as { punch?: boolean; stapleStyle?: string } | null;
+  const needsNewFinishing = !!jobFinishing?.punch || !!jobFinishing?.stapleStyle;
+  if (needsNewFinishing && profile.output_mode === "raw") {
+    // An older Agent would ignore punch / two staples and print the pages without them: refuse, never print unfinished.
+    const state = compareAgentVersions(agent.reported?.version, FINISHING_MIN_AGENT_VERSION);
+    if (state === "unknown" || state === "outdated") {
+      return apiError(409, "agent_outdated", "This job needs hole punch or two staples, which this print server's software is too old to do. Update the Printio agent, then try again.");
+    }
+  }
 
   const path = job.derived_file_path ?? job.original_file_path;
   const { data: signed, error: signError } = await supabase.storage
@@ -93,6 +103,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
     senderCode: sender?.user_code ?? null,
     bindingSide: job.booklet_binding_side === "left" || job.booklet_binding_side === "right" ? job.booklet_binding_side : null,
     staplePosition: job.staple_position === "top-left" || job.staple_position === "top-right" ? job.staple_position : null,
+    stapleStyle: jobFinishing?.stapleStyle === "dual-left" ? "dual-left" : null,
+    punch: !!jobFinishing?.punch,
     duplexEdge: (job.finishing as { duplexEdge?: string } | null)?.duplexEdge === "short" ? "short" : null,
     // An 11x17 booklet is stored with paper_size "tabloid": tell the printer to use 11x17 sheets (otherwise it shrinks onto letter).
     paper: job.paper_size === "tabloid" ? "ledger" : null,

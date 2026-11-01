@@ -219,6 +219,8 @@ Checking every 10 s for the job's `JOB END` message usually MISSES it: the print
 | T2 | `DUPLEX=OFF OUTBIN=OPTIONFACEDOWN FINISH=KPUNCH` | **3 holes punched on both pages. Proven** (main punch unit, US 3-hole). |
 | T3 | `DUPLEX=OFF MEDIATYPE=PLAIN` | Printed normally, single sided. **Proven** (paper type is accepted; which tray it picks was not tested). |
 
+**Used by Printio (2026-11-01):** T1B (two staples, left) and T2 (3-hole punch) are wired into `packages/shared/src/pjl.ts` as `staple: "dual-left"` and `punch: true`, delivered only for the combinations listed in `PROVEN_FINISHING_COMBOS` (single-sided portrait are `proven: true`; double-sided punch, punch + corner staple `KPNCHANDSTPL`, and double-sided two staples are listed with `proven: false` and are held with "not tested on this printer yet" until a labelled print flips the flag). Stored on the job as `finishing.stapleStyle = "dual-left"` / `finishing.punch = true`; Agent 0.2.1 or newer is required (older Agents are refused for such jobs). Print dialog: finishings 28 and 5/78 (advertised). Not yet run through the real dialog/agent.
+
 ## What the printer sends back on port 9100 (measured 2026-11-01)
 
 Setting `@PJL USTATUS DEVICE=VERBOSE`, `JOB=ON`, `PAGE=ON` (and optionally `TIMED=5`) before the job, and keeping our side of the connection OPEN:
