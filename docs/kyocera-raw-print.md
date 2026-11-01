@@ -205,3 +205,15 @@ Setting `@PJL USTATUS DEVICE=VERBOSE`, `JOB=ON`, `PAGE=ON` (and optionally `TIME
 - If our side closes (FIN) right after sending, as the agent did, the printer closes at once and sends **no** messages. So that close means "all data received", not "printed".
 - After the pages were reported the printer stayed at "Processing..." for minutes with the page counter static while the job connection had been closed by us; it later went back to Ready. Cause not understood (possibly the printer's own job timeout).
 - The printer's IPP interface (https port 443, `/ipp/print`) answers `Get-Jobs` with name and state, but only lists jobs submitted over IPP, not raw-port jobs.
+
+
+## Paper trays as loaded (owner, 2026-11-01)
+
+| Tray (printer name) | Holds | Notes |
+|---|---|---|
+| TRAY1 (INTRAY2) | Letter, loaded long-edge for **booklets** (the printer calls it LETTER-R) | Booklets need this orientation; Letter booklets already print from it |
+| TRAY2 (INTRAY3) | **Ledger** (11x17) | `PAPER=LEDGER` finds it by itself (proven 2026-10-26) |
+| TRAY3, TRAY4 (INTRAY5, INTRAY6) | regular Letter, portrait, 1500 sheets each | cannot make booklets (wrong orientation), fine for everything else |
+| BYPASS (INTRAY1) | **cardstock** is the tray's configured type (Letter) | the likely route for hardstock/labels; needs the right paper loaded or the printer waits |
+
+Rule that follows: the printer chooses the tray from `PAPER` (+ `MEDIATYPE`), so a job should ask for a size and type and not name a tray. **Never send a size or type nothing is loaded for** (Legal, A4, A3, Statement and so on are not loaded anywhere): the printer stops and asks for paper, and every later job waits behind it until someone cancels at the panel. Printio therefore advertises and accepts only Letter and Ledger for now.
