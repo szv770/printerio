@@ -108,7 +108,7 @@ if ($SwitchServices) {
   Get-Service "*Printio*" -ErrorAction SilentlyContinue | ForEach-Object { Restart-Service $_ -Force; Write-Host "Restarted $($_.Name)" }
 }
 # The print agent runs from this same checkout: make it ask for work every 3 seconds and load the new code now.
-$agentEnv = Join-Path $repo "appsgent\.env"
+$agentEnv = Join-Path $repo (Join-Path "apps" (Join-Path "agent" ".env"))
 if (Test-Path $agentEnv) {
   $c = Get-Content $agentEnv | Where-Object { $_ -notmatch "^\s*#?\s*PRINTIO_POLL_INTERVAL_SECONDS\s*=" }
   $c += "PRINTIO_POLL_INTERVAL_SECONDS=3"
