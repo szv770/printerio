@@ -185,3 +185,16 @@ A read-only query (`@PJL INFO CONFIG`, `@PJL INFO VARIABLES`, sent with no job, 
 - The script that asked: send `<ESC>%-12345X@PJL` + `@PJL INFO VARIABLES` + `<ESC>%-12345X` to port 9100 and read for a few seconds (the printer may be asleep, status 35078 "Sleeping...", and answers anyway).
 
 Labelled tests sent 2026-11-01 (results to be recorded here): T1 `STAPLEOPTION=TWO FINISH=STAPLE` (dual staple), T2 `FINISH=KPUNCH` (punch), T3 `MEDIATYPE=PLAIN`.
+
+## Printer feedback in the Agent (built 2026-11-01, untested on the real printer)
+
+What the Agent does with the measured port-9100 messages above, when `PRINTIO_PRINTER_FEEDBACK=true` (default **off**; with it off the bytes and behaviour are exactly as before):
+- The PJL header gets `@PJL USTATUS DEVICE=VERBOSE`, `JOB=ON`, `PAGE=ON`, `TIMED=5` before the JOB line (`packages/shared/src/pjl.ts`, `ustatus: true`).
+- Our side of the socket stays open after the data (no half-close). Each `@PJL USTATUS PAGE` message counts a finished sheet. Parser and tracker: `packages/shared/src/pjl-ustatus.ts`; socket code: `sendRawBytesListening` in `apps/agent/src/raw-print-executor.ts`; tests replay the measured bytes with a fake printer (`apps/agent/test/raw-print-feedback.test.ts`).
+- Expected sheets come from the web app (`printRequest.expectedSheets` in the download-url response: copies x sheets, booklets count imposed sheets). An older server that sends none = feedback is skipped.
+- All expected sheets seen: `end()`, then `destroy()` after 2 s, job completed with "Printer confirmed N of N sheets".
+- No finished sheet for 90 s, the printer closes or resets, or the overall cap passes (60 s + 6 s per sheet, held to 8 minutes because the job lease is 10): `end()` + `destroy()`, job completed as before with "Sent to the printer; it did not confirm each sheet".
+- A DEVICE code outside 10xxx is "needs attention": logged, the job keeps waiting; if it is still showing when we stop waiting the job is reported `failed` with the printer's own words (marker `[printio:printer-error v1 ...]`). The web app never auto-re-queues such a job and the Agent never re-sends; the page says the job may still print.
+- While a job listens, the same printer profile's next job is not claimed (a second connection gets no answer).
+- Not done: live per-sheet job events (event types are a database check constraint; a migration is out of scope), the gateway wording for the attention failure.
+- Open risk: the printer lingered at "Processing..." for minutes after our side closed in the experiments (cause unknown). We always `end()` then `destroy()`; whether that clears it is untested.
