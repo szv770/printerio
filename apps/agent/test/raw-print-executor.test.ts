@@ -106,6 +106,26 @@ describe("executeRawPrint", () => {
     expect(sent).not.toContain("BINDING=LONGEDGE");
   });
 
+  it("hole punch and two staples (left) reach the printer as the proven settings", async () => {
+    const one = { ...req, duplex: false };
+    const p = await listen(() => {});
+    expect((await executeRawPrint({ raw: { ...raw(p.port), punch: true }, request: { ...one, finishing: { staple: false, booklet: false, punch: true } }, pdf })).ok).toBe(true);
+    await p.closed;
+    const sentP = Buffer.concat(p.received).toString("latin1");
+    expect(sentP).toContain("@PJL SET FINISH=KPUNCH");
+    const d = await listen(() => {});
+    expect((await executeRawPrint({ raw: { ...raw(d.port), stapleStyle: "dual-left" as const }, request: { ...one, finishing: { staple: true, booklet: false, punch: false } }, pdf })).ok).toBe(true);
+    await d.closed;
+    const sentD = Buffer.concat(d.received).toString("latin1");
+    expect(sentD).toContain("@PJL SET STAPLEOPTION=TWO");
+    expect(sentD).toContain("@PJL SET FINISH=STAPLE");
+  });
+
+  it("a not-yet-tested finishing combination is refused as invalid_job and nothing is sent", async () => {
+    const res = await executeRawPrint({ raw: { ...raw(1), punch: true }, request: { ...req, duplex: true, finishing: { staple: false, booklet: false, punch: true } }, pdf });
+    expect(res).toMatchObject({ ok: false, failure: { kind: "invalid_job" } });
+  });
+
   it("an 11x17 job reaches the printer with PAPER=LEDGER, and a letter job does not", async () => {
     const ledger = await listen(() => {});
     const res = await executeRawPrint({ raw: { ...raw(ledger.port), paper: "ledger" as const }, request: { ...req, finishing: { staple: false, booklet: true, punch: false } }, pdf });

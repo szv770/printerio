@@ -80,6 +80,10 @@ export interface RawTarget {
   duplexEdge?: "long" | "short";
   /** "ledger" for an 11x17 job (PAPER=LEDGER); absent = the printer's default paper. */
   paper?: "ledger";
+  /** "dual-left" = two staples on the left edge (request.finishing.staple is then true; staplePosition is ignored). Older Agents ignore it, see FINISHING_MIN_AGENT_VERSION. */
+  stapleStyle?: "dual-left";
+  /** 3-hole punch on the left edge. Older Agents ignore it, see FINISHING_MIN_AGENT_VERSION. */
+  punch?: boolean;
   jobName: string;
 }
 
@@ -126,7 +130,7 @@ export interface RemoteCommandPayload {
  * apps/agent/test/version.test.ts fails the build if the two ever drift, so
  * this cannot silently go stale.
  */
-export const LATEST_AGENT_VERSION = "0.2.0";
+export const LATEST_AGENT_VERSION = "0.2.1";
 
 /**
  * First Agent version that understands CHECK_FOR_UPDATE with payload { mode: "check_only" }. Older Agents ignore
@@ -134,6 +138,13 @@ export const LATEST_AGENT_VERSION = "0.2.0";
  * to an Agent that has not reported at least this version.
  */
 export const CHECK_ONLY_MIN_AGENT_VERSION = "0.2.0";
+
+/**
+ * First Agent version that sends hole punch (raw.punch) and two staples on the left (raw.stapleStyle) to the printer.
+ * An older Agent ignores those fields and would print WITHOUT the finishing, so the download-url route refuses to
+ * hand such a job to an Agent that has not reported at least this version.
+ */
+export const FINISHING_MIN_AGENT_VERSION = "0.2.1";
 
 /**
  * Compares two dot-separated version strings numerically (not
