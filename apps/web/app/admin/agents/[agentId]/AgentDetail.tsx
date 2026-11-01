@@ -19,6 +19,7 @@ import {
   ScrollText,
   Terminal,
   Wrench,
+  Gauge,
 } from "lucide-react";
 import type { Tables } from "@/lib/database.types";
 import { Badge, Button, Collapsible, EmptyState, FormError, StatusDot } from "@/components/ui";
@@ -34,6 +35,8 @@ import type { AgentActivity, AgentVersionStatus, QueueUsage } from "@/lib/agent-
 import { commandPhase, parseCommandResult } from "@/lib/command-result";
 import { LocalTime } from "@/components/LocalTime";
 import { UpdatePanel } from "./UpdatePanel";
+import { setAgentPollIntervalAction } from "../actions";
+import { POLL_PRESETS } from "@/lib/poll-interval";
 // "Send test print" is deliberately the SAME server action the Printers page
 // binds its own button to, imported rather than re-implemented here: one
 // authorization check, one pipeline, one place to change.
@@ -123,6 +126,7 @@ export function AgentDetail({
       <MachineCard agent={agent} />
       <VersionCard version={version} canManage={canManage} />
       {canManage && <PauseCard agent={agent} pausedByLabel={pausedByLabel} />}
+      {canManage && <PollSpeedCard agent={agent} />}
       <QueuesCard agent={agent} queues={queues} canManage={canManage} />
       {canManage && <MaintenanceCard agent={agent} />}
       {canManage && <LogsCard agent={agent} commands={recentCommands} nowMs={nowMs} />}
@@ -268,6 +272,40 @@ function VersionCard({ version, canManage }: { version: AgentVersionStatus; canM
 }
 
 /** The freeze switch. Enforced in the cloud, not here - see pauseAgentAction. */
+function PollSpeedCard({ agent }: { agent: Tables<"agents"> }) {
+  const [state, action, pending] = useActionState(setAgentPollIntervalAction, initialAgentActionState);
+  const current = agent.poll_interval_seconds;
+  const label = current === null ? "The PC's own setting" : (POLL_PRESETS.find((p) => p.seconds === current)?.label ?? `Every ${current} seconds`);
+  return (
+    <Collapsible id="speed" title="How fast it picks up jobs" icon={<Gauge className="h-4 w-4" />} summary={label} forceOpen={!!state.error}>
+      <p className="text-sm text-[var(--color-text-2)]">
+        How often this print server asks the website for new work. Faster means jobs start sooner. Use a slower speed only if the website runs on a host
+        that limits usage. It takes effect within a minute, with nothing to change on the PC.
+      </p>
+      <form action={action} className="mt-3 flex flex-wrap items-center gap-2">
+        <input type="hidden" name="agentId" value={agent.id} />
+        <select
+          name="seconds"
+          defaultValue={current === null ? "" : String(current)}
+          aria-label="Speed"
+          className="h-10 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 text-sm"
+        >
+          <option value="">The PC&apos;s own setting (usually every 3 seconds)</option>
+          {POLL_PRESETS.map((p) => (
+            <option key={p.seconds} value={p.seconds}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+        <Button type="submit" size="sm" pending={pending} pendingLabel="Saving...">
+          Save speed
+        </Button>
+      </form>
+      {state.error && <FormError message={state.error} />}
+    </Collapsible>
+  );
+}
+
 function PauseCard({ agent, pausedByLabel }: { agent: Tables<"agents">; pausedByLabel: string | null }) {
   const [pauseState, pauseAction, pausePending] = useActionState(pauseAgentAction, initialAgentActionState);
   const [resumeState, resumeAction, resumePending] = useActionState(resumeAgentAction, initialAgentActionState);
