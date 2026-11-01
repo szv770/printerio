@@ -84,7 +84,8 @@ export function buildRawJob(o: RawPrintOptions, pdf: Uint8Array): RawJobResult {
   // printer. Callers already refuse such files earlier; this makes it impossible to build the job at all.
   if (containsPjlEscape(pdf)) throw new Error(PJL_ESCAPE_MESSAGE);
   const name = sanitizePjlText(o.jobName);
-  let head = `${UEL}@PJL\r\n@PJL JOB NAME="${name}"\r\n`;
+  const ustatus = o.ustatus ? "@PJL USTATUS DEVICE=VERBOSE\r\n@PJL USTATUS JOB=ON\r\n@PJL USTATUS PAGE=ON\r\n@PJL USTATUS TIMED=5\r\n" : "";
+  let head = `${UEL}@PJL\r\n${ustatus}@PJL JOB NAME="${name}"\r\n`;
   for (const line of s.settings) head += `@PJL SET ${line}\r\n`;
   head += "@PJL ENTER LANGUAGE=PDF\r\n";
   const tail = `\r\n${UEL}@PJL EOJ NAME="${name}"\r\n${UEL}`;
