@@ -122,7 +122,7 @@ describe("executeRawPrint", () => {
   });
 
   it("a not-yet-tested finishing combination is refused as invalid_job and nothing is sent", async () => {
-    const res = await executeRawPrint({ raw: { ...raw(1), punch: true }, request: { ...req, duplex: true, finishing: { staple: false, booklet: false, punch: true } }, pdf });
+    const res = await executeRawPrint({ raw: { ...raw(1), stapleStyle: "dual-left" as const }, request: { ...req, duplex: true, finishing: { staple: true, booklet: false, punch: false } }, pdf });
     expect(res).toMatchObject({ ok: false, failure: { kind: "invalid_job" } });
   });
 
