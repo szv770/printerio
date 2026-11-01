@@ -1,3 +1,4 @@
+import { publicOrigin } from "@/lib/http/public-origin";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { finishSignIn } from "@/lib/auth/finish-sign-in";
@@ -37,7 +38,8 @@ function loginLinkInvalid(origin: string): NextResponse {
 }
 
 export async function GET(request: Request) {
-  const { searchParams, origin } = new URL(request.url);
+  const { searchParams } = new URL(request.url);
+  const origin = publicOrigin(request);
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
   const invite = inviteFromRequest(request, searchParams);

@@ -5,6 +5,7 @@ import { finishSignIn } from "@/lib/auth/finish-sign-in";
 import { isPlausibleInviteCode } from "@/lib/auth/invite-link";
 import { clientIpFrom } from "@/lib/auth/invite-rate-limit";
 import { logger } from "@/lib/logger";
+import { isSameOrigin, publicOrigin } from "@/lib/http/public-origin";
 
 /** Sign in with the short code from the sign-in email. This is for the person who asked for the email in one browser
  *  window but opened it somewhere else: they type the code into the window they started in. Same verification and
@@ -16,12 +17,6 @@ const MAX_PER_IP = 30;
 
 function json(body: Record<string, unknown>, status: number): NextResponse {
   return NextResponse.json(body, { status, headers: { "cache-control": "no-store" } });
-}
-
-/** Browsers always send Origin on a cross-site POST; refuse one that is not this site. */
-function sameOrigin(request: Request): boolean {
-  const origin = request.headers.get("origin");
-  return origin === null || origin === new URL(request.url).origin;
 }
 
 async function underRateLimit(email: string, ip: string): Promise<boolean> {
@@ -41,7 +36,7 @@ async function underRateLimit(email: string, ip: string): Promise<boolean> {
 }
 
 export async function POST(request: Request) {
-  if (!sameOrigin(request)) return json({ error: "Not allowed." }, 403);
+  if (!isSameOrigin(request)) return json({ error: "Not allowed." }, 403);
 
   let body: { email?: unknown; code?: unknown; invite?: unknown };
   try {
@@ -68,7 +63,7 @@ export async function POST(request: Request) {
   }
 
   const invite = typeof body.invite === "string" && isPlausibleInviteCode(body.invite) ? { code: body.invite, ip } : undefined;
-  const origin = new URL(request.url).origin;
+  const origin = publicOrigin(request);
   const done = await finishSignIn(data.user, data.user.email, origin, invite);
   const location = done.headers.get("location");
   const path = location ? new URL(location, origin).pathname + new URL(location, origin).search : "/";
