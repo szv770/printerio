@@ -228,7 +228,7 @@ describe("raw job, current server (job stays claimed while it is sent)", () => {
     }
   });
 
-  it("every byte was sent but the printer never closed the connection: NOT released (a re-send could print twice), failed with an honest message", async () => {
+  it("every byte was sent but the printer keeps the connection open: counts as sent (completed), is not released or failed (a re-send could print twice)", async () => {
     const server = net.createServer({ allowHalfOpen: true }, (s) => {
       sockets.add(s);
       s.on("data", () => {});
@@ -237,11 +237,11 @@ describe("raw job, current server (job stays claimed while it is sent)", () => {
     h.printerServers.push(server);
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
     const { client, calls } = fakeCloud({ rawPort: (server.address() as net.AddressInfo).port });
-    const { orch } = makeOrchestrator(client, { rawTimeouts: { writeTimeoutMs: 300, connectTimeoutMs: 300 } });
+    const { orch } = makeOrchestrator(client, { rawTimeouts: { writeTimeoutMs: 300, connectTimeoutMs: 300, closeGraceMs: 100 } });
     await orch.processJob(job(1));
     expect(fns(calls)).not.toContain("releaseJob");
-    const failed = calls.find((c) => c.fn === "reportStatus" && c.args[1] === "failed");
-    expect(String(failed?.args[2])).toMatch(/did not confirm/);
+    expect(calls.find((c) => c.fn === "reportStatus" && c.args[1] === "failed")).toBeUndefined();
+    expect(statuses(calls).at(-1)).toBe("completed");
   });
 
   it("an impossible job (booklet + separate staple) fails immediately with its message and opens no connection", async () => {
