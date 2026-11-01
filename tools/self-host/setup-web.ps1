@@ -63,6 +63,13 @@ if (-not $SkipBuild) {
   if ($LASTEXITCODE) { throw "build failed" }
 }
 
+# The gateway and agent run as the limited local account printio-svc (docs/SECURITY.md). pnpm hardlinks packages from the
+# user store, so freshly installed files can lack that account's read access. Re-grant it (read/execute only).
+if (Get-LocalUser -Name "printio-svc" -ErrorAction SilentlyContinue) {
+  icacls (Join-Path $repo "node_modules\.pnpm") /grant "printio-svc:(OI)(CI)RX" /T /C /Q | Out-Null
+  Write-Host "Granted printio-svc read access to node_modules."
+}
+
 function Register-Task($name, $trigger, $script, $argText) {
   $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$script`" $argText" -WorkingDirectory $repo
   $settings = New-ScheduledTaskSettingsSet -RestartCount 99 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable
