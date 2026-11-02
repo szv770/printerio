@@ -3375,6 +3375,24 @@ revoke all on public.library_sie_entries from anon;
 grant select on public.library_sie_entries to authenticated;
 grant select, insert, update, delete on public.library_sie_entries to service_role;
 
+-- 0050: the text of Chabad.org's daily study (Chumash with Rashi, Tanya, Rambam), saved once per day and study.
+create table library_daily_texts (
+  study text not null check (study in ('chumash', 'tehillim', 'tanya', 'hayomyom', 'mitzvah', 'rambam1', 'rambam3')),
+  study_date date not null,
+  portion text not null check (char_length(portion) between 1 and 300),
+  sections jsonb not null check (jsonb_typeof(sections) = 'array' and octet_length(sections::text) <= 1500000),
+  source_url text not null check (source_url ~ '^https://www[.]chabad[.]org/dailystudy/[A-Za-z0-9_./?=&%-]{1,200}$'),
+  fetched_at timestamptz not null default now(),
+  added_by uuid references profiles (id) on delete set null,
+  primary key (study, study_date)
+);
+alter table library_daily_texts enable row level security;
+create policy "members can read the daily study" on library_daily_texts for select to authenticated using (true);
+revoke insert, update, delete, truncate, references, trigger on public.library_daily_texts from authenticated;
+revoke all on public.library_daily_texts from anon;
+grant select on public.library_daily_texts to authenticated;
+grant select, insert, update, delete on public.library_daily_texts to service_role;
+
 -- ===================================================================
 -- Source: migrations/0048_hot_query_indexes.sql
 -- ===================================================================
