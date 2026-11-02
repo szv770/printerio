@@ -56,3 +56,12 @@ never a retry loop).
 - OK to run the fetcher as a scheduled task under the owner's PC login (needs a logged-in desktop)?
 - Exact thank-you wording, and where it should show.
 - What first for sie.org: the weekly sichos (already built) or the library?
+
+## Decisions (owner, 2026-11-01) and step 0 findings
+- Decided: fetcher runs as a scheduled task under the owner's PC login (installed only at phase 2, with short typed commands, after reading
+  docs/SECURITY.md); thank-you wording as written above; after Daily study comes Shulchan Aruch via SIE's library (to be inspected), the
+  weekly sichos already exist.
+- robots.txt (read 2026-11-01): `Disallow: *dailystudy*mode*` (never use a `mode` parameter) and `Crawl-delay: 5` (our one-minute spacing
+  is far inside it). Plain requests to the sitemap, article pages and guessed feed paths return 403 (the check), so the RSS feed URL could
+  not be found automatically: **the owner gives the feed URL** (it is on chabad.org's RSS page). Until then the schedule falls back to
+  the date-based page URLs.
