@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { parseStudyPage, type StudySection } from "./page";
 import { buildFilledPdf, type FillInput } from "./fill";
@@ -18,7 +18,9 @@ const base = (sections: StudySection[], over: Partial<FillInput> = {}): FillInpu
 const rambam = parseStudyPage(fixture("study-rambam3.html"), "rambam3").sections;
 /** The same few verses repeated, so there is enough text to need many pages. */
 const long = (n: number): StudySection[] => Array.from({ length: n }, () => rambam).flat();
-const bare = (s: string) => s.replace(/[֑-֯]/g, "");
+
+// Laying out and drawing many pages in two fonts takes a few seconds.
+vi.setConfig({ testTimeout: 60_000 });
 
 describe("buildFilledPdf", () => {
   it("makes pages of exactly the asked size, in a multiple of four, within the font range", async () => {
@@ -59,12 +61,23 @@ describe("buildFilledPdf", () => {
     }
   });
 
-  it("keeps the Hebrew words exactly, apart from cantillation marks the font cannot draw", async () => {
+  it("keeps the Hebrew exactly as saved, vowels and cantillation marks included", async () => {
+    const chumash = parseStudyPage(fixture("study-chumash.html"), "chumash").sections;
+    const r = await buildFilledPdf(base(chumash));
+    const drawn = r.plan.pages.flat().map((o) => o.logical).join(" ").replace(/\s+/g, " ");
+    const first = (chumash[0]?.blocks[0]?.he ?? "").replace(/\s+/g, " ");
+    expect(first).toMatch(/[֑-֯]/);
+    expect(drawn).toContain(first.slice(0, 60));
+    expect(r.strippedMarks).toBe(false);
+  });
+
+  it("draws Hebrew in the Hebrew font and English in the English one", async () => {
     const r = await buildFilledPdf(base(rambam));
-    const drawn = bare(r.plan.pages.flat().map((o) => o.logical).join(" ")).replace(/\s+/g, " ");
-    const first = rambam[0]?.blocks[0]?.he ?? "";
-    expect(first.length).toBeGreaterThan(20);
-    expect(drawn).toContain(bare(first).replace(/\s+/g, " ").slice(0, 60));
+    const hebrew = r.plan.pages.flat().filter((o) => o.dir === "rtl");
+    const english = r.plan.pages.flat().filter((o) => o.dir === "ltr" && o.role === "body");
+    expect(hebrew.length).toBeGreaterThan(0);
+    expect(hebrew.every((o) => o.font === "hebrew")).toBe(true);
+    expect(english.every((o) => o.font === "regular")).toBe(true);
   });
 
   it("shows only the chosen language", async () => {
