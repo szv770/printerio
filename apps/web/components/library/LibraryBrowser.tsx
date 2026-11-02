@@ -269,7 +269,7 @@ export function LibraryBrowser({ extraSie = [], canRefreshSie = false }: { extra
 
       {tab === "daily" && (
         <section className="mt-4">
-          <DailyStudyPanel canImport={canRefreshSie} />
+          <DailyStudyPanel />
         </section>
       )}
 

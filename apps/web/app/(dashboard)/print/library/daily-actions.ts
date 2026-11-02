@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { fetchDailyFeed } from "@/lib/library/daily/feed-fetch";
+import { fetchShiurDay } from "@/lib/library/daily/source-fetch";
 import { prepareImport } from "@/lib/library/daily/import";
 import type { Json } from "@/lib/database.types";
 import { canUseLinks } from "@/lib/sources/access";
@@ -102,28 +103,58 @@ export interface DailyDayItem {
   study: OfferedStudy;
   label: string;
   portion: string;
-  /** The text is saved in Printio, so it can be printed now. */
-  saved: boolean;
-  /** The study page on Chabad.org (from its own list), for an admin who has to import it. */
-  url?: string;
 }
 
-/** The day's studies: what Chabad.org's list says belongs on the date, and which of them Printio already has the text for. */
+interface DayRow {
+  study: string;
+  portion: string;
+  sections: StudySection[];
+}
+
+/**
+ * The day's saved text. When nothing is saved for the date yet, Printio asks the source once (as a person opening the page and
+ * making a booklet would), saves every study on it for everyone, and uses that.
+ */
+async function ensureDay(db: ReturnType<typeof createServiceRoleClient>, date: string, userId: string): Promise<{ ok: true; rows: DayRow[] } | Failure> {
+  const { data } = await db.from("library_daily_texts").select("study, portion, sections").eq("study_date", date);
+  const saved = (data ?? []) as unknown as DayRow[];
+  if (saved.length > 0) return { ok: true, rows: saved };
+
+  const { data: allowed, error: limitError } = await db.rpc("check_rate_limit", {
+    p_key: `daily_fetch:user:${userId}`,
+    p_max_count: 12,
+    p_window_seconds: 10 * 60,
+  });
+  if (!limitError && allowed === false) return { ok: false, message: "That is a lot of days at once. Wait a few minutes and try again." };
+
+  const got = await fetchShiurDay(date);
+  if (!got.ok) {
+    return {
+      ok: false,
+      message: got.reason === "different"
+        ? "The daily study source looks different today, so Printio could not read it. Tell the Printio owner."
+        : "Printio could not get the daily study for that day from its source right now. Try again in a minute.",
+    };
+  }
+  const now = new Date().toISOString();
+  const rows = got.day.studies.map((s) => ({ study: s.study, study_date: date, portion: s.portion, sections: s.sections as unknown as Json, source_url: got.url, fetched_at: now, added_by: userId }));
+  const { error } = await db.from("library_daily_texts").upsert(rows, { onConflict: "study,study_date" });
+  if (error) return { ok: false, message: "Printio could not save that day. Try again." };
+  return { ok: true, rows: got.day.studies.map((s) => ({ study: s.study, portion: s.portion, sections: s.sections })) };
+}
+
+/** The day's studies, from Printio's saved text (fetched from the source the first time anyone asks for the day). */
 export async function dailyDayAction(date: string): Promise<{ ok: true; items: DailyDayItem[] } | Failure> {
   const who = await libraryGate();
   if ("ok" in who) return who;
   if (!validDate(date)) return { ok: false, message: "Choose a date." };
 
-  const db = createServiceRoleClient();
-  const { data } = await db.from("library_daily_texts").select("study, portion").eq("study_date", date);
-  const saved = new Map<string, string>((data ?? []).map((r) => [String(r.study), String((r as { portion?: string }).portion ?? "")]));
-
-  const feed = await fetchDailyFeed(date, 3600);
+  const day = await ensureDay(createServiceRoleClient(), date, who.userId);
+  if (!day.ok) return day;
   const items: DailyDayItem[] = [];
   for (const study of OFFERED_STUDIES) {
-    const fromFeed = feed?.items.find((i) => i.study === study);
-    if (fromFeed) items.push({ study, label: STUDY_LABELS[study], portion: fromFeed.portion, saved: saved.has(study), url: fromFeed.url });
-    else if (!feed && saved.has(study)) items.push({ study, label: STUDY_LABELS[study], portion: saved.get(study) ?? "", saved: true });
+    const row = day.rows.find((r) => r.study === study);
+    if (row) items.push({ study, label: STUDY_LABELS[study], portion: row.portion });
   }
   return { ok: true, items };
 }
@@ -158,12 +189,13 @@ export async function buildDailyBookletAction(input: BuildDailyInput): Promise<B
   });
   if (!limitError && allowed === false) return { ok: false, message: "That is a lot of booklets at once. Wait a few minutes and try again." };
 
-  const { data } = await db.from("library_daily_texts").select("study, portion, sections").eq("study_date", date).in("study", studies);
-  const byStudy = new Map((data ?? []).map((r) => [String(r.study), r as unknown as { portion: string; sections: StudySection[] }]));
+  const day = await ensureDay(db, date, who.userId);
+  if (!day.ok) return day;
+  const byStudy = new Map(day.rows.map((r) => [r.study, r]));
   const ordered = OFFERED_STUDIES.filter((s) => studies.includes(s));
   const missing = ordered.filter((s) => !byStudy.has(s));
   if (missing.length > 0) {
-    return { ok: false, message: `${missing.map((s) => STUDY_LABELS[s]).join(" and ")} ${missing.length === 1 ? "is" : "are"} not saved in Printio for that day yet. An admin can import it with "Import from my browser".` };
+    return { ok: false, message: `${missing.map((s) => STUDY_LABELS[s]).join(" and ")} ${missing.length === 1 ? "is" : "are"} not in the source for that day.` };
   }
 
   const tabloid = sheet === "tabloid";

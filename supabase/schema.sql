@@ -3381,7 +3381,7 @@ create table library_daily_texts (
   study_date date not null,
   portion text not null check (char_length(portion) between 1 and 300),
   sections jsonb not null check (jsonb_typeof(sections) = 'array' and octet_length(sections::text) <= 1500000),
-  source_url text not null check (source_url ~ '^https://www[.]chabad[.]org/dailystudy/[A-Za-z0-9_./?=&%-]{1,200}$'),
+  source_url text not null check (source_url ~ '^https://(www[.]chabad[.]org/dailystudy|chitas-site[.]vercel[.]app/shiur)[A-Za-z0-9_./?=&%-]{0,250}$'), -- 0051 added the second source
   fetched_at timestamptz not null default now(),
   added_by uuid references profiles (id) on delete set null,
   primary key (study, study_date)
