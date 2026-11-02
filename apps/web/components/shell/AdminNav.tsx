@@ -112,7 +112,7 @@ export function AdminNav({
         {pendingApprovals > 0 && (
           <Link
             href={routes.adminApprovals}
-            className="flex h-11 shrink-0 items-center rounded-lg px-1 text-[13px] font-medium text-[var(--color-warning-ink)]"
+            className="flex h-11 min-w-11 shrink-0 items-center justify-center rounded-lg px-1 text-[13px] font-medium text-[var(--color-warning-ink)]"
           >
             <span aria-label={`${pendingApprovals} to approve`} className="rounded-full bg-[var(--color-warning-soft)] px-2.5 py-0.5">{pendingApprovals}<span className="hidden min-[420px]:inline"> to approve</span></span>
           </Link>
@@ -145,7 +145,7 @@ export function AdminNav({
         }`}
       >
         <div className="flex h-14 shrink-0 items-center justify-between px-4 md:h-16 md:px-5">
-          <Link href={routes.admin} aria-label="Printio home" className="rounded-lg">
+          <Link href={routes.admin} aria-label="Printio home" className="flex min-h-11 items-center rounded-lg">
             <Logo />
           </Link>
           <button

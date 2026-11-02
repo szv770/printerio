@@ -35,7 +35,7 @@ export function UpdateToast({ view }: { view: UpdateView }) {
 
   if (minimised) {
     return (
-      <div className="fixed right-4 bottom-4 z-50 sm:right-6 sm:bottom-6">
+      <div className="fixed right-[max(1rem,env(safe-area-inset-right))] bottom-[max(1rem,env(safe-area-inset-bottom))] z-50 sm:right-6 sm:bottom-6">
         <button
           type="button"
           onClick={() => setMinimised(false)}

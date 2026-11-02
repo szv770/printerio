@@ -385,7 +385,7 @@ export function LibraryBrowser({ extraSie = [], canRefreshSie = false }: { extra
       )}
 
       {cart.length > 0 && (
-        <div role="region" aria-label="Chosen files" className="fixed inset-x-0 bottom-[var(--sticky-bottom,0px)] z-40 border-t border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-[var(--shadow-pop)]">
+        <div role="region" aria-label="Chosen files" className="fixed inset-x-0 bottom-[var(--sticky-bottom,0px)] z-40 border-t border-[var(--color-border)] bg-[var(--color-surface)] p-3 pr-[max(0.75rem,env(safe-area-inset-right))] pl-[max(0.75rem,env(safe-area-inset-left))] shadow-[var(--shadow-pop)]">
           <div className="mx-auto flex max-w-2xl flex-wrap items-center gap-x-3 gap-y-2">
             <p className="min-w-0 flex-1 basis-32 text-sm font-medium">
               {cart.length} {cart.length === 1 ? "file" : "files"} chosen

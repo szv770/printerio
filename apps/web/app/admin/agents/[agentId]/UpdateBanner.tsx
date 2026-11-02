@@ -61,19 +61,19 @@ function StepIcon({ state }: { state: StepView["state"] }) {
 
 const STATE_WORD: Record<StepView["state"], string> = { done: "finished", active: "in progress", failed: "failed", pending: "waiting" };
 
-/** The five live steps: a row on wide screens, a list on phones. */
+/** The five live steps: a row on wide screens (the admin side menu takes room from tablet width up), a list below that. */
 export function UpdateSteps({ steps }: { steps: StepView[] }) {
   return (
-    <ol className="mt-4 flex flex-col gap-2.5 sm:flex-row sm:gap-0" aria-label="Update progress">
+    <ol className="mt-4 flex flex-col gap-2.5 lg:flex-row lg:gap-0" aria-label="Update progress">
       {steps.map((step) => (
         <li
           key={step.id}
           aria-current={step.state === "active" ? "step" : undefined}
-          className="flex items-center gap-2.5 sm:flex-1 sm:flex-col sm:items-start sm:gap-2"
+          className="flex min-w-0 items-center gap-2.5 lg:flex-1 lg:flex-col lg:items-start lg:gap-2"
         >
           <span
             aria-hidden="true"
-            className={`hidden h-1 w-full rounded-full sm:block ${
+            className={`hidden h-1 w-full rounded-full lg:block ${
               step.state === "done"
                 ? "bg-[var(--color-success)]"
                 : step.state === "active"
@@ -83,7 +83,7 @@ export function UpdateSteps({ steps }: { steps: StepView[] }) {
                     : "bg-[var(--color-border-strong)]/60"
             }`}
           />
-          <span className="flex items-center gap-2.5 sm:pr-2">
+          <span className="flex items-center gap-2.5 lg:pr-2">
             <StepIcon state={step.state} />
             <span
               className={`text-sm ${step.state === "pending" ? "text-[var(--color-muted)]" : "font-medium text-[var(--color-text)]"}`}

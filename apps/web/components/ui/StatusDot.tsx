@@ -15,8 +15,8 @@ export type StatusTone = keyof typeof DOT;
  */
 export function StatusDot({ tone = "neutral", children }: { tone?: StatusTone; children: React.ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-2 text-[13px] font-medium whitespace-nowrap text-[var(--color-text-2)]">
-      <span className="relative flex h-2.5 w-2.5">
+    <span className="inline-flex max-w-full items-center gap-2 text-[13px] font-medium text-[var(--color-text-2)]">
+      <span className="relative flex h-2.5 w-2.5 shrink-0">
         {tone === "live" && (
           <span className={`absolute inset-0 animate-ping rounded-full opacity-50 motion-reduce:animate-none ${DOT.live}`} />
         )}

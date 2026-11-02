@@ -159,7 +159,7 @@ function CancelLink() {
 function StepIndicator({ step }: { step: 1 | 2 | 3 }) {
   const labels: Record<1 | 2 | 3, string> = { 1: "Plan", 2: "Register the machine", 3: "Finish" };
   return (
-    <div className="flex items-center gap-2 text-xs font-medium text-[var(--color-muted)]">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-[var(--color-muted)]">
       {([1, 2, 3] as const).map((n, i) => (
         <div key={n} className="flex items-center gap-2">
           <span
