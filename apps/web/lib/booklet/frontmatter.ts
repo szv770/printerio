@@ -36,12 +36,12 @@ const LINE = rgb(0.78, 0.82, 0.88);
 
 const clean = (s: string) => s.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
 
-interface Fonts {
+export interface Fonts {
   regular: PDFFont;
   bold: PDFFont;
 }
 
-async function embedFonts(doc: PDFDocument): Promise<Fonts> {
+export async function embedFonts(doc: PDFDocument): Promise<Fonts> {
   doc.registerFontkit(fontkit);
   const regular = await doc.embedFont(Buffer.from(DAVID_LIBRE_REGULAR_BASE64, "base64"), { subset: true });
   const bold = await doc.embedFont(Buffer.from(DAVID_LIBRE_BOLD_BASE64, "base64"), { subset: true });
