@@ -27,7 +27,7 @@ export function UserChip({ user }: { user: ShellUser }) {
           type="submit"
           title="Sign out"
           aria-label="Sign out"
-          className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--color-muted)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)] md:h-9 md:w-9"
+          className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--color-muted)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)] md:[@media(pointer:fine)]:h-9 md:[@media(pointer:fine)]:w-9"
         >
           <LogOut className="h-4 w-4" aria-hidden="true" />
         </button>

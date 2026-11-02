@@ -120,7 +120,7 @@ export function BookletPreview({ data }: { data: BookletPreviewData }) {
             type="button"
             aria-label="Previous sheet side"
             onClick={() => go(-1)}
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]"
+            className="flex h-11 w-11 items-center justify-center rounded-lg border [@media(pointer:fine)]:h-9 [@media(pointer:fine)]:w-9 border-[var(--color-border-strong)] bg-[var(--color-surface)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]"
           >
             <ChevronLeft className="h-4 w-4" aria-hidden="true" />
           </button>
@@ -128,7 +128,7 @@ export function BookletPreview({ data }: { data: BookletPreviewData }) {
             type="button"
             aria-label="Next sheet side"
             onClick={() => go(1)}
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]"
+            className="flex h-11 w-11 items-center justify-center rounded-lg border [@media(pointer:fine)]:h-9 [@media(pointer:fine)]:w-9 border-[var(--color-border-strong)] bg-[var(--color-surface)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]"
           >
             <ChevronRight className="h-4 w-4" aria-hidden="true" />
           </button>

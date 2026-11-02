@@ -94,6 +94,9 @@ body {
   font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
   overflow-wrap: break-word;
+  /* The page runs edge to edge (viewport-fit=cover); in landscape the notch and rounded corners sit on the sides, so keep the content clear of them. */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 /*

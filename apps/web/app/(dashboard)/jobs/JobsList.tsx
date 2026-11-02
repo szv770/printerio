@@ -185,7 +185,7 @@ export function JobsList({
             type="button"
             onClick={() => setFilter(f.id)}
             aria-pressed={filter === f.id}
-            className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full border px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:shadow-[var(--ring)] sm:min-h-9 sm:px-3.5 ${
+            className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full border px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:shadow-[var(--ring)] sm:[@media(pointer:fine)]:min-h-9 sm:px-3.5 ${
               filter === f.id
                 ? "border-[var(--color-text)] bg-[var(--color-text)] text-white"
                 : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-2)] hover:border-[var(--color-border-strong)]"

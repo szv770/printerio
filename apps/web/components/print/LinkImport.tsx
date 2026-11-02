@@ -88,7 +88,7 @@ export function LinkImport({ maxUploadBytes }: { maxUploadBytes: number }) {
           <p className="min-w-0 flex-1 text-sm leading-5">
             <span className="font-semibold">{added}</span> is ready below. Choose the pages and options, then press Print.
           </p>
-          <button type="button" aria-label="Dismiss" onClick={() => setAdded(null)} className="-m-1 flex h-8 w-8 items-center justify-center rounded-full hover:bg-black/5">
+          <button type="button" aria-label="Dismiss" onClick={() => setAdded(null)} className="-m-2.5 flex h-11 w-11 items-center justify-center rounded-full hover:bg-black/5">
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>

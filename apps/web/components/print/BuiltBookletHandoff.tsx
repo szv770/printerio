@@ -72,7 +72,7 @@ export function BuiltBookletHandoff() {
           <>That booklet is no longer here (the page was reloaded). Go back to the booklet builder and build it again.</>
         )}
       </p>
-      <button type="button" aria-label="Dismiss" onClick={() => setView(null)} className="-m-1 flex h-8 w-8 items-center justify-center rounded-full hover:bg-black/5">
+      <button type="button" aria-label="Dismiss" onClick={() => setView(null)} className="-m-2.5 flex h-11 w-11 items-center justify-center rounded-full hover:bg-black/5">
         <X className="h-4 w-4" aria-hidden="true" />
       </button>
     </div>
