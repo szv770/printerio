@@ -10,9 +10,11 @@ import type { StudySection } from "./page";
  * small margins; the font size is then chosen to use all of it:
  *   1. find how many pages the text needs at the smallest readable size and round that up to a multiple of 4 (a booklet sheet
  *      holds 4 pages), the fewest sheets that keep the text readable;
- *   2. take the largest font size (up to a limit) that still fits in that many pages.
- * So no sheet is wasted and the last page is well used. Text is only drawn, never changed: Hebrew is set in Ezra SIL, which has every
- * vowel and cantillation mark; English in David Libre.
+ *   2. take the largest font size (up to a limit) that still fits in that many pages;
+ *   3. open the line spacing a little to use whatever is left of the last page.
+ * Layout follows the Chitas & Rambam builder the owner likes: with both languages, Hebrew on the left and English on the right,
+ * side by side, row by row (verse number between them), and Rashi in a lightly shaded box. One language alone uses the full width.
+ * Text is only drawn, never changed: Hebrew is set in Ezra SIL, which has every vowel and cantillation mark; English in David Libre.
  * See docs/daily-study.md.
  */
 
@@ -57,12 +59,21 @@ export interface DrawOp {
   /** Which bundled font draws it: Hebrew paragraphs use "hebrew". */
   font: "regular" | "bold" | "hebrew";
   dir: Direction;
-  role: "heading" | "body" | "credit";
+  role: "heading" | "body" | "credit" | "number";
+}
+
+/** A lightly shaded box behind Rashi. */
+export interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 export interface FillPlan {
   size: number;
   pages: DrawOp[][];
+  rects: Rect[][];
 }
 
 export interface FillResult {
@@ -86,41 +97,78 @@ const LINE = 1.28;
 const LINE_MAX = 1.5;
 const LINE_STEP = 0.01;
 const INK = rgb(0.07, 0.07, 0.09);
+const SHADE = rgb(0.94, 0.93, 0.91);
+/** Space between the Hebrew and English columns; the verse number sits in it. */
+const GUTTER = 16;
+const BOX_PAD = 4;
 
 interface Para {
   text: string;
+  kind: "regular" | "bold" | "hebrew";
   dir: Direction;
-  bold: boolean;
   scale: number;
+  /** Space above it, in font sizes (inside a column, between its paragraphs). */
   before: number;
   role: DrawOp["role"];
-  center?: boolean;
-  keepWithNext?: boolean;
-  /** Inset from the start edge, in points: sets commentary apart from the text it explains. */
-  indent?: number;
 }
 
-function paragraphs(input: FillInput): Para[] {
-  const out: Para[] = [];
-  out.push({ text: input.title, dir: "ltr", bold: true, scale: 1.3, before: 0, role: "heading", center: true, keepWithNext: true });
+interface Row {
+  /** Hebrew side, English side. A single-language or full-width row uses only `left`. */
+  left: Para[];
+  right: Para[];
+  /** One column across the whole width. */
+  full: boolean;
+  center?: boolean;
+  keepWithNext?: boolean;
+  /** Space above the row, in font sizes. */
+  before: number;
+  num?: string;
+  shade?: boolean;
+}
+
+const heading = (text: string, scale: number, before: number, center = false): Row => ({
+  left: [{ text, kind: "bold", dir: "ltr", scale, before: 0, role: "heading" }],
+  right: [],
+  full: true,
+  center,
+  keepWithNext: true,
+  before,
+});
+
+function rows(input: FillInput): Row[] {
+  const out: Row[] = [heading(input.title, 1.3, 0, true)];
+  const both = input.language === "both";
+  const he = (text: string, scale: number, before = 0): Para => ({ text, kind: "hebrew", dir: "rtl", scale, before, role: "body" });
+  // English is set in David Libre, which has the letters and vowel marks but no cantillation marks: leave those out of Hebrew words quoted inside English.
+  const en = (text: string, scale: number, before = 0, bold = false): Para => ({ text: text.replace(/[֑-ֽ֯]/g, ""), kind: bold ? "bold" : "regular", dir: "ltr", scale, before, role: "body" });
+
   for (const item of input.items) {
-    out.push({ text: item.title, dir: "ltr", bold: true, scale: 1.12, before: 0.8, role: "heading", keepWithNext: true });
+    out.push(heading(item.title, 1.12, 0.9));
     for (const section of item.sections) {
-      if (section.heading && section.heading !== item.title) out.push({ text: section.heading, dir: "ltr", bold: true, scale: 1.02, before: 0.6, role: "heading", keepWithNext: true });
+      if (section.heading && section.heading !== item.title) out.push(heading(section.heading, 1.02, 0.6));
       for (const b of section.blocks) {
         const rashi = b.kind === "rashi";
-        const scale = rashi || b.kind === "note" ? 0.88 : 1;
-        const indent = rashi || b.kind === "note" ? 9 : 0;
-        const lead = (l?: string) => (rashi && l ? (/[.:!?]$/.test(l.trim()) ? `${l.trim()} ` : `${l.trim()}: `) : "");
-        if (input.language !== "en" && b.he) out.push({ text: `${lead(b.leadHe)}${b.he}`, dir: "rtl", bold: false, scale, before: rashi ? 0.15 : 0.45, role: "body", indent });
-        if (input.language !== "he" && b.en) {
-          const num = b.kind === "verse" && b.num ? `${b.num}. ` : "";
-          out.push({ text: `${num}${lead(b.leadEn)}${b.en}`, dir: "ltr", bold: false, scale, before: input.language === "both" ? 0.1 : rashi ? 0.15 : 0.45, role: "body", indent });
+        const scale = rashi || b.kind === "note" ? 0.9 : 1;
+        const hePart: Para[] = [];
+        const enPart: Para[] = [];
+        if (rashi && b.leadHe) hePart.push(he(b.leadHe, scale));
+        if (b.he) hePart.push(he(b.he, scale, rashi && b.leadHe ? 0.15 : 0));
+        if (rashi && b.leadEn) enPart.push(en(b.leadEn, scale, 0, true));
+        if (b.en) enPart.push(en(b.en, scale, rashi && b.leadEn ? 0.15 : 0));
+        const base = { before: rashi ? 0.5 : 0.55, ...(rashi ? { shade: true } : {}) };
+        if (both) {
+          if (hePart.length === 0 && enPart.length === 0) continue;
+          out.push({ left: hePart, right: enPart, full: false, num: b.kind === "verse" ? b.num : undefined, ...base });
+        } else {
+          const only = input.language === "he" ? hePart : enPart;
+          if (only.length > 0) out.push({ left: only, right: [], full: true, ...base });
         }
       }
     }
   }
-  if (input.credit) out.push({ text: input.credit, dir: "ltr", bold: false, scale: 0.75, before: 1.2, role: "credit", center: true });
+  if (input.credit) {
+    out.push({ left: [{ text: input.credit, kind: "regular", dir: "ltr", scale: 0.75, before: 0, role: "credit" }], right: [], full: true, center: true, before: 1.2 });
+  }
   return out;
 }
 
@@ -169,6 +217,33 @@ function wrap(text: string, font: PDFFont, size: number, maxWidth: number, measu
   return lines;
 }
 
+/** One laid-out line of a column, waiting to be placed on a page. */
+interface ColLine {
+  text: string;
+  width: number;
+  size: number;
+  font: PDFFont;
+  dir: Direction;
+  role: DrawOp["role"];
+  /** Height it takes, including any space above it. */
+  h: number;
+  /** Line height alone (the part below the space above). */
+  lh: number;
+}
+
+function column(paras: Para[], fonts: LayoutFonts, size: number, width: number, line: number, measure: Measure): ColLine[] {
+  const out: ColLine[] = [];
+  paras.forEach((p, pi) => {
+    const sz = size * p.scale;
+    const font = p.kind === "hebrew" ? fonts.hebrew : p.kind === "bold" ? fonts.bold : fonts.regular;
+    const lh = sz * line;
+    wrap(p.text, font, sz, width, measure).forEach((l, li) => {
+      out.push({ text: l.text, width: l.width, size: sz, font, dir: p.dir, role: p.role, lh, h: lh + (li === 0 && pi > 0 ? p.before * size : 0) });
+    });
+  });
+  return out;
+}
+
 function layout(input: FillInput, fonts: LayoutFonts, size: number, measure: Measure, line = LINE): FillPlan {
   const { width, height } = input.page;
   const m = input.margin;
@@ -177,41 +252,91 @@ function layout(input: FillInput, fonts: LayoutFonts, size: number, measure: Mea
   const top = height - m;
   const bottom = m;
   const pages: DrawOp[][] = [[]];
+  const rects: Rect[][] = [[]];
   let y = top;
   let first = true;
+  const newPage = () => {
+    pages.push([]);
+    rects.push([]);
+    y = top;
+  };
+  const emit = (op: DrawOp) => pages[pages.length - 1]!.push(op);
 
-  const paras = paragraphs(input);
-  for (let i = 0; i < paras.length; i++) {
-    const p = paras[i]!;
-    const sz = size * p.scale;
-    const font: PDFFont = p.dir === "rtl" ? fonts.hebrew : p.bold ? fonts.bold : fonts.regular;
-    const ind = p.indent ?? 0;
-    const lines = wrap(p.text, font, sz, right - left - ind, measure);
-    if (lines.length === 0) continue;
-    const lh = sz * line;
-    const gap = first ? 0 : p.before * size;
-    // A heading stays with the first two lines of what follows it.
-    const need = lh * (p.keepWithNext ? lines.length + 2 : Math.min(lines.length, 2)) + gap;
-    if (!first && y - need < bottom - lh * 0.25) {
-      pages.push([]);
-      y = top;
-    } else {
-      y -= gap;
-    }
+  for (const row of rows(input)) {
+    const pad = row.shade ? BOX_PAD : 0;
+    const inner = right - left - 2 * pad;
+    const colW = row.full ? inner : (inner - GUTTER) / 2;
+    const hebrewX = left + pad; // left column
+    const englishX = left + pad + colW + GUTTER; // right column
+    const L = column(row.left, fonts, size, colW, line, measure);
+    const R = row.full ? [] : column(row.right, fonts, size, colW, line, measure);
+    if (L.length === 0 && R.length === 0) continue;
+
+    const sum = (c: ColLine[]) => c.reduce((s, l) => s + l.h, 0);
+    const gap = first ? 0 : row.before * size;
+    const total = Math.max(sum(L), sum(R)) + 2 * pad;
+    // Keep a row together when it would fit a page on its own; a heading also stays with the first lines after it.
+    const pageH = top - bottom;
+    const need = (row.keepWithNext ? total + 2 * size * line : total) + gap;
+    if (!first && y - need < bottom - size * line * 0.25 && total <= pageH * 0.6) newPage();
+    else if (!first) y -= gap;
     first = false;
-    for (const line of lines) {
-      if (y - lh < bottom - lh * 0.25 && pages[pages.length - 1]!.length > 0) {
-        pages.push([]);
-        y = top;
+
+    let li = 0;
+    let ri = 0;
+    let startOfRow = true;
+    while (li < L.length || ri < R.length) {
+      // Take lines from each column until this page is full (at least one line, so a tall line never loops forever).
+      const room = y - bottom + size * line * 0.25 - 2 * pad;
+      const take = (c: ColLine[], from: number) => {
+        let used = 0;
+        let n = 0;
+        while (from + n < c.length) {
+          const h = startOfRow && n === 0 ? c[from]!.lh : c[from + n]!.h;
+          if (used + h > room && (n > 0 || y < top)) break;
+          used += h;
+          n++;
+        }
+        return { n, used };
+      };
+      const a = take(L, li);
+      const b = take(R, ri);
+      if (a.n === 0 && b.n === 0) {
+        newPage();
+        continue;
       }
-      y -= lh;
-      const w = line.width;
-      const x = p.center ? (left + right - w) / 2 : p.dir === "rtl" ? right - ind - w : left + ind;
-      // Baseline sits a little above the line's bottom so descenders stay inside the margin.
-      pages[pages.length - 1]!.push({ logical: line.text, x, y: y + lh * 0.22, width: w, size: sz, bold: p.bold, font: fontName(fonts, font), dir: p.dir, role: p.role });
+      const used = Math.max(a.used, b.used);
+      const boxTop = y;
+      let cy = y - pad;
+      const place = (c: ColLine[], from: number, n: number, x0: number, x1: number, rtlSide: boolean) => {
+        let yy = cy;
+        for (let k = from; k < from + n; k++) {
+          const l = c[k]!;
+          const h = startOfRow && k === from ? l.lh : l.h;
+          yy -= h;
+          const x = row.center ? (left + right - l.width) / 2 : l.dir === "rtl" || rtlSide ? x1 - l.width : x0;
+          emit({ logical: l.text, x, y: yy + l.lh * 0.22, width: l.width, size: l.size, bold: l.font === fonts.bold, font: fontName(fonts, l.font), dir: l.dir, role: l.role });
+        }
+      };
+      if (row.full) place(L, li, a.n, hebrewX, hebrewX + colW, false);
+      else {
+        place(L, li, a.n, hebrewX, hebrewX + colW, true);
+        place(R, ri, b.n, englishX, englishX + colW, false);
+        if (row.num && startOfRow) {
+          const numSize = size * 0.8;
+          const nw = measure(fonts.hebrew, numSize, row.num);
+          emit({ logical: row.num, x: hebrewX + colW + (GUTTER - nw) / 2, y: cy - L[0]!.lh + L[0]!.lh * 0.22, width: nw, size: numSize, bold: false, font: "hebrew", dir: "rtl", role: "number" });
+        }
+      }
+      if (row.shade) rects[rects.length - 1]!.push({ x: left, y: boxTop - used - 2 * pad, width: right - left, height: used + 2 * pad });
+      y = boxTop - used - 2 * pad;
+      li += a.n;
+      ri += b.n;
+      startOfRow = false;
+      if (li < L.length || ri < R.length) newPage();
     }
   }
-  return { size, pages };
+  return { size, pages, rects };
 }
 
 function usedFraction(input: FillInput, plan: FillPlan): number {
@@ -266,10 +391,14 @@ export async function buildFilledPdf(input: FillInput): Promise<FillResult> {
   }
 
   const lastPageFill = usedFraction(input, plan);
-  while (plan.pages.length < targetPages) plan.pages.push([]);
+  while (plan.pages.length < targetPages) {
+    plan.pages.push([]);
+    plan.rects.push([]);
+  }
 
-  for (const ops of plan.pages) {
+  plan.pages.forEach((ops, pi) => {
     const page = doc.addPage([input.page.width, input.page.height]);
+    for (const r of plan.rects[pi] ?? []) page.drawRectangle({ x: r.x, y: r.y, width: r.width, height: r.height, color: SHADE });
     for (const op of ops) {
       const font = fonts[op.font];
       let x = op.x;
@@ -280,7 +409,7 @@ export async function buildFilledPdf(input: FillInput): Promise<FillResult> {
         if (runs.length > 1) x += font.widthOfTextAtSize(r.draw, op.size);
       }
     }
-  }
+  });
   const bytes = await doc.save();
   return { bytes, pages: plan.pages.length, targetPages, fontSize: plan.size, pagesAtMinSize, lastPageFill, strippedMarks: false, plan };
 }

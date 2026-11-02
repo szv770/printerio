@@ -23,6 +23,8 @@ describe("parseShiurPage", () => {
     expect(blocks[0]?.he).not.toContain("יז");
     expect(blocks[1]).toMatchObject({ kind: "rashi" });
     expect(blocks[1]?.leadEn).toMatch(/Ephron’s field/);
+    // the English title keeps only its English: the Hebrew words are already in the Hebrew column
+    expect(blocks[1]?.leadEn).not.toMatch(/[א-ת]/);
     expect(blocks[1]?.en).toMatch(/It had a rise in status/);
     expect(blocks[1]?.leadHe).toMatch(/[א-ת]/);
   });

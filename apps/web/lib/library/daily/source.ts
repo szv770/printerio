@@ -72,7 +72,8 @@ function rashiBlock(box: HTMLElement): StudyBlock | null {
   const he = textOf(content.querySelector(".hebrew-text"));
   const en = textOf(content.querySelector(".english-text"));
   const leadHe = textOf(content.querySelector(".rashi-title-hebrew"));
-  const leadEn = textOf(content.querySelector(".rashi-title-english"));
+  // The English title repeats the Hebrew words before its dash; the Hebrew column already has them, and the English font cannot draw them.
+  const leadEn = clean(textOf(content.querySelector(".rashi-title-english")).replace(/[֐-׿]+/g, " ")).replace(/^[\s\-–—.:,;]+/, "");
   if (!he && !en) return null;
   return { kind: "rashi", he, en, ...(leadHe ? { leadHe } : {}), ...(leadEn ? { leadEn } : {}) };
 }

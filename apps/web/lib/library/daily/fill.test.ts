@@ -80,6 +80,37 @@ describe("buildFilledPdf", () => {
     expect(english.every((o) => o.font === "regular")).toBe(true);
   });
 
+  it("sets Hebrew on the left and English on the right, side by side, with Rashi in a shaded box", async () => {
+    const chumash = parseStudyPage(fixture("study-chumash.html"), "chumash").sections;
+    const r = await buildFilledPdf(base(chumash));
+    const ops = r.plan.pages.flat().filter((o) => o.role === "body");
+    const hebrew = ops.filter((o) => o.dir === "rtl");
+    const english = ops.filter((o) => o.dir === "ltr");
+    const mid = HALF_LETTER.width / 2;
+    // every Hebrew line ends before the middle of the page, every English line starts after it
+    expect(hebrew.every((o) => o.x + o.width <= mid + 0.5)).toBe(true);
+    expect(english.every((o) => o.x >= mid - 0.5)).toBe(true);
+    // the first Hebrew and English lines sit on the same row
+    expect(Math.abs((hebrew[0]?.y ?? 0) - (english[0]?.y ?? 99))).toBeLessThan(6);
+    expect(r.plan.rects.flat().length).toBeGreaterThan(0);
+  });
+
+  it("leaves cantillation marks out of English text, whose font cannot draw them, but not out of Hebrew", async () => {
+    const withTrop: StudySection[] = [{ heading: "", blocks: [{ kind: "verse", he: "בְּרֵאשִׁ֖ית בָּרָ֣א", en: "The word בְּרֵאשִׁ֖ית means “in the beginning”." }] }];
+    const r = await buildFilledPdf(base(withTrop));
+    const english = r.plan.pages.flat().filter((o) => o.dir === "ltr" && o.role === "body").map((o) => o.logical).join(" ");
+    const hebrew = r.plan.pages.flat().filter((o) => o.dir === "rtl" && o.role === "body").map((o) => o.logical).join(" ");
+    expect(english).toContain("means");
+    expect(english).not.toMatch(/[֑-ֽ֯]/);
+    expect(hebrew).toMatch(/[֑-֯]/);
+  });
+
+  it("uses the whole width when only one language is chosen", async () => {
+    const he = await buildFilledPdf(base(rambam, { language: "he" }));
+    const widest = Math.max(...he.plan.pages.flat().filter((o) => o.role === "body").map((o) => o.width));
+    expect(widest).toBeGreaterThan(HALF_LETTER.width / 2);
+  });
+
   it("shows only the chosen language", async () => {
     const he = await buildFilledPdf(base(rambam, { language: "he" }));
     const en = await buildFilledPdf(base(rambam, { language: "en" }));
