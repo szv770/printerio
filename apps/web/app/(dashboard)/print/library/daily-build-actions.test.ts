@@ -50,6 +50,7 @@ describe("dailyDayAction", () => {
     expect(res.items.map((i) => i.study)).toEqual(["chumash", "tanya", "rambam1", "rambam3"]);
     expect(res.items.find((i) => i.study === "tanya")).toMatchObject({ saved: true, portion: "Iggeret HaKodesh, middle of Epistle 29" });
     expect(res.items.find((i) => i.study === "chumash")?.saved).toBe(false);
+    expect(res.items.find((i) => i.study === "rambam1")?.url).toBe("https://www.chabad.org/dailystudy/rambam.asp?tdate=11/1/2026&rambamChapters=1");
   });
   it("still shows what is saved when Chabad.org's list cannot be read", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("no", { status: 403 })));

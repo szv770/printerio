@@ -1,4 +1,4 @@
-# Daily study in the library (plan, 2026-11-01 - NOT BUILT, waiting for the owner's OK)
+# Daily study in the library (plan 2026-11-01; phases 1-4 built 2026-11-02, untested on a real print)
 
 Goal: a "Daily study" part of the library with today's Chumash (with Rashi), Tanya, Rambam (1 chapter) and Rambam (3 chapters),
 pulled from chabad.org (later more of its TorahTexts, and sie.org). The user picks items, then Printio prints them or builds a
@@ -65,3 +65,8 @@ never a retry loop).
   is far inside it). Plain requests to the sitemap, article pages and guessed feed paths return 403 (the check), so the RSS feed URL could
   not be found automatically: **the owner gives the feed URL** (it is on chabad.org's RSS page). Until then the schedule falls back to
   the date-based page URLs.
+
+## Status 2026-11-02
+- Built and tested: RSS reader (`lib/library/daily/feed.ts`), page reader (`page.ts`), import check (`import.ts`), table 0050, actions (`app/(dashboard)/print/library/daily-actions.ts`), fill-the-page builder (`fill.ts`), library tab (`components/library/DailyStudyPanel.tsx`, preview at `/dev/preview?section=daily`).
+- Finding: a Playwright-driven Chrome on the PC got the first page then Cloudflare's check on the next, even slowly. So the automatic fetch (plan section 2) is NOT built and not planned; "Import from my browser" is the way in. Chumash text has trop marks the bundled David Libre lacks: they are left out until a font with them (e.g. an OFL Noto Serif Hebrew) is bundled (needs the owner's OK to download).
+- Not yet: print a real daily booklet and look at it; apply migration 0050 to Supabase before the website update; more sources (Hayom Yom, Tehillim, TorahTexts, SIE library / Shulchan Aruch).

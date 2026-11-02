@@ -104,6 +104,8 @@ export interface DailyDayItem {
   portion: string;
   /** The text is saved in Printio, so it can be printed now. */
   saved: boolean;
+  /** The study page on Chabad.org (from its own list), for an admin who has to import it. */
+  url?: string;
 }
 
 /** The day's studies: what Chabad.org's list says belongs on the date, and which of them Printio already has the text for. */
@@ -120,7 +122,7 @@ export async function dailyDayAction(date: string): Promise<{ ok: true; items: D
   const items: DailyDayItem[] = [];
   for (const study of OFFERED_STUDIES) {
     const fromFeed = feed?.items.find((i) => i.study === study);
-    if (fromFeed) items.push({ study, label: STUDY_LABELS[study], portion: fromFeed.portion, saved: saved.has(study) });
+    if (fromFeed) items.push({ study, label: STUDY_LABELS[study], portion: fromFeed.portion, saved: saved.has(study), url: fromFeed.url });
     else if (!feed && saved.has(study)) items.push({ study, label: STUDY_LABELS[study], portion: saved.get(study) ?? "", saved: true });
   }
   return { ok: true, items };

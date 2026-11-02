@@ -15,8 +15,9 @@ import { groupSie, likkutPageFromLabel, sieContentRange, sieForLikkut } from "@/
 import { addToCart, CART_MAX, clearCart, MAFTEIACH_CREDIT, readCart, removeFromCart, type CartItem } from "@/lib/library/cart";
 import { friendlyFileLabel, hasEnglish, matchesQuery } from "@/lib/library/labels";
 import type { EntrySection, LikkutPage, ListEntry, ListPage } from "@/lib/library/mafteiach-parse";
+import { DailyStudyPanel } from "./DailyStudyPanel";
 
-type Tab = "likkutei" | "maamorim" | "all" | "sie";
+type Tab = "likkutei" | "maamorim" | "all" | "sie" | "daily";
 
 /** One file in the library: tap to put it in (or take it out of) the booklet. */
 function FileButton({ label, chosen, onToggle }: { label: string; chosen: boolean; onToggle: () => void }) {
@@ -197,14 +198,17 @@ export function LibraryBrowser({ extraSie = [], canRefreshSie = false }: { extra
           { value: "maamorim", label: "Maamarim" },
           { value: "all", label: "Sichos and farbrengens" },
           { value: "sie", label: "Sichos In English" },
+          { value: "daily", label: "Daily study" },
         ]}
       />
+      {tab !== "daily" && (
       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="relative sm:flex-1">
           <Search className="pointer-events-none absolute start-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-muted)]" aria-hidden="true" />
           <Input aria-label="Search this list" type="search" placeholder="Search (a name, a topic, a parsha)" value={query} onChange={(e) => setQuery(e.target.value)} autoComplete="off" className="ps-10" dir="auto" />
         </div>
       </div>
+      )}
       <FormError message={error} />
       {notice && <p role="status" className="mt-2 text-sm text-[var(--color-muted)]">{notice}</p>}
       {pending && (
@@ -260,6 +264,12 @@ export function LibraryBrowser({ extraSie = [], canRefreshSie = false }: { extra
               </div>
             ))}
           </div>
+        </section>
+      )}
+
+      {tab === "daily" && (
+        <section className="mt-4">
+          <DailyStudyPanel canImport={canRefreshSie} />
         </section>
       )}
 
