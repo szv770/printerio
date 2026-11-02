@@ -114,7 +114,7 @@ export function AdminNav({
             href={routes.adminApprovals}
             className="flex h-11 shrink-0 items-center rounded-lg px-1 text-[13px] font-medium text-[var(--color-warning-ink)]"
           >
-            <span className="rounded-full bg-[var(--color-warning-soft)] px-2.5 py-0.5">{pendingApprovals} to approve</span>
+            <span aria-label={`${pendingApprovals} to approve`} className="rounded-full bg-[var(--color-warning-soft)] px-2.5 py-0.5">{pendingApprovals}<span className="hidden min-[420px]:inline"> to approve</span></span>
           </Link>
         )}
         <Link
