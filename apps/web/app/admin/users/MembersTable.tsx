@@ -215,7 +215,7 @@ export function MembersTable({ members, canEdit }: { members: Member[]; canEdit:
             placeholder={m.effectiveCode}
             maxLength={12}
             aria-label={`Print code for ${m.displayName ?? m.email}`}
-            className="ml-auto w-24 min-w-24 text-center font-mono text-sm tracking-wider uppercase"
+            className="ml-auto w-24 min-w-24 text-center font-mono text-base tracking-wider uppercase md:text-sm"
             invalid={!!errors[m.userId]}
           />
         ) : (
@@ -230,7 +230,7 @@ export function MembersTable({ members, canEdit }: { members: Member[]; canEdit:
             value={draftOf(m).role}
             onChange={(e) => edit(m, { role: e.target.value })}
             aria-label={`Role for ${m.displayName ?? m.email}`}
-            className="ml-auto w-full min-w-36 text-sm sm:w-32 sm:min-w-32"
+            className="ml-auto w-full min-w-36 text-base sm:w-32 sm:min-w-32 md:text-sm"
           >
             {roleChoices().map((r) => (
               <option key={r.value} value={r.value}>
@@ -251,7 +251,7 @@ export function MembersTable({ members, canEdit }: { members: Member[]; canEdit:
             onChange={(e) => edit(m, { department: e.target.value })}
             placeholder="None"
             aria-label={`Department for ${m.displayName ?? m.email}`}
-            className="ml-auto w-full min-w-36 text-sm sm:w-32 sm:min-w-32"
+            className="ml-auto w-full min-w-36 text-base sm:w-32 sm:min-w-32 md:text-sm"
           />
         ) : (
           (m.department ?? "None")
