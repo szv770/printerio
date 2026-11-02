@@ -76,7 +76,7 @@ function safeUrl(raw: string): string | null {
 export function parseDailyFeed(xml: string): DailyDay {
   const head = xml.split(/<item>/)[0] ?? "";
   const title = /^Chabad\.org Daily Study - (\w+) (\d{1,2}), (\d{4}) - (.+)$/.exec(tag(head, "title"));
-  const month = title ? MONTHS.indexOf(title[1]) : -1;
+  const month = title ? MONTHS.indexOf(title[1] ?? "") : -1;
   if (!title || month < 0 || !/<rss[\s>]/.test(xml)) throw new Error("This is not the Chabad.org Daily Study feed.");
   const date = `${title[3]}-${String(month + 1).padStart(2, "0")}-${String(Number(title[2])).padStart(2, "0")}`;
   const items: DailyItem[] = [];
