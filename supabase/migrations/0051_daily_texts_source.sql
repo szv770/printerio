@@ -5,4 +5,4 @@
 alter table public.library_daily_texts drop constraint if exists library_daily_texts_source_url_check;
 alter table public.library_daily_texts
   add constraint library_daily_texts_source_url_check
-  check (source_url ~ '^https://(www[.]chabad[.]org/dailystudy|chitas-site[.]vercel[.]app/shiur)[A-Za-z0-9_./?=&%-]{0,300}$');
+  check (source_url ~ '^https://(www[.]chabad[.]org/dailystudy|chitas-site[.]vercel[.]app/shiur)[A-Za-z0-9_./?=&%-]{0,250}$');
