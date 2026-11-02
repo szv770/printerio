@@ -667,6 +667,36 @@ export type Database = {
         }
         Relationships: []
       }
+      library_daily_texts: {
+        Row: {
+          study: string
+          study_date: string
+          portion: string
+          sections: Json
+          source_url: string
+          fetched_at: string
+          added_by: string | null
+        }
+        Insert: {
+          study: string
+          study_date: string
+          portion: string
+          sections: Json
+          source_url: string
+          fetched_at?: string
+          added_by?: string | null
+        }
+        Update: {
+          study?: string
+          study_date?: string
+          portion?: string
+          sections?: Json
+          source_url?: string
+          fetched_at?: string
+          added_by?: string | null
+        }
+        Relationships: []
+      }
       organization_members: {
         Row: {
           created_at: string
