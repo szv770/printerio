@@ -1,5 +1,6 @@
 import { PDFDocument, rgb, type PDFFont } from "pdf-lib";
 import { EZRA_SIL_REGULAR_BASE64 } from "@/lib/booklet/fonts/ezra-sil-regular";
+import { drawShaped, widthOfShaped } from "@/lib/booklet/shaped";
 import { drawableRuns, embedFonts, type Fonts } from "@/lib/booklet/frontmatter";
 import type { Direction } from "@/lib/booklet/bidi";
 import type { StudySection } from "./page";
@@ -20,7 +21,7 @@ import type { StudySection } from "./page";
 
 export type Language = "he" | "en" | "both";
 
-/** The three bundled fonts: English regular and bold (David Libre), and Hebrew (Ezra SIL). */
+/** English regular and bold (David Libre), and Hebrew (Ezra SIL unless an uploaded font was given). */
 interface LayoutFonts extends Fonts {
   hebrew: PDFFont;
 }
@@ -44,6 +45,8 @@ export interface FillInput {
   maxSize?: number;
   /** A line at the very end, e.g. the thank-you to the source. */
   credit?: string;
+  /** Bytes of an uploaded font (.ttf/.otf) to set Hebrew in instead of Ezra SIL. A font that cannot be read throws; there is no silent fallback. */
+  hebrewFont?: Uint8Array;
 }
 
 export interface DrawOp {
@@ -86,6 +89,11 @@ export interface FillResult {
   lastPageFill: number;
   /** True only if some marks had to be left out (none today: the Hebrew font has them all). */
   strippedMarks: boolean;
+  /**
+   * Marks in the Hebrew that is drawn which the Hebrew font has no glyph for (they would show as empty boxes). The text is still
+   * drawn unchanged; the caller should warn. Always false for the bundled Ezra SIL.
+   */
+  missingMarks: { vowels: boolean; cantillation: boolean };
   plan: FillPlan;
 }
 
@@ -179,7 +187,7 @@ function measurer(fonts: LayoutFonts) {
     const key = `${fontName(fonts, font)}|${text}`;
     let unit = cache.get(key);
     if (unit === undefined) {
-      unit = font.widthOfTextAtSize(text, 1000);
+      unit = widthOfShaped(font, text, 1000);
       cache.set(key, unit);
     }
     return (unit * size) / 1000;
@@ -347,10 +355,32 @@ function usedFraction(input: FillInput, plan: FillPlan): number {
   return Math.max(0, Math.min(1, (input.page.height - m - (lowest - m)) / (input.page.height - 2 * m)));
 }
 
+/** Vowel points (incl. shin/sin dots and qamats qatan) and cantillation marks. */
+const VOWEL = /[\u05B0-\u05BC\u05C1\u05C2\u05C7]/;
+const CANTILLATION = /[\u0591-\u05AF]/;
+
+/** Which kinds of marks the drawn Hebrew uses that `font` has no glyph for. Nothing is removed from the text. */
+export function findMissingMarks(plan: FillPlan, font: Pick<PDFFont, "getCharacterSet">): { vowels: boolean; cantillation: boolean } {
+  const have = new Set(font.getCharacterSet());
+  const out = { vowels: false, cantillation: false };
+  for (const op of plan.pages.flat()) {
+    if (op.font !== "hebrew") continue;
+    for (const ch of op.logical) {
+      const cp = ch.codePointAt(0)!;
+      if (cp < 0x0591 || cp > 0x05c7 || have.has(cp)) continue;
+      if (VOWEL.test(ch)) out.vowels = true;
+      else if (CANTILLATION.test(ch)) out.cantillation = true;
+    }
+    if (out.vowels && out.cantillation) break;
+  }
+  return out;
+}
+
 export async function buildFilledPdf(input: FillInput): Promise<FillResult> {
   const doc = await PDFDocument.create();
-  const base = await embedFonts(doc);
-  const fonts: LayoutFonts = { ...base, hebrew: await doc.embedFont(Buffer.from(EZRA_SIL_REGULAR_BASE64, "base64"), { subset: true }) };
+  const base = await embedFonts(doc, input.hebrewFont);
+  const hebrew = base.hebrew ?? (await doc.embedFont(Buffer.from(EZRA_SIL_REGULAR_BASE64, "base64"), { subset: true }));
+  const fonts: LayoutFonts = { ...base, hebrew };
   const minSize = input.minSize ?? MIN_SIZE;
   const maxSize = input.maxSize ?? MAX_SIZE;
 
@@ -404,12 +434,13 @@ export async function buildFilledPdf(input: FillInput): Promise<FillResult> {
       let x = op.x;
       const runs = drawableRuns(op.logical, op.dir);
       for (const r of runs) {
-        page.drawText(r.draw, { x, y: op.y, size: op.size, font, color: INK });
+        drawShaped(page, r.draw, { x, y: op.y, size: op.size, font, color: INK });
         // Only a line made of several pieces needs each piece measured; the usual single piece does not.
-        if (runs.length > 1) x += font.widthOfTextAtSize(r.draw, op.size);
+        if (runs.length > 1) x += widthOfShaped(font, r.draw, op.size);
       }
     }
   });
   const bytes = await doc.save();
-  return { bytes, pages: plan.pages.length, targetPages, fontSize: plan.size, pagesAtMinSize, lastPageFill, strippedMarks: false, plan };
+  const missingMarks = input.hebrewFont ? findMissingMarks(plan, fonts.hebrew) : { vowels: false, cantillation: false };
+  return { bytes, pages: plan.pages.length, targetPages, fontSize: plan.size, pagesAtMinSize, lastPageFill, strippedMarks: false, missingMarks, plan };
 }

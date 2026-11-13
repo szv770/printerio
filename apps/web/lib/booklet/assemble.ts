@@ -3,7 +3,7 @@ import { PDFDocument } from "pdf-lib";
 import { parsePageRange } from "@printio/shared";
 import type { Direction } from "./bidi";
 import { checkPdfInflation } from "@/lib/pdf/inflate-guard";
-import { addFrontMatter, drawBackPageText, frontMatterPageCount, type FrontEntry } from "./frontmatter";
+import { addFrontMatter, drawBackPageText, embedHebrewFont, frontMatterPageCount, type FrontEntry } from "./frontmatter";
 
 /** A refusal with a plain-language message that is safe to show the person as it is. */
 export class BuilderError extends Error {}
@@ -41,6 +41,8 @@ export interface BuilderInput {
   sponsorLine?: string;
   /** Print the credit and sponsor line on the back page when the booklet needs padding anyway. Default true. */
   backPage?: boolean;
+  /** Bytes of an uploaded font (.ttf/.otf) for Hebrew text on the cover, contents and back page, instead of David Libre. */
+  hebrewFont?: Uint8Array;
 }
 
 export interface BuilderResult {
@@ -70,6 +72,15 @@ export async function assembleBooklet(input: BuilderInput): Promise<BuilderResul
   if (input.description.length > MAX_DESCRIPTION_LENGTH) throw new BuilderError(`The description is too long (at most ${MAX_DESCRIPTION_LENGTH} characters).`);
   if (input.sources.length === 0) throw new BuilderError("Add at least one file to the booklet.");
   if (input.sources.length > MAX_SOURCES) throw new BuilderError(`A booklet can combine up to ${MAX_SOURCES} files.`);
+
+  if (input.hebrewFont) {
+    // Checked up front so an unreadable font gives its plain message instead of the generic "could not combine" one.
+    try {
+      await embedHebrewFont(await PDFDocument.create(), input.hebrewFont);
+    } catch (err) {
+      throw new BuilderError(err instanceof Error ? err.message : "That font could not be read.");
+    }
+  }
 
   const docs: PDFDocument[] = [];
   const picks: number[][] = [];
@@ -114,7 +125,7 @@ export async function assembleBooklet(input: BuilderInput): Promise<BuilderResul
   // The back page only uses pages a booklet needs anyway (the total is padded to a multiple of 4), so it adds no paper.
   const chosenPages = picks.reduce((n, p) => n + p.length, 0);
   const wantsBack = (input.backPage ?? true) && (credits.length > 0 || sponsorLine.length > 0);
-  const base = { title, description: input.description, direction: input.direction, credits, cover: input.cover, contents: input.contents, size };
+  const base = { title, description: input.description, direction: input.direction, credits, cover: input.cover, contents: input.contents, size, ...(input.hebrewFont ? { hebrewFont: input.hebrewFont } : {}) };
 
   // Page numbers depend on how many front pages there are, which depends only on the titles.
   const frontPages = await frontMatterPageCount({ ...base, entries: draft });
@@ -140,7 +151,7 @@ export async function assembleBooklet(input: BuilderInput): Promise<BuilderResul
   }
   if (useBack) {
     while (out.getPageCount() % 4 !== 0) out.addPage([size.width, size.height]);
-    await drawBackPageText(out, { credits, sponsorLine, direction: input.direction, size });
+    await drawBackPageText(out, { credits, sponsorLine, direction: input.direction, size, hebrewFont: input.hebrewFont });
   }
   return { bytes: await out.save(), pageCount: out.getPageCount(), entries, backPage: useBack };
 }

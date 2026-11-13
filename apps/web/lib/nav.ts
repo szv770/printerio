@@ -32,6 +32,7 @@ export type NavIcon =
   | "reports"
   | "audit"
   | "storage"
+  | "fonts"
   | "settings"
   | "print"
   | "jobs"
@@ -126,6 +127,7 @@ export function adminMenu(isOrgAdmin: boolean): NavGroup[] {
       items: [
         { href: routes.adminSettings, label: "General", icon: "settings" },
         ...(isOrgAdmin ? [{ href: routes.adminStorage, label: "Files & storage", icon: "storage" as const }] : []),
+        ...(isOrgAdmin ? [{ href: routes.adminFonts, label: "Fonts", icon: "fonts" as const }] : []),
       ],
     },
     {

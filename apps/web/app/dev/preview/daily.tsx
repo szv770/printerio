@@ -31,7 +31,7 @@ export function DailyStudyPreview() {
           ]}
         />
       </div>
-      <DailyStudyPanel api={{ day: async () => ({ ok: true, items }), build: async () => ({ ok: false, message: "Preview only." }) }} />
+      <DailyStudyPanel api={{ day: async () => ({ ok: true, items }), build: async () => ({ ok: false, message: "Preview only." }), fonts: async () => ({ ok: true, fonts: [{ id: "f1", name: "OT Siddur Classic", hasVowels: true, hasCantillation: true }, { id: "f2", name: "Sample no trop", hasVowels: true, hasCantillation: false }] }) }} />
     </div>
   );
 }
