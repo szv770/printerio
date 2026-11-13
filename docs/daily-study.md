@@ -76,3 +76,10 @@ never a retry loop).
 - The earlier route (a person saves Chabad.org's page and an admin uploads it: `import.ts`, `page.ts`'s `parseStudyPage`, `importDailyAction`) is still in the code but no screen uses it. Remove it if it is never needed.
 - Layout follows that builder: Hebrew left, English right, verse/halacha number between, Rashi in a shaded box; one language alone uses the full width.
 - The source shows no credit to Chabad.org on its pages; ask who runs it and confirm the credit wording.
+
+## Status 2026-11-13: your own Hebrew fonts
+- Owner wants better Hebrew than Ezra SIL (SBL Hebrew, or fonts they upload). SBL Hebrew's licence stops us bundling it, so fonts are **uploaded in the app**: Admin -> Fonts (org admins; migration 0052 `org_fonts`, private bucket `org-fonts`, service-role only; `lib/booklet/custom-font.ts` checks a file, `org-fonts.ts` lists them). Members pick one in a "Hebrew font" list on the Daily study form and on the booklet builder (cover, contents, back page); the choice is remembered per browser. Default stays Ezra SIL.
+- Drawn only, never changed: if a font lacks vowels or trop the text uses, the form says so before printing (`missingMarks`); the fidelity check still applies.
+- Found with the owner's real fonts (OT Siddur/Sid/Heilig/Vilna/Holtz/Talmudis): `.otf` fonts with CFF outlines turn into empty boxes when shrunk to a subset by pdf-lib, so they are embedded whole (`embedHebrewFont`); `.ttf` fonts are still subset. Holtz/Vilna are variable fonts (the default instance is drawn). These fonts have no Latin letters (digits and punctuation are fine), so they are for Hebrew text only.
+- Owner's view: Vilna or Siddur for body text; Talmudis and Holtz only for titles/headers. A separate **title font** is not built yet (titles are English today).
+- Not yet: printed on paper; the title font; SBL Hebrew itself (not yet seen).

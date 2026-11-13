@@ -21,7 +21,9 @@ type Source = DraftSource;
 const nameFromFile = (n: string) => n.replace(/\.pdf$/i, "").replace(/_+/g, " ").trim();
 
 /** Builds one PDF from several (cover, contents, the chosen pages of each), then opens the normal Print page with it. */
-export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
+const FONT_KEY = "printio.daily.hebrewFont"; // shared with the daily-study form: one remembered Hebrew font
+
+export function BookletBuilder({ maxUploadBytes, fonts = [] }: { maxUploadBytes: number; fonts?: { id: string; name: string; hasVowels: boolean; hasCantillation: boolean }[] }) {
   const router = useRouter();
   const nextId = useRef(Math.max(0, ...(readDraft()?.sources.map((s) => s.id) ?? [])) + 1);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -35,6 +37,14 @@ export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
   const [sponsorLine, setSponsorLine] = useState(() => readDraft()?.sponsorLine ?? "");
   const [backPage, setBackPage] = useState(() => readDraft()?.backPage ?? true);
   const [sheet, setSheet] = useState<SheetChoice>(() => readDraft()?.sheet ?? "letter");
+  const [fontId, setFontId] = useState(() => {
+    try {
+      const saved = localStorage.getItem(FONT_KEY) ?? "";
+      return fonts.some((f) => f.id === saved) ? saved : "";
+    } catch {
+      return "";
+    }
+  });
   const [link, setLink] = useState("");
   const [addError, setAddError] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
@@ -158,6 +168,7 @@ export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
       if (contents) data.set("contents", "on");
       if (backPage) data.set("backPage", "on");
       data.set("sponsor", sponsorLine);
+      if (fontId) data.set("fontId", fontId);
       data.set("count", String(sources.length));
       sources.forEach((s, i) => {
         data.set(`file-${i}`, s.file);
@@ -306,6 +317,31 @@ export function BookletBuilder({ maxUploadBytes }: { maxUploadBytes: number }) {
           <Checkbox label="Contents page" description="Each file with the page it starts on." checked={contents} onChange={(e) => setContents(e.target.checked)} disabled={building} />
           <Checkbox label="Credit on the back page" description="A small 'Courtesy of ...' line on the last page. It only uses a page the booklet needs anyway, so it never adds paper." checked={backPage} onChange={(e) => setBackPage(e.target.checked)} disabled={building} />
         </div>
+        {fonts.length > 0 && (
+          <Field label="Hebrew font" htmlFor="b-font" help="Used for Hebrew on the cover, contents and back pages. The pages of your own files keep their own fonts. Admins add fonts under Admin, Fonts.">
+            <select
+              id="b-font"
+              value={fontId}
+              onChange={(e) => {
+                setFontId(e.target.value);
+                try {
+                  localStorage.setItem(FONT_KEY, e.target.value);
+                } catch {
+                  /* only a convenience */
+                }
+              }}
+              disabled={building}
+              className="min-h-11 w-full rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 text-base"
+            >
+              <option value="">Printio&apos;s default</option>
+              {fonts.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field label="Sponsor line (optional)" htmlFor="b-sponsor" help="One short line printed small on the back page, above the credit. For example: In honor of the Smith family.">
           <Input id="b-sponsor" value={sponsorLine} onChange={(e) => setSponsorLine(e.target.value)} maxLength={200} disabled={building || !backPage} autoComplete="off" />
         </Field>

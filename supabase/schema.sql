@@ -3448,3 +3448,28 @@ alter table agents
   add column if not exists poll_interval_seconds integer
   check (poll_interval_seconds is null or (poll_interval_seconds between 2 and 300));
 comment on column agents.poll_interval_seconds is 'Admin-chosen seconds between Agent polls (2-300), or null to use the Agent''s own setting.';
+
+-- 0052: Hebrew fonts an org admin uploads for daily-study booklets (bytes in the private org-fonts bucket, service role only).
+create table org_fonts (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations (id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 80),
+  file_name text,
+  storage_path text,
+  size_bytes integer,
+  has_vowels boolean not null default false,
+  has_cantillation boolean not null default false,
+  created_by uuid references profiles (id) on delete set null,
+  created_at timestamptz not null default now(),
+  unique (organization_id, name)
+);
+create index org_fonts_organization_id_idx on org_fonts (organization_id);
+alter table org_fonts enable row level security;
+create policy "members can read their org's fonts" on org_fonts for select to authenticated using (organization_id in (select private.user_org_ids()));
+revoke insert, update, delete, truncate, references, trigger on public.org_fonts from authenticated;
+revoke all on public.org_fonts from anon;
+grant select on public.org_fonts to authenticated;
+grant select, insert, update, delete on public.org_fonts to service_role;
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('org-fonts', 'org-fonts', false, 8388608)
+on conflict (id) do update set public = false, file_size_limit = 8388608;

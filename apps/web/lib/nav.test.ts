@@ -24,6 +24,7 @@ describe("adminMenu", () => {
     expect(hrefs).not.toContain(routes.adminDevices);
     expect(hrefs).not.toContain(routes.adminAudit);
     expect(hrefs).not.toContain(routes.adminStorage);
+    expect(hrefs).not.toContain(routes.adminFonts);
     expect(hrefs).toContain(routes.adminApprovals);
     expect(hrefs).toContain(routes.adminUsers);
   });
@@ -34,7 +35,7 @@ describe("adminMenu", () => {
   });
   it("shows everything to org admins", () => {
     const hrefs = flat(adminMenu(true)).map((i) => i.href);
-    for (const h of [routes.adminDevices, routes.adminAudit, routes.adminStorage]) {
+    for (const h of [routes.adminDevices, routes.adminAudit, routes.adminStorage, routes.adminFonts]) {
       expect(hrefs).toContain(h);
     }
   });

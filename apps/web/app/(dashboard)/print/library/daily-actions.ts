@@ -10,6 +10,8 @@ import type { Json } from "@/lib/database.types";
 import { canUseLinks } from "@/lib/sources/access";
 import { buildFilledPdf, type Language } from "@/lib/library/daily/fill";
 import type { StudySection } from "@/lib/library/daily/page";
+import { loadOrgFontBytes } from "@/lib/booklet/custom-font";
+import { listOrgFonts, type OrgFontOption } from "@/lib/booklet/org-fonts";
 import { DAILY_CREDIT, isOfferedStudy, longDate, OFFERED_STUDIES, STUDY_LABELS, type OfferedStudy } from "@/lib/library/daily/studies";
 
 /**
@@ -88,13 +90,22 @@ export async function importDailyAction(formData: FormData): Promise<ImportDaily
 type Failure = { ok: false; message: string };
 
 /** Same people as the rest of the library: admins, and anyone an admin switched early tools on for. */
-async function libraryGate(): Promise<{ userId: string } | Failure> {
+async function libraryGate(): Promise<{ userId: string; organizationId: string } | Failure> {
   const session = await requireSessionOrRedirect();
   if (!session.membership) return { ok: false, message: "Your account is not part of an organization yet." };
   if (!canUseLinks(session.membership.role, session.membership.early_tools)) {
     return { ok: false, message: "The library is being tested with admins first. Ask an admin to switch early tools on for you." };
   }
-  return { userId: session.userId };
+  return { userId: session.userId, organizationId: session.membership.organization_id };
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The Hebrew fonts the organization's admins uploaded, for the form's dropdown (names only, never the font files). */
+export async function dailyFontsAction(): Promise<{ ok: true; fonts: OrgFontOption[] } | Failure> {
+  const who = await libraryGate();
+  if ("ok" in who) return who;
+  return { ok: true, fonts: await listOrgFonts(who.organizationId) };
 }
 
 const validDate = (d: unknown): d is string => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(d)) && Math.abs(Date.parse(d) - Date.now()) <= 400 * DAY_MS;
@@ -164,22 +175,25 @@ export interface BuildDailyInput {
   studies: OfferedStudy[];
   language: Language;
   sheet: "letter" | "tabloid";
+  /** An uploaded Hebrew font of the member's organization; leave out for Printio's own (Ezra SIL). */
+  fontId?: string | null;
 }
 export type BuildDailyResult =
-  | { ok: true; pdfBase64: string; fileName: string; pages: number; fontSize: number; direction: "ltr" | "rtl" }
+  | { ok: true; pdfBase64: string; fileName: string; pages: number; fontSize: number; direction: "ltr" | "rtl"; fontWarning?: string }
   | Failure;
 
 /** Builds the filled-page booklet PDF from the saved text; the print page then folds it into a booklet. */
 export async function buildDailyBookletAction(input: BuildDailyInput): Promise<BuildDailyResult> {
   const who = await libraryGate();
   if ("ok" in who) return who;
-  const { date, studies, language, sheet } = input ?? ({} as BuildDailyInput);
+  const { date, studies, language, sheet, fontId } = input ?? ({} as BuildDailyInput);
   if (!validDate(date)) return { ok: false, message: "Choose a date." };
   if (!Array.isArray(studies) || studies.length === 0 || studies.length > OFFERED_STUDIES.length || !studies.every(isOfferedStudy) || new Set(studies).size !== studies.length) {
     return { ok: false, message: "Choose what to print." };
   }
   if (language !== "he" && language !== "en" && language !== "both") return { ok: false, message: "Choose Hebrew, English or both." };
   if (sheet !== "letter" && sheet !== "tabloid") return { ok: false, message: "Choose the sheet size." };
+  if (fontId != null && (typeof fontId !== "string" || !UUID.test(fontId))) return { ok: false, message: "Choose a font from the list." };
 
   const db = createServiceRoleClient();
   const { data: allowed, error: limitError } = await db.rpc("check_rate_limit", {
@@ -198,15 +212,32 @@ export async function buildDailyBookletAction(input: BuildDailyInput): Promise<B
     return { ok: false, message: `${missing.map((s) => STUDY_LABELS[s]).join(" and ")} ${missing.length === 1 ? "is" : "are"} not in the source for that day.` };
   }
 
+  let hebrewFont: Uint8Array | undefined;
+  let fontName = "";
+  if (fontId) {
+    const font = await loadOrgFontBytes(db, who.organizationId, fontId);
+    if (!font) return { ok: false, message: "That font is no longer available. Choose another one." };
+    hebrewFont = font.bytes;
+    fontName = font.name;
+  }
+
   const tabloid = sheet === "tabloid";
-  const built = await buildFilledPdf({
+  let built: Awaited<ReturnType<typeof buildFilledPdf>>;
+  try {
+    built = await buildFilledPdf({
     title: `Daily Study - ${longDate(date)}`,
     items: ordered.map((s) => ({ title: `${STUDY_LABELS[s]} - ${byStudy.get(s)!.portion}`, sections: Array.isArray(byStudy.get(s)!.sections) ? byStudy.get(s)!.sections : [] })),
     language,
     page: tabloid ? { width: 612, height: 792 } : { width: 396, height: 612 },
     margin: tabloid ? 40 : 28,
     credit: DAILY_CREDIT,
+    hebrewFont,
   });
+  } catch (err) {
+    if (hebrewFont && err instanceof Error && err.message.startsWith("That font could not be read")) return { ok: false, message: err.message };
+    throw err;
+  }
+  const lacks = [built.missingMarks.vowels && "vowel points", built.missingMarks.cantillation && "cantillation marks (trop)"].filter(Boolean).join(" and ");
   return {
     ok: true,
     pdfBase64: Buffer.from(built.bytes).toString("base64"),
@@ -214,5 +245,6 @@ export async function buildDailyBookletAction(input: BuildDailyInput): Promise<B
     pages: built.pages,
     fontSize: built.fontSize,
     direction: language === "he" ? "rtl" : "ltr",
+    ...(lacks ? { fontWarning: `${fontName} has no ${lacks}, so those marks in this text are missing on the page. Choose a font that has them if you need them.` } : {}),
   };
 }

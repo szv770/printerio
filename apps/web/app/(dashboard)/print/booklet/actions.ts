@@ -7,6 +7,7 @@ import { DEFAULT_MAX_UPLOAD_BYTES } from "@/lib/pdf/client-precheck";
 import { PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 import { canUseLinks } from "@/lib/sources/access";
+import { loadOrgFontBytes } from "@/lib/booklet/custom-font";
 import { assembleBooklet, BuilderError, MAX_SOURCES, type BuilderSource } from "@/lib/booklet/assemble";
 import type { Direction } from "@/lib/booklet/bidi";
 
@@ -82,6 +83,15 @@ export async function buildBookletAction(formData: FormData): Promise<BuildBookl
     });
   }
 
+  const fontId = text(formData, "fontId");
+  let hebrewFont: Uint8Array | undefined;
+  if (fontId) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(fontId)) return { error: "Choose a font from the list." };
+    const font = await loadOrgFontBytes(db, session.membership.organization_id, fontId);
+    if (!font) return { error: "That font is no longer available. Choose another one." };
+    hebrewFont = font.bytes;
+  }
+
   const title = text(formData, "title");
   let result;
   try {
@@ -94,6 +104,7 @@ export async function buildBookletAction(formData: FormData): Promise<BuildBookl
       contents: text(formData, "contents") === "on",
       sponsorLine: text(formData, "sponsor"),
       backPage: text(formData, "backPage") === "on",
+      hebrewFont,
     });
   } catch (err) {
     if (err instanceof BuilderError) return { error: err.message };

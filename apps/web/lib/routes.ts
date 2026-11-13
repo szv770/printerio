@@ -38,6 +38,7 @@ export const routes = {
   adminQuotas: "/admin/quotas",
   adminSettings: "/admin/settings",
   adminStorage: "/admin/storage",
+  adminFonts: "/admin/fonts",
   adminPolicies: "/admin/policies",
   adminPrinters: "/admin/printers",
   adminPrintersSetup: "/admin/printers/setup",

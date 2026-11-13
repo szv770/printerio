@@ -568,6 +568,60 @@ export type Database = {
           },
         ]
       }
+      org_fonts: {
+        Row: {
+          id: string
+          organization_id: string
+          name: string
+          file_name: string | null
+          storage_path: string | null
+          size_bytes: number | null
+          has_vowels: boolean
+          has_cantillation: boolean
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          name: string
+          file_name?: string | null
+          storage_path?: string | null
+          size_bytes?: number | null
+          has_vowels?: boolean
+          has_cantillation?: boolean
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          name?: string
+          file_name?: string | null
+          storage_path?: string | null
+          size_bytes?: number | null
+          has_vowels?: boolean
+          has_cantillation?: boolean
+          created_by?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "org_fonts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "org_fonts_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organization_invitations: {
         Row: {
           code: string | null
