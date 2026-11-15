@@ -10,6 +10,7 @@ import {
   getFreshPage,
   libraryKey,
   libraryTtlMs,
+  EMPTY_ENTRY_TTL_MS,
   libraryViaServer,
   MAX_QUEUED_JOBS,
 } from "./cache";
@@ -75,6 +76,15 @@ describe("TTLs", () => {
     expect(libraryTtlMs({ kind: "likkutei", volume: 1 })).toBe(24 * 3600_000);
     expect(libraryTtlMs({ kind: "list", section: "all" })).toBe(24 * 3600_000);
     expect(libraryTtlMs({ kind: "entry", path: "/maamorim/1" })).toBe(7 * 24 * 3600_000);
+  });
+
+  it("an entry with no sections at all is kept for only 10 minutes (it may just not be published yet); a list or volume is never short-lived", () => {
+    expect(EMPTY_ENTRY_TTL_MS).toBe(10 * 60_000);
+    const entry = { kind: "entry", path: "/maamorim/1" } as const;
+    expect(libraryTtlMs(entry, [])).toBe(10 * 60_000);
+    expect(libraryTtlMs(entry, [{ title: "t", groups: [] }])).toBe(7 * 24 * 3600_000);
+    expect(libraryTtlMs({ kind: "list", section: "all" }, [])).toBe(24 * 3600_000);
+    expect(libraryTtlMs({ kind: "likkutei", volume: 1 }, [])).toBe(24 * 3600_000);
   });
 });
 

@@ -25,6 +25,8 @@ export function libraryViaServer(): boolean {
 /** How long a cached page is served: lists and Likkutei Sichos volumes change slowly (a day), single entries even less (a week). */
 export const LIST_TTL_MS = 24 * 3600_000;
 export const ENTRY_TTL_MS = 7 * 24 * 3600_000;
+/** An entry that came back with no sections at all (not published yet, or a hiccup) is kept this briefly, so it is looked at again soon. */
+export const EMPTY_ENTRY_TTL_MS = 10 * 60_000;
 /** A failed job for a page is shown again, not retried, for this long (the source may be having a bad minute; do not hammer it). */
 export const FAILED_RETRY_MS = 5 * 60_000;
 /** A print server counts as online when it reported in (heartbeat) this recently. */
@@ -63,8 +65,10 @@ export function libraryKey(ref: PageRef | unknown): string | null {
   return `entry:${p.path}`;
 }
 
-export function libraryTtlMs(ref: PageRef): number {
-  return ref.kind === "entry" ? ENTRY_TTL_MS : LIST_TTL_MS;
+/** How long to keep a page. Pass the payload to give an entry with zero sections the short empty-entry lifetime (it is still accepted and stored). */
+export function libraryTtlMs(ref: PageRef, payload?: unknown): number {
+  if (ref.kind !== "entry") return LIST_TTL_MS;
+  return Array.isArray(payload) && payload.length === 0 ? EMPTY_ENTRY_TTL_MS : ENTRY_TTL_MS;
 }
 
 /** The cache row's `kind` column. */

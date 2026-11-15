@@ -218,6 +218,12 @@ shared allow-list (`libraryPageUrl` in `packages/shared/src/library/mafteiach-fe
 - `POST /api/agents/server-jobs/:jobId/fail`. Body `{ "error"?: string }` (kept to 300 characters, shown to people, so write it plainly).
   Marks the job failed; the website will not queue the same page again for 5 minutes. Same lease rules as `complete`.
 
+### Library daily text (print servers registered as library fetchers only)
+Used by the library worker's nightly week-ahead fetch of the daily study text (`docs/PHASE-C-PLAN.md`, C1d). Same guards as the server-jobs routes: normal bearer credential AND the agent must be in `library_fetchers`, else `403 not_a_library_fetcher`. No request ever carries a web address: the website builds `source_url` itself from the date with `shiurUrl`, and any `url` or `source_url` in a body is ignored. Not rate limited.
+
+- `GET /api/agents/library/daily-missing?from=YYYY-MM-DD&days=N`. `from` must be a real date within 2 days of today (UTC) and `days` a whole number from 1 to 8, else `400 invalid_date` / `400 invalid_days`. `200 { "missing": ["2026-11-16", ...] }`: the dates from `from` (N days) that have NO row at all in `library_daily_texts`, in order. One saved study is enough to count a day as present. Read only.
+- `POST /api/agents/library/daily`. Body `{ "date": "2026-11-16", "day": <ShiurDay> }` where `day` is exactly what `parseShiurPage` returns (`{ date, studies: [{ study, portion, sections: [{ heading, blocks: [{ kind: "verse"|"rashi"|"note", num?, he, en, leadHe?, leadEn? }] }] }] }`; study one of `chumash tanya hayomyom rambam3 rambam1`, each at most once; portion 1 to 300 characters; string and list sizes capped; unknown fields are dropped). `date` must be a real date within 10 days of today (`400 invalid_date`), equal to `day.date` (`400 date_mismatch`); the day's JSON may not exceed 1.5 MB (`413 too_large`; the request body is capped at 1.6 MB); anything else wrong is `400 invalid_day` or `400 invalid_json`. Each study is INSERTED only where `(study, study_date)` does not exist yet (`ON CONFLICT DO NOTHING`: first writer wins, nothing already saved is ever changed); `added_by` is null. `200 { "ok": true, "inserted": 5, "existing": 0 }`.
+
 ## Error format
 
 Every error response: `{ "error": { "code": string, "message": string } }` with an

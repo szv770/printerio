@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { prunePrivateRateLimits, pruneHousekeeping, sweepOrphans, ORPHAN_MIN_AGE_MS } from "./cleanup";
+import { prunePrivateRateLimits, pruneHousekeeping, pruneLibraryData, sweepOrphans, ORPHAN_MIN_AGE_MS } from "./cleanup";
+import { memoryDb, type Row } from "@/test/memory-db";
 
 const NOW = new Date("2026-10-25T03:00:00Z");
 const old = new Date(NOW.getTime() - ORPHAN_MIN_AGE_MS - 60_000).toISOString();
@@ -135,5 +136,89 @@ describe("prunePrivateRateLimits", () => {
   it("never throws: an RPC error (migration not applied yet) is reported as 0", async () => {
     const client = { rpc: async () => ({ data: null, error: { message: "function does not exist" } }) } as never;
     expect(await prunePrivateRateLimits(client)).toBe(0);
+  });
+});
+
+describe("pruneLibraryData (the library's shared cache, daily text and finished jobs)", () => {
+  const day = 86_400_000;
+  const ago = (days: number) => new Date(NOW.getTime() - days * day).toISOString();
+  const dateAgo = (days: number) => ago(days).slice(0, 10);
+  const page = (key: string, expiredDaysAgo: number): Row => ({ key, kind: "entry", payload: [], expires_at: ago(expiredDaysAgo) });
+  const text = (study: string, daysOld: number): Row => ({ study, study_date: dateAgo(daysOld), portion: "p", sections: [] });
+  const jobRow = (id: string, status: string, daysOld: number): Row => ({ id, kind: "library_fetch", status, dedupe_key: id, updated_at: ago(daysOld), created_at: ago(daysOld) });
+
+  const seed = () =>
+    memoryDb({
+      library_pages: [page("expired-31d", 31), page("expired-29d", 29), page("expired-1d", 1), page("fresh", -3)],
+      library_daily_texts: [text("tanya", 61), text("chumash", 61), text("tanya", 59), text("tanya", 1), text("rambam1", -3)],
+      server_jobs: [
+        jobRow("done-8d", "done", 8),
+        jobRow("failed-8d", "failed", 8),
+        jobRow("done-6d", "done", 6),
+        jobRow("failed-1d", "failed", 1),
+        jobRow("queued-8d", "queued", 8),
+        jobRow("claimed-8d", "claimed", 8),
+      ],
+    });
+
+  it("removes only pages expired more than 30 days ago", async () => {
+    const mem = seed();
+    const r = await pruneLibraryData(mem.client as never, { now: NOW });
+    expect(mem.tables.library_pages!.map((p) => p.key).sort()).toEqual(["expired-1d", "expired-29d", "fresh"]);
+    expect(r.libraryPagesDeleted).toBe(1);
+  });
+
+  it("removes only daily text whose study date is more than 60 days ago (every study of that day)", async () => {
+    const mem = seed();
+    const r = await pruneLibraryData(mem.client as never, { now: NOW });
+    expect(mem.tables.library_daily_texts!.map((t) => `${t.study}@${t.study_date}`).sort()).toEqual(
+      [`tanya@${dateAgo(59)}`, `tanya@${dateAgo(1)}`, `rambam1@${dateAgo(-3)}`].sort(),
+    );
+    expect(r.libraryDailyTextsDeleted).toBe(2);
+  });
+
+  it("removes only finished or failed jobs older than 7 days; a queued or claimed job is never touched, however old", async () => {
+    const mem = seed();
+    const r = await pruneLibraryData(mem.client as never, { now: NOW });
+    expect(mem.tables.server_jobs!.map((j) => j.id).sort()).toEqual(["claimed-8d", "done-6d", "failed-1d", "queued-8d"]);
+    expect(r.serverJobsDeleted).toBe(2);
+  });
+
+  it("is idempotent, and does nothing to empty tables", async () => {
+    const mem = seed();
+    await pruneLibraryData(mem.client as never, { now: NOW });
+    const again = await pruneLibraryData(mem.client as never, { now: NOW });
+    expect(again).toEqual({ libraryPagesDeleted: 0, libraryDailyTextsDeleted: 0, serverJobsDeleted: 0 });
+    const empty = await pruneLibraryData(memoryDb().client as never, { now: NOW });
+    expect(empty).toEqual({ libraryPagesDeleted: 0, libraryDailyTextsDeleted: 0, serverJobsDeleted: 0 });
+  });
+
+  it("respects the per-run cap (the rest goes on the next run)", async () => {
+    const mem = memoryDb({
+      library_pages: Array.from({ length: 5 }, (_, i) => page(`old-${i}`, 40 + i)),
+      library_daily_texts: [],
+      server_jobs: Array.from({ length: 5 }, (_, i) => jobRow(`j${i}`, "done", 10 + i)),
+    });
+    const r = await pruneLibraryData(mem.client as never, { now: NOW, limit: 2 });
+    expect(r.libraryPagesDeleted).toBe(2);
+    expect(r.serverJobsDeleted).toBe(2);
+    expect(mem.tables.library_pages).toHaveLength(3);
+    expect(mem.tables.server_jobs).toHaveLength(3);
+  });
+
+  it("a failing table does not stop the others and nothing throws", async () => {
+    const mem = seed();
+    const realFrom = mem.client.from;
+    const client = { from: (t: string) => (t === "library_pages" ? { select: () => { throw new Error("boom"); } } : realFrom(t)) };
+    const r = await pruneLibraryData(client as never, { now: NOW });
+    expect(r.libraryPagesDeleted).toBe(0);
+    expect(r.libraryDailyTextsDeleted).toBe(2);
+    expect(r.serverJobsDeleted).toBe(2);
+  });
+
+  it("pruneHousekeeping includes it (the daily cleanup route calls pruneHousekeeping)", async () => {
+    const mem = seed();
+    const r = await pruneHousekeeping(mem.client as never, { now: NOW });
+    expect(r).toMatchObject({ remoteCommandsDeleted: 0, libraryPagesDeleted: 1, libraryDailyTextsDeleted: 2, serverJobsDeleted: 2 });
   });
 });

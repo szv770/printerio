@@ -207,6 +207,21 @@ describe("POST complete", () => {
     expect(mem.tables.library_pages.filter((p) => p.key === "likkutei:1")).toHaveLength(1);
   });
 
+  it("an entry with zero sections is still accepted, but only cached for 10 minutes instead of 7 days", async () => {
+    mem.tables.server_jobs = [claimed({ params: { kind: "entry", path: "/maamorim/1" }, dedupe_key: "entry:/maamorim/1" })];
+    expect((await doComplete(J1, { payload: [] })).status).toBe(200);
+    expect(mem.tables.server_jobs[0]!.status).toBe("done");
+    const page = mem.tables.library_pages[0]!;
+    expect(page.key).toBe("entry:/maamorim/1");
+    expect(page.payload).toEqual([]);
+    expect(Math.abs(Date.parse(page.expires_at as string) - Date.now() - 10 * 60_000)).toBeLessThan(10_000);
+    // The same entry later fetched with real content overwrites it with the normal 7 days.
+    mem.tables.server_jobs = [claimed({ params: { kind: "entry", path: "/maamorim/1" }, dedupe_key: "entry:/maamorim/1" })];
+    expect((await doComplete(J1, { payload: parseEntryPage(fixture("maamor-entry.html")) })).status).toBe(200);
+    expect(mem.tables.library_pages).toHaveLength(1);
+    expect(Math.abs(Date.parse(mem.tables.library_pages[0]!.expires_at as string) - Date.now() - 7 * 24 * 3600_000)).toBeLessThan(10_000);
+  });
+
   it("404 for an unknown job or a malformed id", async () => {
     expect((await doComplete(J2, { payload: likkutPayload() })).status).toBe(404);
     expect((await doComplete("not-a-uuid", { payload: likkutPayload() })).status).toBe(404);

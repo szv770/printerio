@@ -8,6 +8,7 @@ import { fetchShiurDay } from "@/lib/library/daily/source-fetch";
 import { prepareImport } from "@/lib/library/daily/import";
 import type { Json } from "@/lib/database.types";
 import { canUseLinks } from "@/lib/sources/access";
+import { libraryViaServer, onlineFetcherExists } from "@/lib/library/cache";
 import { buildFilledPdf, type Language } from "@/lib/library/daily/fill";
 import type { StudySection } from "@printio/shared/library/daily/page";
 import { checkFontChoiceIds, loadFontChoices } from "@/lib/booklet/custom-font";
@@ -126,14 +127,21 @@ interface DayRow {
   sections: StudySection[];
 }
 
+const NOT_SAVED_YET = "That day has not been saved yet. Your print server saves the next week every night; try again later.";
+const NOT_SAVED_NO_SERVER = "That day has not been saved yet, and no print server is online to save it right now. Try again when it is on.";
+
 /**
  * The day's saved text. When nothing is saved for the date yet, Printio asks the source once (as a person opening the page and
  * making a booklet would), saves every study on it for everyone, and uses that.
+ * With the switch LIBRARY_VIA_SERVER on it never asks the source: the owner's print server saves the next week every night
+ * (docs/PHASE-C-PLAN.md, C1d), so a day that is not saved is answered with a plain message (and says when no print server is online).
  */
 async function ensureDay(db: ReturnType<typeof createServiceRoleClient>, date: string, userId: string): Promise<{ ok: true; rows: DayRow[] } | Failure> {
   const { data } = await db.from("library_daily_texts").select("study, portion, sections").eq("study_date", date);
   const saved = (data ?? []) as unknown as DayRow[];
   if (saved.length > 0) return { ok: true, rows: saved };
+
+  if (libraryViaServer()) return { ok: false, message: (await onlineFetcherExists(db)) ? NOT_SAVED_YET : NOT_SAVED_NO_SERVER };
 
   const { data: allowed, error: limitError } = await db.rpc("check_rate_limit", {
     p_key: `daily_fetch:user:${userId}`,

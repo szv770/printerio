@@ -44,6 +44,12 @@ describe("GET /api/cron/cleanup", () => {
     expect(sweepRetention).toHaveBeenCalledTimes(1);
   });
 
+  it("reports what the library prune removed", async () => {
+    pruneHousekeeping.mockResolvedValue({ remoteCommandsDeleted: 5, libraryPagesDeleted: 3, libraryDailyTextsDeleted: 8, serverJobsDeleted: 2 });
+    const body = await (await GET(req(`Bearer ${SECRET}`))).json();
+    expect(body.results).toMatchObject({ remoteCommandsDeleted: 5, libraryPagesDeleted: 3, libraryDailyTextsDeleted: 8, serverJobsDeleted: 2 });
+  });
+
   it("still returns 200 with a note if one step throws, so the others' work is reported", async () => {
     sweepOrphans.mockRejectedValue(new Error("boom"));
     const res = await GET(req(`Bearer ${SECRET}`));

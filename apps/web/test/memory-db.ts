@@ -1,7 +1,7 @@
 /**
  * A small in-memory stand-in for the Supabase client, for route tests that need rows to really change (a claim must move a
  * job from queued to claimed, and a second claim must then find nothing). Supports exactly what the server-jobs routes use:
- * select / insert / update / upsert / delete, eq / in / lt / gt / gte / is / or (the two shapes used) / order / limit,
+ * select / insert / update / upsert (also `ignoreDuplicates` and a comma-separated `onConflict`) / delete, eq / in / lt / lte / gt / gte / is / or (the two shapes used) / order / limit,
  * single / maybeSingle, `select(..., { count, head })`. Like fake-supabase.ts it does NOT model Postgres: no constraints
  * (a test can ask for a unique-violation with `failNextInsert`).
  */
@@ -20,6 +20,7 @@ export function memoryDb(initial: Record<string, Row[]> = {}) {
     let mode: "select" | "insert" | "update" | "upsert" | "delete" = "select";
     let values: Row | Row[] | null = null;
     let conflict: string | undefined;
+    let ignoreDup = false;
     const filters: Array<(r: Row) => boolean> = [];
     const names: string[] = [];
     let orderBy: { col: string; asc: boolean } | null = null;
@@ -37,11 +38,12 @@ export function memoryDb(initial: Record<string, Row[]> = {}) {
       },
       insert: (v: Row | Row[]) => ((mode = "insert"), (values = v), q),
       update: (v: Row) => ((mode = "update"), (values = v), q),
-      upsert: (v: Row | Row[], o?: { onConflict?: string }) => ((mode = "upsert"), (values = v), (conflict = o?.onConflict), q),
+      upsert: (v: Row | Row[], o?: { onConflict?: string; ignoreDuplicates?: boolean }) => ((mode = "upsert"), (values = v), (conflict = o?.onConflict), (ignoreDup = o?.ignoreDuplicates === true), q),
       delete: () => ((mode = "delete"), q),
       eq: (k: string, v: unknown) => (f(`eq ${k} ${String(v)}`, (r) => r[k] === v), q),
       in: (k: string, vs: unknown[]) => (f(`in ${k}`, (r) => vs.includes(r[k])), q),
       lt: (k: string, v: unknown) => (f(`lt ${k}`, (r) => r[k] != null && cmp(r[k], v) < 0), q),
+      lte: (k: string, v: unknown) => (f(`lte ${k}`, (r) => r[k] != null && cmp(r[k], v) <= 0), q),
       gt: (k: string, v: unknown) => (f(`gt ${k}`, (r) => r[k] != null && cmp(r[k], v) > 0), q),
       gte: (k: string, v: unknown) => (f(`gte ${k}`, (r) => r[k] != null && cmp(r[k], v) >= 0), q),
       is: (k: string, v: unknown) => (f(`is ${k}`, (r) => (v === null ? r[k] == null : r[k] === v)), q),
@@ -87,10 +89,13 @@ export function memoryDb(initial: Record<string, Row[]> = {}) {
       if (mode === "upsert") {
         const added: Row[] = [];
         for (const v of Array.isArray(values) ? values : [values!]) {
-          const key = conflict ?? "id";
-          const at = rows.findIndex((r) => r[key] === v[key]);
-          if (at >= 0) Object.assign(rows[at]!, v);
-          else rows.push({ ...v });
+          const keys = (conflict ?? "id").split(",").map((k) => k.trim());
+          const at = rows.findIndex((r) => keys.every((k) => r[k] === v[k]));
+          // `ignoreDuplicates` is Postgres's ON CONFLICT DO NOTHING: an existing row is left exactly as it is and is not returned.
+          if (at >= 0) {
+            if (ignoreDup) continue;
+            Object.assign(rows[at]!, v);
+          } else rows.push({ ...v });
           added.push({ ...v });
         }
         return shape(added);

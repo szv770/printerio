@@ -447,6 +447,23 @@ export class CloudClient {
     await this.request<{ ok: true }>("POST", `/api/agents/server-jobs/${encodeURIComponent(jobId)}/fail`, { error }, { auth: true, retry: false });
   }
 
+  /**
+   * GET /api/agents/library/daily-missing?from=YYYY-MM-DD&days=N - which of those days have no saved daily study text yet
+   * (the library worker's nightly week-ahead fetch). Like the other library calls it is not routed through `poll()`, so a 403
+   * (not a library fetcher) never counts toward `consecutiveAuthFailures`, and it is not retried here. Only strings are returned.
+   */
+  async getMissingDailyDates(from: string, days: number): Promise<string[]> {
+    const q = new URLSearchParams({ from, days: String(days) });
+    const body = await this.request<{ missing?: unknown }>("GET", `/api/agents/library/daily-missing?${q.toString()}`, undefined, { auth: true, retry: false });
+    if (!body || !Array.isArray(body.missing)) throw new CloudApiError("daily-missing answered without a list", "BAD_RESPONSE", 200);
+    return body.missing.filter((d): d is string => typeof d === "string");
+  }
+
+  /** POST /api/agents/library/daily with exactly `{ date, day }`: one parsed day of daily study text. The website builds the source address itself. */
+  async postDailyText(date: string, day: unknown): Promise<void> {
+    await this.request<{ ok: true }>("POST", "/api/agents/library/daily", { date, day }, { auth: true, retry: false, timeoutMs: 30_000 });
+  }
+
   /** GET /api/agents/commands */
   async getCommands(): Promise<RemoteCommandEnvelope[]> {
     const res = await this.poll<{ commands: RemoteCommandEnvelope[] }>("GET", "/api/agents/commands");

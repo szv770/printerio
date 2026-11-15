@@ -16,10 +16,17 @@
  *  - its timer is `unref`'d, so it can never keep the process alive;
  *  - it talks to the cloud through the existing CloudClient, using methods that do NOT feed `consecutiveAuthFailures` (which
  *    slows the print loop down), so a 403 here can never slow printing.
+ *
+ * C1d adds a second job to the same worker (same switch, same rules): once a night, about 03:30 local time (and once about 2 minutes
+ * after start if it has not run that day), it asks the website which of the next 7 days have no daily study text yet, fetches each
+ * missing day from the daily study source (address rebuilt with the shared `shiurUrl`, same origin check, size cap, time limit and
+ * 5 s gap as the library pages), parses it with the shared `parseShiurPage` and posts it (`daily`). It has its OWN timer; the
+ * requests it makes share the 5 s gap and the one-at-a-time rule with the job loop, so the two never fetch at once.
  */
 
 import { decodeEmbeddedHtml, HOST, libraryPageUrl, MAX_PAGE_BYTES, TIMEOUT_MS, type PageRef } from "@printio/shared/library/mafteiach-fetch";
 import { parseEntryPage, parseLikkutSichos, parseListPage } from "@printio/shared/library/mafteiach-parse";
+import { parseShiurPage, shiurUrl, SHIUR_ORIGIN } from "@printio/shared/library/daily/source";
 import { CloudApiError } from "./errors.js";
 import type { LibraryJobEnvelope } from "./cloud-client.js";
 import type { Logger } from "./logger.js";
@@ -41,14 +48,48 @@ export const LEASE_MS = 120_000;
 /** Same-origin redirects followed per page (each one is a request with its own gap). */
 const MAX_REDIRECTS = 3;
 
-const USER_AGENT = "Printio/1.0 (print library browser)";
-const LIBRARY_ORIGIN = new URL(HOST).origin;
+/** The daily week-ahead fetch: wakes at this local time every night (24-hour clock). */
+export const DAILY_HOUR = 3;
+export const DAILY_MINUTE = 30;
+/** After start, one look at the week ahead this long after the worker starts (when it has not run that day yet). */
+export const DAILY_STARTUP_MS = 2 * 60_000;
+/** How many days from today the nightly fetch covers. */
+export const DAILY_DAYS = 7;
+/** A failed attempt to ask the website is repeated this much later, at most DAILY_MAX_ERRORS times in a row, then it waits for the next night. */
+export const DAILY_RETRY_MS = 30 * 60_000;
+export const DAILY_MAX_ERRORS = 4;
 
-/** The only three calls the worker makes to the cloud: the CloudClient provides them (tests pass a fake). */
+const USER_AGENT = "Printio/1.0 (print library browser)";
+const DAILY_USER_AGENT = "Printio/1.0 (daily study booklet)";
+const LIBRARY_ORIGIN = new URL(HOST).origin;
+const DAILY_ORIGIN = new URL(SHIUR_ORIGIN).origin;
+
+/**
+ * The calls the worker makes to the cloud: the CloudClient provides them (tests pass a fake). The two daily calls are optional:
+ * without them the nightly week-ahead fetch is simply not created.
+ */
 export interface LibraryCloud {
   claimLibraryJob(): Promise<LibraryJobEnvelope | null>;
   completeLibraryJob(jobId: string, payload: unknown): Promise<void>;
   failLibraryJob(jobId: string, error: string): Promise<void>;
+  /** Which of the `days` days from `from` (YYYY-MM-DD) have no saved daily text at all. */
+  getMissingDailyDates?(from: string, days: number): Promise<string[]>;
+  /** Hand one parsed day to the website (`{ date, day }`; the website builds the source address itself). */
+  postDailyText?(date: string, day: unknown): Promise<void>;
+}
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+/** The local calendar date (the worker's own computer) as YYYY-MM-DD. */
+export function localDateKey(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+/** Milliseconds from `ms` until the next 03:30 local time (a full day when it is exactly 03:30 now). */
+export function msUntilNextDailyRun(ms: number): number {
+  const d = new Date(ms);
+  const next = new Date(d.getFullYear(), d.getMonth(), d.getDate(), DAILY_HOUR, DAILY_MINUTE, 0, 0);
+  if (next.getTime() <= ms) next.setDate(next.getDate() + 1);
+  return next.getTime() - ms;
 }
 
 export interface LibraryWorkerDeps {
@@ -64,6 +105,8 @@ export interface LibraryWorkerDeps {
 }
 
 export interface LibraryWorker {
+  /** One pass of the week-ahead daily fetch (what the nightly timer does). Resolves to the delay (ms) before the next try. Never throws. */
+  dailyPass(): Promise<number>;
   /** Starts the timer loop (a no-op when already started or stopped). Never throws. */
   start(): void;
   /** Stops the loop and aborts anything in flight. Never throws. */
@@ -132,6 +175,11 @@ export function createLibraryWorker(deps: LibraryWorkerDeps): LibraryWorker {
   let lastRequestEnd: number | null = null;
   let consecutiveErrors = 0;
   let forbiddenLogged = false;
+  // The daily week-ahead fetch: its own timer and in-memory state (nothing is stored).
+  let dailyTimer: ReturnType<typeof setTimeout> | undefined;
+  let dailyRunning = false;
+  let lastDailyDay: string | null = null;
+  let dailyErrors = 0;
 
   /** A logger that can never throw into the worker. */
   const log = (level: "debug" | "info" | "warn" | "error", msg: string, fields?: Record<string, unknown>): void => {
@@ -176,8 +224,8 @@ export function createLibraryWorker(deps: LibraryWorkerDeps): LibraryWorker {
     return { text: new TextDecoder().decode(Buffer.concat(chunks)) };
   }
 
-  /** Fetches one library page. Every address (the first and each redirect) must be on the library's own origin. */
-  async function fetchPage(firstUrl: string): Promise<PageResult> {
+  /** Fetches one page. Every address (the first and each redirect) must be on the given site's own origin (the library's unless said otherwise). */
+  async function fetchPage(firstUrl: string, site: { origin: string; userAgent: string } = { origin: LIBRARY_ORIGIN, userAgent: USER_AGENT }): Promise<PageResult> {
     let current = firstUrl;
     for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
       let parsed: URL;
@@ -186,7 +234,7 @@ export function createLibraryWorker(deps: LibraryWorkerDeps): LibraryWorker {
       } catch {
         return { ok: false, reason: REASON.notAllowed };
       }
-      if (parsed.origin !== LIBRARY_ORIGIN || parsed.username || parsed.password) return { ok: false, reason: REASON.notAllowed };
+      if (parsed.origin !== site.origin || parsed.username || parsed.password) return { ok: false, reason: REASON.notAllowed };
 
       await waitForGap();
       if (stopped) return { stopped: true };
@@ -197,7 +245,7 @@ export function createLibraryWorker(deps: LibraryWorkerDeps): LibraryWorker {
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const res = await fetchImpl(current, {
-          headers: { "user-agent": USER_AGENT, accept: "text/html" },
+          headers: { "user-agent": site.userAgent, accept: "text/html" },
           redirect: "manual",
           signal: controller.signal,
         });
@@ -222,7 +270,7 @@ export function createLibraryWorker(deps: LibraryWorkerDeps): LibraryWorker {
           } catch {
             /* treated as off-origin below */
           }
-          if (finalOrigin !== LIBRARY_ORIGIN) {
+          if (finalOrigin !== site.origin) {
             void res.body?.cancel().catch(() => undefined);
             return { ok: false, reason: REASON.notAllowed };
           }
@@ -371,6 +419,166 @@ export function createLibraryWorker(deps: LibraryWorkerDeps): LibraryWorker {
     }
   }
 
+  /** Waits for the job loop to be idle, then takes the one-at-a-time slot. False when the worker was stopped (or never got a turn). */
+  async function takeTurn(): Promise<boolean> {
+    for (let i = 0; i < 600 && !stopped; i++) {
+      if (!running) {
+        running = true;
+        return true;
+      }
+      await sleep(1_000, stopController.signal);
+    }
+    return false;
+  }
+
+  const isIsoDate = (d: unknown): d is string => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d);
+  const addDaysLocal = (key: string, n: number): string => {
+    const [y, m, d] = key.split("-").map(Number) as [number, number, number];
+    return localDateKey(new Date(y, m - 1, d + n, 12).getTime());
+  };
+
+  type DayOutcome = "saved" | "skipped" | "forbidden" | "cloud_error" | "stopped";
+
+  /** One missing day: fetch from the source, parse, check, post. Every unfetchable or unparseable day is skipped with ONE log line. */
+  async function fetchAndPostDay(date: string): Promise<DayOutcome> {
+    const skip = (reason: string): DayOutcome => {
+      log("info", "daily study text: day skipped", { date, reason });
+      return "skipped";
+    };
+    let url: string;
+    try {
+      url = shiurUrl(date); // the address is always rebuilt here from the date; nothing from the cloud is used as an address
+    } catch {
+      return skip(REASON.notAllowed);
+    }
+    const page = await fetchPage(url, { origin: DAILY_ORIGIN, userAgent: DAILY_USER_AGENT });
+    if ("stopped" in page) return "stopped";
+    if (!page.ok) return skip(page.reason);
+    let day: ReturnType<typeof parseShiurPage> = null;
+    try {
+      day = parseShiurPage(page.text);
+    } catch (err) {
+      log("debug", "daily study page could not be parsed", { error: errText(err) });
+    }
+    if (!day) return skip(REASON.different);
+    if (day.date !== date) return skip("page is for another day");
+    if (stopped) return "stopped";
+    try {
+      await cloud.postDailyText!(date, day);
+      log("info", "daily study text saved", { date, studies: day.studies.length });
+      return "saved";
+    } catch (err) {
+      if (err instanceof CloudApiError && err.status === 403) return "forbidden";
+      if (err instanceof CloudApiError && err.status >= 400 && err.status < 500) {
+        log("warn", "the website refused a daily study day - skipped", { date, status: err.status, code: err.code });
+        return "skipped";
+      }
+      log("warn", "could not deliver a daily study day to the website", { date, error: errText(err) });
+      return "cloud_error";
+    }
+  }
+
+  const logForbiddenOnce = (err: unknown): void => {
+    if (forbiddenLogged) return;
+    forbiddenLogged = true;
+    log("warn", "this print server is not allowed to fetch library pages (not listed in library_fetchers) - the library worker will only check again every ~10 minutes", { code: err instanceof CloudApiError ? err.code : undefined });
+  };
+
+  /** After a failed attempt: try again soon a few times, then wait for the next night. */
+  function dailyRetryDelay(): number {
+    dailyErrors += 1;
+    if (dailyErrors >= DAILY_MAX_ERRORS) {
+      dailyErrors = 0;
+      return msUntilNextDailyRun(now());
+    }
+    return DAILY_RETRY_MS;
+  }
+
+  async function dailyPassInner(): Promise<number> {
+    const nightly = () => msUntilNextDailyRun(now());
+    if (stopped || !cloud.getMissingDailyDates || !cloud.postDailyText) return nightly();
+    const today = localDateKey(now());
+    if (lastDailyDay === today) return nightly(); // already done today (the startup look and the 03:30 look never both run)
+
+    let missing: string[];
+    try {
+      missing = await cloud.getMissingDailyDates(today, DAILY_DAYS);
+    } catch (err) {
+      if (err instanceof CloudApiError && err.status === 403) {
+        logForbiddenOnce(err);
+        return FORBIDDEN_MS;
+      }
+      log("warn", "daily study text: could not ask the website which days are missing", { error: errText(err) });
+      return dailyRetryDelay();
+    }
+    forbiddenLogged = false;
+    dailyErrors = 0;
+    lastDailyDay = today;
+
+    // Only what lies in the next 7 days is ever fetched, whatever the website said, oldest first, each date once.
+    const window = new Set(Array.from({ length: DAILY_DAYS }, (_, i) => addDaysLocal(today, i)));
+    const dates = [...new Set(missing.filter(isIsoDate).filter((d) => window.has(d)))].sort();
+    if (dates.length === 0) {
+      log("debug", "daily study text: nothing missing for the next week");
+      return nightly();
+    }
+
+    for (const date of dates) {
+      if (!(await takeTurn())) return nightly();
+      let outcome: DayOutcome;
+      try {
+        outcome = await fetchAndPostDay(date);
+      } finally {
+        running = false;
+      }
+      if (outcome === "stopped") return nightly();
+      if (outcome === "forbidden") {
+        logForbiddenOnce(new CloudApiError("forbidden", "not_a_library_fetcher", 403));
+        lastDailyDay = null;
+        return FORBIDDEN_MS;
+      }
+      if (outcome === "cloud_error") {
+        lastDailyDay = null; // not finished: look again soon
+        return dailyRetryDelay();
+      }
+    }
+    return nightly();
+  }
+
+  async function dailyPass(): Promise<number> {
+    if (stopped || dailyRunning) return DAILY_RETRY_MS;
+    dailyRunning = true;
+    try {
+      return await dailyPassInner();
+    } catch (err) {
+      log("error", "unexpected error in the daily study fetch", { error: errText(err) });
+      return dailyRetryDelay();
+    } finally {
+      dailyRunning = false;
+    }
+  }
+
+  function scheduleDaily(ms: number): void {
+    if (stopped || !cloud.getMissingDailyDates || !cloud.postDailyText) return;
+    try {
+      dailyTimer = setTimeout(() => {
+        dailyTimer = undefined;
+        void (async () => {
+          let next = DAILY_RETRY_MS;
+          try {
+            next = await dailyPass();
+          } catch {
+            next = DAILY_RETRY_MS;
+          }
+          scheduleDaily(next);
+        })().catch(() => undefined);
+      }, ms);
+      (dailyTimer as { unref?: () => void }).unref?.();
+    } catch (err) {
+      log("error", "daily study timer could not be set - the nightly fetch stays stopped", { error: errText(err) });
+    }
+  }
+
   function schedule(ms: number): void {
     if (stopped) return;
     try {
@@ -399,6 +607,7 @@ export function createLibraryWorker(deps: LibraryWorkerDeps): LibraryWorker {
         if (started || stopped) return;
         started = true;
         schedule(INITIAL_DELAY_MS);
+        scheduleDaily(DAILY_STARTUP_MS);
       } catch (err) {
         log("error", "library worker failed to start", { error: errText(err) });
       }
@@ -408,12 +617,15 @@ export function createLibraryWorker(deps: LibraryWorkerDeps): LibraryWorker {
         stopped = true;
         if (timer) clearTimeout(timer);
         timer = undefined;
+        if (dailyTimer) clearTimeout(dailyTimer);
+        dailyTimer = undefined;
         stopController.abort();
       } catch (err) {
         log("error", "library worker failed to stop cleanly", { error: errText(err) });
       }
     },
     tick,
+    dailyPass,
   };
 }
 
