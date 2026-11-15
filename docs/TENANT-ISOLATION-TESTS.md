@@ -15,14 +15,15 @@ Files (all in `apps/web/lib/db-test/tenant-isolation/`):
 
 ## What is proven
 
-- **28 tables** in `public`, all with row-level security on. `anon` holds no privilege on any table and no policy is open to `anon` or PUBLIC.
+- **31 tables** in `public`, all with row-level security on. `anon` holds no privilege on any table and no policy is open to `anon` or PUBLIC.
 - **7 callers** for each table: School A admin, School A approver, School A member, School B admin, School B member, a signed-in user with no school, and anon.
 - **4 operations** each (select, insert, update, delete), roughly 2,500 real statements, each in a transaction that is rolled back.
   - Select: the set of rows each caller sees must equal exactly the expected set. A single School B row visible to a School A caller fails the test.
   - Insert: allowed only for the stated role in its own school, never aimed at the other school, never for a no-school user or anon.
   - Update / delete: tried on **every row of both schools** as every caller; allowed only where the table says so, never across schools. Updates that try to move a row into the other school (`organization_id` changed) are refused everywhere.
   - Tables nobody signed in may write (print jobs, devices' events, org fonts, usage counters...) are proven writable by the service role with the same statement, so the denial is real and not a typo.
-- **Shared library tables** (`library_daily_texts`, `library_sie_entries`): readable by every signed-in user, asserted explicitly; writable by nobody except the service role.
+- **Shared library tables** (`library_daily_texts`, `library_sie_entries`, `library_pages`): readable by every signed-in user, asserted explicitly; writable by nobody except the service role.
+- **`library_fetchers`** (0055, the print servers allowed to fill the shared library cache): the matrix entry has `noAccess`, so even `select` is "permission denied" for every signed-in caller and anon, and the grants test checks authenticated holds no SELECT either. It is a separate table, not a flag on `agents`, because school admins can update their own `agents` rows.
 - **Foreign-key attacks** (a legitimate admin of School A, own `organization_id`, but pointing at a School B object): 24 are blocked (queue profiles, policy rules, group members, approvals, job events, device reports, devices, invitations with a School B group, forged "issued by" and "actor" ids, platform_role escalation, email change, un-revoking a device...). 7 cases (5 distinct holes) are **open gaps** (below).
 - **Functions**: every function in `public` and `private` is listed with its SECURITY DEFINER flag; every SECURITY DEFINER function has an empty fixed `search_path`; anon and signed-in users hold no EXECUTE on any `public` function (every RPC goes through the server's service role); each function is actually called as anon, School A admin, School A member and no-school user with School B's ids and is refused, while the service role can still call it; `private.*` helpers cannot be reached (no schema usage). No function takes an organization id from a caller who is not the server.
 - **Secret columns**: `member_devices.token_hash` is unreadable by anon, by every signed-in user and cannot be updated; `select *` on `member_devices` fails. Every column whose name looks like a secret (hash, secret, token, password, credential, key, enrollment, `*_code`) must be reviewed in `COLUMN_SECRETS`.
@@ -43,7 +44,9 @@ Full reasons are in `expected-access.ts`. "own" = rows the person owns (their jo
 | device_events, device_connection_tests, device_issues, device_setup_feedback, monthly_usage | all / own / own | server (issues and feedback: member, own device) | server (issues: admin) | server (usage: admin) |
 | profiles | all / all / own | server | member, own only | server |
 | org_fonts | all / all / all | server | server | server |
-| library_daily_texts, library_sie_entries | every signed-in user | server only | server | server |
+| library_daily_texts, library_sie_entries, library_pages | every signed-in user | server only | server | server |
+| server_jobs | all / all / all (the requesting school's own rows) | server only | server | server |
+| library_fetchers | nobody (no privilege at all, not even for admins) | server only | server | server |
 
 ## How to add a table (the test fails until you do)
 

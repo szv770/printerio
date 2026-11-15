@@ -263,6 +263,9 @@ async function seed(db: Db) {
       I.users.admin,
     ]);
     await q(`insert into audit_logs (organization_id, actor_id, action, target_type, target_id) values ($1::uuid,$2,'test.seed','organization',$1::uuid)`, [I.org, I.users.admin]);
+    // A library page request from this school (a school's members read their own), and its print server registered as a library fetcher (nobody signed in can read that table).
+    await q(`insert into server_jobs (kind, organization_id, requested_by, params, dedupe_key) values ('library_fetch',$1,$2,'{"kind":"likkutei","volume":1}',$3)`, [I.org, I.users.member, `seed-${s}`]);
+    await q(`insert into library_fetchers (agent_id) values ($1)`, [I.agent]);
   }
   // A signed-in user with no school, and a platform-level audit row (organization_id null: only a super_admin may read it).
   await q(`insert into auth.users (id, email, email_confirmed_at) values ($1,'nobody@nowhere.test', now())`, [NOMEMBER]);
@@ -272,6 +275,7 @@ async function seed(db: Db) {
     `insert into library_daily_texts (study, study_date, portion, sections, source_url)
      values ('chumash','2026-11-15','Seed portion','[]','https://www.chabad.org/dailystudy/seed')`,
   );
+  await q(`insert into library_pages (key, kind, payload, expires_at) values ('seed:likkutei:1','likkutei','{"volumes":[],"current":null,"parshiyos":[]}', now() + interval '1 day')`);
   await q(
     `insert into library_sie_entries (url, chelek, sefer, title, from_page)
      values ('https://drive.google.com/file/d/AAAAAAAAAAAAAAAAAAAAAAAA/view','1','Seed','Seed title',1)`,

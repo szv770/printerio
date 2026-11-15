@@ -199,6 +199,25 @@ Agent's handler is a `switch` over this exact set, never a raw string executor.
 Body: `{ "status": "completed" | "failed", "result"?: object }`. Updates `remote_commands`
 and mirrors into `audit_logs`.
 
+### Library server jobs (print servers registered as library fetchers only)
+Used by the optional library worker (`docs/PHASE-C-PLAN.md`, C1). All three need the normal bearer credential AND the calling agent
+must be listed in `library_fetchers` (registered by the owner in SQL): any other valid agent gets `403 not_a_library_fetcher`.
+No request or response ever carries a web address: a job holds structured `params`, and the Agent builds the address itself with the
+shared allow-list (`libraryPageUrl` in `packages/shared/src/library/mafteiach-fetch.ts`). Not rate limited, like the other poll routes.
+
+- `POST /api/agents/server-jobs/claim` (no body). Atomically claims the oldest `queued` job (or one `claimed` whose lease expired) and
+  leases it for **120 seconds**. `200 { "jobId", "kind": "library_fetch", "params" }` where `params` is one of
+  `{ "kind": "likkutei", "volume": 12 }`, `{ "kind": "list", "section": "maamorim" | "all", "year"?: "5710" }`,
+  `{ "kind": "entry", "path": "/maamorim/123" }`; or `204` (empty body) when there is nothing to do.
+- `POST /api/agents/server-jobs/:jobId/complete`. Body is exactly `{ "payload": <parsed page> }` (a `LikkutPage`, `ListPage` or
+  `EntrySection[]` from `mafteiach-parse.ts`, matching the job's page kind; at most about 1.3 MB; only https Google Drive/Docs links;
+  an empty Likkutei volume or list is refused, report `fail` instead). Any other field (a key, a URL) is a `400`. The website rebuilds
+  the cache key and source address from the job's own params, writes `library_pages` (expires after 24 h for lists and volumes, 7 days
+  for entries) and marks the job done: `200 { "ok": true }`. Errors: `400` invalid body or payload, `403 no_lease` (not your job, or your
+  lease expired), `404`, `409 wrong_state` (already finished) or `409 bad_job`, `413` too large.
+- `POST /api/agents/server-jobs/:jobId/fail`. Body `{ "error"?: string }` (kept to 300 characters, shown to people, so write it plainly).
+  Marks the job failed; the website will not queue the same page again for 5 minutes. Same lease rules as `complete`.
+
 ## Error format
 
 Every error response: `{ "error": { "code": string, "message": string } }` with an

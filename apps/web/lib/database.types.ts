@@ -371,6 +371,76 @@ export type Database = {
           },
         ]
       }
+      server_jobs: {
+        Row: {
+          id: string
+          kind: string
+          organization_id: string
+          requested_by: string | null
+          params: Json
+          dedupe_key: string
+          status: string
+          claimed_by: string | null
+          lease_until: string | null
+          result_key: string | null
+          error: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          kind: string
+          organization_id: string
+          requested_by?: string | null
+          params: Json
+          dedupe_key: string
+          status?: string
+          claimed_by?: string | null
+          lease_until?: string | null
+          result_key?: string | null
+          error?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          kind?: string
+          organization_id?: string
+          requested_by?: string | null
+          params?: Json
+          dedupe_key?: string
+          status?: string
+          claimed_by?: string | null
+          lease_until?: string | null
+          result_key?: string | null
+          error?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "server_jobs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "server_jobs_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "server_jobs_claimed_by_fkey"
+            columns: ["claimed_by"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       setup_confirmations: {
         Row: {
           confirmed_at: string
@@ -756,6 +826,67 @@ export type Database = {
           added_by?: string | null
         }
         Relationships: []
+      }
+      library_fetchers: {
+        Row: {
+          agent_id: string
+          added_at: string
+        }
+        Insert: {
+          agent_id: string
+          added_at?: string
+        }
+        Update: {
+          agent_id?: string
+          added_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "library_fetchers_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: true
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      library_pages: {
+        Row: {
+          key: string
+          kind: string
+          payload: Json
+          source_url: string | null
+          fetched_at: string
+          expires_at: string
+          fetched_by: string | null
+        }
+        Insert: {
+          key: string
+          kind: string
+          payload: Json
+          source_url?: string | null
+          fetched_at?: string
+          expires_at: string
+          fetched_by?: string | null
+        }
+        Update: {
+          key?: string
+          kind?: string
+          payload?: Json
+          source_url?: string | null
+          fetched_at?: string
+          expires_at?: string
+          fetched_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "library_pages_fetched_by_fkey"
+            columns: ["fetched_by"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       organization_members: {
         Row: {

@@ -15,6 +15,7 @@ import { groupSie, likkutPageFromLabel, sieContentRange, sieForLikkut } from "@p
 import { addToCart, CART_MAX, clearCart, MAFTEIACH_CREDIT, readCart, removeFromCart, type CartItem } from "@/lib/library/cart";
 import { friendlyFileLabel, hasEnglish, matchesQuery } from "@printio/shared/library/labels";
 import type { EntrySection, LikkutPage, ListEntry, ListPage } from "@printio/shared/library/mafteiach-parse";
+import { isLibraryWaiting } from "@/lib/library/results";
 import { DailyStudyPanel } from "./DailyStudyPanel";
 
 type Tab = "likkutei" | "maamorim" | "all" | "sie" | "daily";
@@ -60,6 +61,9 @@ export function LibraryBrowser({ extraSie = [], canRefreshSie = false }: { extra
   const [cart, setCart] = useState<CartItem[]>([]);
   const [notice, setNotice] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
+  // Only when the website is set to fetch library pages through a print server: the page is not there yet (or the print server is off).
+  const [waiting, setWaiting] = useState<{ message: string; retry: () => void } | null>(null);
+  const [entryWaiting, setEntryWaiting] = useState<Record<string, boolean>>({});
   const [pending, startTransition] = useTransition();
   const [printing, startPrint] = useTransition();
   const [checking, startCheck] = useTransition();
@@ -124,20 +128,22 @@ export function LibraryBrowser({ extraSie = [], canRefreshSie = false }: { extra
 
   function loadVolume(n: number) {
     setError(undefined);
+    setWaiting(null);
     startTransition(async () => {
       const res = await libraryLikkutAction(n).catch(() => null);
       if (!res) return setError("Something went wrong on our side. Try again.");
-      if (!res.ok) return setError(res.message);
+      if (!res.ok) return isLibraryWaiting(res) ? setWaiting({ message: res.message, retry: () => loadVolume(n) }) : setError(res.message);
       setLikkut(res.page);
     });
   }
 
   function loadYear(section: "maamorim" | "all", year?: string) {
     setError(undefined);
+    setWaiting(null);
     startTransition(async () => {
       const res = await libraryListAction(section, year).catch(() => null);
       if (!res) return setError("Something went wrong on our side. Try again.");
-      if (!res.ok) return setError(res.message);
+      if (!res.ok) return isLibraryWaiting(res) ? setWaiting({ message: res.message, retry: () => loadYear(section, year) }) : setError(res.message);
       setLists((cur) => ({ ...cur, [section]: res.page }));
       setOpen(null);
     });
@@ -148,9 +154,18 @@ export function LibraryBrowser({ extraSie = [], canRefreshSie = false }: { extra
     if (open === key) return setOpen(null);
     setOpen(key);
     if (entries[key] && entries[key] !== "loading" && typeof entries[key] !== "string") return;
+    fetchEntry(entry);
+  }
+
+  function fetchEntry(entry: ListEntry) {
+    const key = entry.path;
+    setEntryWaiting((cur) => ({ ...cur, [key]: false }));
     setEntries((cur) => ({ ...cur, [key]: "loading" }));
     void libraryEntryAction(entry.path)
-      .then((res) => setEntries((cur) => ({ ...cur, [key]: res.ok ? res.sections : res.message })))
+      .then((res) => {
+        if (!res.ok && isLibraryWaiting(res)) setEntryWaiting((cur) => ({ ...cur, [key]: true }));
+        setEntries((cur) => ({ ...cur, [key]: res.ok ? res.sections : res.message }));
+      })
       .catch(() => setEntries((cur) => ({ ...cur, [key]: "Something went wrong on our side. Try again." })));
   }
 
@@ -166,6 +181,8 @@ export function LibraryBrowser({ extraSie = [], canRefreshSie = false }: { extra
   useEffect(() => {
     const t = setTimeout(() => loadVolume(1), 0);
     return () => clearTimeout(t);
+    // Deliberately once, after mount (see the comment above); loadVolume is recreated on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const list = tab === "maamorim" || tab === "all" ? lists[tab] : null;
@@ -210,6 +227,14 @@ export function LibraryBrowser({ extraSie = [], canRefreshSie = false }: { extra
       </div>
       )}
       <FormError message={error} />
+      {waiting && (
+        <div role="status" className="mt-2 flex flex-wrap items-center gap-3 text-sm text-[var(--color-muted)]">
+          <span>{waiting.message}</span>
+          <Button type="button" variant="secondary" onClick={waiting.retry}>
+            Try again
+          </Button>
+        </div>
+      )}
       {notice && <p role="status" className="mt-2 text-sm text-[var(--color-muted)]">{notice}</p>}
       {pending && (
         <p className="mt-3 flex items-center gap-2 text-sm text-[var(--color-muted)]">
@@ -346,7 +371,14 @@ export function LibraryBrowser({ extraSie = [], canRefreshSie = false }: { extra
                           <Spinner /> Loading...
                         </p>
                       ) : typeof state === "string" ? (
-                        <FormError message={state} />
+                        <>
+                          <FormError message={state} />
+                          {entryWaiting[e.path] && (
+                            <Button type="button" variant="secondary" className="mt-2" onClick={() => fetchEntry(e)}>
+                              Try again
+                            </Button>
+                          )}
+                        </>
                       ) : state.length === 0 ? (
                         <p className="text-sm text-[var(--color-muted)]">No files for this one yet.</p>
                       ) : (

@@ -15,6 +15,8 @@ import { IDS, NOMEMBER, type Actor, type SchoolIds } from "./fixture";
  *             nobody signed in may do it (only the service role, i.e. server code, can).
  *             ownOnly: a member-level write is limited to rows the person owns.
  *  - shared : readable by every signed-in user on purpose (library tables), writable by service role only.
+ *  - noAccess : signed-in users hold NO privilege at all on the table (not even SELECT): every statement, by anyone but the
+ *             service role, is "permission denied" (library_fetchers).
  *  - why    : the reason, in plain words (the migration that decided it is named where useful).
  */
 export type Vis = "all" | "own" | "none";
@@ -25,6 +27,7 @@ export interface TableAccess {
   school: string | null;
   owner?: string;
   shared?: boolean;
+  noAccess?: boolean;
   select: { admin: Vis; approver: Vis; member: Vis };
   insert: Level;
   update: Level;
@@ -191,6 +194,33 @@ export const EXPECTED: Record<string, TableAccess> = {
     makeInsert: () => ({
       sql: `insert into library_sie_entries (url, chelek, sefer, title, from_page)
             values ('https://drive.google.com/file/d/BBBBBBBBBBBBBBBBBBBBBBBB/view', '1', 's', 't', 1)`,
+    }),
+  },
+  library_fetchers: {
+    why: "The print servers the OWNER allowed to fill the shared library cache (0055). No access at all for anyone signed in: not even a school admin can read it, because a row here lets that server write what every school reads. A separate table (not a flag on agents) because school admins can update their own agents rows. Service role only; the owner registers a server by hand.",
+    school: "(select a.organization_id from agents a where a.id = t.agent_id)",
+    noAccess: true,
+    select: NOTHING,
+    insert: "none",
+    update: "none",
+    delete: "none",
+    makeInsert: ({ T }) => ({
+      sql: `insert into library_fetchers (agent_id) values ($1)`,
+      params: [T.spareAgent],
+      pre: [{ sql: `delete from library_fetchers where agent_id = $1`, params: [T.spareAgent] }],
+    }),
+  },
+  library_pages: {
+    why: "SHARED library: parsed library pages (Likkutei Sichos, lists, entries), the same for every school (0055). Any signed-in user reads; ONLY the service role writes (the website's complete endpoint, after validating what an owner-registered print server sent), so no school can alter what others read.",
+    school: null,
+    shared: true,
+    select: ALL,
+    insert: "none",
+    update: "none",
+    delete: "none",
+    makeInsert: () => ({
+      sql: `insert into library_pages (key, kind, payload, expires_at)
+            values ('iso-test:' || md5(random()::text), 'likkutei', '{}'::jsonb, now() + interval '1 day')`,
     }),
   },
   member_devices: {
@@ -377,6 +407,19 @@ export const EXPECTED: Record<string, TableAccess> = {
     makeInsert: (c) => ({
       sql: `insert into remote_commands (organization_id, agent_id, command, issued_by) values ($1, $2, 'REFRESH_PRINTER_STATUS', $3)`,
       params: [c.T.org, c.T.agent, who(c)],
+    }),
+  },
+  server_jobs: {
+    why: "Library page requests (0055). Members of the requesting school read them (to show progress); every write is the service role's (the website queues, the registered print server claims and completes through agent-authenticated endpoints).",
+    school: ORG,
+    select: ALL,
+    insert: "none",
+    update: "none",
+    delete: "none",
+    makeInsert: ({ T }) => ({
+      sql: `insert into server_jobs (kind, organization_id, params, dedupe_key)
+            values ('library_fetch', $1, '{"kind":"likkutei","volume":1}', 'iso-test:' || md5(random()::text))`,
+      params: [T.org],
     }),
   },
   setup_confirmations: {

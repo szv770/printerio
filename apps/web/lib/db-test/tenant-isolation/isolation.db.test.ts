@@ -171,6 +171,10 @@ describe("coverage (fails closed when a table is added without stating its acces
         if (level === "none" && hasTable) wrong.push(`${t}: authenticated holds ${op} but the matrix says nobody signed in may`);
         if (level !== "none" && !hasTable) wrong.push(`${t}: matrix allows ${op} for ${level} but authenticated has no ${op} grant`);
       }
+      if (spec.noAccess) {
+        const sel = (await fx.admin<{ h: boolean }>(`select has_any_column_privilege('authenticated', $1::regclass, 'SELECT') h`, [`public.${t}`]))[0]!.h;
+        if (sel) wrong.push(`${t}: authenticated holds SELECT but the matrix says nobody signed in may even read it`);
+      }
     }
     expect(wrong).toEqual([]);
   });
@@ -187,7 +191,7 @@ for (const t of Object.keys(EXPECTED)) {
       const sel = `select ${meta[t]!.pk.map((c) => `${q(c)}::text as ${q(c)}`).join(", ")} from public.${q(t)}`;
       for (const actor of ACTORS) {
         const o = await fx.run(actor, sel);
-        if (actor.role === "anon") {
+        if (actor.role === "anon" || spec.noAccess) {
           if (!(!o.ok && o.code === "42501")) problems.push(`${actor.name}: expected permission denied, got ${show(o)}`);
           continue;
         }

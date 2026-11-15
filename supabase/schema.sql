@@ -3553,3 +3553,55 @@ create policy "org_admins can update printer profiles"
 -- Admins still read, update and remove their school's members; they just cannot insert arbitrary user ids themselves.
 drop policy if exists "org_admins can manage members" on public.organization_members;
 revoke insert on public.organization_members from authenticated;
+
+-- 0055: the library's shared page cache, the server job queue (C1b), and the print servers allowed to fill the cache.
+create table library_pages (
+  key text primary key check (char_length(key) between 1 and 200),
+  kind text not null check (char_length(kind) between 1 and 40),
+  payload jsonb not null check (jsonb_typeof(payload) in ('object', 'array') and octet_length(payload::text) <= 1500000),
+  source_url text check (source_url is null or char_length(source_url) <= 500),
+  fetched_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  fetched_by uuid references agents (id) on delete set null
+);
+alter table library_pages enable row level security;
+create policy "members can read the library pages" on library_pages for select to authenticated using (true);
+revoke insert, update, delete, truncate, references, trigger on public.library_pages from authenticated;
+revoke all on public.library_pages from anon;
+grant select on public.library_pages to authenticated;
+grant select, insert, update, delete on public.library_pages to service_role;
+
+create table server_jobs (
+  id uuid primary key default gen_random_uuid(),
+  kind text not null check (kind in ('library_fetch')),
+  organization_id uuid not null references organizations (id) on delete cascade,
+  requested_by uuid references profiles (id) on delete set null,
+  params jsonb not null check (jsonb_typeof(params) = 'object' and octet_length(params::text) <= 2000),
+  dedupe_key text not null check (char_length(dedupe_key) between 1 and 200),
+  status text not null default 'queued' check (status in ('queued', 'claimed', 'done', 'failed')),
+  claimed_by uuid references agents (id) on delete set null,
+  lease_until timestamptz,
+  result_key text check (result_key is null or char_length(result_key) <= 200),
+  error text check (error is null or char_length(error) <= 500),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create unique index server_jobs_one_active_per_key on server_jobs (dedupe_key) where status in ('queued', 'claimed');
+create index server_jobs_claim_idx on server_jobs (status, created_at);
+create index server_jobs_org_idx on server_jobs (organization_id);
+create trigger server_jobs_set_updated_at before update on server_jobs for each row execute function private.set_updated_at();
+alter table server_jobs enable row level security;
+create policy "members can read their school's server jobs" on server_jobs for select to authenticated using (organization_id in (select private.user_org_ids()));
+revoke insert, update, delete, truncate, references, trigger on public.server_jobs from authenticated;
+revoke all on public.server_jobs from anon;
+grant select on public.server_jobs to authenticated;
+grant select, insert, update, delete on public.server_jobs to service_role;
+
+create table library_fetchers (
+  agent_id uuid primary key references agents (id) on delete cascade,
+  added_at timestamptz not null default now()
+);
+alter table library_fetchers enable row level security; -- no policy on purpose: nobody signed in can touch it
+revoke all on public.library_fetchers from authenticated;
+revoke all on public.library_fetchers from anon;
+grant select, insert, update, delete on public.library_fetchers to service_role;
