@@ -34,10 +34,18 @@ Open a terminal in the Printio folder. Type these one line at a time.
 
 1. `git pull origin claude/upcoming-large-project-3d2j9p`
 2. `node tools/raw-print/make-staple-tests.mjs` (it prints "wrote ..." three times; it only writes three small PDFs into `tools/raw-print/staple-out/`)
-3. **S1:** `node tools/raw-print/send-labelled.mjs tools/raw-print/staple-out/upright-2pages.pdf 192.168.100.168 "S1 TWO STAPLES TOP" DUPLEX=OFF OUTBIN=OPTIONFACEDOWN STAPLEOPTION=TWO KFEEDEDGE=SHORTEDGE FINISH=STAPLE`
-4. When it has come out: **S2:** `node tools/raw-print/send-labelled.mjs tools/raw-print/staple-out/rot180-2pages.pdf 192.168.100.168 "S2 BOTTOM RIGHT TURNED" DUPLEX=OFF OUTBIN=OPTIONFACEDOWN STAPLEOPTION=ONE FINISH=STAPLE`
-5. Then **S3:** `node tools/raw-print/send-labelled.mjs tools/raw-print/staple-out/upright-4pages.pdf 192.168.100.168 "S3 DUPLEX TWO STAPLES" DUPLEX=ON BINDING=LONGEDGE OUTBIN=OPTIONFACEDOWN STAPLEOPTION=TWO KFEEDEDGE=LONGEDGE FINISH=STAPLE`
-6. Then **S4:** `node tools/raw-print/send-labelled.mjs tools/raw-print/staple-out/rot180-2pages.pdf 192.168.100.168 "S4 TWO STAPLES RIGHT TURNED" DUPLEX=OFF OUTBIN=OPTIONFACEDOWN STAPLEOPTION=TWO FINISH=STAPLE`
+3. **S1:** `node tools/raw-print/run-staple-round.mjs 1`
+4. When it has come out: **S2:** `node tools/raw-print/run-staple-round.mjs 2`
+5. Then **S3:** `node tools/raw-print/run-staple-round.mjs 3`
+6. Then **S4:** `node tools/raw-print/run-staple-round.mjs 4`
+
+(Another printer address: add it at the end, for example `node tools/raw-print/run-staple-round.mjs 1 192.168.100.170`. The runner refuses anything that is not a plain number address.)
+
+What each one runs, for reference (the runner uses `tools/raw-print/send-labelled.mjs` with exactly these one-job settings; checked against a fake printer that captured the bytes):
+- S1: `upright-2pages.pdf`, `DUPLEX=OFF OUTBIN=OPTIONFACEDOWN STAPLEOPTION=TWO KFEEDEDGE=SHORTEDGE FINISH=STAPLE`
+- S2: `rot180-2pages.pdf`, `DUPLEX=OFF OUTBIN=OPTIONFACEDOWN STAPLEOPTION=ONE FINISH=STAPLE`
+- S3: `upright-4pages.pdf`, `DUPLEX=ON BINDING=LONGEDGE OUTBIN=OPTIONFACEDOWN STAPLEOPTION=TWO KFEEDEDGE=LONGEDGE FINISH=STAPLE`
+- S4: `rot180-2pages.pdf`, `DUPLEX=OFF OUTBIN=OPTIONFACEDOWN STAPLEOPTION=TWO FINISH=STAPLE`
 
 ## How to read each set and what to tell me
 Hold each stapled set so the big word **TOP** is at the top and the text reads normally (turn S2 and S4 round: they were printed upside down on purpose). Then tell me, for each of S1 to S4: **where the staple(s) are** (top-left, top-right, bottom-left, bottom-right, left edge, right edge or top edge), **how many**, and anything odd (no staple, crooked, a printer message). A phone photo of each set, laid on a table with TOP at the top, is even better. Fill the table:
