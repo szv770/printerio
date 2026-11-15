@@ -296,7 +296,12 @@ A teacher's one-page quiz (Chrome "Save as PDF": 19 Type 3 `Inter` font dictiona
 (about 79.6 KB) and the printer did not confirm it. Job 304 then showed "Canceling" in Command Center RX and the panel showed "System error. Turn the
 main power switch off and on." (Printer and Scanner both "Error has occurred"). The next job (an IPP one from a phone) then met a dead printer ("printer
 blocked" on that teacher's device). The same file prints from the owner's PC through the Windows driver.
-**Not proven**: the same file was also sent three earlier times that evening without a visible crash (also "did not confirm"), so Type 3 is the leading
-suspect, not a proven cause. **Guard (until a conversion exists)**: `apps/web/lib/pdf/type3-fonts.ts` detects Type 3 fonts at upload and the job is held
-with a plain message instead of being sent (any route: website, phone, Chromebook). Switch it off with `PRINTIO_ALLOW_TYPE3_FONTS=1` on the website.
-**To prove it**: after a power cycle, send the quiz once with `tools/raw-print/send-labelled.mjs` (expect possibly another power cycle).
+**Confirmed (2026-11-15, owner)**: the same page saved as a picture (no fonts) printed normally through Printio; the original failed 4 of 4 times
+(three silent drops, then the system error). poppler reports "Bad bounding box in Type 3 glyph" for the original: its font boxes have the top and bottom
+swapped (`/FontBBox [49 416 2076 -1856]`), which is what Chrome writes when it turns a variable font (here Inter) into Type 3. Nothing else in the file was unusual.
+**What Printio does now** (`apps/web/lib/pdf/type3-fonts.ts`, `type3-rasterize.ts`, `create-print-job.ts`, `PrintForm.tsx`): a PDF with Type 3 fonts is drawn page by
+page on the website server (pdf.js + the same canvas the content analysis uses) into a grey 300 dpi picture copy (colour jobs: 200 dpi RGB), up to 30 pages and 90 s;
+that copy is the derived file that prints, the upload stays as the stored original, the text-fidelity check is skipped (a picture has no text), and the job's
+`PDF_UPLOADED` event says `printedAsPictures`. The upload form tells the person when a picked file will be printed as a picture copy. Over 30 pages, or if drawing
+fails, the job is held with a plain message that includes a note to copy to whatever made the PDF. `PRINTIO_ALLOW_TYPE3_FONTS=1` on the website turns all of this off.
+**Not tested on the printer**: the automatic copy (the hand-made copy is what printed). Check one real Type 3 upload prints. A later phase moves the drawing to the school server.

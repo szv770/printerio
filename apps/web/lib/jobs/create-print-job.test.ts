@@ -733,3 +733,45 @@ describe("createPrintJob: two staples (left) and hole punch on a raw printer", (
     expect(res).toMatchObject({ ok: false, error: expect.stringMatching(/Two staples \(left\)/) });
   });
 });
+
+describe("createPrintJob: PDFs with Type 3 fonts are printed as a picture copy (printer system error 2026-11-15)", () => {
+  let type3: Uint8Array;
+  beforeAll(async () => {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 2; i++) doc.addPage([612, 792]);
+    doc.context.register(doc.context.obj({ Type: "Font", Subtype: "Type3", FontBBox: [0, 0, 1, 1], FontMatrix: [0.001, 0, 0, 0.001, 0, 0], CharProcs: {}, Encoding: {}, FirstChar: 0, LastChar: 0, Widths: [0] }));
+    type3 = await doc.save();
+  });
+  const uploads = () => {
+    const out: Record<string, Uint8Array> = {};
+    for (const c of fake.calls.filter((c) => c.op === "upload")) {
+      const v = c.values as { path: string; bytes: Uint8Array };
+      out[v.path.endsWith("derived.pdf") ? "derived" : "original"] = v.bytes;
+    }
+    return out;
+  };
+
+  afterEach(() => {
+    delete process.env.PRINTIO_ALLOW_TYPE3_FONTS;
+  });
+
+  it("keeps the upload as the original and prints a font-free picture copy", async () => {
+    const res = await run(type3);
+    expect(res).toMatchObject({ ok: true, status: "approved" });
+    const up = uploads();
+    expect(Buffer.from(up.original!).equals(Buffer.from(type3))).toBe(true);
+    const derived = await PDFDocument.load(up.derived!);
+    expect(derived.getPageCount()).toBe(2);
+    expect(Buffer.from(up.derived!).toString("latin1")).not.toContain("/Type3");
+    expect(insertedJob().derived_file_path).toEqual(expect.stringMatching(/derived\.pdf$/));
+    const uploaded = fake.calls.find((c) => c.table === "print_job_events" && c.op === "insert");
+    expect(JSON.stringify(uploaded?.values)).toContain("printedAsPictures");
+  });
+
+  it("with PRINTIO_ALLOW_TYPE3_FONTS=1 it is sent as it is (no picture copy)", async () => {
+    process.env.PRINTIO_ALLOW_TYPE3_FONTS = "1";
+    const res = await run(type3);
+    expect(res).toMatchObject({ ok: true });
+    expect(Buffer.from(uploads().derived ?? new Uint8Array()).toString("latin1")).not.toContain("DeviceGray");
+  });
+});
