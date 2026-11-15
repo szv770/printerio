@@ -168,3 +168,11 @@ Not proven: all of the above on the live site / real printer. If `@napi-rs/canva
 
 ## Short-edge flip from the print dialog (branch claude/short-edge-flip)
 Chrome's "flip on short edge" used to be HELD ("not available from the print dialog yet"). It is now delivered: the dialog's `two-sided-short-edge` becomes a `flip: "short"` choice, stored as `print_jobs.finishing.duplexEdge`, passed in the Agent's raw target and sent as `BINDING=SHORTEDGE` (the same setting every booklet already uses). A corner staple together with a short-edge flip stays held (the corner is not known); queue-mode printers hold it too. Booklets ignore the flip. NOT yet printed on paper for a plain document: check that a portrait document flips like a notepad (top edge), and that a staple-free short-edge job comes out the right way up. The website form has no short-edge control yet.
+
+## Owner ask 2026-11-15 (late): the phone/PC/Chromebook printer should offer EVERYTHING the printer can do
+Marked down to work on later (not started). The Printio printer shown in the OS print dialog should let the person choose every option the Kyocera really has:
+every PROVEN staple/punch position (top-left, top-right, bottom-left, two on the left, ...), and **booklet, right-binding and left-binding**, where Printio itself
+lays out the booklet and marks it correctly (what the website already does for booklets). Constraints from what is proven so far: only offer a position after it has
+printed on the real printer (`docs/staple-proving-plan.md`); the dialog can only show what the printer advertises over IPP (finishings values) plus whatever
+Printio maps to a booklet option, so a booklet left/right choice may need a dedicated advertised option or a separate Printio "booklet" printer name per binding.
+This extends ask 3 above (all staple options everywhere) and the "print again with changes" idea.
