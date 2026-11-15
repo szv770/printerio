@@ -8,6 +8,7 @@ import { parsePageRange } from "@printio/shared";
 import { bookletBlankPagesNote } from "@/lib/booklet-note";
 import { PagePicker } from "@/components/print/PagePicker";
 import { Button, Card, Collapsible, FieldError, FieldLabel, FormError, Input, Segmented, Select, Spinner, StatusDot, Switch } from "@/components/ui";
+import { hasType3Fonts, TYPE3_HELD_MESSAGE } from "@/lib/pdf/type3-fonts";
 import { formatFileSize, precheckPdfHeader, precheckSelectedFile, shouldPreviewInBrowser } from "@/lib/pdf/client-precheck";
 import { renderPdfPageToCanvas } from "@/lib/pdf/render-page";
 import {
@@ -126,11 +127,14 @@ function clampCopies(n: number): number {
 export function PrintForm({
   printerProfiles,
   maxUploadBytes,
+  blockType3Fonts = true,
 }: {
   printerProfiles: PrinterOption[];
   /** organization_settings.max_upload_size_bytes, forwarded only so the file picker can reject an oversized file
    *  instantly. Advisory: print/actions.ts re-reads the same setting server-side and is the real gate. */
   maxUploadBytes: number;
+  /** Refuse, the moment a file is picked, a PDF with Type 3 fonts (they can crash the printer). The server holds them too. Default on. */
+  blockType3Fonts?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(safeSubmitPrintJobAction, initialSubmitJobState);
 
@@ -338,6 +342,10 @@ export function PrintForm({
     try {
       const { PDFDocument } = await import("pdf-lib");
       const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+      if (blockType3Fonts && hasType3Fonts(doc)) {
+        rejectSelectedFile(input, TYPE3_HELD_MESSAGE);
+        return;
+      }
       setEstimatedPages(doc.getPageCount());
       // Attachments/JavaScript are not rejected: the server strips them (lib/pdf/sanitize.ts) before printing.
     } catch {

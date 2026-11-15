@@ -290,3 +290,13 @@ whoever regenerates the PDF to export from a tool that embeds TrueType (not Type
 | P1 | `DUPLEX=ON BINDING=LONGEDGE OUTBIN=OPTIONFACEDOWN FINISH=KPUNCH` (4 pages, 2 sheets) | **Double-sided, 3 holes on the left side. Proven.** |
 | P2 | `DUPLEX=OFF OUTBIN=OPTIONFACEDOWN STAPLEOPTION=ONE FINISH=KPNCHANDSTPL` (4 single-sided sheets) | **A staple at the top left and 3 holes on the left. Proven.** |
 | P3 | `DUPLEX=ON BINDING=LONGEDGE OUTBIN=OPTIONFACEDOWN STAPLEOPTION=TWO FINISH=STAPLE` (4 pages, 2 sheets) | Double-sided, but **one staple at the top left**, not two on the left. **Not as asked: held.** (Single-sided `STAPLEOPTION=TWO` does give two left staples, T1B.) |
+
+## Incident 2026-11-15: a Type 3 font PDF and "System error. Turn the main power switch off and on."
+A teacher's one-page quiz (Chrome "Save as PDF": 19 Type 3 `Inter` font dictionaries, nothing else unusual: no images, shading or transparency) was sent raw
+(about 79.6 KB) and the printer did not confirm it. Job 304 then showed "Canceling" in Command Center RX and the panel showed "System error. Turn the
+main power switch off and on." (Printer and Scanner both "Error has occurred"). The next job (an IPP one from a phone) then met a dead printer ("printer
+blocked" on that teacher's device). The same file prints from the owner's PC through the Windows driver.
+**Not proven**: the same file was also sent three earlier times that evening without a visible crash (also "did not confirm"), so Type 3 is the leading
+suspect, not a proven cause. **Guard (until a conversion exists)**: `apps/web/lib/pdf/type3-fonts.ts` detects Type 3 fonts at upload and the job is held
+with a plain message instead of being sent (any route: website, phone, Chromebook). Switch it off with `PRINTIO_ALLOW_TYPE3_FONTS=1` on the website.
+**To prove it**: after a power cycle, send the quiz once with `tools/raw-print/send-labelled.mjs` (expect possibly another power cycle).

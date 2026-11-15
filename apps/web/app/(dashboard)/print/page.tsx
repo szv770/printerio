@@ -89,7 +89,7 @@ export default async function PrintPage() {
           </Link>
         </div>
       )}
-      <PrintForm printerProfiles={printerProfiles} maxUploadBytes={maxUploadBytes} />
+      <PrintForm printerProfiles={printerProfiles} maxUploadBytes={maxUploadBytes} blockType3Fonts={process.env.PRINTIO_ALLOW_TYPE3_FONTS !== "1"} />
     </main>
   );
 }
