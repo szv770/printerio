@@ -21,9 +21,42 @@ type Source = DraftSource;
 const nameFromFile = (n: string) => n.replace(/\.pdf$/i, "").replace(/_+/g, " ").trim();
 
 /** Builds one PDF from several (cover, contents, the chosen pages of each), then opens the normal Print page with it. */
-const FONT_KEY = "printio.daily.hebrewFont"; // shared with the daily-study form: one remembered Hebrew font
+// Shared with the daily-study form: one remembered Hebrew font, title font and English font.
+const FONT_KEY = "printio.daily.hebrewFont";
+const TITLE_FONT_KEY = "printio.daily.titleFont";
+const LATIN_FONT_KEY = "printio.daily.latinFont";
 
-export function BookletBuilder({ maxUploadBytes, fonts = [] }: { maxUploadBytes: number; fonts?: { id: string; name: string; hasVowels: boolean; hasCantillation: boolean }[] }) {
+const readChoice = (key: string, allowed: string[], fallback: string): string => {
+  try {
+    const saved = localStorage.getItem(key) ?? "";
+    return allowed.includes(saved) ? saved : fallback;
+  } catch {
+    return fallback;
+  }
+};
+const saveChoice = (key: string, id: string) => {
+  try {
+    localStorage.setItem(key, id);
+  } catch {
+    /* only a convenience */
+  }
+};
+
+type UploadedFont = { id: string; name: string; hasVowels: boolean; hasCantillation: boolean; hasHebrew: boolean; hasLatin: boolean };
+
+export function BookletBuilder({
+  maxUploadBytes,
+  fonts = [],
+  englishFonts = [],
+}: {
+  maxUploadBytes: number;
+  /** Everything the organization uploaded (Admin -> Fonts); the lists below pick by what each font covers. */
+  fonts?: UploadedFont[];
+  /** The English fonts bundled with Printio, the default first. */
+  englishFonts?: { id: string; name: string }[];
+}) {
+  const hebrewFonts = fonts.filter((f) => f.hasHebrew);
+  const latinOrgFonts = fonts.filter((f) => f.hasLatin);
   const router = useRouter();
   const nextId = useRef(Math.max(0, ...(readDraft()?.sources.map((s) => s.id) ?? [])) + 1);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -37,14 +70,11 @@ export function BookletBuilder({ maxUploadBytes, fonts = [] }: { maxUploadBytes:
   const [sponsorLine, setSponsorLine] = useState(() => readDraft()?.sponsorLine ?? "");
   const [backPage, setBackPage] = useState(() => readDraft()?.backPage ?? true);
   const [sheet, setSheet] = useState<SheetChoice>(() => readDraft()?.sheet ?? "letter");
-  const [fontId, setFontId] = useState(() => {
-    try {
-      const saved = localStorage.getItem(FONT_KEY) ?? "";
-      return fonts.some((f) => f.id === saved) ? saved : "";
-    } catch {
-      return "";
-    }
-  });
+  const [fontId, setFontId] = useState(() => readChoice(FONT_KEY, hebrewFonts.map((f) => f.id), ""));
+  const [titleFontId, setTitleFontId] = useState(() => readChoice(TITLE_FONT_KEY, hebrewFonts.map((f) => f.id), ""));
+  const [latinFontId, setLatinFontId] = useState(() =>
+    readChoice(LATIN_FONT_KEY, [...englishFonts.map((f) => f.id), ...latinOrgFonts.map((f) => f.id)], englishFonts[0]?.id ?? ""),
+  );
   const [link, setLink] = useState("");
   const [addError, setAddError] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
@@ -169,6 +199,8 @@ export function BookletBuilder({ maxUploadBytes, fonts = [] }: { maxUploadBytes:
       if (backPage) data.set("backPage", "on");
       data.set("sponsor", sponsorLine);
       if (fontId) data.set("fontId", fontId);
+      if (titleFontId) data.set("titleFontId", titleFontId);
+      if (latinFontId) data.set("latinFontId", latinFontId);
       data.set("count", String(sources.length));
       sources.forEach((s, i) => {
         data.set(`file-${i}`, s.file);
@@ -317,24 +349,66 @@ export function BookletBuilder({ maxUploadBytes, fonts = [] }: { maxUploadBytes:
           <Checkbox label="Contents page" description="Each file with the page it starts on." checked={contents} onChange={(e) => setContents(e.target.checked)} disabled={building} />
           <Checkbox label="Credit on the back page" description="A small 'Courtesy of ...' line on the last page. It only uses a page the booklet needs anyway, so it never adds paper." checked={backPage} onChange={(e) => setBackPage(e.target.checked)} disabled={building} />
         </div>
-        {fonts.length > 0 && (
+        {hebrewFonts.length > 0 && (
           <Field label="Hebrew font" htmlFor="b-font" help="Used for Hebrew on the cover, contents and back pages. The pages of your own files keep their own fonts. Admins add fonts under Admin, Fonts.">
             <select
               id="b-font"
               value={fontId}
               onChange={(e) => {
                 setFontId(e.target.value);
-                try {
-                  localStorage.setItem(FONT_KEY, e.target.value);
-                } catch {
-                  /* only a convenience */
-                }
+                saveChoice(FONT_KEY, e.target.value);
               }}
               disabled={building}
               className="min-h-11 w-full rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 text-base"
             >
               <option value="">Printio&apos;s default</option>
-              {fonts.map((f) => (
+              {hebrewFonts.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+        {hebrewFonts.length > 0 && (
+          <Field label="Title font" htmlFor="b-title-font" help="Used for the Hebrew name of the booklet and its headings. A heavy display font suits titles.">
+            <select
+              id="b-title-font"
+              value={titleFontId}
+              onChange={(e) => {
+                setTitleFontId(e.target.value);
+                saveChoice(TITLE_FONT_KEY, e.target.value);
+              }}
+              disabled={building}
+              className="min-h-11 w-full rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 text-base"
+            >
+              <option value="">Same as the Hebrew font</option>
+              {hebrewFonts.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+        {englishFonts.length > 0 && (
+          <Field label="English font" htmlFor="b-latin-font" help="Used for English on the cover, contents and back pages. Admins can upload more English fonts under Admin, Fonts.">
+            <select
+              id="b-latin-font"
+              value={latinFontId}
+              onChange={(e) => {
+                setLatinFontId(e.target.value);
+                saveChoice(LATIN_FONT_KEY, e.target.value);
+              }}
+              disabled={building}
+              className="min-h-11 w-full rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 text-base"
+            >
+              {englishFonts.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+              {latinOrgFonts.map((f) => (
                 <option key={f.id} value={f.id}>
                   {f.name}
                 </option>

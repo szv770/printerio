@@ -578,6 +578,8 @@ export type Database = {
           size_bytes: number | null
           has_vowels: boolean
           has_cantillation: boolean
+          has_hebrew: boolean
+          has_latin: boolean
           created_by: string | null
           created_at: string
         }
@@ -590,6 +592,8 @@ export type Database = {
           size_bytes?: number | null
           has_vowels?: boolean
           has_cantillation?: boolean
+          has_hebrew?: boolean
+          has_latin?: boolean
           created_by?: string | null
           created_at?: string
         }
@@ -602,6 +606,8 @@ export type Database = {
           size_bytes?: number | null
           has_vowels?: boolean
           has_cantillation?: boolean
+          has_hebrew?: boolean
+          has_latin?: boolean
           created_by?: string | null
           created_at?: string
         }

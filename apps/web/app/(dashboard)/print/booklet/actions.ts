@@ -7,7 +7,7 @@ import { DEFAULT_MAX_UPLOAD_BYTES } from "@/lib/pdf/client-precheck";
 import { PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 import { canUseLinks } from "@/lib/sources/access";
-import { loadOrgFontBytes } from "@/lib/booklet/custom-font";
+import { checkFontChoiceIds, loadFontChoices } from "@/lib/booklet/custom-font";
 import { assembleBooklet, BuilderError, MAX_SOURCES, type BuilderSource } from "@/lib/booklet/assemble";
 import type { Direction } from "@/lib/booklet/bidi";
 
@@ -40,7 +40,8 @@ function safeFileName(title: string): string {
  * note, the printer, finishing and the printing rules all work as for any upload. Admins, and people an admin switched early tools on for.
  *
  * Form fields: title, description, direction ("ltr" | "rtl"), cover/contents ("on"), count, then for each file i:
- * file-i (the PDF), title-i, pages-i (typed range, blank = all), credit-i.
+ * file-i (the PDF), title-i, pages-i (typed range, blank = all), credit-i. Optional fonts: fontId (uploaded Hebrew font), titleFontId
+ * (uploaded Hebrew title font), latinFontId (a bundled English font id, or an uploaded font with English letters).
  */
 export async function buildBookletAction(formData: FormData): Promise<BuildBookletResult> {
   const session = await requireSessionOrRedirect();
@@ -83,14 +84,12 @@ export async function buildBookletAction(formData: FormData): Promise<BuildBookl
     });
   }
 
-  const fontId = text(formData, "fontId");
-  let hebrewFont: Uint8Array | undefined;
-  if (fontId) {
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(fontId)) return { error: "Choose a font from the list." };
-    const font = await loadOrgFontBytes(db, session.membership.organization_id, fontId);
-    if (!font) return { error: "That font is no longer available. Choose another one." };
-    hebrewFont = font.bytes;
-  }
+  // Hebrew font, Hebrew title font and English font (empty = Printio's own). Validated and loaded here, not only in the form.
+  const fontChoice = { fontId: text(formData, "fontId") || null, titleFontId: text(formData, "titleFontId") || null, latinFontId: text(formData, "latinFontId") || null };
+  const badFont = checkFontChoiceIds(fontChoice);
+  if (badFont) return { error: badFont };
+  const fonts = await loadFontChoices(db, session.membership.organization_id, fontChoice);
+  if (!fonts.ok) return { error: fonts.message };
 
   const title = text(formData, "title");
   let result;
@@ -104,7 +103,9 @@ export async function buildBookletAction(formData: FormData): Promise<BuildBookl
       contents: text(formData, "contents") === "on",
       sponsorLine: text(formData, "sponsor"),
       backPage: text(formData, "backPage") === "on",
-      hebrewFont,
+      hebrewFont: fonts.hebrewFont,
+      titleFont: fonts.titleFont,
+      latinFont: fonts.latinFont,
     });
   } catch (err) {
     if (err instanceof BuilderError) return { error: err.message };

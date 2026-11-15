@@ -25,20 +25,52 @@ export interface DailyApi {
 }
 
 const FONT_KEY = "printio.daily.hebrewFont";
-const readSavedFont = (): string => {
+const TITLE_FONT_KEY = "printio.daily.titleFont";
+const LATIN_FONT_KEY = "printio.daily.latinFont";
+const readSaved = (key: string): string => {
   try {
-    return localStorage.getItem(FONT_KEY) ?? "";
+    return localStorage.getItem(key) ?? "";
   } catch {
     return "";
   }
 };
-const saveFont = (id: string) => {
+const saveChoice = (key: string, id: string) => {
   try {
-    localStorage.setItem(FONT_KEY, id);
+    localStorage.setItem(key, id);
   } catch {
     /* a remembered choice is only a convenience */
   }
 };
+
+type FontOption = { id: string; name: string; hasVowels: boolean; hasCantillation: boolean; hasHebrew: boolean; hasLatin: boolean };
+
+function FontSelect({
+  label,
+  value,
+  onChange,
+  hint,
+  children,
+}: {
+  label: string;
+  value: string;
+  onChange: (id: string) => void;
+  hint: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block space-y-1">
+      <span className="block text-sm font-medium">{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="min-h-11 w-full rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 text-base"
+      >
+        {children}
+      </select>
+      <span className="block text-[13px] text-[var(--color-muted)]">{hint}</span>
+    </label>
+  );
+}
 
 /**
  * The library's Daily study tab: the day's Chumash with Rashi, Tanya, Hayom Yom and Rambam, in a booklet whose pages are filled
@@ -55,8 +87,11 @@ export function DailyStudyPanel({ api }: { /** Stand-ins for the server actions,
   const [language, setLanguage] = useState<Language>("both");
   const [sheet, setSheet] = useState<"letter" | "tabloid">("letter");
   const [error, setError] = useState<string | undefined>();
-  const [fonts, setFonts] = useState<{ id: string; name: string; hasVowels: boolean; hasCantillation: boolean }[]>([]);
+  const [fonts, setFonts] = useState<FontOption[]>([]);
+  const [englishFonts, setEnglishFonts] = useState<{ id: string; name: string }[]>([]);
   const [fontId, setFontId] = useState("");
+  const [titleFontId, setTitleFontId] = useState("");
+  const [latinFontId, setLatinFontId] = useState("");
   /** A built booklet held back because the chosen font lacks marks: the person decides whether to go on. */
   const [held, setHeld] = useState<{ file: File; direction: "ltr" | "rtl"; warning: string } | null>(null);
   const [building, startBuild] = useTransition();
@@ -69,7 +104,8 @@ export function DailyStudyPanel({ api }: { /** Stand-ins for the server actions,
     return () => clearTimeout(t);
   }, []);
 
-  // The uploaded Hebrew fonts (Admin -> Fonts). The last choice is remembered on this device, and dropped if that font is gone.
+  // The uploaded fonts (Admin -> Fonts) and the bundled English fonts. Each last choice is remembered on this device, and dropped
+  // if that font is gone (or can no longer be used for that job).
   const fontsCall = useRef(call.fonts);
   useEffect(() => {
     let live = true;
@@ -77,8 +113,16 @@ export function DailyStudyPanel({ api }: { /** Stand-ins for the server actions,
       (res) => {
         if (!live || !res.ok) return;
         setFonts(res.fonts);
-        const saved = readSavedFont();
-        setFontId(res.fonts.some((f) => f.id === saved) ? saved : "");
+        setEnglishFonts(res.englishFonts);
+        const pick = (key: string, allowed: string[], fallback: string) => {
+          const saved = readSaved(key);
+          return allowed.includes(saved) ? saved : fallback;
+        };
+        setFontId(pick(FONT_KEY, res.fonts.filter((f) => f.hasHebrew).map((f) => f.id), ""));
+        setTitleFontId(pick(TITLE_FONT_KEY, res.fonts.filter((f) => f.hasHebrew).map((f) => f.id), ""));
+        setLatinFontId(
+          pick(LATIN_FONT_KEY, [...res.englishFonts.map((f) => f.id), ...res.fonts.filter((f) => f.hasLatin).map((f) => f.id)], res.englishFonts[0]?.id ?? ""),
+        );
       },
       () => undefined,
     );
@@ -105,6 +149,9 @@ export function DailyStudyPanel({ api }: { /** Stand-ins for the server actions,
     return () => clearTimeout(t);
   }, [date, load]);
 
+  const hebrewFonts = fonts.filter((f) => f.hasHebrew);
+  const latinOrgFonts = fonts.filter((f) => f.hasLatin);
+
   const togglePick = (s: OfferedStudy) => setPicked((cur) => (cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s]));
 
   function make() {
@@ -112,7 +159,16 @@ export function DailyStudyPanel({ api }: { /** Stand-ins for the server actions,
     setError(undefined);
     startBuild(async () => {
       try {
-        const res = await call.build({ date, studies: picked, language, sheet, fontId: fontId || null });
+        const res = await call.build({
+          date,
+          studies: picked,
+          language,
+          sheet,
+          // Fonts that the chosen language does not draw are left out, so a stale choice cannot fail a build.
+          fontId: language !== "en" ? fontId || null : null,
+          titleFontId: language !== "en" ? titleFontId || null : null,
+          latinFontId: language !== "he" ? latinFontId || null : null,
+        });
         if (!res.ok) return setError(res.message);
         const file = pdfFile(res.pdfBase64, res.fileName);
         if (res.fontWarning) return setHeld({ file, direction: res.direction, warning: res.fontWarning });
@@ -213,27 +269,66 @@ export function DailyStudyPanel({ api }: { /** Stand-ins for the server actions,
             ]}
           />
           {language !== "en" && (
-            <label className="block space-y-1">
-              <span className="block text-sm font-medium">Hebrew font</span>
-              <select
-                value={fontId}
-                onChange={(e) => {
-                  setFontId(e.target.value);
-                  saveFont(e.target.value);
-                  setHeld(null);
-                }}
-                className="min-h-11 w-full rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 text-base"
-              >
-                <option value="">Printio&apos;s default (Ezra SIL)</option>
-                {fonts.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name}
-                    {f.hasCantillation ? "" : " (no trop)"}
-                  </option>
-                ))}
-              </select>
-              <span className="block text-[13px] text-[var(--color-muted)]">{fonts.length === 0 ? "An admin can add more Hebrew fonts under Admin, Fonts." : "Fonts marked \"no trop\" leave out the cantillation marks (the Chumash needs them)."}</span>
-            </label>
+            <FontSelect
+              label="Hebrew font"
+              value={fontId}
+              onChange={(id) => {
+                setFontId(id);
+                saveChoice(FONT_KEY, id);
+                setHeld(null);
+              }}
+              hint={hebrewFonts.length === 0 ? "An admin can add more Hebrew fonts under Admin, Fonts." : "Fonts marked \"no trop\" leave out the cantillation marks (the Chumash needs them)."}
+            >
+              <option value="">Printio&apos;s default (Ezra SIL)</option>
+              {hebrewFonts.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                  {f.hasCantillation ? "" : " (no trop)"}
+                </option>
+              ))}
+            </FontSelect>
+          )}
+          {language !== "en" && (
+            <FontSelect
+              label="Title font"
+              value={titleFontId}
+              onChange={(id) => {
+                setTitleFontId(id);
+                saveChoice(TITLE_FONT_KEY, id);
+                setHeld(null);
+              }}
+              hint="Used for the Hebrew titles (the study names and the date). A heavy display font suits titles."
+            >
+              <option value="">Same as the Hebrew font</option>
+              {hebrewFonts.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </FontSelect>
+          )}
+          {language !== "he" && (
+            <FontSelect
+              label="English font"
+              value={latinFontId}
+              onChange={(id) => {
+                setLatinFontId(id);
+                saveChoice(LATIN_FONT_KEY, id);
+                setHeld(null);
+              }}
+              hint={latinOrgFonts.length === 0 ? "An admin can upload your own English fonts under Admin, Fonts." : "Includes the English fonts your admins uploaded."}
+            >
+              {englishFonts.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+              {latinOrgFonts.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </FontSelect>
           )}
           <p className="text-[13px] text-[var(--color-muted)]">The text fills every page edge to edge, using the fewest sheets that stay easy to read. Hebrew-only booklets bind on the right.</p>
           {error && <FormError message={error} />}

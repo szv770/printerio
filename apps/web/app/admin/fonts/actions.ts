@@ -15,7 +15,7 @@ export interface FontActionResult {
 
 const fail = (message: string): FontActionResult => ({ ok: false, message });
 
-/** Upload a Hebrew font (.ttf/.otf). Org admins only; the bytes go to the private org-fonts bucket via the service role. */
+/** Upload a Hebrew or English font (.ttf/.otf). Org admins only; the bytes go to the private org-fonts bucket via the service role. */
 export async function uploadFontAction(formData: FormData): Promise<FontActionResult> {
   const session = await requireOrgRole(["org_admin"]);
   const organizationId = session.membership.organization_id;
@@ -71,6 +71,8 @@ export async function uploadFontAction(formData: FormData): Promise<FontActionRe
     file_name: file.name.slice(0, 200),
     storage_path: storagePath,
     size_bytes: bytes.length,
+    has_hebrew: inspected.hasHebrew,
+    has_latin: inspected.hasLatin,
     has_vowels: inspected.hasVowels,
     has_cantillation: inspected.hasCantillation,
     created_by: session.userId,
