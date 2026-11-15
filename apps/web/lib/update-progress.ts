@@ -66,8 +66,8 @@ export const UPDATE_RUN_GIVE_UP_MS = 15 * 60_000;
 export const RESTART_GIVE_UP_MS = 6 * 60_000;
 /** A result younger than this is reused instead of checking again when the page opens. */
 export const AUTO_CHECK_FRESH_MS = 10 * 60_000;
-/** The agent must have checked in this recently to be worth asking. */
-export const AUTO_CHECK_ONLINE_MS = 2 * 60_000;
+/** The agent must have checked in this recently to be worth asking (its heartbeat is every 30 s, at most every 120 s by configuration). */
+export const AUTO_CHECK_ONLINE_MS = 5 * 60_000;
 /** Keep the "Updated to ..." message for at least this long before an automatic re-check replaces it. */
 export const DONE_KEEP_MS = 10 * 60_000;
 

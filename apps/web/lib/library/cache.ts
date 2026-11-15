@@ -29,8 +29,8 @@ export const ENTRY_TTL_MS = 7 * 24 * 3600_000;
 export const EMPTY_ENTRY_TTL_MS = 10 * 60_000;
 /** A failed job for a page is shown again, not retried, for this long (the source may be having a bad minute; do not hammer it). */
 export const FAILED_RETRY_MS = 5 * 60_000;
-/** A print server counts as online when it reported in (heartbeat) this recently. */
-export const FETCHER_ONLINE_MS = 2 * 60_000;
+/** A print server counts as online when it reported in (heartbeat) this recently. The agent's heartbeat is every 30 s (at most every 120 s by configuration), so this stays well above that. */
+export const FETCHER_ONLINE_MS = 5 * 60_000;
 /** The most jobs allowed to wait in the queue at once (a stampede brake). */
 export const MAX_QUEUED_JOBS = 50;
 
@@ -150,7 +150,7 @@ export async function enqueueLibraryFetch(db: Db, args: { organizationId: string
   return { kind: "queued", jobId: inserted.id };
 }
 
-/** True when a print server registered in `library_fetchers` reported in within the last 2 minutes (agents.last_seen_at is the heartbeat). */
+/** True when a print server registered in `library_fetchers` reported in within the last 5 minutes (agents.last_seen_at is the heartbeat). */
 export async function onlineFetcherExists(db: Db): Promise<boolean> {
   const { data: fetchers, error } = await db.from("library_fetchers").select("agent_id");
   if (error || !fetchers || fetchers.length === 0) return false;

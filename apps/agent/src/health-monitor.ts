@@ -7,8 +7,10 @@
  * necessarily broken"), not a crash.
  *
  * The heartbeat is also where the Agent learns it has been paused by an
- * admin, since it is the one call it makes unconditionally on every cycle -
- * see `isPaused()`.
+ * admin - see `isPaused()`. It is sent at start-up and then about every 30 s
+ * (orchestrator.ts runOnce; PRINTIO_HEARTBEAT_SECONDS), so that knowledge can
+ * be that old: the cloud enforces the pause itself on every claimable/claim
+ * request, and a paused Agent heartbeats every cycle so a resume is seen fast.
  */
 
 import type { CloudClient } from "./cloud-client.js";

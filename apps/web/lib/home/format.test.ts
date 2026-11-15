@@ -41,11 +41,12 @@ describe("oldestWaitedText", () => {
 });
 
 describe("isStale", () => {
-  it("threshold is two minutes", () => expect(HEARTBEAT_STALE_MS).toBe(2 * MIN));
+  it("threshold is five minutes", () => expect(HEARTBEAT_STALE_MS).toBe(5 * MIN));
   it("fresh is not stale", () => expect(isStale(ago(90_000), NOW)).toBe(false));
+  it("holds at least two of the slowest allowed heartbeats (120 s) before calling a print server offline", () => expect(HEARTBEAT_STALE_MS).toBeGreaterThanOrEqual(2 * 120_000));
   it("exactly at the threshold is not stale, past it is", () => {
-    expect(isStale(ago(2 * MIN), NOW)).toBe(false);
-    expect(isStale(ago(2 * MIN + 1000), NOW)).toBe(true);
+    expect(isStale(ago(5 * MIN), NOW)).toBe(false);
+    expect(isStale(ago(5 * MIN + 1000), NOW)).toBe(true);
   });
   it("never seen is stale", () => {
     expect(isStale(null, NOW)).toBe(true);

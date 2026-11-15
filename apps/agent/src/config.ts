@@ -25,6 +25,8 @@ export interface AgentConfig {
   pollIntervalSeconds: number;
   /** Ceiling (seconds) the outer poll loop's cycle-failure backoff may grow to - see orchestrator.ts computeNextPollDelayMs(). Never shrinks the happy-path cadence; only bounds how far it escalates during a sustained cloud outage. */
   maxPollIntervalSeconds: number;
+  /** PRINTIO_HEARTBEAT_SECONDS: seconds between heartbeats (default 30, clamped to 10-120). 0 = send one every poll cycle, exactly as before (the rollback switch). See parseHeartbeatSeconds. */
+  heartbeatIntervalSeconds: number;
   sumatraPath: string;
   spoolerPollIntervalMs: number;
   spoolerTimeoutSeconds: number;
@@ -49,6 +51,27 @@ export const MIN_POLL_INTERVAL_SECONDS = 2;
 export const DEFAULT_POLL_INTERVAL_SECONDS = 3;
 /** The longest an admin can set the poll interval to from the website. */
 export const MAX_ADMIN_POLL_INTERVAL_SECONDS = 300;
+
+/** The heartbeat (the "I am alive" report) goes out at start-up and then at most this often; 0 means every poll cycle (the old behaviour). */
+export const DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 30;
+export const MIN_HEARTBEAT_INTERVAL_SECONDS = 10;
+/** Kept well under the website's shortest "print server is online" window (see docs/agent-api.md). */
+export const MAX_HEARTBEAT_INTERVAL_SECONDS = 120;
+
+/**
+ * PRINTIO_HEARTBEAT_SECONDS. Unset, empty or unreadable = the default (a typo must never stop the service starting);
+ * `0` or `cycle` = a heartbeat every poll cycle, exactly as before (the rollback switch); any other whole number is
+ * clamped to 10-120.
+ */
+export function parseHeartbeatSeconds(raw: string | undefined): number {
+  const value = raw?.trim().toLowerCase();
+  if (!value) return DEFAULT_HEARTBEAT_INTERVAL_SECONDS;
+  if (value === "cycle") return 0;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0) return DEFAULT_HEARTBEAT_INTERVAL_SECONDS;
+  if (n === 0) return 0;
+  return Math.min(MAX_HEARTBEAT_INTERVAL_SECONDS, Math.max(MIN_HEARTBEAT_INTERVAL_SECONDS, n));
+}
 
 /** The poll interval to use: the admin's website setting when it is valid, otherwise this PC's own setting. */
 export function effectivePollSeconds(configSeconds: number, adminSeconds: number | null): number {
@@ -165,6 +188,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AgentConfig {
     maxLocalStorageMb: parsePositiveInt("PRINTIO_MAX_LOCAL_STORAGE_MB", env.PRINTIO_MAX_LOCAL_STORAGE_MB, 2048),
     pollIntervalSeconds,
     maxPollIntervalSeconds,
+    heartbeatIntervalSeconds: parseHeartbeatSeconds(env.PRINTIO_HEARTBEAT_SECONDS),
     sumatraPath: env.PRINTIO_SUMATRA_PATH?.trim() || "SumatraPDF.exe",
     spoolerPollIntervalMs: parsePositiveInt(
       "PRINTIO_SPOOLER_POLL_INTERVAL_MS",

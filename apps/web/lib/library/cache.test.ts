@@ -200,7 +200,7 @@ describe("onlineFetcherExists", () => {
     return { yes: await onlineFetcherExists(asDb(f)), calls: f.calls };
   }
 
-  it("is true when a registered fetcher has a fresh heartbeat (last_seen_at within 2 minutes)", async () => {
+  it("is true when a registered fetcher has a fresh heartbeat (last_seen_at within 5 minutes)", async () => {
     const r = await run([{ agent_id: "a1" }], [{ id: "a1" }]);
     expect(r.yes).toBe(true);
     const q = r.calls.find((c) => c.table === "agents")!;
@@ -208,7 +208,9 @@ describe("onlineFetcherExists", () => {
     expect(q.filters).toContainEqual(["eq", "status", "active"]);
     const gte = q.filters.find((x) => x[0] === "gte" && x[1] === "last_seen_at")!;
     expect(Math.abs(Date.now() - Date.parse(gte[2] as string) - FETCHER_ONLINE_MS)).toBeLessThan(5_000);
-    expect(FETCHER_ONLINE_MS).toBe(2 * 60_000);
+    expect(FETCHER_ONLINE_MS).toBe(5 * 60_000);
+    // The agent's heartbeat is every 30 s (120 s at most by configuration): the window must hold at least two of the slowest.
+    expect(FETCHER_ONLINE_MS).toBeGreaterThanOrEqual(2 * 120_000);
   });
 
   it("is false when nobody is registered (and does not even look at agents)", async () => {

@@ -30,7 +30,7 @@ export function UpdatePanel({
 
   const view = deriveUpdateView({ commands, lastSeenAt: agent.last_seen_at, nowMs, agentVersion: agent.version });
   const canSelfUpdate = agent.is_git_checkout === true;
-  const online = agent.last_seen_at ? nowMs - Date.parse(agent.last_seen_at) < 2 * 60_000 : false;
+  const online = agent.last_seen_at ? nowMs - Date.parse(agent.last_seen_at) < 5 * 60_000 : false;
   const autoCheck = canSelfUpdate && shouldAutoCheck({ commands, lastSeenAt: agent.last_seen_at, nowMs, agentVersion: agent.version });
 
   const form = (): FormData => {
