@@ -39,9 +39,9 @@ runs the whole website (`docs/STATE-2026-11-01.md` section 1 describes how it ru
 | Shared daily text and lists, and the pre-built standard daily booklets | Owner's server, a week ahead | One fetch a day for everyone; the same server builds the standard booklets from that text and pushes them to schools |
 
 ## 4. Usage hot spots found in the current code (fix before moving)
-- **Agent polls every 3 s.** Through the website that is about 28,800 requests a day per server (29% of the free daily limit each). Must go to Supabase directly with push.
-- **Admin pages that auto-refresh every 2 s** (update banner, command refresh) would also count. Use Realtime or slower refresh.
-- **Heavy libraries in the website bundle** (pdf-lib, pdfjs, fontkit, bundled fonts as base64) would break the 3 MB limit. They move to the server; the website imports none of them.
+- **Agent loop.** Every 3 s the agent makes THREE calls to the website (heartbeat, commands, claimable jobs: `apps/agent/src/orchestrator.ts:847-861`). That is about **86,400 requests a day per server, about 86% of the free daily limit for one school** (measured in the code 2026-11-15; an earlier version of this plan said 28,800, which counted one call). Must go to Supabase directly with push, and the heartbeat slows to 30-60 s.
+- **Browser auto-refresh:** home and admin pages refresh every 30 s on any visible tab; the job list and job page every 4 s while a job is active; the print server page every 5-10 s (not 2 s as first written). Realtime already exists for `print_jobs`, `agents` and `remote_commands` (migration 0011) and three pages use it; make polling a slow backstop. Details: `docs/phase0-code-inventory.md`.
+- **Heavy libraries in the website bundle** break the 3 MB limit. Measured 2026-11-15 (gzip): the real website as it is = 6.26 MiB with OpenNext and 3.63 MiB with vinext, both over the free 3 MiB; without the PDF and font code = 3.99 MiB (OpenNext) and 1.93 MiB (vinext); also without the icon-image library = 3.21 MiB and 1.04 MiB. So after phase 1 the website fits the free plan only with **vinext**. The PDF/font libraries (pdf-lib, pdfjs, fontkit, base64 fonts) are about 1.7 MB of the compressed size. Details: `docs/phase0-cloudflare-build-trial.md`.
 - **Supabase storage (1 GB free)** is avoided by keeping PDFs on the schools' servers.
 - **Builds:** Cloudflare free = 3,000 build minutes a month on Workers builds ([limits](https://developers.cloudflare.com/workers/ci-cd/builds/limits-and-pricing/)); GitHub Actions on a private repo = 2,000 free minutes a month ([billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)) and our checks take about 3 minutes per run. Deploy only on merge; avoid needless pushes.
 - Rough estimate to verify in the trial: 1,000 active people may use 20-50% of the daily free request limit. Rule: move to Workers Paid (about $5/month) when daily use passes ~70%, and set an email alert there.
@@ -59,6 +59,7 @@ runs the whole website (`docs/STATE-2026-11-01.md` section 1 describes how it ru
 
 ## 6. Phases (each ends with something checkable; nothing is switched over until the end)
 0. **Trial:** a tiny page on Cloudflare using the real Supabase login, built by GitHub on merge. Measure bundle size, CPU and requests per page; choose Cloudflare's current Next.js route (OpenNext vs vinext: Cloudflare now recommends vinext for new apps, [docs](https://developers.cloudflare.com/workers/framework-guides/web-apps/opennext/)) before committing. Exit: login works, numbers recorded.
+   **Result so far (2026-11-15, `docs/PHASE0-FINDINGS.md`):** the real website builds with both adapters; vinext is recommended (about half the size). Still to measure: real CPU per request (needs a throwaway Cloudflare free account and a Supabase test login) and the 50-calls-per-request limit.
 1. **Heavy work becomes server jobs:** job states for building (booklet builder, daily study, preview, checks); servers claim them; the website shows progress or "print server offline". PDF/font code leaves the website bundle. Exit: the website builds without those libraries and everything still works through the PC server.
 2. **Servers talk to Supabase directly:** per-server credentials, row-level security, Realtime push for jobs and commands, presence from heartbeats; remove the service-role key from the gateway. Exit: zero agent requests to the website.
 3. **Files stay on school servers:** browser to server upload through the tunnel with short-lived tokens; retention on the server. Exit: nothing uploaded to Supabase storage.
@@ -67,7 +68,7 @@ runs the whole website (`docs/STATE-2026-11-01.md` section 1 describes how it ru
 6. **Cutover:** move `beta.printio.app` from the PC's tunnel to Cloudflare; keep the PC site as a fallback for a week; make the repo private; add the merge-only deploy; Supabase keep-alive; usage alert. Exit: the PC no longer runs the website.
 
 ## 7. Still open (decide when we get there)
-- Cloudflare Pages vs Workers for hosting the built site (settle in phase 0).
+- ~~Cloudflare Pages vs Workers~~ Workers, built with vinext (phase 0 result); still to confirm with a real deploy that CPU per request stays under 10 ms. vinext is new: it needs React 19.3.1+ (the app has 19.2.8), so a React upgrade is part of the switch.
 - Names of the per-school addresses and what happens to the existing `*.szvtech.org` gateway address (devices already added the printer there).
 - Exact Supabase credential design for servers (custom JWT claims vs a thin API on Cloudflare that only checks and forwards).
 - Whether Realtime free limits (connections and messages) hold at 15 servers (should; verify in phase 2).
