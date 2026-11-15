@@ -1,9 +1,10 @@
 import fontkit from "@pdf-lib/fontkit";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
+import { ENGLISH_FONT_CHOICES, loadBundledEnglishFont } from "@/lib/booklet/fonts/english";
 
 /**
- * Checks a Hebrew font an org admin uploads (SBL Hebrew, for example) before Printio stores it, and loads it back from the private
+ * Checks a font an org admin uploads (a Hebrew font such as SBL Hebrew, or an English one) before Printio stores it, and loads it back from the private
  * `org-fonts` bucket when a booklet is drawn. Pure bytes in, plain-language answer out: nothing here touches the network except
  * loadOrgFontBytes, which is handed a service-role client.
  */
@@ -14,7 +15,7 @@ export const MAX_FONTS_PER_ORG = 12;
 export const FONT_BUCKET = "org-fonts";
 
 export type InspectFontResult =
-  | { ok: true; name: string; hasHebrew: true; hasVowels: boolean; hasCantillation: boolean }
+  | { ok: true; name: string; hasHebrew: boolean; hasLatin: boolean; hasVowels: boolean; hasCantillation: boolean }
   | { ok: false; message: string };
 
 const fail = (message: string): InspectFontResult => ({ ok: false, message });
@@ -23,6 +24,8 @@ const TTF_OR_OTF = "Please upload the font as a .ttf or .otf file.";
 
 /** The 22 Hebrew base letters, alef to tav (final forms included). */
 const HEBREW_LETTERS = range(0x05d0, 0x05ea);
+/** The English (Latin) letters: A-Z and a-z, all 52 must be there. */
+const LATIN_LETTERS = [...range(0x41, 0x5a), ...range(0x61, 0x7a)];
 /** Vowel points (niqqud) and the dagesh: U+05B0 to U+05BC, except U+05BA (holam haser for vav, rare: OT Heilig and OT Sid Hei lack it). */
 const VOWEL_MARKS = range(0x05b0, 0x05bc).filter((cp) => cp !== 0x05ba);
 /** Cantillation marks (taamim): U+0591 to U+05AF. A font that covers most of them counts. */
@@ -77,6 +80,11 @@ export function hebrewCoverage(has: (cp: number) => boolean): { hasHebrew: boole
   };
 }
 
+/** True when a font has all 52 English letters (A-Z, a-z), from a "has this code point" test. Exported for tests. */
+export function latinCoverage(has: (cp: number) => boolean): boolean {
+  return LATIN_LETTERS.every(has);
+}
+
 const PLAIN_SUBFAMILY = /^(regular|normal|book|roman|medium)$/i;
 
 /**
@@ -96,6 +104,24 @@ export function fontDisplayName(
     return sanitizeFontName(`${family} ${sub}`);
   }
   return sanitizeFontName(font.fullName, fileName);
+}
+
+/** Accept a font that covers Hebrew or English (or both); refuse one that covers neither. Exported for tests. */
+export function judgeCoverage(
+  name: string,
+  coverage: { hasHebrew: boolean; hasVowels: boolean; hasCantillation: boolean },
+  hasLatin: boolean,
+): InspectFontResult {
+  if (!coverage.hasHebrew && !hasLatin) return fail("This font has neither Hebrew nor English letters");
+  // Vowel and cantillation marks only mean something for a font that covers Hebrew.
+  return {
+    ok: true,
+    name,
+    hasHebrew: coverage.hasHebrew,
+    hasLatin,
+    hasVowels: coverage.hasHebrew && coverage.hasVowels,
+    hasCantillation: coverage.hasHebrew && coverage.hasCantillation,
+  };
 }
 
 export function inspectFont(bytes: Uint8Array, fileName?: string): InspectFontResult {
@@ -136,11 +162,13 @@ export function inspectFont(bytes: Uint8Array, fileName?: string): InspectFontRe
   };
 
   let coverage: ReturnType<typeof hebrewCoverage>;
+  let hasLatin: boolean;
   let name: string;
   try {
     // Touch the character map once so a broken one fails here, not later while a booklet is drawn.
     single.hasGlyphForCodePoint(0x05d0);
     coverage = hebrewCoverage((cp) => single.hasGlyphForCodePoint(cp));
+    hasLatin = latinCoverage((cp) => single.hasGlyphForCodePoint(cp));
     name = fontDisplayName(
       { familyName: single.familyName, subfamilyName: single.subfamilyName, fullName: single.fullName },
       fileName,
@@ -149,10 +177,7 @@ export function inspectFont(bytes: Uint8Array, fileName?: string): InspectFontRe
     return fail("Printio could not read this font. It may be damaged. Try downloading it again, or use a different .ttf or .otf file.");
   }
 
-  if (!coverage.hasHebrew) {
-    return fail("This font has no Hebrew letters. Choose a font that covers Hebrew, such as SBL Hebrew.");
-  }
-  return { ok: true, name, hasHebrew: true, hasVowels: coverage.hasVowels, hasCantillation: coverage.hasCantillation };
+  return judgeCoverage(name, coverage, hasLatin);
 }
 
 /**
@@ -163,10 +188,10 @@ export async function loadOrgFontBytes(
   db: SupabaseClient<Database>,
   organizationId: string,
   fontId: string,
-): Promise<{ name: string; bytes: Uint8Array } | null> {
+): Promise<{ name: string; bytes: Uint8Array; hasHebrew: boolean; hasLatin: boolean } | null> {
   const { data: row } = await db
     .from("org_fonts")
-    .select("name, storage_path, organization_id")
+    .select("name, storage_path, organization_id, has_hebrew, has_latin")
     .eq("id", fontId)
     .eq("organization_id", organizationId)
     .maybeSingle();
@@ -174,5 +199,85 @@ export async function loadOrgFontBytes(
 
   const { data: blob, error } = await db.storage.from(FONT_BUCKET).download(row.storage_path);
   if (error || !blob) return null;
-  return { name: row.name, bytes: new Uint8Array(await blob.arrayBuffer()) };
+  return {
+    name: row.name,
+    bytes: new Uint8Array(await blob.arrayBuffer()),
+    // Rows from before migration 0053 were all Hebrew fonts.
+    hasHebrew: row.has_hebrew ?? true,
+    hasLatin: row.has_latin ?? false,
+  };
+}
+
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The three font choices of a form: an uploaded Hebrew font, an uploaded Hebrew title font, and an English font (bundled id or uploaded). */
+export interface FontChoiceInput {
+  fontId?: string | null;
+  titleFontId?: string | null;
+  latinFontId?: string | null;
+}
+
+/** Plain-language message when a choice is not a valid id, or null. Empty (null/undefined/"") means "the default". */
+export function checkFontChoiceIds(input: FontChoiceInput): string | null {
+  const { fontId, titleFontId, latinFontId } = input;
+  if (fontId != null && (typeof fontId !== "string" || !UUID_RE.test(fontId))) return "Choose a font from the list.";
+  if (titleFontId != null && (typeof titleFontId !== "string" || !UUID_RE.test(titleFontId))) return "Choose a title font from the list.";
+  if (
+    latinFontId != null &&
+    (typeof latinFontId !== "string" || !(UUID_RE.test(latinFontId) || ENGLISH_FONT_CHOICES.some((c) => c.id === latinFontId)))
+  ) {
+    return "Choose an English font from the list.";
+  }
+  return null;
+}
+
+export type FontChoices =
+  | {
+      ok: true;
+      /** The uploaded Hebrew body font; undefined means Printio's own. */
+      hebrewFont?: Uint8Array;
+      hebrewFontName: string;
+      /** The uploaded Hebrew title font; undefined means titles use the body font. */
+      titleFont?: Uint8Array;
+      /** The chosen English font; undefined means the default (David Libre). */
+      latinFont?: { regular: Uint8Array; bold?: Uint8Array };
+    }
+  | { ok: false; message: string };
+
+/**
+ * Loads the fonts a form chose, for the signed-in member's own organization only (loadOrgFontBytes scopes every read to it).
+ * An uploaded font must cover what it is chosen for: Hebrew for the body and title fonts, English letters for the English font.
+ * `db` must be the service-role client. Call checkFontChoiceIds first for the cheap shape check.
+ */
+export async function loadFontChoices(db: SupabaseClient<Database>, organizationId: string, input: FontChoiceInput): Promise<FontChoices> {
+  const bad = checkFontChoiceIds(input);
+  if (bad) return { ok: false, message: bad };
+  const out: Extract<FontChoices, { ok: true }> = { ok: true, hebrewFontName: "" };
+
+  if (input.fontId) {
+    const font = await loadOrgFontBytes(db, organizationId, input.fontId);
+    if (!font) return { ok: false, message: "That font is no longer available. Choose another one." };
+    if (!font.hasHebrew) return { ok: false, message: `"${font.name}" has no Hebrew letters, so it cannot be the Hebrew font. Choose a Hebrew font.` };
+    out.hebrewFont = font.bytes;
+    out.hebrewFontName = font.name;
+  }
+  if (input.titleFontId) {
+    const font = await loadOrgFontBytes(db, organizationId, input.titleFontId);
+    if (!font) return { ok: false, message: "That title font is no longer available. Choose another one." };
+    if (!font.hasHebrew) return { ok: false, message: `"${font.name}" has no Hebrew letters, so it cannot be the title font. Choose a Hebrew font.` };
+    out.titleFont = font.bytes;
+  }
+  if (input.latinFontId) {
+    if (UUID_RE.test(input.latinFontId)) {
+      const font = await loadOrgFontBytes(db, organizationId, input.latinFontId);
+      if (!font) return { ok: false, message: "That English font is no longer available. Choose another one." };
+      if (!font.hasLatin) return { ok: false, message: `"${font.name}" has no English letters, so it cannot be the English font. Choose an English font.` };
+      out.latinFont = { regular: font.bytes };
+    } else {
+      const bundled = await loadBundledEnglishFont(input.latinFontId);
+      if (!bundled) return { ok: false, message: "That English font is not available. Choose another one." };
+      out.latinFont = bundled;
+    }
+  }
+  return out;
 }

@@ -7,6 +7,7 @@ import { DEFAULT_MAX_UPLOAD_BYTES } from "@/lib/pdf/client-precheck";
 import { canUseLinks } from "@/lib/sources/access";
 import { BookletBuilder } from "@/components/booklet/BookletBuilder";
 import { listOrgFonts } from "@/lib/booklet/org-fonts";
+import { ENGLISH_FONT_CHOICES } from "@/lib/booklet/fonts/english";
 
 // Combining files and fetching links happen on the server and can take a while.
 export const maxDuration = 60;
@@ -28,7 +29,7 @@ export default async function BookletBuilderPage() {
   return (
     <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
       <PageHeader title="Make a booklet" description="Combine several PDFs into one booklet with a cover and contents page. You check it and print on the next screen." />
-      <BookletBuilder maxUploadBytes={settings?.max_upload_size_bytes ?? DEFAULT_MAX_UPLOAD_BYTES} fonts={fonts} />
+      <BookletBuilder maxUploadBytes={settings?.max_upload_size_bytes ?? DEFAULT_MAX_UPLOAD_BYTES} fonts={fonts} englishFonts={ENGLISH_FONT_CHOICES} />
     </main>
   );
 }

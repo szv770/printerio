@@ -70,6 +70,8 @@ describe("uploadFontAction", () => {
       file_name: "EzraSIL.ttf",
       storage_path: path,
       size_bytes: ezra.length,
+      has_hebrew: true,
+      has_latin: true,
       has_vowels: true,
       has_cantillation: true,
       created_by: "admin-1",

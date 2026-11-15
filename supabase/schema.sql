@@ -3459,6 +3459,8 @@ create table org_fonts (
   size_bytes integer,
   has_vowels boolean not null default false,
   has_cantillation boolean not null default false,
+  has_hebrew boolean not null default true,
+  has_latin boolean not null default false,
   created_by uuid references profiles (id) on delete set null,
   created_at timestamptz not null default now(),
   unique (organization_id, name)

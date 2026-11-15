@@ -12,6 +12,19 @@ const items = [
   { study: "rambam1" as const, label: "Rambam (1 chapter)", portion: "Issurei Biah - Chapter 14 | Shiur 273" },
 ];
 
+const previewFonts = [
+  { id: "f1", name: "OT Siddur Classic", hasVowels: true, hasCantillation: true, hasHebrew: true, hasLatin: false },
+  { id: "f2", name: "Sample no trop", hasVowels: true, hasCantillation: false, hasHebrew: true, hasLatin: false },
+  { id: "f3", name: "OT Talmudis", hasVowels: true, hasCantillation: false, hasHebrew: true, hasLatin: false },
+  { id: "f4", name: "Sample English serif", hasVowels: false, hasCantillation: false, hasHebrew: false, hasLatin: true },
+];
+const previewEnglishFonts = [
+  { id: "david-libre", name: "David Libre (default)" },
+  { id: "eb-garamond", name: "EB Garamond" },
+  { id: "source-serif-4", name: "Source Serif 4" },
+  { id: "libre-baskerville", name: "Libre Baskerville" },
+];
+
 /** The library's Daily study tab with made-up data (no login, no database). */
 export function DailyStudyPreview() {
   const [tab, setTab] = useState("daily");
@@ -31,7 +44,7 @@ export function DailyStudyPreview() {
           ]}
         />
       </div>
-      <DailyStudyPanel api={{ day: async () => ({ ok: true, items }), build: async () => ({ ok: false, message: "Preview only." }), fonts: async () => ({ ok: true, fonts: [{ id: "f1", name: "OT Siddur Classic", hasVowels: true, hasCantillation: true }, { id: "f2", name: "Sample no trop", hasVowels: true, hasCantillation: false }] }) }} />
+      <DailyStudyPanel api={{ day: async () => ({ ok: true, items }), build: async () => ({ ok: false, message: "Preview only." }), fonts: async () => ({ ok: true, fonts: previewFonts, englishFonts: previewEnglishFonts }) }} />
     </div>
   );
 }

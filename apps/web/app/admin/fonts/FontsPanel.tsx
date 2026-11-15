@@ -13,6 +13,8 @@ export interface FontRowView {
   sizeBytes: number | null;
   hasVowels: boolean;
   hasCantillation: boolean;
+  hasHebrew: boolean;
+  hasLatin: boolean;
 }
 
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -87,8 +89,9 @@ export function FontsPanel({ fonts, maxFonts }: { fonts: FontRowView[]; maxFonts
       <Card className="p-5 sm:p-6">
         <h2 className="text-base font-semibold">Add a font</h2>
         <p className="mt-1 text-[13px] text-[var(--color-muted)]">
-          A .ttf or .otf file with Hebrew letters, up to 8 MB. Fonts with vowel points and cantillation marks (such as SBL Hebrew)
-          work best for the daily study.
+          A .ttf or .otf file, up to 8 MB. Hebrew fonts (for the text and for titles) and English fonts are both accepted: Printio
+          checks which letters the font has. Hebrew fonts with vowel points and cantillation marks (such as SBL Hebrew) work best
+          for the daily study.
         </p>
         <form ref={formRef} onSubmit={onUpload} className="mt-4 flex flex-col gap-3">
           <label htmlFor="font-file" className="sr-only">
@@ -129,7 +132,7 @@ export function FontsPanel({ fonts, maxFonts }: { fonts: FontRowView[]; maxFonts
         </h2>
         {fonts.length === 0 ? (
           <div className="mt-3">
-            <EmptyState title="No fonts yet" description="The booklets use Printio's built-in Hebrew font until you add one." />
+            <EmptyState title="No fonts yet" description="The booklets use Printio's built-in fonts until you add one." />
           </div>
         ) : (
           <ul className="mt-3 flex flex-col divide-y divide-[var(--color-border)]">
@@ -145,9 +148,11 @@ export function FontsPanel({ fonts, maxFonts }: { fonts: FontRowView[]; maxFonts
                       {[font.fileName, font.sizeBytes ? formatFileSize(font.sizeBytes) : ""].filter(Boolean).join(" - ")}
                     </p>
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {font.hasVowels && <Badge tone="success">vowels</Badge>}
-                      {font.hasCantillation && <Badge tone="success">cantillation marks</Badge>}
-                      {!font.hasVowels && !font.hasCantillation && <Badge>letters only</Badge>}
+                      {font.hasHebrew && <Badge tone="accent">Hebrew</Badge>}
+                      {font.hasLatin && <Badge tone="accent">English</Badge>}
+                      {font.hasHebrew && font.hasVowels && <Badge tone="success">vowels</Badge>}
+                      {font.hasHebrew && font.hasCantillation && <Badge tone="success">cantillation marks</Badge>}
+                      {font.hasHebrew && !font.hasVowels && !font.hasCantillation && <Badge>letters only</Badge>}
                     </div>
                   </div>
                 </div>

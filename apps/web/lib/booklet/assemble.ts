@@ -3,7 +3,7 @@ import { PDFDocument } from "pdf-lib";
 import { parsePageRange } from "@printio/shared";
 import type { Direction } from "./bidi";
 import { checkPdfInflation } from "@/lib/pdf/inflate-guard";
-import { addFrontMatter, drawBackPageText, embedHebrewFont, frontMatterPageCount, type FrontEntry } from "./frontmatter";
+import { addFrontMatter, drawBackPageText, embedHebrewFont, embedLatinFont, frontMatterPageCount, type FrontEntry, type LatinFontBytes } from "./frontmatter";
 
 /** A refusal with a plain-language message that is safe to show the person as it is. */
 export class BuilderError extends Error {}
@@ -43,6 +43,10 @@ export interface BuilderInput {
   backPage?: boolean;
   /** Bytes of an uploaded font (.ttf/.otf) for Hebrew text on the cover, contents and back page, instead of David Libre. */
   hebrewFont?: Uint8Array;
+  /** A Hebrew font for Hebrew text in titles only (the cover title, the contents heading and entries), drawn as it is. */
+  titleFont?: Uint8Array;
+  /** English (Latin) font for all text that is not Hebrew, instead of David Libre. Without `bold`, bold rows use the regular face. */
+  latinFont?: LatinFontBytes;
 }
 
 export interface BuilderResult {
@@ -73,10 +77,17 @@ export async function assembleBooklet(input: BuilderInput): Promise<BuilderResul
   if (input.sources.length === 0) throw new BuilderError("Add at least one file to the booklet.");
   if (input.sources.length > MAX_SOURCES) throw new BuilderError(`A booklet can combine up to ${MAX_SOURCES} files.`);
 
-  if (input.hebrewFont) {
-    // Checked up front so an unreadable font gives its plain message instead of the generic "could not combine" one.
+  // Checked up front so an unreadable font gives its plain message instead of the generic "could not combine" one.
+  const checks: Array<[Uint8Array | undefined, typeof embedHebrewFont]> = [
+    [input.hebrewFont, embedHebrewFont],
+    [input.titleFont, embedHebrewFont],
+    [input.latinFont?.regular, embedLatinFont],
+    [input.latinFont?.bold, embedLatinFont],
+  ];
+  for (const [bytes, check] of checks) {
+    if (!bytes) continue;
     try {
-      await embedHebrewFont(await PDFDocument.create(), input.hebrewFont);
+      await check(await PDFDocument.create(), bytes);
     } catch (err) {
       throw new BuilderError(err instanceof Error ? err.message : "That font could not be read.");
     }
@@ -125,7 +136,7 @@ export async function assembleBooklet(input: BuilderInput): Promise<BuilderResul
   // The back page only uses pages a booklet needs anyway (the total is padded to a multiple of 4), so it adds no paper.
   const chosenPages = picks.reduce((n, p) => n + p.length, 0);
   const wantsBack = (input.backPage ?? true) && (credits.length > 0 || sponsorLine.length > 0);
-  const base = { title, description: input.description, direction: input.direction, credits, cover: input.cover, contents: input.contents, size, ...(input.hebrewFont ? { hebrewFont: input.hebrewFont } : {}) };
+  const base = { title, description: input.description, direction: input.direction, credits, cover: input.cover, contents: input.contents, size, ...(input.hebrewFont ? { hebrewFont: input.hebrewFont } : {}), ...(input.titleFont ? { titleFont: input.titleFont } : {}), ...(input.latinFont ? { latinFont: input.latinFont } : {}) };
 
   // Page numbers depend on how many front pages there are, which depends only on the titles.
   const frontPages = await frontMatterPageCount({ ...base, entries: draft });
@@ -151,7 +162,7 @@ export async function assembleBooklet(input: BuilderInput): Promise<BuilderResul
   }
   if (useBack) {
     while (out.getPageCount() % 4 !== 0) out.addPage([size.width, size.height]);
-    await drawBackPageText(out, { credits, sponsorLine, direction: input.direction, size, hebrewFont: input.hebrewFont });
+    await drawBackPageText(out, { credits, sponsorLine, direction: input.direction, size, hebrewFont: input.hebrewFont, latinFont: input.latinFont });
   }
   return { bytes: await out.save(), pageCount: out.getPageCount(), entries, backPage: useBack };
 }

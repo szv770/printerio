@@ -8,8 +8,12 @@ import { DAVID_LIBRE_REGULAR_BASE64 } from "./fonts/david-libre-regular";
 
 /**
  * The cover and contents pages of a booklet built from several sources. Text is laid out in David Libre (Hebrew and
- * Latin), each line in its own direction (lib/booklet/bidi.ts), and a Hebrew booklet mirrors the whole layout:
- * right-aligned titles, page numbers on the left.
+ * Latin) unless fonts were given, each line in its own direction (lib/booklet/bidi.ts), and a Hebrew booklet mirrors the whole
+ * layout: right-aligned titles, page numbers on the left.
+ *
+ * Three optional fonts: `hebrewFont` for Hebrew text, `titleFont` for Hebrew text in titles only (the cover title, the contents
+ * heading and the contents entries), and `latinFont` for everything that is not Hebrew. The uploaded Hebrew fonts have no Latin
+ * letters, and a Latin font has no Hebrew, so a line that mixes both is drawn piece by piece, each piece in the font that has it.
  */
 
 export interface FrontEntry {
@@ -29,8 +33,18 @@ export interface FrontMatterInput {
   contents: boolean;
   /** The size of the front pages: the size of the first content page. */
   size: { width: number; height: number };
-  /** Bytes of a font (.ttf/.otf) to set Hebrew text in instead of David Libre. Latin text stays in David Libre. */
+  /** Bytes of a font (.ttf/.otf) to set Hebrew text in instead of David Libre. Latin text stays in David Libre (or `latinFont`). */
   hebrewFont?: Uint8Array;
+  /** A Hebrew font for Hebrew text in titles only (cover title, contents heading and entries). Drawn as it is, never made bolder. Latin text in a title stays in the English bold font. */
+  titleFont?: Uint8Array;
+  /** English (Latin) font used instead of David Libre for all text that is not Hebrew. Without `bold`, bold rows use the regular face. */
+  latinFont?: LatinFontBytes;
+}
+
+/** The files of an English (Latin) font: bold is optional (bold rows then use the regular face; bold is never synthesised). */
+export interface LatinFontBytes {
+  regular: Uint8Array;
+  bold?: Uint8Array;
 }
 
 const INK = rgb(0.06, 0.12, 0.22);
@@ -40,14 +54,32 @@ const LINE = rgb(0.78, 0.82, 0.88);
 const clean = (s: string) => s.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
 
 export interface Fonts {
+  /** Latin text: David Libre unless an English font was given. `bold` is the same face as `regular` when that font has no bold. */
   regular: PDFFont;
   bold: PDFFont;
-  /** A custom Hebrew font, when one was given: text with Hebrew letters is set in it (never synthesised bold). */
+  /** A custom Hebrew font, when one was given: text with Hebrew letters is set in it (never synthesised bold). With an English font and no Hebrew font, David Libre's Hebrew. */
   hebrew?: PDFFont;
+  /** David Libre Bold, only when it stands in for Hebrew bold (an English font replaced it and no Hebrew font was given). */
+  hebrewBold?: PDFFont;
+  /** The title font, when one was given: Hebrew text in titles is set in it. */
+  title?: PDFFont;
 }
 
-/** What the person is told when an uploaded Hebrew font cannot be embedded. */
+/**
+ * What a line is drawn in: one font, or, for a line that mixes Hebrew with other text, the font for the pieces that have Hebrew
+ * letters (`he`) and the font for everything else (`other`).
+ */
+export interface Face {
+  he: PDFFont;
+  other: PDFFont;
+}
+export type LineFont = PDFFont | Face;
+const isFace = (f: LineFont): f is Face => "he" in f;
+
+/** What the person is told when an uploaded font cannot be embedded. */
 export const HEBREW_FONT_UNREADABLE = "That font could not be read. Upload a different .ttf or .otf file, or choose one of Printio's fonts.";
+/** The same plain message for an English font. */
+export const LATIN_FONT_UNREADABLE = HEBREW_FONT_UNREADABLE;
 
 /**
  * Embeds the bytes of an uploaded font. TrueType fonts are shrunk to the letters used. PostScript-flavoured OpenType fonts ("OTTO", CFF
@@ -64,25 +96,71 @@ export async function embedHebrewFont(doc: PDFDocument, bytes: Uint8Array): Prom
   }
 }
 
-export async function embedFonts(doc: PDFDocument, hebrewBytes?: Uint8Array): Promise<Fonts> {
-  doc.registerFontkit(fontkit);
-  const regular = await doc.embedFont(Buffer.from(DAVID_LIBRE_REGULAR_BASE64, "base64"), { subset: true });
-  const bold = await doc.embedFont(Buffer.from(DAVID_LIBRE_BOLD_BASE64, "base64"), { subset: true });
-  const hebrew = hebrewBytes ? await embedHebrewFont(doc, hebrewBytes) : undefined;
-  return hebrew ? { regular, bold, hebrew } : { regular, bold };
+/** Embeds the bytes of an English (Latin) font the same way as a Hebrew one (TrueType shrunk to the letters used, CFF whole). */
+export async function embedLatinFont(doc: PDFDocument, bytes: Uint8Array): Promise<PDFFont> {
+  try {
+    return await embedHebrewFont(doc, bytes);
+  } catch {
+    throw new Error(LATIN_FONT_UNREADABLE);
+  }
 }
 
-/** The font for a piece of text: the custom Hebrew font when there is one and the text has Hebrew letters, else David Libre. */
-export function fontFor(fonts: Fonts, text: string, weight: "regular" | "bold" = "regular"): PDFFont {
-  return fonts.hebrew && hasHebrew(text) ? fonts.hebrew : fonts[weight];
+export async function embedFonts(doc: PDFDocument, hebrewBytes?: Uint8Array, extra: { latinFont?: LatinFontBytes; titleFont?: Uint8Array } = {}): Promise<Fonts> {
+  doc.registerFontkit(fontkit);
+  const { latinFont, titleFont } = extra;
+  const david = async (base64: string) => doc.embedFont(Buffer.from(base64, "base64"), { subset: true });
+  let regular: PDFFont;
+  let bold: PDFFont;
+  if (latinFont) {
+    regular = await embedLatinFont(doc, latinFont.regular);
+    bold = latinFont.bold ? await embedLatinFont(doc, latinFont.bold) : regular;
+  } else {
+    regular = await david(DAVID_LIBRE_REGULAR_BASE64);
+    bold = await david(DAVID_LIBRE_BOLD_BASE64);
+  }
+  const fonts: Fonts = { regular, bold };
+  if (hebrewBytes) fonts.hebrew = await embedHebrewFont(doc, hebrewBytes);
+  else if (latinFont) {
+    // The English font has no Hebrew letters, so Hebrew keeps David Libre.
+    fonts.hebrew = await david(DAVID_LIBRE_REGULAR_BASE64);
+    fonts.hebrewBold = await david(DAVID_LIBRE_BOLD_BASE64);
+  }
+  if (titleFont) fonts.title = await embedHebrewFont(doc, titleFont);
+  return fonts;
+}
+
+/** The font for Hebrew text of a weight: the title font for a title, else the Hebrew font; undefined when David Libre does it all. */
+function hebrewOf(fonts: Fonts, weight: "regular" | "bold", title: boolean): PDFFont | undefined {
+  if (title && fonts.title) return fonts.title;
+  return weight === "bold" && fonts.hebrewBold ? fonts.hebrewBold : fonts.hebrew;
+}
+
+/**
+ * The font for a piece of text. Text with Hebrew letters uses the Hebrew font (the title font when `title` is set and one was given)
+ * for its Hebrew pieces and the Latin font for the rest; text without Hebrew uses the Latin font. David Libre when no other font applies.
+ */
+export function fontFor(fonts: Fonts, text: string, weight: "regular" | "bold" = "regular", title = false): LineFont {
+  const other = fonts[weight];
+  if (!hasHebrew(text)) return other;
+  const he = hebrewOf(fonts, weight, title);
+  return he ? { he, other } : other;
+}
+
+/** The font of one drawn piece of a line. */
+const pieceFont = (font: LineFont, piece: string): PDFFont => (isFace(font) ? (hasHebrew(piece) ? font.he : font.other) : font);
+
+/** The width of a line in its font(s), exactly as `drawLine` draws it. */
+function lineWidth(font: LineFont, text: string, size: number): number {
+  if (!isFace(font)) return widthOfShaped(font, text, size);
+  return drawableRuns(text, "ltr").reduce((sum, r) => sum + widthOfShaped(pieceFont(font, r.visual), r.draw, size), 0);
 }
 
 /** Breaks text into lines that fit `maxWidth` (measured on the logical text: the width does not depend on direction). */
-export function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
+export function wrapText(text: string, font: LineFont, size: number, maxWidth: number): string[] {
   const words = clean(text).split(" ").filter(Boolean);
   const lines: string[] = [];
   let line = "";
-  const width = (s: string) => widthOfShaped(font, s, size);
+  const width = (s: string) => lineWidth(font, s, size);
   for (const word of words) {
     const candidate = line ? `${line} ${word}` : word;
     if (width(candidate) <= maxWidth) {
@@ -114,12 +192,15 @@ export function drawableRuns(logical: string, dir: Direction): { visual: string;
 }
 
 /** Draws one logical line at the start edge (right for right-to-left text) or centered, in visual order. */
-function drawLine(page: PDFPage, logical: string, font: PDFFont, size: number, o: { x0: number; x1: number; y: number; dir: Direction; center?: boolean; color?: ReturnType<typeof rgb> }): number {
-  const runs = drawableRuns(logical, o.dir).map((r) => ({ ...r, w: widthOfShaped(font, r.draw, size) }));
+function drawLine(page: PDFPage, logical: string, font: LineFont, size: number, o: { x0: number; x1: number; y: number; dir: Direction; center?: boolean; color?: ReturnType<typeof rgb> }): number {
+  const runs = drawableRuns(logical, o.dir).map((r) => {
+    const f = pieceFont(font, r.visual);
+    return { ...r, f, w: widthOfShaped(f, r.draw, size) };
+  });
   const w = runs.reduce((sum, r) => sum + r.w, 0);
   let x = o.center ? (o.x0 + o.x1 - w) / 2 : o.dir === "rtl" ? o.x1 - w : o.x0;
   for (const r of runs) {
-    drawShaped(page, r.draw, { x, y: o.y, size, font, color: o.color ?? INK });
+    drawShaped(page, r.draw, { x, y: o.y, size, font: r.f, color: o.color ?? INK });
     x += r.w;
   }
   return w;
@@ -135,7 +216,7 @@ function drawCover(doc: PDFDocument, fonts: Fonts, input: FrontMatterInput): voi
   const title = clean(input.title) || "Booklet";
 
   // Shrink the title until it fits in at most four lines.
-  const titleFont = fontFor(fonts, title, "bold");
+  const titleFont = fontFor(fonts, title, "bold", true);
   let size = Math.min(44, W / 12);
   let lines = wrapText(title, titleFont, size, maxW);
   while (lines.length > 4 && size > 18) {
@@ -170,7 +251,7 @@ const HEADING = { ltr: "Contents", rtl: "תוכן ענינים" } as const;
 const COURTESY = { ltr: "Courtesy of", rtl: "באדיבות" } as const;
 
 interface ContentsLayout {
-  rows: Array<{ lines: string[]; startPage: number; font: PDFFont }>[];
+  rows: Array<{ lines: string[]; startPage: number; font: LineFont }>[];
   titleSize: number;
   lead: number;
   maxTitleWidth: number;
@@ -191,7 +272,7 @@ export function layoutContents(fonts: Fonts, entries: readonly FrontEntry[], siz
   let y = top;
   for (const e of entries) {
     const title = e.title || "Untitled";
-    const font = fontFor(fonts, title);
+    const font = fontFor(fonts, title, "regular", true);
     const lines = wrapText(title, font, titleSize, maxTitleWidth).slice(0, 3);
     const need = lines.length * lead + rowGap;
     if (y - need < bottom && pages[pages.length - 1]!.length > 0) {
@@ -213,7 +294,7 @@ function drawContents(doc: PDFDocument, fonts: Fonts, input: FrontMatterInput, l
 
   layout.rows.forEach((rows, pageIndex) => {
     const page = doc.addPage([W, H]);
-    drawLine(page, HEADING[input.direction], fontFor(fonts, HEADING[input.direction], "bold"), Math.min(30, W / 20), { x0: margin, x1: W - margin, y: H - margin - 28, dir: input.direction });
+    drawLine(page, HEADING[input.direction], fontFor(fonts, HEADING[input.direction], "bold", true), Math.min(30, W / 20), { x0: margin, x1: W - margin, y: H - margin - 28, dir: input.direction });
     page.drawLine({ start: { x: margin, y: H - margin - 42 }, end: { x: W - margin, y: H - margin - 42 }, thickness: 1, color: LINE });
 
     let y = H - margin - 70;
@@ -257,13 +338,13 @@ function drawContents(doc: PDFDocument, fonts: Fonts, input: FrontMatterInput, l
  * Writes the back-page lines on the LAST page of `doc`: an optional sponsor line, then "Courtesy of ..." for the sources.
  * Small and centred near the bottom of the page. The caller makes sure that page is one the booklet needs anyway.
  */
-export async function drawBackPageText(doc: PDFDocument, input: { credits: string[]; sponsorLine: string; direction: Direction; size: { width: number; height: number }; hebrewFont?: Uint8Array }): Promise<void> {
-  const fonts = await embedFonts(doc, input.hebrewFont);
+export async function drawBackPageText(doc: PDFDocument, input: { credits: string[]; sponsorLine: string; direction: Direction; size: { width: number; height: number }; hebrewFont?: Uint8Array; latinFont?: LatinFontBytes }): Promise<void> {
+  const fonts = await embedFonts(doc, input.hebrewFont, { ...(input.latinFont ? { latinFont: input.latinFont } : {}) });
   const page = doc.getPage(doc.getPageCount() - 1);
   const { width: W } = input.size;
   const margin = Math.max(36, W * 0.1);
   const rtl = input.direction === "rtl";
-  const lines: { text: string; font: PDFFont; size: number; color: ReturnType<typeof rgb> }[] = [];
+  const lines: { text: string; font: LineFont; size: number; color: ReturnType<typeof rgb> }[] = [];
   const sponsor = clean(input.sponsorLine);
   if (sponsor) {
     const font = fontFor(fonts, sponsor);
@@ -282,17 +363,22 @@ export async function drawBackPageText(doc: PDFDocument, input: { credits: strin
   }
 }
 
+const fontExtras = (input: { latinFont?: LatinFontBytes; titleFont?: Uint8Array }) => ({
+  ...(input.latinFont ? { latinFont: input.latinFont } : {}),
+  ...(input.titleFont ? { titleFont: input.titleFont } : {}),
+});
+
 /** How many pages the cover and contents will take, so the sources' page numbers can be worked out first. */
 export async function frontMatterPageCount(input: Omit<FrontMatterInput, "credits"> & { credits?: string[] }): Promise<number> {
   const scratch = await PDFDocument.create();
-  const fonts = await embedFonts(scratch, input.hebrewFont);
+  const fonts = await embedFonts(scratch, input.hebrewFont, fontExtras(input));
   const contentsPages = input.contents ? layoutContents(fonts, input.entries, input.size).rows.length : 0;
   return (input.cover ? 1 : 0) + contentsPages;
 }
 
 /** Adds the cover (if asked) and then the contents pages (if asked) to `doc`, at the end of what it already holds. */
 export async function addFrontMatter(doc: PDFDocument, input: FrontMatterInput): Promise<number> {
-  const fonts = await embedFonts(doc, input.hebrewFont);
+  const fonts = await embedFonts(doc, input.hebrewFont, fontExtras(input));
   let added = 0;
   if (input.cover) {
     drawCover(doc, fonts, input);

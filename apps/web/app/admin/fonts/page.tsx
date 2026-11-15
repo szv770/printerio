@@ -14,7 +14,7 @@ export default async function AdminFontsPage() {
   const supabase = await createClient();
   const { data } = await supabase
     .from("org_fonts")
-    .select("id, name, file_name, size_bytes, has_vowels, has_cantillation, created_at")
+    .select("id, name, file_name, size_bytes, has_vowels, has_cantillation, has_hebrew, has_latin, created_at")
     .eq("organization_id", session.membership.organization_id)
     .order("name", { ascending: true })
     .limit(MAX_FONTS_PER_ORG + 1);
@@ -26,13 +26,15 @@ export default async function AdminFontsPage() {
     sizeBytes: f.size_bytes,
     hasVowels: f.has_vowels,
     hasCantillation: f.has_cantillation,
+    hasHebrew: f.has_hebrew,
+    hasLatin: f.has_latin,
   }));
 
   return (
     <div>
       <PageHeader
         title="Fonts"
-        description="Hebrew fonts for the daily study booklets. Add one here and it shows up in the booklet's font list."
+        description="Hebrew and English fonts for your booklets. Add one here and it shows up in the font lists on the daily study and booklet forms."
       />
       <FontsPanel fonts={fonts} maxFonts={MAX_FONTS_PER_ORG} />
     </div>
