@@ -84,3 +84,12 @@ Use a throwaway project (never production): apply the migrations, create two use
 3. Realtime: with School A's JWT subscribe to `org-<B id>:jobs` (must be refused) and to `postgres_changes` on `print_jobs` (must deliver only School A rows); confirm "Allow public access" is off;
 4. Storage: with School A's JWT try to download and to create a signed URL for a School B job path, and upload anywhere in `print-jobs` (all must fail);
 5. repeat the open gaps above to confirm they behave as in PGlite, and again after any fix.
+
+
+## Update 2026-11-15: gaps fixed by migration 0054
+The first run found real gaps (kept as expected failures until fixed). Migration `0054_tenant_isolation_fixes.sql` closes six of them and their cases are now ordinary "must be blocked" checks, so a regression turns CI red:
+- `remote_commands` insert and update: the target agent (and printer) must belong to the same school (**was HIGH**).
+- `printer_profiles` insert and update: the profile's agent must belong to the same school as its printer.
+- `organization_members` insert: the admin insert rule was dropped and the INSERT grant revoked from signed-in users; members are enrolled by server code only (invitation claim and platform console use the service role). The matrix level for that insert is now `none`.
+Why this is safe: the website already checked the agent and printer in its own code before writing (`lib/remote-commands.ts`, `app/admin/printers/actions.ts`; the printer code's comment even said RLS also enforced it, which it did not), and both member-enrolment paths use the service role, which bypasses these rules.
+Still open (low): `group_members.user_id` and the secret-hash column readability, and the preventive function-grant default; see the table above and the `gap` entries in `expected-access.ts`.
