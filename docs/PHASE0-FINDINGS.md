@@ -18,7 +18,7 @@ Biggest size contributors (uncompressed): pdfjs-dist 3.0 MB (bundled three times
 
 ## Blockers, easiest first
 1. Environment variables must be declared for vinext (`cloudflare.config.ts`).
-2. Icon generation (`app/icon.tsx`, `lib/pwa/icon-image.tsx`, 5 routes under `app/pwa/`): replace with static PNGs.
+2. Icon generation (`app/icon.tsx`, `lib/pwa/icon-image.tsx`, 5 routes under `app/pwa/`): replace with static PNGs. **Done (2026-11-15):** the 6 icons are now static PNGs in `apps/web/public/` (byte-identical to the generated ones, same URLs; `/icon` is a rewrite to `public/icon.png`); the generator code is gone and nothing imports `next/og`. `apps/web/lib/pwa/icons.test.ts` checks every icon URL and its PNG size.
 3. `serverExternalPackages` for pdfjs does nothing on Workers (goes away with phase 1).
 4. Node APIs that build but are untested at runtime: `node:crypto` (`lib/agent-auth.ts`, `lib/gateway/http.ts`, `lib/cron-auth.ts`; the legacy scrypt secret check is tens of ms of CPU, far over 10 ms), `node:zlib` (`lib/pdf/inflate-guard.ts`), `Buffer` use in booklet/daily-study code, `node:dns`/`node:https` in the SSRF-safe fetcher (leaves with phase 1). No `fs` or `child_process` in app code.
 5. `proxy.ts` (Node middleware; one Supabase `getUser()` per request with a login cookie): supported by vinext, experimental under OpenNext.

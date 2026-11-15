@@ -1,8 +1,8 @@
 /**
  * The Printio mark: a sheet of paper with a folded corner, with three ink dots
  * (cyan, magenta, yellow) printed on it, on the accent tile. Inline SVG, so it
- * is crisp at any size and needs no asset. app/icon.tsx draws the same shapes
- * for the favicon.
+ * is crisp at any size and needs no asset. The favicon and home-screen PNGs in
+ * public/ (icon.png, pwa/) were rendered from the same shapes.
  */
 export function LogoMark({ size = 28, className = "" }: { size?: number; className?: string }) {
   return (
