@@ -16,7 +16,11 @@ export function hasType3Fonts(doc: PDFDocument): boolean {
   return false;
 }
 
-/** Plain words for the member whose file was held. */
+/**
+ * Plain words for the member whose file was held or refused. The second sentence is written to be copied to whatever
+ * made the PDF (often an AI tool or a web page saved as PDF): it names the exact problem.
+ */
 export const TYPE3_HELD_MESSAGE =
-  "This PDF stores its text in a way the office printer can crash on, so nothing was printed. " +
-  "Ask your administrator to print it, or re-create the PDF with a different tool (for example Microsoft Word or Google Docs, then Download as PDF).";
+  "Printio did not print this PDF because it can crash the office printer. Its text is stored as \"Type 3\" fonts with broken font boxes, which happens when a PDF is made from a web page (for example Chrome's Save as PDF, or an AI tool that builds a web page). " +
+  "If an AI made this file, copy this to it: \"Please re-make this PDF so every font is a normal embedded TrueType or OpenType font, not Type 3 and not a variable font. Use a static font such as Arial, Liberation Sans or Times New Roman, keep the page size US Letter, and keep the text as real text.\" " +
+  "Or open it in Word or Google Docs and download it as a PDF.";
