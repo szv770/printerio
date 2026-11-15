@@ -351,6 +351,17 @@ export class CloudClient {
   }
 
   /**
+   * GET /api/agents/jobs/claimable?commands=1: the claimable jobs AND the pending remote commands in one call (what
+   * `getClaimableJobs()` plus `getCommands()` return separately). `commands` is `undefined` when the website did not
+   * include the field (an older website ignores the flag, or its commands lookup failed): the caller then asks
+   * `getCommands()` itself, exactly as before.
+   */
+  async getClaimableAndCommands(): Promise<{ jobs: ClaimableJob[]; commands: RemoteCommandEnvelope[] | undefined }> {
+    const res = await this.poll<{ jobs: ClaimableJob[]; commands?: unknown }>("GET", "/api/agents/jobs/claimable?commands=1");
+    return { jobs: res.jobs, commands: Array.isArray(res.commands) ? (res.commands as RemoteCommandEnvelope[]) : undefined };
+  }
+
+  /**
    * POST /api/agents/jobs/:jobId/claim - 409 is a normal, expected outcome
    * (another agent/attempt won the atomic claim race - docs/architecture.md
    * sec 13), carrying its own `{ ok:false, reason }` body shape rather than

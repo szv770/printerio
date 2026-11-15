@@ -16,7 +16,7 @@ import { createWriteStream, mkdirSync, readFileSync, rmSync, statSync, unlinkSyn
 import { Readable } from "node:stream";
 import path from "node:path";
 import { effectivePollSeconds, type AgentConfig } from "./config.js";
-import type { CloudClient, ClaimableJob } from "./cloud-client.js";
+import type { CloudClient, ClaimableJob, RemoteCommandEnvelope } from "./cloud-client.js";
 import type { JobQueue } from "./job-queue.js";
 import type { PrinterManager } from "./printer-manager.js";
 import type { SpoolerMonitor } from "./spooler-monitor.js";
@@ -745,6 +745,15 @@ export function createOrchestrator(deps: OrchestratorDeps) {
    * `getClaimableJobs()` itself failed after cloud-client.ts's own retries.
    */
   async function pollClaimableJobs(): Promise<boolean> {
+    return (await pollJobs(false)).ok;
+  }
+
+  /**
+   * One claimable-jobs poll. With `embedCommands` the same call also brings the pending remote commands: they are
+   * handled BEFORE any job is worked on (as the separate commands call always was), and when the website did not
+   * include them (an older website) the separate commands call is made as before. `commandsOk` is only set then.
+   */
+  async function pollJobs(embedCommands: boolean): Promise<{ ok: boolean; commandsOk?: boolean }> {
     // First, finish reporting any job that was already sent to the printer (before anything new is claimed).
     await redriveUnreported();
     // Defense in depth on top of the cloud's own refusal (see
@@ -755,17 +764,34 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     // would wrongly escalate the outer poll backoff (see CycleOutcome).
     if (healthMonitor.isPaused()) {
       logger.debug("agent is paused by an administrator - not polling for claimable jobs this cycle");
-      return true;
+      return { ok: true };
     }
 
     let jobs: ClaimableJob[];
+    let embedded: RemoteCommandEnvelope[] | undefined;
     try {
-      jobs = await cloudClient.getClaimableJobs();
+      if (embedCommands) {
+        const res = await cloudClient.getClaimableAndCommands();
+        jobs = res.jobs;
+        embedded = res.commands;
+      } else {
+        jobs = await cloudClient.getClaimableJobs();
+      }
     } catch (err) {
       logger.warn("could not fetch claimable jobs this cycle", {
         error: err instanceof Error ? err.message : String(err),
       });
-      return false;
+      return { ok: false, ...(embedCommands ? { commandsOk: false } : {}) };
+    }
+    let commandsOk: boolean | undefined;
+    if (embedCommands) {
+      if (embedded) {
+        await runCommands(embedded);
+        commandsOk = true;
+      } else {
+        // An older website (or a failed commands lookup there): ask for them separately, as before.
+        commandsOk = await pollCommands();
+      }
     }
     // The cloud lists jobs oldest first and we keep that order, one at a time.
     for (const job of jobs) {
@@ -785,7 +811,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       if (outcome.printerNotAvailable) profileCooldownUntil.set(job.printerProfileId, now() + PROFILE_COOLDOWN_MS);
       else if (outcome.sent) profileCooldownUntil.delete(job.printerProfileId);
     }
-    return true;
+    return { ok: true, ...(commandsOk !== undefined ? { commandsOk } : {}) };
   }
 
   /**
@@ -805,6 +831,12 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       });
       return false;
     }
+    await runCommands(commands);
+    return true;
+  }
+
+  /** Handles commands the cloud handed over (from `GET commands` or embedded in the claimable-jobs answer). Never throws. */
+  async function runCommands(commands: RemoteCommandEnvelope[]): Promise<void> {
     for (const envelope of commands) {
       try {
         const result = await handleCommand(envelope, {
@@ -851,34 +883,89 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       await sleep(1000);
       process.exit(1);
     }
-    return true;
   }
 
+  /** Epoch ms of the last heartbeat attempt (-Infinity = none yet, so the first cycle sends one at start-up). */
+  let lastHeartbeatAttemptAt = Number.NEGATIVE_INFINITY;
+  let lastHeartbeatOk = true;
+  let heartbeatInFlight: Promise<void> | null = null;
+  /** After a failed heartbeat, try again sooner than the normal interval (but never every cycle). */
+  const HEARTBEAT_RETRY_MS = 10_000;
+
   /**
-   * Runs the three polled sub-calls (heartbeat, commands, claimable jobs)
-   * and classifies the cycle as a whole (see CycleOutcome doc comment).
-   * None of the three sub-calls ever throws by contract, but each is still
-   * wrapped in its own `.catch()` here as defense in depth (docs/
-   * architecture.md sec 17: this loop must never die from an unexpected
-   * exception) - a caught-here exception counts the same as that sub-call
-   * reporting `false`.
+   * Starts a heartbeat in the background when one is due, and returns at once: a slow or failing heartbeat never
+   * delays the job poll (it used to run in front of it every cycle). At most one is in flight. Due = at start-up,
+   * then every `heartbeatIntervalSeconds` (sooner after a failure), and every cycle while this agent believes it is
+   * paused so a resume is noticed as fast as before.
    */
-  async function runOnce(): Promise<CycleOutcome> {
-    const heartbeatOk = await healthMonitor
+  function startHeartbeatIfDue(intervalMs: number): void {
+    if (heartbeatInFlight) return;
+    const waitMs = healthMonitor.isPaused() ? 0 : lastHeartbeatOk ? intervalMs : Math.min(intervalMs, HEARTBEAT_RETRY_MS);
+    if (now() - lastHeartbeatAttemptAt < waitMs) return;
+    lastHeartbeatAttemptAt = now();
+    heartbeatInFlight = healthMonitor
       .sendHeartbeat()
       .catch((err) => {
         logger.error("unexpected heartbeat error", { error: String(err) });
         return false;
+      })
+      .then((ok) => {
+        lastHeartbeatOk = ok;
+      })
+      .finally(() => {
+        heartbeatInFlight = null;
       });
-    const commandsOk = await pollCommands().catch((err) => {
-      logger.error("unexpected command-poll error", { error: String(err) });
-      return false;
-    });
-    const claimableOk = await pollClaimableJobs().catch((err) => {
+  }
+
+  /**
+   * Runs one poll cycle and classifies it as a whole (see CycleOutcome doc comment). No sub-call ever throws by
+   * contract, but each is still wrapped in its own `.catch()` here as defense in depth (docs/architecture.md sec 17:
+   * this loop must never die from an unexpected exception) - a caught-here exception counts the same as that
+   * sub-call reporting `false`.
+   *
+   * Normal mode (heartbeatIntervalSeconds > 0): ONE call per cycle - the claimable-jobs call also carries the pending
+   * remote commands - plus a heartbeat in the background about every 30 s. While paused, the commands are fetched
+   * separately (a paused agent does not ask for jobs) and the heartbeat goes every cycle, as before.
+   * Rollback mode (heartbeatIntervalSeconds = 0, PRINTIO_HEARTBEAT_SECONDS=0): exactly the old three calls per cycle.
+   */
+  async function runOnce(): Promise<CycleOutcome> {
+    const heartbeatMs = (config.heartbeatIntervalSeconds ?? 30) * 1000;
+    if (heartbeatMs <= 0) {
+      const heartbeatOk = await healthMonitor
+        .sendHeartbeat()
+        .catch((err) => {
+          logger.error("unexpected heartbeat error", { error: String(err) });
+          return false;
+        });
+      const commandsOk = await pollCommands().catch((err) => {
+        logger.error("unexpected command-poll error", { error: String(err) });
+        return false;
+      });
+      const claimableOk = await pollClaimableJobs().catch((err) => {
+        logger.error("unexpected job-poll error", { error: String(err) });
+        return false;
+      });
+      return classifyCycleOutcome([heartbeatOk, commandsOk, claimableOk]);
+    }
+
+    startHeartbeatIfDue(heartbeatMs);
+    if (healthMonitor.isPaused()) {
+      const commandsOk = await pollCommands().catch((err) => {
+        logger.error("unexpected command-poll error", { error: String(err) });
+        return false;
+      });
+      const claimableOk = await pollClaimableJobs().catch((err) => {
+        logger.error("unexpected job-poll error", { error: String(err) });
+        return false;
+      });
+      return classifyCycleOutcome([lastHeartbeatOk, commandsOk, claimableOk]);
+    }
+    const polled = await pollJobs(true).catch((err) => {
       logger.error("unexpected job-poll error", { error: String(err) });
-      return false;
+      return { ok: false, commandsOk: false };
     });
-    return classifyCycleOutcome([heartbeatOk, commandsOk, claimableOk]);
+    // The heartbeat's own result (from the latest finished one) still counts, so a cycle is judged as it always was.
+    return classifyCycleOutcome([lastHeartbeatOk, polled.commandsOk ?? polled.ok, polled.ok]);
   }
 
   return {
@@ -952,6 +1039,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     // Exposed so the release/cooldown behaviour can be tested without the sleeping poll loop.
     processJob,
     pollClaimableJobs,
+    runOnce,
     recoverInFlightJobs,
   };
 }

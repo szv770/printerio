@@ -902,26 +902,18 @@ try {
     Write-Step "Checking dependencies"
     $rootNodeModules = Join-Path $RepoRoot "node_modules"
     $agentNodeModules = Join-Path $AgentDir "node_modules"
-    # A "node_modules exists" check alone is not enough right after step 0
-    # actually pulled new commits: those commits may have added or bumped a
-    # dependency, and skipping the install then leaves the Agent running
-    # against the old dependency tree - failing at import time with an error
-    # that says nothing about the real cause. Re-install whenever the checkout
-    # just changed; it's a fast no-op when nothing in the lockfile did.
-    if ((Test-Path -LiteralPath $rootNodeModules) -and (Test-Path -LiteralPath $agentNodeModules) -and (-not $repoWasUpdated)) {
-        Write-Ok "Dependencies already installed."
-    } else {
-        if ($repoWasUpdated) {
-            Write-Info "This checkout was just updated, so dependencies are being re-checked with 'pnpm install'..."
-        }
-        Write-Info "Installing dependencies with 'pnpm install' - this can take a few minutes the first time..."
-        & pnpm install
-        if ($LASTEXITCODE -ne 0) {
-            Show-StopMessage "'pnpm install' failed (exit code $LASTEXITCODE)."
-            return
-        }
-        Write-Ok "Dependencies installed."
+    # Always run the install. A "node_modules exists" check (even with "was the checkout just updated in THIS run")
+    # is not enough: on 2026-11-15 the website's Update button pulled new code, its pnpm install failed (EPERM), and this
+    # script then said "Dependencies already installed" because git had nothing new - the Agent then crashed at start-up
+    # with "Cannot find package 'node-html-parser'". `pnpm install --frozen-lockfile` is a quick no-op when nothing
+    # changed (a few seconds) and installs exactly what pnpm-lock.yaml pins, the same command the Update button runs.
+    Write-Info "Making sure dependencies match this version (a quick no-op when nothing changed)..."
+    & pnpm install --frozen-lockfile --ignore-scripts
+    if ($LASTEXITCODE -ne 0) {
+        Show-StopMessage "'pnpm install' failed (exit code $LASTEXITCODE)."
+        return
     }
+    Write-Ok "Dependencies are up to date."
 
     # --- 7. Registration check ------------------------------------------------
 

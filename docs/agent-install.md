@@ -189,6 +189,7 @@ set these as real Windows environment variables (System Properties → Environme
 or `node-windows`'s service `env` option) if you'd rather not keep a `.env` file on disk at
 all — both approaches work and compose. The only required variable is `PRINTIO_API_URL`; everything else
 (`PRINTIO_LOCAL_STORAGE_PATH`, `PRINTIO_LOG_LEVEL`, `PRINTIO_POLL_INTERVAL_SECONDS`,
+`PRINTIO_HEARTBEAT_SECONDS` (default 30, range 10-120; set `0` to send a heartbeat every poll cycle as before - the rollback switch),
 `PRINTIO_SUMATRA_PATH`, `PRINTIO_PRINT_FIT_MODE`, `PRINTIO_SKIP_DEPENDENCY_CHECK`, `PRINTIO_LIBRARY_WORKER` (off; see below), etc.) has a documented default — see the
 `.env.example` file itself for the full list with rationale. `PRINTIO_AGENT_ID`/
 `PRINTIO_AGENT_SECRET` are normally **not** set by hand at all — `register` (§3) persists them

@@ -5,8 +5,9 @@ This is the canonical contract between `apps/web`'s agent-facing Route Handlers 
 this file first. See `docs/architecture.md` sec 4 (agent auth), sec 13 (leasing), sec 12
 (remote commands).
 
-Polling, not a persistent connection: the Agent polls `heartbeat` and `jobs/claimable` on a
-short interval (default 15s, configurable). This is deliberately simpler and more robust
+Polling, not a persistent connection: the Agent polls `jobs/claimable` (which also carries its
+remote commands, see below) on a short interval (default 3s, configurable) and sends `heartbeat`
+on its own slower timer (default every 30s). This is deliberately simpler and more robust
 than a WebSocket for V1 - it survives reconnects trivially and needs no server-side
 connection state. Supabase Realtime may be layered in later purely as a latency
 optimization (the Agent could also subscribe to a realtime "job approved" ping to poll
@@ -81,6 +82,18 @@ Agent build simply reports nothing and nothing is lost. **These values are displ
 they are never used to authenticate, authorize, or route anything (`docs/architecture.md`
 sec 3.2), which is what makes accepting a self-report safe here at all.
 
+**Cadence (phase B, 2026-11).** A current Agent sends the heartbeat once at start-up and then at most
+every `PRINTIO_HEARTBEAT_SECONDS` (default 30, clamped to 10-120; `0` or `cycle` = every poll cycle, the
+old behaviour and the rollback switch). While it believes it is paused it heartbeats every cycle, so a
+resume is noticed as fast as before; after a failed heartbeat it retries after 10 s. The heartbeat runs
+beside the job poll and never delays it. Consequences, all deliberate: `agents.last_seen_at` is up to
+~33 s old when everything is fine, so every "print server online" rule on the website uses a window of at
+least 5 minutes (at most two or more of the slowest allowed heartbeats); an admin-set poll speed
+(`pollIntervalSeconds`) and the direct-port printer targets (`rawPrinters`) reach the Agent with its next
+heartbeat (up to ~30 s later, not within 3 s); printer status reports and the printer probe reach the
+website at that cadence too. The pause itself does not depend on the heartbeat: the claimable and claim
+routes refuse a paused Agent on every request.
+
 Response: `{ "ok": true, "serverTime": "<ISO>", "paused": boolean }`. `paused` mirrors
 `agents.paused`; the Agent honors it by not polling for claimable jobs while set. That is
 **defense in depth only** - the pause is enforced by the two job-handing routes below, so
@@ -96,6 +109,16 @@ time, so a school of teachers sending at once is served in the order they sent. 
 While `agents.paused` is set, this returns `{ "jobs": [] }` unconditionally - being paused
 is a normal administrative state, not a fault, so it is an empty list rather than an error
 the Agent would back off from.
+
+**Opt-in `?commands=1`** (phase B): the answer also carries `"commands": [...]`, exactly what
+`GET /api/agents/commands` returns (same rows, same marking as picked up), so a current Agent makes
+one call per cycle instead of two. Rules: without the flag (or with any value other than `1`) the
+answer is unchanged, so older Agents are unaffected; an empty list is sent as `[]` (the field's
+presence tells the Agent the website supports it); a paused Agent still gets its `commands` (as on the
+commands route) but no jobs; the commands are looked up only after the job list succeeded (a 500 hands
+out no command), and if that lookup itself fails the field is left out. A current Agent that finds the
+field missing (older website, or a failed lookup) makes the separate `GET /api/agents/commands` call
+that cycle, exactly as before.
 
 ### `POST /api/agents/jobs/:jobId/claim`
 Atomic claim (see `docs/architecture.md` sec 13): only succeeds if the job is still
@@ -194,7 +217,7 @@ jobs alone for 30 s and then probes with the oldest one only.
 job cannot be built, the document is missing or not a PDF) are still reported with `status: failed` at once.
 
 ### `GET /api/agents/commands`
-Returns this agent's `pending` `remote_commands` rows: `{ "commands": [{ "id", "command",
+Still served for older Agents and as the fallback when `jobs/claimable?commands=1` has no `commands` field. Returns this agent's `pending` `remote_commands` rows: `{ "commands": [{ "id", "command",
 "payload" }] }`. `command` is always one of the fixed allow-listed values (sec 12) - the
 Agent's handler is a `switch` over this exact set, never a raw string executor.
 

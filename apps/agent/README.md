@@ -159,8 +159,11 @@ pnpm --filter @printio/agent uninstall-service
 
 ## Poll loop and outage backoff
 
-Heartbeat, remote commands, and claimable jobs are all polled on the same cycle, every
-`PRINTIO_POLL_INTERVAL_SECONDS` (default 15s) - see `src/orchestrator.ts` `runOnce()`. Each of
+Each cycle (every `PRINTIO_POLL_INTERVAL_SECONDS`) is ONE call: `GET jobs/claimable?commands=1` returns the
+claimable jobs and the pending remote commands together (an older website without the `commands` field makes the
+agent fall back to the separate commands call). The heartbeat runs on its own timer, at start-up and then every
+`PRINTIO_HEARTBEAT_SECONDS` (default 30), beside the job poll so it can never delay it; `0` restores the old three
+calls per cycle - see `src/orchestrator.ts` `runOnce()`. Each of
 those three calls already gets its own exponential-backoff retry inside `src/cloud-client.ts`
 (`sendWithRetry`, `MAX_RETRIES=4`) before it's considered failed for that cycle; that per-request
 layer is unrelated to and unaffected by everything below.

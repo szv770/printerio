@@ -127,7 +127,8 @@ describe("shouldAutoCheck", () => {
     expect(shouldAutoCheck({ commands: [fresh], lastSeenAt: ago(3), nowMs: NOW, agentVersion: "0.2.0" })).toBe(false);
     expect(shouldAutoCheck({ commands: [old], lastSeenAt: ago(3), nowMs: NOW, agentVersion: "0.2.0" })).toBe(true);
   });
-  it("does not check an agent that has been silent for over 2 minutes (it could not answer)", () => {
+  it("still checks an agent whose last heartbeat was a slow 120 s ago, but not one silent for over 5 minutes (it could not answer)", () => {
+    expect(shouldAutoCheck({ commands: [], lastSeenAt: ago(150), nowMs: NOW, agentVersion: "0.2.0" })).toBe(true);
     expect(shouldAutoCheck({ commands: [], lastSeenAt: ago(600), nowMs: NOW, agentVersion: "0.2.0" })).toBe(false);
     expect(shouldAutoCheck({ commands: [], lastSeenAt: null, nowMs: NOW, agentVersion: "0.2.0" })).toBe(false);
   });

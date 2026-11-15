@@ -4,8 +4,8 @@
  * server render and the sample-data preview agree.
  */
 
-/** A print server (agent) that has not reported in for longer than this is shown as offline. */
-export const HEARTBEAT_STALE_MS = 2 * 60_000;
+/** A print server (agent) that has not reported in for longer than this is shown as offline. Its heartbeat is every 30 s (at most every 120 s by configuration); this matches the 5-minute rule used on the other admin pages. */
+export const HEARTBEAT_STALE_MS = 5 * 60_000;
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
