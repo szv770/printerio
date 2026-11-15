@@ -243,11 +243,11 @@ export const EXPECTED: Record<string, TableAccess> = {
     }),
   },
   organization_members: {
-    why: "The roster. Every member sees their school's roster; only admins add, change or remove members.",
+    why: "The roster. Every member sees their school's roster; admins change or remove members. Nobody signed in inserts a member: server code only (invitation claim and platform console use the service role); migration 0054 dropped the admin insert rule so an admin cannot enrol an arbitrary user id.",
     school: ORG,
     owner: "t.user_id",
     select: ALL,
-    insert: "admin",
+    insert: "none",
     update: "admin",
     delete: "admin",
     makeInsert: ({ T }) => ({
@@ -474,24 +474,19 @@ export const ATTACKS: Attack[] = [
       { sql: `update member_devices set revoked_at = null where id = $1`, params: [A.devices.member] },
     ] },
 
-  // --- REAL GAPS: allowed today -------------------------------------------------------------------------------------
-  { id: "GAP remote_commands insert aimed at B's agent", what: "A admin sends a command (own organization_id) to School B's print server by its agent id", as: "a_admin",
-    gap: { severity: "High", summary: "remote_commands insert/update only check organization_id and issued_by, not that agent_id belongs to the same school; the agent poll (/api/agents/commands) filters by agent_id only, so School B's server would run it (restart, get-logs, check-for-update) and write the result into a row School A's admin can read." },
+  // --- Fixed by migration 0054 (these were open gaps): now plain 'must be blocked' cases, so a regression turns CI red ------
+  // --- STILL OPEN (marked `gap`): only the Low integrity case below -------------------------------------------------------
+  { id: "remote_commands insert aimed at B's agent", what: "A admin sends a command (own organization_id) to School B's print server by its agent id", as: "a_admin",
     steps: [{ sql: `insert into remote_commands (organization_id, agent_id, command, issued_by) values ($1,$2,'GET_LOGS',$3)`, params: [A.org, B.agent, A.users.admin] }] },
-  { id: "GAP remote_commands update re-points at B's agent", what: "A admin re-points an existing A command at School B's print server", as: "a_admin",
-    gap: { severity: "High", summary: "Same hole as the insert: the UPDATE policy re-checks only organization_id." },
+  { id: "remote_commands update re-points at B's agent", what: "A admin re-points an existing A command at School B's print server", as: "a_admin",
     steps: [{ sql: `update remote_commands set agent_id = $1 where organization_id = $2`, params: [B.agent, A.org] }] },
-  { id: "GAP remote_commands references B's printer", what: "A admin sends a command naming School B's printer", as: "a_admin",
-    gap: { severity: "Low", summary: "printer_id is not checked against the command's school either (the command still runs on A's own server, so only an integrity gap)." },
+  { id: "remote_commands references B's printer", what: "A admin sends a command naming School B's printer", as: "a_admin",
     steps: [{ sql: `insert into remote_commands (organization_id, agent_id, printer_id, command, issued_by) values ($1,$2,$3,'REFRESH_PRINTER_STATUS',$4)`, params: [A.org, A.agent, B.printer, A.users.admin] }] },
-  { id: "GAP printer_profiles bound to B's agent (insert)", what: "A admin creates a profile on A's printer that is served by School B's print server", as: "a_admin",
-    gap: { severity: "Medium", summary: "printer_profiles policies check only the printer's school, not that agent_id belongs to it. A profile of School A bound to School B's agent puts A's queue/printer settings into B's agent claim list. Jobs are still filtered by the agent's own school today, so no documents cross, but the database does not enforce it." },
+  { id: "printer_profiles bound to B's agent (insert)", what: "A admin creates a profile on A's printer that is served by School B's print server", as: "a_admin",
     steps: [{ sql: `insert into printer_profiles (printer_id, agent_id, key, label, windows_queue_name) values ($1,$2,'x2','x','x')`, params: [A.printer, B.agent] }] },
-  { id: "GAP printer_profiles update re-points at B's agent", what: "A admin re-points A's profile at School B's print server", as: "a_admin",
-    gap: { severity: "Medium", summary: "Same hole via UPDATE." },
+  { id: "printer_profiles update re-points at B's agent", what: "A admin re-points A's profile at School B's print server", as: "a_admin",
     steps: [{ sql: `update printer_profiles set agent_id = $1 where id = $2`, params: [B.agent, A.profile] }] },
-  { id: "GAP organization_members adds a School B user without consent", what: "A admin enrols a School B person (by id) into School A, then reads their profile", as: "a_admin",
-    gap: { severity: "Medium", summary: "organization_members INSERT only requires the caller to be admin of the target school; user_id can be ANY existing user. After enrolling, the profiles policy ('org_admins view their org's members') lets A's admin read that user's email and name. Needs the user's id (a random uuid, not listed anywhere), so exposure is limited, but it is a cross-school read the database should refuse." },
+  { id: "organization_members adds a School B user without consent", what: "A admin enrols a School B person (by id) into School A, then reads their profile", as: "a_admin",
     steps: [
       { sql: `insert into organization_members (user_id, organization_id, role) values ($1,$2,'student')`, params: [B.users.member, A.org] },
       { sql: `select id, email from profiles where id = $1`, params: [B.users.member] },
