@@ -1,4 +1,4 @@
-import { parseShiurPage, shiurUrl, SHIUR_ORIGIN, type ShiurDay } from "./source";
+import { parseShiurPage, shiurUrl, SHIUR_ORIGIN, type ShiurDay } from "@printio/shared/library/daily/source";
 
 const MAX_BYTES = 3 * 1024 * 1024;
 

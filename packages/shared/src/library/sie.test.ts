@@ -1,17 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { SIE_CREDIT, SIE_WEEKLY } from "./sie-weekly";
 import { groupSie, likkutPageFromLabel, sieForLikkut, sieContentRange } from "./sie";
-import { normalizeSourceLink } from "@/lib/sources/link";
 
 describe("SIE Weekly data (a snapshot of sie.org/weekly)", () => {
-  it("has the published weeks, each with a Drive file that the safe link import accepts", () => {
+  it("has the published weeks, each with a Drive file link", () => {
     expect(SIE_WEEKLY.length).toBeGreaterThan(100);
     for (const e of SIE_WEEKLY) {
       expect(e.title.trim(), JSON.stringify(e)).not.toBe("");
       expect(["Alef", "Beis", "Gimmel", "Daled"]).toContain(e.chelek);
       expect(["Bereishis", "Shmos", "Vayikra", "Bamidbar", "Devarim"]).toContain(e.sefer);
       expect(e.url).toMatch(/^https:\/\/drive\.google\.com\/file\/d\/[A-Za-z0-9_-]{20,}\/view$/);
-      expect(normalizeSourceLink(e.url).ok, e.url).toBe(true);
     }
   });
   it("never repeats a file, and the credit names the source", () => {

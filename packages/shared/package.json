@@ -7,13 +7,24 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./device-token": "./src/device-token.ts"
+    "./device-token": "./src/device-token.ts",
+    "./library/labels": "./src/library/labels.ts",
+    "./library/mafteiach-parse": "./src/library/mafteiach-parse.ts",
+    "./library/mafteiach-fetch": "./src/library/mafteiach-fetch.ts",
+    "./library/sie": "./src/library/sie.ts",
+    "./library/sie-store": "./src/library/sie-store.ts",
+    "./library/sie-weekly": "./src/library/sie-weekly.ts",
+    "./library/daily/dates": "./src/library/daily/dates.ts",
+    "./library/daily/feed": "./src/library/daily/feed.ts",
+    "./library/daily/page": "./src/library/daily/page.ts",
+    "./library/daily/source": "./src/library/daily/source.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
+    "node-html-parser": "^9.0.5",
     "zod": "^3.24.1"
   },
   "devDependencies": {

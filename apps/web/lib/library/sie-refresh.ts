@@ -1,6 +1,6 @@
 import "server-only";
 import { parse } from "node-html-parser";
-import type { SieEntry } from "./sie-weekly";
+import type { SieEntry } from "@printio/shared/library/sie-weekly";
 
 /**
  * "Check for new weeks": reads Sichos In English's weekly page (https://shop.sie.org/pages/weekly, a public page the owner

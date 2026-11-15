@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseDailyFeed } from "./feed";
+import { parseDailyFeed } from "@printio/shared/library/daily/feed";
 import { detectStudy, prepareImport } from "./import";
 
-const fixture = (name: string) => readFileSync(join(__dirname, "fixtures", name), "utf8");
+const fixture = (name: string) => readFileSync(join(__dirname, "..", "..", "..", "..", "..", "packages", "shared", "src", "library", "daily", "fixtures", name), "utf8");
 const day = parseDailyFeed(fixture("dailystudy-rss-2026-11-01.xml"));
 
 describe("detectStudy", () => {

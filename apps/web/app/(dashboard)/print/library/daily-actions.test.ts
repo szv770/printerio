@@ -21,7 +21,7 @@ vi.mock("@/lib/supabase/service-role", () => ({
 
 import { importDailyAction } from "./daily-actions";
 
-const dir = join(__dirname, "..", "..", "..", "..", "lib", "library", "daily", "fixtures");
+const dir = join(__dirname, "..", "..", "..", "..", "..", "..", "packages", "shared", "src", "library", "daily", "fixtures");
 const feedXml = readFileSync(join(dir, "dailystudy-rss-2026-11-01.xml"), "utf8");
 const page = (name: string) => readFileSync(join(dir, name), "utf8");
 const form = (date: string, files: Record<string, string>) => {

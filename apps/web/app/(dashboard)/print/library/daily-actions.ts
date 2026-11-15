@@ -9,7 +9,7 @@ import { prepareImport } from "@/lib/library/daily/import";
 import type { Json } from "@/lib/database.types";
 import { canUseLinks } from "@/lib/sources/access";
 import { buildFilledPdf, type Language } from "@/lib/library/daily/fill";
-import type { StudySection } from "@/lib/library/daily/page";
+import type { StudySection } from "@printio/shared/library/daily/page";
 import { checkFontChoiceIds, loadFontChoices } from "@/lib/booklet/custom-font";
 import { listOrgFonts, type OrgFontOption } from "@/lib/booklet/org-fonts";
 import { ENGLISH_FONT_CHOICES } from "@/lib/booklet/fonts/english";

@@ -1,6 +1,6 @@
 import { parse } from "node-html-parser";
-import type { DailyDay, DailyStudy } from "./feed";
-import { isCheckPage, parseStudyPage, type StudySection } from "./page";
+import type { DailyDay, DailyStudy } from "@printio/shared/library/daily/feed";
+import { isCheckPage, parseStudyPage, type StudySection } from "@printio/shared/library/daily/page";
 
 /**
  * Turns a study page a person saved from their own browser ("Webpage, HTML only") into a row for `library_daily_texts`.

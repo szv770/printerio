@@ -1,4 +1,4 @@
-import { dailyFeedUrl, parseDailyFeed, type DailyDay } from "./feed";
+import { dailyFeedUrl, parseDailyFeed, type DailyDay } from "@printio/shared/library/daily/feed";
 
 const MAX_FEED_BYTES = 200 * 1024;
 

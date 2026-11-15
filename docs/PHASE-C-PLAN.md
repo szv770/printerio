@@ -40,4 +40,4 @@ The library browser fetches a Mafteiach page and parses it (up to 3 MB of HTML) 
 The booklet builder, link import, test print and preview (later C steps), and splitting `createPrintJob` (last).
 
 ## Status
-Not started. Open owner decisions: none for C1a. For C1b the switch name and where it lives (an environment variable on the PC, default off) are decided here; changing it needs a website restart.
+C1a done (working tree, not committed): parsers, URL builder, SIE data and helpers, daily parsers and dates moved to `packages/shared/src/library/` with their tests and fixtures; imported as `@printio/shared/library/...` (subpath exports; `node-html-parser` added to shared). C1b onward not started. Open owner decisions: none for C1a. For C1b the switch name and where it lives (an environment variable on the PC, default off) are decided here; changing it needs a website restart.

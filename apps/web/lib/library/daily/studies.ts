@@ -1,4 +1,4 @@
-import type { DailyStudy } from "./feed";
+import type { DailyStudy } from "@printio/shared/library/daily/feed";
 
 /** The studies the library offers, in the order they print. */
 export const OFFERED_STUDIES = ["chumash", "tanya", "hayomyom", "rambam3", "rambam1"] as const satisfies readonly DailyStudy[];

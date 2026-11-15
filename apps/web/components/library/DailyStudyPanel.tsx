@@ -7,7 +7,7 @@ import { Button, FormError, Segmented, Spinner } from "@/components/ui";
 import { buildDailyBookletAction, dailyDayAction, dailyFontsAction, type DailyDayItem } from "@/app/(dashboard)/print/library/daily-actions";
 import { putBuiltBooklet } from "@/lib/booklet/handoff";
 import { builderPrintUrl } from "@/lib/booklet/builder-params";
-import { localIsoDate, shiftIso } from "@/lib/library/daily/dates";
+import { localIsoDate, shiftIso } from "@printio/shared/library/daily/dates";
 import { DAILY_CREDIT, type OfferedStudy } from "@/lib/library/daily/studies";
 import type { Language } from "@/lib/library/daily/fill";
 
