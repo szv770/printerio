@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
 import { preflightPdf } from "@/lib/pdf/preflight";
 import { TYPE3_HELD_MESSAGE } from "@/lib/pdf/type3-fonts";
+import { rasterizePdf } from "@/lib/pdf/type3-rasterize";
 import { bookletSheetChoice, padAndImposeBooklet, type BookletSheet } from "@/lib/pdf/booklet-build";
 import type { BookletFit } from "@/lib/pdf/imposition";
 import { containsPjlEscape, PJL_ESCAPE_MESSAGE, computePrintMath, computeCostCents, computeBookletPadding, type PolicyAction, type PricingConfig, type OrgRole } from "@printio/shared";
@@ -258,18 +259,27 @@ export async function createPrintJob(
 
   const preflight = await preflightPdf(originalBytes, { maxSizeBytes: maxUploadBytes });
   if (!preflight.ok) return fail(preflight.reason, "bad_pdf");
-  // Type 3 fonts have crashed the printer's PDF reader (2026-11-15): hold the job instead of sending it. Switch: PRINTIO_ALLOW_TYPE3_FONTS=1 lets them through again.
+  // Type 3 fonts have crashed the printer's PDF reader (2026-11-15). Printio draws such a file page by page into a
+  // picture copy (lib/pdf/type3-rasterize.ts) and prints that instead; if it cannot (too many pages, too slow), the job
+  // is held with a plain message. PRINTIO_ALLOW_TYPE3_FONTS=1 sends them as they are again.
+  let pictureCopy: Uint8Array | null = null;
   if (preflight.hasType3Fonts && process.env.PRINTIO_ALLOW_TYPE3_FONTS !== "1" && !heldReason) {
-    logger.warn("PDF has Type 3 fonts; job held", { organizationId, printerProfileId });
-    heldReason = TYPE3_HELD_MESSAGE;
-    held = true;
+    const drawn = await rasterizePdf(preflight.sanitizedBytes ?? originalBytes, { color: colorMode === "color" });
+    if (drawn.ok) {
+      pictureCopy = drawn.bytes;
+      logger.warn("PDF has Type 3 fonts; printing a picture copy", { organizationId, printerProfileId, pages: drawn.pages });
+    } else {
+      logger.warn("PDF has Type 3 fonts and could not be converted; job held", { organizationId, printerProfileId, reason: drawn.reason });
+      heldReason = TYPE3_HELD_MESSAGE;
+      held = true;
+    }
   }
 
   // Attachments, JavaScript and launch actions are stripped rather than refused (a teacher cannot fix them, and
   // the Android print service adds one). The upload is still stored untouched as the original; everything that
   // prints is built from the sanitized copy, so a sanitized job always gets a derived file (the Agent prints the
   // derived file whenever there is one).
-  const sanitized = preflight.sanitizedBytes ?? null;
+  const sanitized = pictureCopy ?? preflight.sanitizedBytes ?? null;
   const sourceBytes = sanitized ?? originalBytes;
 
   // The page range is applied FIRST, so booklet padding, imposition, print math, policy and quota all work
@@ -410,7 +420,8 @@ export async function createPrintJob(
   // when there is a derived file and the original has non-Latin text (Hebrew etc.); fails open (a check that errors
   // or runs out of time lets the job through and logs a warning). A real mismatch holds the job with a plain reason:
   // nothing is stored as derived, no quota is reserved, and releasing it re-runs this same check.
-  if (!held && derivedBytes) {
+  // A picture copy has no text by design, so the check would always call it changed: it is skipped for those.
+  if (!held && derivedBytes && !pictureCopy) {
     const fidelity = await checkTextFidelity({ original: originalBytes, derived: derivedBytes, sourcePages: plan.subsetPages ?? null, booklet });
     if (fidelity.status === "changed") {
       logger.error("derived PDF text differs from the upload; job held", { organizationId, printerProfileId, page: fidelity.page, booklet, pageRange: pageRangeText });
@@ -666,7 +677,7 @@ export async function createPrintJob(
       event_type: "JOB_CREATED" as const,
       metadata: source === "ipp" ? { source: "ipp", deviceId: opts.deviceId ?? null } : {},
     },
-    { event_type: "PDF_UPLOADED" as const, metadata: { fileName: originalFileName, fileSizeBytes: preflight.fileSizeBytes } },
+    { event_type: "PDF_UPLOADED" as const, metadata: { fileName: originalFileName, fileSizeBytes: preflight.fileSizeBytes, ...(pictureCopy ? { printedAsPictures: true } : {}) } },
     { event_type: "PREFLIGHT_COMPLETED" as const, metadata: { sourcePages, blankPagesAdded } },
     ...(jobStatus === "held"
       ? []

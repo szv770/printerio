@@ -8,7 +8,7 @@ import { parsePageRange } from "@printio/shared";
 import { bookletBlankPagesNote } from "@/lib/booklet-note";
 import { PagePicker } from "@/components/print/PagePicker";
 import { Button, Card, Collapsible, FieldError, FieldLabel, FormError, Input, Segmented, Select, Spinner, StatusDot, Switch } from "@/components/ui";
-import { hasType3Fonts, TYPE3_HELD_MESSAGE } from "@/lib/pdf/type3-fonts";
+import { hasType3Fonts, PICTURE_COPY_MAX_PAGES, TYPE3_HELD_MESSAGE, TYPE3_PICTURE_NOTICE } from "@/lib/pdf/type3-fonts";
 import { formatFileSize, precheckPdfHeader, precheckSelectedFile, shouldPreviewInBrowser } from "@/lib/pdf/client-precheck";
 import { renderPdfPageToCanvas } from "@/lib/pdf/render-page";
 import {
@@ -146,6 +146,7 @@ export function PrintForm({
   const [fileName, setFileName] = useState<string | null>(null);
   const [fileSizeLabel, setFileSizeLabel] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [fileNotice, setFileNotice] = useState<string | null>(null);
   const [thumbnailReady, setThumbnailReady] = useState(false);
   const [thumbnailLoading, setThumbnailLoading] = useState(false);
   /** Set when a file is too large to parse/render safely in the browser (see shouldPreviewInBrowser) - the upload itself is unaffected. */
@@ -302,6 +303,7 @@ export function PrintForm({
     setEstimatedPages(null);
     setPickedBytes(null);
     setFileError(null);
+    setFileNotice(null);
     setFileName(file?.name ?? null);
     setFileSizeLabel(file ? formatFileSize(file.size) : null);
     setThumbnailReady(false);
@@ -343,8 +345,12 @@ export function PrintForm({
       const { PDFDocument } = await import("pdf-lib");
       const doc = await PDFDocument.load(bytes, { updateMetadata: false });
       if (blockType3Fonts && hasType3Fonts(doc)) {
-        rejectSelectedFile(input, TYPE3_HELD_MESSAGE);
-        return;
+        // Printio prints a picture copy of these (up to a page limit); longer ones are refused with the explanation.
+        if (doc.getPageCount() > PICTURE_COPY_MAX_PAGES) {
+          rejectSelectedFile(input, TYPE3_HELD_MESSAGE);
+          return;
+        }
+        setFileNotice(TYPE3_PICTURE_NOTICE);
       }
       setEstimatedPages(doc.getPageCount());
       // Attachments/JavaScript are not rejected: the server strips them (lib/pdf/sanitize.ts) before printing.
@@ -644,6 +650,12 @@ export function PrintForm({
             </>
           )}
         </div>
+        {fileNotice && !fileError && (
+          <p role="status" className="mt-2 flex items-start gap-1.5 text-sm text-[var(--color-muted)]">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <span>{fileNotice}</span>
+          </p>
+        )}
         {fileError && (
           <p id="file-error" role="alert" className="mt-2 flex items-start gap-1.5 text-sm text-[var(--color-danger)]">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />

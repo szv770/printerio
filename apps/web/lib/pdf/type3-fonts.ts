@@ -16,6 +16,13 @@ export function hasType3Fonts(doc: PDFDocument): boolean {
   return false;
 }
 
+/** Most pages Printio will turn into a picture copy (lib/pdf/type3-rasterize.ts). Longer files are refused with the message below. */
+export const PICTURE_COPY_MAX_PAGES = 30;
+
+/** Shown when a picked file will be printed as a picture copy (nothing for the member to do). */
+export const TYPE3_PICTURE_NOTICE =
+  "This PDF's fonts can crash the office printer, so Printio will print a picture copy of it instead. It will look the same on paper; the text may be a little softer.";
+
 /**
  * Plain words for the member whose file was held or refused. The second sentence is written to be copied to whatever
  * made the PDF (often an AI tool or a web page saved as PDF): it names the exact problem.
