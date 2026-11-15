@@ -205,7 +205,7 @@ must be listed in `library_fetchers` (registered by the owner in SQL): any other
 No request or response ever carries a web address: a job holds structured `params`, and the Agent builds the address itself with the
 shared allow-list (`libraryPageUrl` in `packages/shared/src/library/mafteiach-fetch.ts`). Not rate limited, like the other poll routes.
 
-- `POST /api/agents/server-jobs/claim` (no body). Atomically claims the oldest `queued` job (or one `claimed` whose lease expired) and
+- `POST /api/agents/server-jobs/claim` (no body). First marks `queued` jobs older than 10 minutes as `failed` with error `expired` (so an unserved queue cannot pile up; the website's "failed in the last 5 minutes" rule then applies). Then atomically claims the oldest `queued` job (or one `claimed` whose lease expired) and
   leases it for **120 seconds**. `200 { "jobId", "kind": "library_fetch", "params" }` where `params` is one of
   `{ "kind": "likkutei", "volume": 12 }`, `{ "kind": "list", "section": "maamorim" | "all", "year"?: "5710" }`,
   `{ "kind": "entry", "path": "/maamorim/123" }`; or `204` (empty body) when there is nothing to do.

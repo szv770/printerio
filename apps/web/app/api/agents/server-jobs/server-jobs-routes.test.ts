@@ -25,7 +25,7 @@ const inMinutes = (m: number) => new Date(Date.now() + m * 60_000).toISOString()
 const job = (id: string, over: Row = {}): Row => ({
   id, kind: "library_fetch", organization_id: "orgB", requested_by: "u1",
   params: { kind: "likkutei", volume: 1 }, dedupe_key: "likkutei:1",
-  status: "queued", claimed_by: null, lease_until: null, result_key: null, error: null, created_at: minutesAgo(10), updated_at: minutesAgo(10), ...over,
+  status: "queued", claimed_by: null, lease_until: null, result_key: null, error: null, created_at: minutesAgo(2), updated_at: minutesAgo(2), ...over,
 });
 
 const req = (body?: unknown, headers: Record<string, string> = {}) =>
@@ -112,10 +112,59 @@ describe("POST claim", () => {
     expect((await claim(req())).status).toBe(204);
   });
 
+  it("first expires queued jobs older than 10 minutes (failed, error 'expired') and then claims a live one", async () => {
+    mem.tables.server_jobs = [
+      job(J1, { created_at: minutesAgo(11) }),
+      job(J2, { created_at: minutesAgo(1), params: { kind: "likkutei", volume: 2 }, dedupe_key: "likkutei:2" }),
+    ];
+    const res = await claim(req());
+    expect(res.status).toBe(200);
+    expect((await res.json()).jobId).toBe(J2);
+    const old = mem.tables.server_jobs.find((r) => r.id === J1)!;
+    expect(old.status).toBe("failed");
+    expect(old.error).toBe("expired");
+    expect(old.lease_until).toBeNull();
+    // updated_at is "now", so the website's 'failed in the last 5 minutes' rule picks it up
+    expect(Date.now() - Date.parse(old.updated_at as string)).toBeLessThan(5_000);
+    expect(mem.tables.server_jobs.find((r) => r.id === J2)!.status).toBe("claimed");
+  });
+
+  it("when only expired jobs wait, they are failed and the answer is 204", async () => {
+    mem.tables.server_jobs = [job(J1, { created_at: minutesAgo(30) }), job(J2, { created_at: minutesAgo(12), params: { kind: "likkutei", volume: 2 }, dedupe_key: "likkutei:2" })];
+    expect((await claim(req())).status).toBe(204);
+    expect(mem.tables.server_jobs.map((r) => [r.status, r.error])).toEqual([["failed", "expired"], ["failed", "expired"]]);
+  });
+
+  it("expiry touches only queued jobs: a claimed (even old), done or already failed job is left alone", async () => {
+    mem.tables.server_jobs = [
+      job(J1, { status: "claimed", claimed_by: "agent-x", lease_until: inMinutes(1), created_at: minutesAgo(60) }),
+      job(J2, { status: "done", created_at: minutesAgo(60) }),
+      job(J3, { status: "failed", error: "page not found", created_at: minutesAgo(60) }),
+    ];
+    expect((await claim(req())).status).toBe(204);
+    expect(mem.tables.server_jobs.map((r) => [r.status, r.error])).toEqual([["claimed", null], ["done", null], ["failed", "page not found"]]);
+  });
+
+  it("an expiry that cannot be written does not stop the claim", async () => {
+    mem.tables.server_jobs = [job(J1)];
+    const real = mem.client.from.bind(mem.client);
+    let first = true;
+    (mem.client as unknown as { from: (t: string) => unknown }).from = (t: string) => {
+      const q = real(t as never) as { update: (v: unknown) => unknown };
+      if (first && t === "server_jobs") {
+        first = false;
+        return { update: () => ({ eq: () => ({ lt: async () => ({ data: null, error: { message: "db down" } }) }) }) };
+      }
+      return q;
+    };
+    expect((await claim(req())).status).toBe(200);
+  });
+
   it("the claim is ONE conditional update naming the state it saw (so a lost race matches nothing)", async () => {
     mem.tables.server_jobs = [job(J1)];
     await claim(req());
-    const upd = mem.log.find((l) => l.table === "server_jobs" && l.op === "update")!;
+    // the first update is the expiry sweep of old queued jobs; the claim is the one that names the job
+    const upd = mem.log.filter((l) => l.table === "server_jobs" && l.op === "update").at(-1)!;
     expect(upd.filters).toContain(`eq id ${J1}`);
     expect(upd.filters).toContain("eq status queued");
   });

@@ -36,6 +36,8 @@ export interface AgentConfig {
   rawOnly: boolean;
   /** PRINTIO_PRINTER_FEEDBACK: for a raw-port job, after sending it as usual poll the printer (short PJL INFO STATUS connections) for the JOB END of this job's unique name, so the job can say 'Printer confirmed N of N pages'. On by default (the owner asked for it after the page-counter check was proven on the real printer); set PRINTIO_PRINTER_FEEDBACK=false and the Agent behaves exactly as before. */
   printerFeedback: boolean;
+  /** PRINTIO_LIBRARY_WORKER: ONLY the exact values 1 or true switch on the optional library worker (library-worker.ts: fetches Mafteiach pages for the website's shared cache). OFF by default; meant for the owner's own server only; any other value (or none) means off, and a typo never stops the agent starting. */
+  libraryWorker: boolean;
   /** PRINTIO_RAW_ALLOWED_HOSTS: if set, raw print jobs are only ever sent to these hosts (lower-case, comma separated in the env). Always on top of the private-LAN-only rule. */
   rawAllowedHosts?: string[];
   /** PRINTIO_DOWNLOAD_ALLOWED_HOSTS: if set, job documents are only downloaded from these hosts (or their subdomains), e.g. supabase.co. */
@@ -82,6 +84,12 @@ function parseBool(name: string, raw: string | undefined, fallback: boolean): bo
   if (normalized === "true" || normalized === "1") return true;
   if (normalized === "false" || normalized === "0") return false;
   throw new ConfigError(`${name} must be "true" or "false", got ${JSON.stringify(raw)}`);
+}
+
+/** Lenient on purpose (never throws): only `1` or `true` (any case, spaces ignored) turns the library worker on. */
+export function parseLibraryWorkerFlag(raw: string | undefined): boolean {
+  const v = (raw ?? "").trim().toLowerCase();
+  return v === "1" || v === "true";
 }
 
 export interface LoadConfigOptions {
@@ -177,6 +185,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AgentConfig {
     ),
     rawOnly: parseBool("PRINTIO_RAW_ONLY", env.PRINTIO_RAW_ONLY, false),
     printerFeedback: parseBool("PRINTIO_PRINTER_FEEDBACK", env.PRINTIO_PRINTER_FEEDBACK, true),
+    libraryWorker: parseLibraryWorkerFlag(env.PRINTIO_LIBRARY_WORKER),
     rawAllowedHosts: parseRawAllowedHosts(env.PRINTIO_RAW_ALLOWED_HOSTS),
     downloadAllowedHosts: parseAllowedDownloadHosts(env.PRINTIO_DOWNLOAD_ALLOWED_HOSTS),
   };
