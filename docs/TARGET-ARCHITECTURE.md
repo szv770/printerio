@@ -23,17 +23,20 @@ runs the whole website (`docs/STATE-2026-11-01.md` section 1 describes how it ru
 | Deploys | GitHub builds and deploys to Cloudflare only when a change is merged (no preview builds); one limited Cloudflare key stored as a GitHub secret |
 | School tunnels | Printio creates one Cloudflare tunnel + address per school automatically when the school clicks "Add a print server" |
 | Shared lists and daily-study text | The owner's own server fetches a week ahead on a schedule and saves to Supabase; schools only read the saved copy. Library PDFs are fetched by whichever school's server is building the booklet, at that moment, and are not stored in the cloud |
-| Fonts for other schools | Ship only free-licence fonts (Ezra SIL, David Libre, EB Garamond, Source Serif 4, Libre Baskerville). The owner's licensed fonts (SBL Hebrew, OT Siddur/Vilna/Heilig/Holtz/Talmudis...) stay on the owner's own server, uploaded privately on the existing Admin -> Fonts page (so nothing licensed needs to go into git, and the repo can be private) |
+| Fonts for other schools | Everyone gets the free-licence fonts (Ezra SIL, David Libre, EB Garamond, Source Serif 4, Libre Baskerville, and more open fonts later). A school that wants a specific licensed font (for example SBL Hebrew, about $5) buys it and uploads it on its own Admin -> Fonts page (already built). The owner's licensed fonts (SBL Hebrew, OT Siddur/Vilna/Heilig/Holtz/Talmudis...) are never shipped to schools and never put in git; they are uploaded privately on the owner's own server, so the repo can be private |
+| Standard daily booklets | The owner's server pre-builds the standard daily-study booklets a week ahead (Hebrew / English / both, Letter and 11x17, the house design, which may use the owner's licensed fonts; only the finished PDF leaves, and a PDF carries only the letters it uses, never the font file) and pushes them to every school's server. Any other choice (another font, language mix or size) is built on the school's own server with open fonts or fonts the school uploaded |
+| How a finished PDF reaches a school | The owner's server pushes it to the school's server through that school's tunnel with a cloud-signed token (the same token mechanism as browser uploads). Nothing is kept in cloud storage. If a school's server is off, the job waits in the queue and is retried (a school's server has to be on to print anyway) |
+| Cover, contents and back pages in the booklet builder | Unchanged: built on the school's own server from the school's own files with open fonts or the school's own uploaded fonts. (An idea to build only those pages on the owner's server was dropped.) |
 
 ## 3. What runs where
 | Piece | Runs on | Notes |
 |---|---|---|
 | Pages, login screens, job list, admin screens | Cloudflare (free) | Dynamic requests count against 100,000 a day, 10 ms CPU each, 3 MB compressed bundle ([limits](https://developers.cloudflare.com/workers/platform/limits)). Static files are free |
 | Logins, shared data, live push | Supabase | Free: 500 MB database, 5 GB traffic, pauses after a week idle ([pricing](https://supabase.com/pricing)). Today's database: 18 MB; daily study text about 94 KB a day, about 34 MB a year |
-| Booklet builder, daily-study layout, page checks, imposition, thumbnails | Print server | Becomes "jobs" the server claims (like print jobs today); the website shows progress |
+| Booklet builder, daily-study layout, page checks, imposition, thumbnails | The school's print server | Becomes "jobs" the server claims (like print jobs today); the website shows progress. Exception: the standard daily booklets are pre-built by the owner's server and pushed to schools |
 | Print dialog gateway, agent, files, retention | Print server | Already there; gateway must stop holding the master Supabase key (phase 2) |
 | Timed jobs (cleanup, sweeps, keep-alive) | Cloudflare cron or Supabase timers | The PC no longer has to be on |
-| Shared daily text and lists | Owner's server, a week ahead | One fetch a day for everyone |
+| Shared daily text and lists, and the pre-built standard daily booklets | Owner's server, a week ahead | One fetch a day for everyone; the same server builds the standard booklets from that text and pushes them to schools |
 
 ## 4. Usage hot spots found in the current code (fix before moving)
 - **Agent polls every 3 s.** Through the website that is about 28,800 requests a day per server (29% of the free daily limit each). Must go to Supabase directly with push.
@@ -51,7 +54,8 @@ runs the whole website (`docs/STATE-2026-11-01.md` section 1 describes how it ru
 - **Browser to school server uploads:** the cloud mints a short-lived upload token for one school; that school's server checks it (public key) and accepts only that school's users, with size and type limits and CORS for the website only.
 - **Biggest new secret:** the Cloudflare key that creates tunnels and addresses. Scope it to the one zone and tunnels only, keep it only in the cloud function that needs it, rotate it, and make each school's tunnel revocable alone.
 - **Shared text integrity:** schools only read the shared lists and daily text; only the owner's server writes them (so no school can alter what others read).
-- **Fonts:** only free-licence fonts ship to schools; licensed fonts are uploaded privately for the owner's organization only.
+- **Fonts:** only free-licence fonts ship to schools; licensed fonts are uploaded privately for the owner's organization only (and by a school for itself). Technical check on the owner's fonts (2026-11-15): no font file forbids embedding or subsetting in a PDF (OT fonts: no restriction set; SBL Hebrew: editable embedding allowed). That flag is not the licence agreement: see section 7.
+- **Pushing finished PDFs to schools:** the owner's design server is a signed-in sender with a cloud-issued, short-lived token naming one school; the school's server accepts it only for that school, with size and type limits, and the same upload endpoint as browser uploads (phase 3).
 
 ## 6. Phases (each ends with something checkable; nothing is switched over until the end)
 0. **Trial:** a tiny page on Cloudflare using the real Supabase login, built by GitHub on merge. Measure bundle size, CPU and requests per page; choose Cloudflare's current Next.js route (OpenNext vs vinext: Cloudflare now recommends vinext for new apps, [docs](https://developers.cloudflare.com/workers/framework-guides/web-apps/opennext/)) before committing. Exit: login works, numbers recorded.
@@ -59,7 +63,7 @@ runs the whole website (`docs/STATE-2026-11-01.md` section 1 describes how it ru
 2. **Servers talk to Supabase directly:** per-server credentials, row-level security, Realtime push for jobs and commands, presence from heartbeats; remove the service-role key from the gateway. Exit: zero agent requests to the website.
 3. **Files stay on school servers:** browser to server upload through the tunnel with short-lived tokens; retention on the server. Exit: nothing uploaded to Supabase storage.
 4. **Add a print server and signed updates:** enrolment page, automatic tunnel and address, signed release pipeline, "Update now" without git. Exit: a second test server installed from scratch with no GitHub key.
-5. **Shared text:** the owner's server fetches a week ahead on a schedule; old days pruned after about 60 days; library PDFs fetched by the building server. Exit: a day viewable with no outside fetch by the school.
+5. **Shared text and pre-built booklets:** the owner's server fetches a week ahead on a schedule; old days pruned after about 60 days; library PDFs fetched by the building server; the owner's server builds the standard daily booklets a week ahead and pushes them to each school's server (retry queue). Exit: a day's standard booklet is on a school's server with the owner's server switched off.
 6. **Cutover:** move `beta.printio.app` from the PC's tunnel to Cloudflare; keep the PC site as a fallback for a week; make the repo private; add the merge-only deploy; Supabase keep-alive; usage alert. Exit: the PC no longer runs the website.
 
 ## 7. Still open (decide when we get there)
@@ -69,3 +73,5 @@ runs the whole website (`docs/STATE-2026-11-01.md` section 1 describes how it ru
 - Whether Realtime free limits (connections and messages) hold at 15 servers (should; verify in phase 2).
 - Pricing and billing for schools; when to move to Supabase Pro and Workers Paid.
 - While the repo is public, never commit licensed fonts; the repo stays public until phase 6.
+- **Licence agreements:** check each font's actual terms (the OT fonts are from the OTZAR foundry; SBL Hebrew has SBL's own licence) for use in a service that produces PDFs for other organizations, especially if schools are charged. The pre-built house-design booklets are the only place licensed fonts reach other schools, and only as letters inside a PDF. If a licence does not allow it, the house design uses an open font instead; nothing else in the plan changes.
+- Which open fonts to add beyond the five bundled (more Hebrew open fonts, for example other OFL Hebrew families) and which look is the house design.
