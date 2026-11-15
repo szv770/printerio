@@ -93,3 +93,7 @@ The first run found real gaps (kept as expected failures until fixed). Migration
 - `organization_members` insert: the admin insert rule was dropped and the INSERT grant revoked from signed-in users; members are enrolled by server code only (invitation claim and platform console use the service role). The matrix level for that insert is now `none`.
 Why this is safe: the website already checked the agent and printer in its own code before writing (`lib/remote-commands.ts`, `app/admin/printers/actions.ts`; the printer code's comment even said RLS also enforced it, which it did not), and both member-enrolment paths use the service role, which bypasses these rules.
 Still open (low): `group_members.user_id` and the secret-hash column readability, and the preventive function-grant default; see the table above and the `gap` entries in `expected-access.ts`.
+
+## Status of migration 0054 on the live database (2026-11-15)
+The tests run against the migration FILES in CI, so they pass with 0054 included. The live Supabase database does **not** have 0054 yet (the connector's confirmation prompt timed out four times); see `docs/STATE-2026-11-01.md`. Until it is applied the live rules still have the gaps listed above (needs another school's random server id, and only one school exists today).
+
