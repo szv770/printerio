@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
 import { preflightPdf } from "@/lib/pdf/preflight";
+import { TYPE3_HELD_MESSAGE } from "@/lib/pdf/type3-fonts";
 import { bookletSheetChoice, padAndImposeBooklet, type BookletSheet } from "@/lib/pdf/booklet-build";
 import type { BookletFit } from "@/lib/pdf/imposition";
 import { containsPjlEscape, PJL_ESCAPE_MESSAGE, computePrintMath, computeCostCents, computeBookletPadding, type PolicyAction, type PricingConfig, type OrgRole } from "@printio/shared";
@@ -257,6 +258,12 @@ export async function createPrintJob(
 
   const preflight = await preflightPdf(originalBytes, { maxSizeBytes: maxUploadBytes });
   if (!preflight.ok) return fail(preflight.reason, "bad_pdf");
+  // Type 3 fonts have crashed the printer's PDF reader (2026-11-15): hold the job instead of sending it. Switch: PRINTIO_ALLOW_TYPE3_FONTS=1 lets them through again.
+  if (preflight.hasType3Fonts && process.env.PRINTIO_ALLOW_TYPE3_FONTS !== "1" && !heldReason) {
+    logger.warn("PDF has Type 3 fonts; job held", { organizationId, printerProfileId });
+    heldReason = TYPE3_HELD_MESSAGE;
+    held = true;
+  }
 
   // Attachments, JavaScript and launch actions are stripped rather than refused (a teacher cannot fix them, and
   // the Android print service adds one). The upload is still stored untouched as the original; everything that
