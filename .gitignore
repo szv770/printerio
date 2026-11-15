@@ -61,3 +61,6 @@ apps/web/CLAUDE.md
 
 # Hebrew printer test PDFs (tools/raw-print/make-hebrew-tests.mjs)
 tools/raw-print/hebrew-out/
+
+# Generated staple-proving test PDFs (tools/raw-print/make-staple-tests.mjs)
+tools/raw-print/staple-out/
