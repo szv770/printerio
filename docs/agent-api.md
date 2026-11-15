@@ -176,6 +176,9 @@ available right now (off, offline or network). It will print when it is back." o
 Display code treats a job as *waiting* only when `status` is `approved` (or briefly `claimed` while being retried) AND the marker
 is present (`apps/web/lib/job-waiting.ts`); it is a queued job, never counted as failed. One `RETRY_SCHEDULED` event (metadata
 `{ waiting: true, kind, retryAt }`) is recorded when the job first starts waiting.
+The Agent also releases (`kind: "unavailable"`) when it will not send into a printer that reads unhealthy after an unconfirmed
+job (`apps/agent/src/printer-health-gate.ts`, docs/kyocera-raw-print.md): `detail` then holds "The printer reported a problem and
+Printio is waiting for it to be fixed (turn the printer off and on at the main switch). Jobs will print when it is ready." and the reason.
 
 When `since + window` has passed (default **2 hours**, `PRINTIO_WAITING_WINDOW_MINUTES` on the web app, 1 min - 7 days) the same call
 fails the job instead: `claimed -> failed` with `error_message = "[printio:gave-up] The printer was not available for 2 hours ..."`,

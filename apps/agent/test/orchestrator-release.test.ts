@@ -687,3 +687,137 @@ describe("printer feedback and the job lease", () => {
     expect(Buffer.concat(printer.received).toString("latin1")).not.toContain("USTATUS");
   });
 });
+
+// ---- safety net after an unconfirmed raw job (printer-health-gate.ts): incident 2026-11-15, printer "System error" after a job it never confirmed
+const READY = { reachable: true, answered: true, online: true, code: 10001, display: "Ready." };
+const SYSTEM_ERROR = { reachable: true, answered: true, online: true, code: 63001, display: "System error. Turn the main power switch off and on." };
+
+/** Closes every connection on FIN (like the real printer) and answers INFO STATUS polls with reply(pollIndex, ourJobName). */
+async function closingPrinter(reply: (poll: number, name: string) => string) {
+  let polls = 0;
+  let received: Buffer[] = [];
+  const nameOf = () => [...Buffer.concat(received).toString("latin1").matchAll(/@PJL JOB NAME="([^"]*)"/g)].pop()?.[1] ?? "";
+  const p = await startPrinter((s) => {
+    s.on("end", () => s.end());
+    s.on("data", (d) => {
+      if (!d.toString("latin1").includes("INFO STATUS")) return;
+      const out = reply(polls++, nameOf());
+      if (out) s.write(out, "latin1");
+    });
+  });
+  received = p.received;
+  return { ...p, jobsReceived: () => Buffer.concat(p.received).toString("latin1").match(/@PJL ENTER LANGUAGE/g)?.length ?? 0 };
+}
+
+const completedIds = (calls: Array<{ fn: string; args: unknown[] }>) => calls.filter((c) => c.fn === "reportStatus" && c.args[1] === "completed").map((c) => c.args[0]);
+const gateTimings = { retryDelayMs: 0 };
+
+describe("printer health gate after an unconfirmed raw job", () => {
+  it("job 1 unconfirmed, the printer reads ready: job 2 is sent normally after exactly one status read", async () => {
+    const printer = await closingPrinter(() => "");
+    const probe = vi.fn(async () => READY);
+    const { client, calls } = fakeCloud({ rawPort: printer.port, expectedPages: 1 });
+    const { orch } = makeOrchestrator(client, { config: fbConfig(true), rawFeedbackTimings: { ...fbTimings, capMs: 300 }, printerGate: { probe, ...gateTimings } });
+    await orch.processJob(job(1));
+    await vi.waitFor(() => expect(completedIds(calls)).toEqual(["job-1"]), { timeout: 6000 });
+    expect(probe).not.toHaveBeenCalled(); // the first job had nothing suspect before it
+    await orch.processJob(job(2));
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(fns(calls)).not.toContain("releaseJob");
+    expect(printer.jobsReceived()).toBe(2);
+    await vi.waitFor(() => expect(completedIds(calls)).toEqual(["job-1", "job-2"]), { timeout: 6000 });
+  });
+
+  it("job 1 unconfirmed, the printer reports an error: job 2 is RELEASED (not sent, not failed); once the status turns ready it is sent exactly once", async () => {
+    const printer = await closingPrinter(() => "");
+    let status: typeof READY = SYSTEM_ERROR;
+    const probe = vi.fn(async () => status);
+    const { client, calls } = fakeCloud({ rawPort: printer.port, expectedPages: 1 });
+    const { orch, jobQueue } = makeOrchestrator(client, { config: fbConfig(true), rawFeedbackTimings: { ...fbTimings, capMs: 300 }, printerGate: { probe, ...gateTimings } });
+    await orch.processJob(job(1));
+    await vi.waitFor(() => expect(completedIds(calls)).toEqual(["job-1"]), { timeout: 6000 });
+
+    const blocked = await orch.processJob(job(2));
+    expect(blocked.printerNotAvailable).toBe(true);
+    const releases = calls.filter((c) => c.fn === "releaseJob");
+    expect(releases.map((c) => c.args.slice(0, 2))).toEqual([["job-2", "unavailable"]]);
+    expect(String(releases[0]!.args[2])).toContain("The printer reported a problem and Printio is waiting for it to be fixed (turn the printer off and on at the main switch). Jobs will print when it is ready.");
+    expect(printer.jobsReceived()).toBe(1); // nothing was written to the dead printer
+    expect(calls.filter((c) => c.fn === "reportStatus" && c.args[0] === "job-2")).toEqual([]);
+    expect(jobQueue.getJob("job-2")).toBeUndefined();
+    expect(existsSync(path.join(h.dir, "downloads")) ? readdirSync(path.join(h.dir, "downloads")) : []).toEqual([]);
+
+    status = READY; // the printer was power-cycled
+    await orch.processJob(job(2));
+    expect(printer.jobsReceived()).toBe(2);
+    expect(calls.filter((c) => c.fn === "releaseJob")).toHaveLength(1);
+    await vi.waitFor(() => expect(completedIds(calls)).toEqual(["job-1", "job-2"]), { timeout: 6000 });
+  });
+
+  it("through the poll loop: blocked jobs wait out the per-printer cooldown, then the next poll reads ready and prints", async () => {
+    let now = Date.now();
+    const printer = await closingPrinter(() => "");
+    let status: typeof READY = SYSTEM_ERROR;
+    const probe = vi.fn(async () => status);
+    const list = [job(1)];
+    const { client, calls } = fakeCloud({ rawPort: printer.port, expectedPages: 1 });
+    const { orch } = makeOrchestrator(client, { now: () => now, config: fbConfig(true), rawFeedbackTimings: { ...fbTimings, capMs: 300 }, printerGate: { probe, ...gateTimings } }, list);
+    await orch.pollClaimableJobs();
+    await vi.waitFor(() => expect(completedIds(calls)).toEqual(["job-1"]), { timeout: 6000 });
+    list.splice(0, list.length, job(2), job(3));
+    await orch.pollClaimableJobs(); // job-2 is blocked and released; job-3 (same printer) is left alone by the cooldown
+    expect(calls.filter((c) => c.fn === "claimJob").map((c) => c.args[0])).toEqual(["job-1", "job-2"]);
+    expect(probe).toHaveBeenCalledTimes(1);
+    now += 10_000;
+    await orch.pollClaimableJobs(); // still inside the 30 s cooldown: no claim, no status read
+    expect(probe).toHaveBeenCalledTimes(1);
+    status = READY;
+    now += 25_000;
+    await orch.pollClaimableJobs();
+    expect(probe).toHaveBeenCalledTimes(2);
+    expect(calls.filter((c) => c.fn === "claimJob").map((c) => c.args[0])).toEqual(["job-1", "job-2", "job-2"]); // job-3 now waits for job-2's own verdict
+    expect(printer.jobsReceived()).toBe(2); // job-1, then job-2 (once, after the release) - never into the dead printer
+    expect(calls.filter((c) => c.fn === "releaseJob")).toHaveLength(1);
+    await vi.waitFor(() => expect(completedIds(calls)).toEqual(["job-1", "job-2"]), { timeout: 6000 });
+  });
+
+  it("the status read itself is unusable (it throws): fails open, the job is sent", async () => {
+    const printer = await closingPrinter(() => "");
+    const probe = vi.fn(async () => {
+      throw new Error("probe broke");
+    });
+    const { client, calls } = fakeCloud({ rawPort: printer.port, expectedPages: 1 });
+    const { orch } = makeOrchestrator(client, { config: fbConfig(true), rawFeedbackTimings: { ...fbTimings, capMs: 300 }, printerGate: { probe, ...gateTimings } });
+    await orch.processJob(job(1));
+    await vi.waitFor(() => expect(completedIds(calls)).toEqual(["job-1"]), { timeout: 6000 });
+    await orch.processJob(job(2));
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(fns(calls)).not.toContain("releaseJob");
+    expect(printer.jobsReceived()).toBe(2);
+  });
+
+  it("job 1 confirmed: zero status reads before job 2", async () => {
+    const printer = await closingPrinter((_i, name) => FB_END(name, 1));
+    const probe = vi.fn(async () => SYSTEM_ERROR); // would block if it were ever asked
+    const { client, calls } = fakeCloud({ rawPort: printer.port, expectedPages: 1 });
+    const { orch } = makeOrchestrator(client, { config: fbConfig(true), rawFeedbackTimings: fbTimings, printerGate: { probe, ...gateTimings } });
+    await orch.processJob(job(1));
+    await vi.waitFor(() => expect(completedIds(calls)).toEqual(["job-1"]), { timeout: 6000 });
+    expect(lastReport(calls).args[2]).toBe("Printer confirmed 1 of 1 page");
+    await orch.processJob(job(2));
+    await vi.waitFor(() => expect(completedIds(calls)).toEqual(["job-1", "job-2"]), { timeout: 6000 });
+    expect(probe).not.toHaveBeenCalled();
+    expect(printer.jobsReceived()).toBe(2);
+  });
+
+  it("feedback OFF: no verdict, nothing is ever marked suspect, no status reads", async () => {
+    const printer = await startPrinter((s) => s.on("end", () => s.end()));
+    const probe = vi.fn(async () => SYSTEM_ERROR);
+    const { client, calls } = fakeCloud({ rawPort: printer.port, expectedPages: 1 });
+    const { orch } = makeOrchestrator(client, { config: fbConfig(false), printerGate: { probe, ...gateTimings } });
+    await orch.processJob(job(1));
+    await orch.processJob(job(2));
+    expect(probe).not.toHaveBeenCalled();
+    expect(completedIds(calls)).toEqual(["job-1", "job-2"]);
+  });
+});

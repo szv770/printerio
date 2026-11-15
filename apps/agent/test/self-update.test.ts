@@ -219,6 +219,57 @@ describe("performSelfUpdate", () => {
   });
 });
 
+describe("performSelfUpdate: an install that failed after the pull is finished by the next press (2026-11-15)", () => {
+  function memoryMarker(initial: string | null = null) {
+    let value = initial;
+    return { read: () => value, write: (v: string) => void (value = v), clear: () => void (value = null), peek: () => value };
+  }
+  const EPERM = "Error: EPERM: operation not permitted, lstat 'C:\\Users\\MLM Office\\AppData'";
+
+  it("a failed install leaves a marker, so the next press does NOT say 'already up to date'", async () => {
+    const pending = memoryMarker();
+    const failed = await performSelfUpdate(makeDeps({ pending, run: scripted({ install: { exitCode: 1, stdout: "", stderr: EPERM } }) }));
+    expect(failed.updated).toBe(false);
+    expect(failed.reason).toBe("install_failed");
+    expect(pending.peek()).toBe("3f2a1b9");
+
+    // The second press: git has nothing new ("Already up to date"), but the install never finished.
+    const run = scripted({ pull: ok("Already up to date.\n") });
+    const second = await performSelfUpdate(makeDeps({ pending, run }));
+    expect(second.updated).toBe(true);
+    expect(second.reason).toBe("updated");
+    expect(callsOf(run, NODE_EXE)).toHaveLength(1); // pnpm install ran again
+    expect(second.message).toMatch(/^Updated 3f2a1b9 -> /);
+    expect(pending.peek()).toBeNull(); // done: the next press may say up to date
+  });
+
+  it("after a finished update the marker is gone and 'already up to date' is true again", async () => {
+    const pending = memoryMarker();
+    await performSelfUpdate(makeDeps({ pending, run: scripted({}) }));
+    expect(pending.peek()).toBeNull();
+    const r = await performSelfUpdate(makeDeps({ pending, run: scripted({ pull: ok("Already up to date.\n") }) }));
+    expect(r.reason).toBe("already_up_to_date");
+  });
+
+  it("still failing keeps the marker, so it keeps being retried", async () => {
+    const pending = memoryMarker("3f2a1b9");
+    const r = await performSelfUpdate(makeDeps({ pending, run: scripted({ pull: ok("Already up to date.\n"), install: { exitCode: 1, stdout: "", stderr: EPERM } }) }));
+    expect(r.updated).toBe(false);
+    expect(pending.peek()).toBe("3f2a1b9");
+  });
+
+  it("the EPERM-in-a-user-profile failure says which script fixes it and that Update can be pressed again", async () => {
+    const r = await performSelfUpdate(makeDeps({ pending: memoryMarker(), run: scripted({ install: { exitCode: 1, stdout: "", stderr: EPERM } }) }));
+    expect(r.message).toMatch(/fix-update-permissions\.ps1/);
+    expect(r.message).toMatch(/press(ing)? Update again/i);
+  });
+
+  it("works without any marker (older callers): behaviour as before", async () => {
+    const r = await performSelfUpdate(makeDeps({ run: scripted({ pull: ok("Already up to date.\n") }) }));
+    expect(r.reason).toBe("already_up_to_date");
+  });
+});
+
 describe("isGitCheckout", () => {
   it("is false for a plain directory (the extracted-ZIP case) and true once a .git entry exists", () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "printio-selfupdate-test-"));

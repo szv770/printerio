@@ -176,3 +176,13 @@ lays out the booklet and marks it correctly (what the website already does for b
 printed on the real printer (`docs/staple-proving-plan.md`); the dialog can only show what the printer advertises over IPP (finishings values) plus whatever
 Printio maps to a booklet option, so a booklet left/right choice may need a dedicated advertised option or a separate Printio "booklet" printer name per binding.
 This extends ask 3 above (all staple options everywhere) and the "print again with changes" idea.
+
+## Update button fails the first time with EPERM (owner report 2026-11-15, MLM Office)
+"The update did not finish. New code was pulled, but pnpm install failed ... EPERM: operation not permitted, lstat 'C:\Users\MLM Office\AppData'". Pressing Update again works.
+Cause (already written up in `docs/hardening/fix-update-permissions.ps1`): the services run as the limited account `printio-svc`, and pnpm's package store lives in the owner's
+profile (`C:\Users\MLM Office\AppData\Local\pnpm\store`), which that account may not walk. The first update that needs new packages fails; the retry has nothing new to install.
+Owner fix now: run that script once on the server (preview, then `-Apply`; steps in the script header). Not yet confirmed that it was ever run on MLM Office.
+Code fix to do: give the update its own pnpm store the service account owns (for example `PRINTIO_PNPM_STORE_DIR` passed as `--store-dir`, set up by `setup-agent.ps1`), so the button works the first time without touching a user profile; and make the "update did not finish" message say "press Update again" when the error is EPERM on a profile folder. Careful: changing the store location makes pnpm reinstall node_modules once; test on a throwaway checkout first.
+
+### Update-button follow-up (2026-11-15, from the agent log)
+The log showed the real danger behind the EPERM message: after `git pull` brought new code and `pnpm install` failed, the next press printed "already up to date" (git had nothing new) while the Agent was still running the OLD build and never restarted. Fixed in `apps/agent/src/self-update.ts`: a marker in `.git/printio-update-pending` is written after the pull and cleared only after a successful install; while it exists, the next press finishes the install and restarts instead of reporting "up to date". The EPERM message now names `docs/hardening/fix-update-permissions.ps1`. This only helps once a build containing it is running: on MLM Office run the permission script (or `setup-agent.ps1`) once by hand first. Also seen in the same log: "could not restrict the storage folder ACL ... Access is denied" at every start (the Agent is not running as administrator/service for that step); harmless but noisy.

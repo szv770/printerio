@@ -26,6 +26,7 @@ import { buildPrintSettingsString, executePrint } from "./print-executor.js";
 import { checkRawTarget as defaultCheckRawTarget, type RawTargetCheck } from "./raw-host-policy.js";
 import { trackSending } from "./send-activity.js";
 import { RAW_DEFERRED_STATUSES, RAW_SUCCESS_STATUSES, executeRawPrint, feedbackCapMs, type PrinterVerdict, type RawListen, type RawTimeouts } from "./raw-print-executor.js";
+import { createPrinterHealthGate, type PrinterHealthGateOptions } from "./printer-health-gate.js";
 import { PROFILE_COOLDOWN_MS, decideDownloadFailure, decideRawFailure, type WaitKind } from "./retry-policy.js";
 import { handleCommand } from "./commands.js";
 import { createSelfUpdateDeps, performSelfUpdate, performUpdateCheck } from "./self-update.js";
@@ -56,6 +57,8 @@ export interface OrchestratorDeps {
   rawTimeouts?: RawTimeouts;
   /** Printer-feedback timings (poll interval, read time, overall cap), injectable for tests. */
   rawFeedbackTimings?: Pick<RawListen, "pollIntervalMs" | "readMs" | "capMs">;
+  /** Safety net after an unconfirmed raw job (printer-health-gate.ts): the status read, the cap and the retry pause, injectable for tests. */
+  printerGate?: Pick<PrinterHealthGateOptions, "probe" | "capMs" | "retryDelayMs">;
   /** Decides whether a raw target may be sent to (private-LAN only, optional allow-list); injectable for tests. */
   checkRawTarget?: (target: { host: string; port: number }) => Promise<RawTargetCheck>;
   /** Tests/dev only: allow http / loopback download URLs (production requires a public https host). */
@@ -249,6 +252,8 @@ export function createOrchestrator(deps: OrchestratorDeps) {
   const profileCooldownUntil = new Map<string, number>();
   /** jobId -> printerProfileId of raw jobs that are being confirmed by polling the printer. Their final report waits for the verdict, and the same printer's next job waits too (one job at a time per printer, and the printer's queued messages must not mix between jobs). */
   const listening = new Map<string, string>();
+  /** Raw printers whose last job was not confirmed are checked once before the next raw job is sent to them. */
+  const printerGate = createPrinterHealthGate({ logger, now, ...deps.printerGate });
 
   async function safeReportStatus(jobId: string, status: Parameters<CloudClient["reportStatus"]>[1], message?: string, metadata?: Record<string, unknown>) {
     try {
@@ -358,7 +363,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
    * attention when we stopped waiting ends as `failed` with the printer's own words (the web app never re-queues
    * that). Nothing here ever sends the document again. Runs in the background so the poll loop is not held.
    */
-  async function finishAfterPrinterVerdict(jobId: string, verdict: Promise<PrinterVerdict>, jobLogger: Logger): Promise<void> {
+  async function finishAfterPrinterVerdict(jobId: string, verdict: Promise<PrinterVerdict>, jobLogger: Logger, printerKey: string): Promise<void> {
     let v: PrinterVerdict | undefined;
     try {
       v = await verdict;
@@ -366,6 +371,9 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       /* the verdict never rejects; unconfirmed it is */
     }
     listening.delete(jobId);
+    // Not confirmed (silence, attention, a short count) = suspect: the next raw job to this printer is only sent after one healthy status read.
+    if (v?.outcome === "confirmed") printerGate.markHealthy(printerKey);
+    else printerGate.markSuspect(printerKey);
     try {
       const rec = jobQueue.getJob(jobId);
       if (!rec?.sentUnreported?.length) return; // dropped meanwhile (the web app no longer accepts reports)
@@ -480,6 +488,18 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           return procOutcome;
         }
         const rawTarget = dl.printRequest.raw;
+        // Safety net (printer-health-gate.ts): after an unconfirmed job, one status read before sending anything more. Only a
+        // job that can still be released can wait; an older web app that already moved it on keeps today's behaviour.
+        const printerKey = `${target.host}:${target.port}`;
+        if (holdsClaim) {
+          const gate = await printerGate.check(printerKey, { host: target.host, port: target.port });
+          if (!gate.allow) {
+            jobLogger.warn("raw job not sent: the printer does not read ready after an unconfirmed job", { printer: printerKey, reason: gate.reason });
+            procOutcome.printerNotAvailable = true;
+            await releaseJobToQueue(claimable.jobId, "unavailable", gate.reason, jobLogger);
+            return procOutcome;
+          }
+        }
         // Printer feedback needs a known page count (older servers do not send one: then nothing changes).
         const expectedPages = dl.printRequest.expectedPages;
         // The listen is held to the job's real lease (leaseExpiresAt from the claim): past it the stale-lease sweep would fail a job that may still print.
@@ -533,7 +553,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           // Report everything except the last status now, then wait (in the background) for the printer to say how it went.
           listening.set(claimable.jobId, claimable.printerProfileId);
           await driveSentReports(claimable.jobId, jobLogger, { holdLast: true });
-          void finishAfterPrinterVerdict(claimable.jobId, result.printerOutcome, jobLogger);
+          void finishAfterPrinterVerdict(claimable.jobId, result.printerOutcome, jobLogger, printerKey);
         } else {
           await driveSentReports(claimable.jobId, jobLogger);
         }
