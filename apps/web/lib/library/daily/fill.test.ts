@@ -2,10 +2,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
-import { parseStudyPage, type StudySection } from "./page";
+import { parseStudyPage, type StudySection } from "@printio/shared/library/daily/page";
 import { buildFilledPdf, type FillInput } from "./fill";
 
-const fixture = (name: string) => readFileSync(join(__dirname, "fixtures", name), "utf8");
+const fixture = (name: string) => readFileSync(join(__dirname, "..", "..", "..", "..", "..", "packages", "shared", "src", "library", "daily", "fixtures", name), "utf8");
 const HALF_LETTER = { width: 396, height: 612 };
 const base = (sections: StudySection[], over: Partial<FillInput> = {}): FillInput => ({
   title: "Daily study",

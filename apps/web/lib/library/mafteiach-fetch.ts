@@ -1,47 +1,12 @@
 import "server-only";
-import { parseEntryPage, parseLikkutSichos, parseListPage, type EntrySection, type LikkutPage, type ListPage } from "./mafteiach-parse";
+import { parseEntryPage, parseLikkutSichos, parseListPage, type EntrySection, type LikkutPage, type ListPage } from "@printio/shared/library/mafteiach-parse";
+import { decodeEmbeddedHtml, HOST, libraryPageUrl, MAX_PAGE_BYTES, TIMEOUT_MS, type PageRef } from "@printio/shared/library/mafteiach-fetch";
 
 /**
  * Loads pages of mafteiach.app for the library browser. The site is fixed (never taken from the user) and only a few page
  * shapes are allowed, so nothing a person types can point the server at another address. Pages are cached for an hour
  * (the library changes slowly, and this keeps us a polite visitor), size- and time-limited, and read as text.
  */
-
-const HOST = "https://www.mafteiach.app";
-export const MAX_PAGE_BYTES = 3 * 1024 * 1024;
-const TIMEOUT_MS = 15_000;
-/** Hebrew years the library could plausibly hold (5600 to 5899), alone or as a range like 5690_5710. */
-const YEAR = /^5[6-8]\d{2}(_5[6-8]\d{2})?$/;
-const MAAMOR_PATH = /^\/maamorim\/\d{1,5}$/;
-const FARBRENGEN_PATH = /^\/all\/\d{4}-\d{1,2}[A-Za-z]?-\d{1,2}[A-Za-z]?$/;
-
-export type PageRef =
-  | { kind: "likkutei"; volume: number }
-  | { kind: "list"; section: "maamorim" | "all"; year?: string }
-  | { kind: "entry"; path: string };
-
-/** The one address for a page, or null when the request is not one of the allowed shapes. */
-export function libraryPageUrl(ref: PageRef): string | null {
-  if (ref.kind === "likkutei") return Number.isInteger(ref.volume) && ref.volume >= 1 && ref.volume <= 99 ? `${HOST}/likkutei_sichos/by_volume/${ref.volume}` : null;
-  if (ref.kind === "list") {
-    if (ref.year === undefined) return `${HOST}/${ref.section}`;
-    if (!YEAR.test(ref.year)) return null;
-    return ref.section === "maamorim" ? `${HOST}/maamorim?order=by_year&year=${ref.year}` : `${HOST}/all/by_year/${ref.year}`;
-  }
-  return MAAMOR_PATH.test(ref.path) || FARBRENGEN_PATH.test(ref.path) ? `${HOST}${ref.path}` : null;
-}
-
-/** Some pages carry their HTML as a string inside a script. Decode that string as TEXT (nothing from the site is ever run). */
-export function decodeEmbeddedHtml(source: string): string {
-  const start = source.indexOf("let html = ");
-  if (start < 0) return source;
-  const end = source.indexOf('";\n', start);
-  if (end < 0) return source;
-  return source.slice(start + 12, end).replace(/\\(u[0-9a-fA-F]{4}|.)/g, (_, c: string) => {
-    if (c[0] === "u" && c.length === 5) return String.fromCharCode(parseInt(c.slice(1), 16));
-    return ({ n: "\n", t: "\t", r: "\r" } as Record<string, string>)[c] ?? c;
-  });
-}
 
 export interface LibraryDeps {
   fetchPage?: (url: string) => Promise<Response>;

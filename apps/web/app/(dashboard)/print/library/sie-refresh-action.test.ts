@@ -20,7 +20,7 @@ const refreshSie = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/library/sie-refresh", async (orig) => ({ ...(await orig<typeof import("@/lib/library/sie-refresh")>()), refreshSie }));
 
 import { refreshSieAction } from "./actions";
-import { SIE_WEEKLY } from "@/lib/library/sie-weekly";
+import { SIE_WEEKLY } from "@printio/shared/library/sie-weekly";
 
 const member = (role: string, early = false) => ({ userId: "u1", membership: { organization_id: "o1", role, early_tools: early } });
 const result = (over = {}) => ({ found: 111, added: 0, remaining: 0, failed: [], ...over });

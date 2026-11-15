@@ -8,11 +8,11 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 const requireSessionOrRedirect = vi.fn();
 vi.mock("@/lib/auth/session", () => ({ requireSessionOrRedirect: () => requireSessionOrRedirect() }));
 
-const dir = join(__dirname, "..", "..", "..", "..", "lib", "library", "daily", "fixtures");
+const dir = join(__dirname, "..", "..", "..", "..", "..", "..", "packages", "shared", "src", "library", "daily", "fixtures");
 const shiurHtml = readFileSync(join(dir, "shiur-2026-11-02.html"), "utf8");
 const DATE = "2026-11-02";
 
-const { parseShiurPage } = await import("@/lib/library/daily/source");
+const { parseShiurPage } = await import("@printio/shared/library/daily/source");
 const fixtureRows = (studies?: string[]) =>
   (parseShiurPage(shiurHtml)?.studies ?? [])
     .filter((s) => !studies || studies.includes(s.study))

@@ -3,7 +3,7 @@ import { EZRA_SIL_REGULAR_BASE64 } from "@/lib/booklet/fonts/ezra-sil-regular";
 import { drawShaped, widthOfShaped } from "@/lib/booklet/shaped";
 import { drawableRuns, embedFonts, type Fonts, type LatinFontBytes } from "@/lib/booklet/frontmatter";
 import { hasHebrew, paragraphDirection, type Direction } from "@/lib/booklet/bidi";
-import type { StudySection } from "./page";
+import type { StudySection } from "@printio/shared/library/daily/page";
 
 /**
  * "Fill the page": builds a PDF straight from the study text so the booklet's pages are FULL, instead of shrinking a finished

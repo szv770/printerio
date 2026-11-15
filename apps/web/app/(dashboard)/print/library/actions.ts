@@ -8,9 +8,9 @@ import { revalidatePath } from "next/cache";
 import { fetchPdf } from "@/lib/sources/fetch-pdf";
 import { normalizeSourceLink } from "@/lib/sources/link";
 import { refreshSie, SIE_WEEKLY_PAGE, type RefreshResult } from "@/lib/library/sie-refresh";
-import { sieToRow } from "@/lib/library/sie-store";
-import { SIE_WEEKLY } from "@/lib/library/sie-weekly";
-import type { EntrySection, LikkutPage, ListPage } from "@/lib/library/mafteiach-parse";
+import { sieToRow } from "@printio/shared/library/sie-store";
+import { SIE_WEEKLY } from "@printio/shared/library/sie-weekly";
+import type { EntrySection, LikkutPage, ListPage } from "@printio/shared/library/mafteiach-parse";
 
 type Failure = { ok: false; message: string };
 

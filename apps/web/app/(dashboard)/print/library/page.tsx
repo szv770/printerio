@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/ui";
 import { canUseLinks } from "@/lib/sources/access";
 import { LibraryBrowser } from "@/components/library/LibraryBrowser";
 import { createClient } from "@/lib/supabase/server";
-import { sieFromRow } from "@/lib/library/sie-store";
+import { sieFromRow } from "@printio/shared/library/sie-store";
 
 // Library pages are fetched from the library's own site on the server.
 export const maxDuration = 60;

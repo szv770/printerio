@@ -8,13 +8,13 @@ import { libraryEntryAction, libraryLikkutAction, libraryListAction, refreshSieA
 import { importLinkAction } from "@/app/(dashboard)/print/import-link-action";
 import { putBuiltBooklet } from "@/lib/booklet/handoff";
 import { singleFilePrintUrl } from "@/lib/booklet/builder-params";
-import { SIE_CREDIT, SIE_SNAPSHOT_DATE, SIE_WEEKLY } from "@/lib/library/sie-weekly";
-import { mergeSie } from "@/lib/library/sie-store";
-import type { SieEntry } from "@/lib/library/sie-weekly";
-import { groupSie, likkutPageFromLabel, sieContentRange, sieForLikkut } from "@/lib/library/sie";
+import { SIE_CREDIT, SIE_SNAPSHOT_DATE, SIE_WEEKLY } from "@printio/shared/library/sie-weekly";
+import { mergeSie } from "@printio/shared/library/sie-store";
+import type { SieEntry } from "@printio/shared/library/sie-weekly";
+import { groupSie, likkutPageFromLabel, sieContentRange, sieForLikkut } from "@printio/shared/library/sie";
 import { addToCart, CART_MAX, clearCart, MAFTEIACH_CREDIT, readCart, removeFromCart, type CartItem } from "@/lib/library/cart";
-import { friendlyFileLabel, hasEnglish, matchesQuery } from "@/lib/library/labels";
-import type { EntrySection, LikkutPage, ListEntry, ListPage } from "@/lib/library/mafteiach-parse";
+import { friendlyFileLabel, hasEnglish, matchesQuery } from "@printio/shared/library/labels";
+import type { EntrySection, LikkutPage, ListEntry, ListPage } from "@printio/shared/library/mafteiach-parse";
 import { DailyStudyPanel } from "./DailyStudyPanel";
 
 type Tab = "likkutei" | "maamorim" | "all" | "sie" | "daily";

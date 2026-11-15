@@ -160,6 +160,9 @@ importers:
 
   packages/shared:
     dependencies:
+      node-html-parser:
+        specifier: ^9.0.5
+        version: 9.0.5
       zod:
         specifier: ^3.24.1
         version: 3.25.76

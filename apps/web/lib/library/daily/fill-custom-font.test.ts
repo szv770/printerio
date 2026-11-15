@@ -4,7 +4,7 @@ import { DAVID_LIBRE_REGULAR_BASE64 } from "@/lib/booklet/fonts/david-libre-regu
 import { EZRA_SIL_REGULAR_BASE64 } from "@/lib/booklet/fonts/ezra-sil-regular";
 import { nonAscii, pageFonts, pageTexts } from "@/test/hebrew-fixtures";
 import { buildFilledPdf, findMissingMarks, type FillInput } from "./fill";
-import type { StudySection } from "./page";
+import type { StudySection } from "@printio/shared/library/daily/page";
 
 vi.setConfig({ testTimeout: 60_000 });
 vi.mock("server-only", () => ({}));
