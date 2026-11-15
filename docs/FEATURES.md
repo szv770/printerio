@@ -145,6 +145,8 @@ a hosted option that needs no server in the building. Pricing and billing do not
 
 ### Planned (see `docs/ROADMAP.md`)
 
+Recorded 2026-11-15 in `docs/BACKLOG.md` (owner asks, not started): repeat one page many times per sheet; re-print a finished job with the same settings but different finishing; every staple option (audit of what is missing, then prove each on the printer).
+
 Browse a library (Mafteiach first) and print from it; a booklet builder that combines
 several texts with a cover and contents page; tap-to-pick pages; saved booklets; email alerts when a printer or the
 server goes offline; printer status (jam, toner, paper); a test lab for printer settings; students and
