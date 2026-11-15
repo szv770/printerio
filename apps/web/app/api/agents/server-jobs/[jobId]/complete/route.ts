@@ -43,7 +43,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ job
       payload: checked.payload as unknown as Json,
       source_url: libraryPageUrl(ref),
       fetched_at: new Date(now).toISOString(),
-      expires_at: new Date(now + libraryTtlMs(ref)).toISOString(),
+      expires_at: new Date(now + libraryTtlMs(ref, checked.payload)).toISOString(),
       fetched_by: agent.id,
     },
     { onConflict: "key" },

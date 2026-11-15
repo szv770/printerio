@@ -16,7 +16,7 @@ export const maxDuration = 60;
  *     /api/cron/sweep does this too; running it here is a harmless idempotent
  *     backstop (files_purged_at is null filter) in case that sweep is paused.
  *  2. orphaned storage objects (gateway-intake > 24h, job files with no row);
- *  3. bounded-table housekeeping (finished remote commands; rate-limit windows older than a day).
+ *  3. bounded-table housekeeping (finished remote commands; the library's cache, daily text and finished fetch jobs; rate-limit windows older than a day).
  * Each step is independent: one failing does not stop the others.
  */
 export async function GET(request: Request) {
@@ -31,6 +31,9 @@ export async function GET(request: Request) {
     intakeDeleted: 0,
     jobOrphansDeleted: 0,
     remoteCommandsDeleted: 0,
+    libraryPagesDeleted: 0,
+    libraryDailyTextsDeleted: 0,
+    serverJobsDeleted: 0,
     rateLimitBucketsDeleted: 0,
     truncated: false,
   };
@@ -56,6 +59,9 @@ export async function GET(request: Request) {
   try {
     const r = await pruneHousekeeping(supabase, { now, limit: LIMIT });
     results.remoteCommandsDeleted = r.remoteCommandsDeleted;
+    results.libraryPagesDeleted = r.libraryPagesDeleted ?? 0;
+    results.libraryDailyTextsDeleted = r.libraryDailyTextsDeleted ?? 0;
+    results.serverJobsDeleted = r.serverJobsDeleted ?? 0;
   } catch (err) {
     errors.push(`housekeeping: ${err instanceof Error ? err.message : String(err)}`);
   }

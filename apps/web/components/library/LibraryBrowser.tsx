@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Check, ChevronDown, Plus, Printer, Search } from "lucide-react";
 import { Badge, Button, FormError, Input, Segmented, Spinner } from "@/components/ui";
@@ -16,7 +16,10 @@ import { addToCart, CART_MAX, clearCart, MAFTEIACH_CREDIT, readCart, removeFromC
 import { friendlyFileLabel, hasEnglish, matchesQuery } from "@printio/shared/library/labels";
 import type { EntrySection, LikkutPage, ListEntry, ListPage } from "@printio/shared/library/mafteiach-parse";
 import { isLibraryWaiting } from "@/lib/library/results";
+import { createWaitController } from "@/lib/library/wait-controller";
+import { SOMETHING_WENT_WRONG, watchLibraryWait, type ShowWait, type WaitView } from "@/lib/library/wait-flow";
 import { DailyStudyPanel } from "./DailyStudyPanel";
+import { WaitNotice } from "./WaitNotice";
 
 type Tab = "likkutei" | "maamorim" | "all" | "sie" | "daily";
 
@@ -62,8 +65,13 @@ export function LibraryBrowser({ extraSie = [], canRefreshSie = false }: { extra
   const [notice, setNotice] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
   // Only when the website is set to fetch library pages through a print server: the page is not there yet (or the print server is off).
-  const [waiting, setWaiting] = useState<{ message: string; retry: () => void } | null>(null);
-  const [entryWaiting, setEntryWaiting] = useState<Record<string, boolean>>({});
+  // While it is not there the screen asks again by itself (lib/library/wait-poller.ts); `waitCtl` holds at most one such wait per item.
+  const [waiting, setWaiting] = useState<WaitView | null>(null);
+  const [entryWaiting, setEntryWaiting] = useState<Record<string, WaitView | undefined>>({});
+  const [waitCtl] = useState(() => createWaitController());
+  const retryMain = useRef<() => void>(() => {});
+  const mainLoad = useRef(0);
+  const openRef = useRef<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [printing, startPrint] = useTransition();
   const [checking, startCheck] = useTransition();
@@ -75,6 +83,12 @@ export function LibraryBrowser({ extraSie = [], canRefreshSie = false }: { extra
   const [lists, setLists] = useState<Partial<Record<"maamorim" | "all", ListPage>>>({});
   const [open, setOpen] = useState<string | null>(null);
   const [entries, setEntries] = useState<Record<string, EntrySection[] | "loading" | string>>({});
+
+  // The person left (another page, another tab of this app) or the screen closed: no wait is left running.
+  useEffect(() => () => waitCtl.stopAll(), [waitCtl]);
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
 
   // The cart lives in sessionStorage, which the server render cannot see: read it after mount.
   useEffect(() => {
@@ -126,32 +140,77 @@ export function LibraryBrowser({ extraSie = [], canRefreshSie = false }: { extra
     });
   }
 
+  /** Stops every wait and clears what they showed (used when the person switches tab or loads another list). */
+  function clearAllWaits() {
+    mainLoad.current += 1;
+    waitCtl.stopAll();
+    setWaiting(null);
+    const stuck = Object.keys(entryWaiting);
+    if (stuck.length === 0) return;
+    setEntryWaiting({});
+    setEntries((cur) => {
+      const next = { ...cur };
+      for (const k of stuck) delete next[k];
+      return next;
+    });
+  }
+
+  /** One opened entry is closed, or another one is opened: its wait (if any) ends and it will be asked afresh when opened again. */
+  function forgetEntryWait(path: string) {
+    waitCtl.stop(`entry:${path}`);
+    if (!entryWaiting[path]) return;
+    setEntryWaiting((cur) => ({ ...cur, [path]: undefined }));
+    setEntries((cur) => {
+      const next = { ...cur };
+      delete next[path];
+      return next;
+    });
+  }
+
   function loadVolume(n: number) {
     setError(undefined);
+    waitCtl.stop("main");
     setWaiting(null);
+    const mine = ++mainLoad.current;
     startTransition(async () => {
       const res = await libraryLikkutAction(n).catch(() => null);
       if (!res) return setError("Something went wrong on our side. Try again.");
-      if (!res.ok) return isLibraryWaiting(res) ? setWaiting({ message: res.message, retry: () => loadVolume(n) }) : setError(res.message);
+      if (!res.ok) {
+        if (!isLibraryWaiting(res)) return setError(res.message);
+        retryMain.current = () => loadVolume(n);
+        return watchLibraryWait<{ ok: true; page: LikkutPage }>({ controller: waitCtl, key: "main", first: res, isShown: () => mainLoad.current === mine, ask: () => libraryLikkutAction(n), show: setWaiting, onOk: (r) => setLikkut(r.page), onFail: setError });
+      }
       setLikkut(res.page);
     });
   }
 
   function loadYear(section: "maamorim" | "all", year?: string) {
     setError(undefined);
-    setWaiting(null);
+    clearAllWaits();
+    const mine = mainLoad.current;
+    const apply = (page: ListPage) => {
+      setLists((cur) => ({ ...cur, [section]: page }));
+      setOpen(null);
+    };
     startTransition(async () => {
       const res = await libraryListAction(section, year).catch(() => null);
       if (!res) return setError("Something went wrong on our side. Try again.");
-      if (!res.ok) return isLibraryWaiting(res) ? setWaiting({ message: res.message, retry: () => loadYear(section, year) }) : setError(res.message);
-      setLists((cur) => ({ ...cur, [section]: res.page }));
-      setOpen(null);
+      if (!res.ok) {
+        if (!isLibraryWaiting(res)) return setError(res.message);
+        retryMain.current = () => loadYear(section, year);
+        return watchLibraryWait<{ ok: true; page: ListPage }>({ controller: waitCtl, key: "main", first: res, isShown: () => mainLoad.current === mine, ask: () => libraryListAction(section, year), show: setWaiting, onOk: (r) => apply(r.page), onFail: setError });
+      }
+      apply(res.page);
     });
   }
 
   function openEntry(entry: ListEntry) {
     const key = entry.path;
-    if (open === key) return setOpen(null);
+    if (open === key) {
+      forgetEntryWait(key);
+      return setOpen(null);
+    }
+    if (open) forgetEntryWait(open);
     setOpen(key);
     if (entries[key] && entries[key] !== "loading" && typeof entries[key] !== "string") return;
     fetchEntry(entry);
@@ -159,18 +218,28 @@ export function LibraryBrowser({ extraSie = [], canRefreshSie = false }: { extra
 
   function fetchEntry(entry: ListEntry) {
     const key = entry.path;
-    setEntryWaiting((cur) => ({ ...cur, [key]: false }));
+    waitCtl.stop(`entry:${key}`);
+    setEntryWaiting((cur) => ({ ...cur, [key]: undefined }));
     setEntries((cur) => ({ ...cur, [key]: "loading" }));
+    const showEntry: ShowWait = (next) =>
+      setEntryWaiting((cur) => {
+        const v = typeof next === "function" ? next(cur[key] ?? null) : next;
+        return { ...cur, [key]: v ?? undefined };
+      });
+    const settle = (sections: EntrySection[] | string) => setEntries((cur) => ({ ...cur, [key]: sections }));
     void libraryEntryAction(entry.path)
       .then((res) => {
-        if (!res.ok && isLibraryWaiting(res)) setEntryWaiting((cur) => ({ ...cur, [key]: true }));
-        setEntries((cur) => ({ ...cur, [key]: res.ok ? res.sections : res.message }));
+        if (res.ok) return settle(res.sections);
+        if (!isLibraryWaiting(res)) return settle(res.message);
+        settle(res.message);
+        watchLibraryWait<{ ok: true; sections: EntrySection[] }>({ controller: waitCtl, key: `entry:${key}`, first: res, isShown: () => openRef.current === key, ask: () => libraryEntryAction(entry.path), show: showEntry, onOk: (r) => settle(r.sections), onFail: settle });
       })
-      .catch(() => setEntries((cur) => ({ ...cur, [key]: "Something went wrong on our side. Try again." })));
+      .catch(() => settle(SOMETHING_WENT_WRONG));
   }
 
   function chooseTab(next: Tab) {
     setTab(next);
+    clearAllWaits();
     setError(undefined);
     setNotice(undefined);
     if (next === "likkutei" && !likkut) loadVolume(1);
@@ -227,14 +296,7 @@ export function LibraryBrowser({ extraSie = [], canRefreshSie = false }: { extra
       </div>
       )}
       <FormError message={error} />
-      {waiting && (
-        <div role="status" className="mt-2 flex flex-wrap items-center gap-3 text-sm text-[var(--color-muted)]">
-          <span>{waiting.message}</span>
-          <Button type="button" variant="secondary" onClick={waiting.retry}>
-            Try again
-          </Button>
-        </div>
-      )}
+      {waiting && <WaitNotice view={waiting} onTryAgain={() => retryMain.current()} className="mt-2" />}
       {notice && <p role="status" className="mt-2 text-sm text-[var(--color-muted)]">{notice}</p>}
       {pending && (
         <p className="mt-3 flex items-center gap-2 text-sm text-[var(--color-muted)]">
@@ -370,15 +432,10 @@ export function LibraryBrowser({ extraSie = [], canRefreshSie = false }: { extra
                         <p className="flex items-center gap-2 text-sm text-[var(--color-muted)]">
                           <Spinner /> Loading...
                         </p>
+                      ) : entryWaiting[e.path] ? (
+                        <WaitNotice view={entryWaiting[e.path]!} onTryAgain={() => fetchEntry(e)} />
                       ) : typeof state === "string" ? (
-                        <>
-                          <FormError message={state} />
-                          {entryWaiting[e.path] && (
-                            <Button type="button" variant="secondary" className="mt-2" onClick={() => fetchEntry(e)}>
-                              Try again
-                            </Button>
-                          )}
-                        </>
+                        <FormError message={state} />
                       ) : state.length === 0 ? (
                         <p className="text-sm text-[var(--color-muted)]">No files for this one yet.</p>
                       ) : (

@@ -227,4 +227,37 @@ describe("CloudClient library worker calls (server-jobs)", () => {
     await expect(b.client.completeLibraryJob("j1", {})).rejects.toMatchObject({ status: 400, code: "payload_invalid" });
     expect(b.fetchImpl).toHaveBeenCalledTimes(1);
   });
+  it("daily-missing: authenticated GET with from and days in the query, returns only the list of date strings, not retried", async () => {
+    const a = make(async () => jsonResponse(200, { missing: ["2026-11-16", "2026-11-18", 5, null] }));
+    expect(await a.client.getMissingDailyDates("2026-11-15", 7)).toEqual(["2026-11-16", "2026-11-18"]);
+    const [url, init] = a.fetchImpl.mock.calls[0]!;
+    expect(url).toBe("https://cloud.example/api/agents/library/daily-missing?from=2026-11-15&days=7");
+    expect(init?.method).toBe("GET");
+    expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer agent-1.s3cret");
+    const b = make(async () => jsonResponse(200, { nonsense: true }));
+    await expect(b.client.getMissingDailyDates("2026-11-15", 7)).rejects.toMatchObject({ code: "BAD_RESPONSE" });
+    const c = make(async () => jsonResponse(503, { error: { code: "x", message: "down" } }));
+    await expect(c.client.getMissingDailyDates("2026-11-15", 7)).rejects.toMatchObject({ status: 503 });
+    expect(c.fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("daily: authenticated POST of exactly { date, day } (no address), a 400 throws and is not retried", async () => {
+    const day = { date: "2026-11-16", studies: [] };
+    const a = make(async () => jsonResponse(200, { ok: true, inserted: 5, existing: 0 }));
+    await a.client.postDailyText("2026-11-16", day);
+    const [url, init] = a.fetchImpl.mock.calls[0]!;
+    expect(url).toBe("https://cloud.example/api/agents/library/daily");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({ date: "2026-11-16", day });
+    const b = make(async () => jsonResponse(400, { error: { code: "invalid_day", message: "bad" } }));
+    await expect(b.client.postDailyText("2026-11-16", day)).rejects.toMatchObject({ status: 400, code: "invalid_day" });
+    expect(b.fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("the two daily calls never count a 403 toward consecutiveAuthFailures (that number slows the print loop)", async () => {
+    const { client } = make(async () => jsonResponse(403, { error: { code: "not_a_library_fetcher", message: "no" } }));
+    await expect(client.getMissingDailyDates("2026-11-15", 7)).rejects.toMatchObject({ status: 403 });
+    await expect(client.postDailyText("2026-11-15", {})).rejects.toMatchObject({ status: 403 });
+    expect(client.consecutiveAuthFailures).toBe(0);
+  });
 });

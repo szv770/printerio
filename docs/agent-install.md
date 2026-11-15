@@ -204,6 +204,12 @@ the print, heartbeat or command loops; an error in it is logged and ignored and 
 itself from the job (never from an address the website sends), fetches only the one library site (own-site redirects only, 15 s
 limit, 3 MB limit, at least 5 s between two requests) and posts the parsed page back.
 
+It also fetches the next week of daily study text: about 2 minutes after the agent starts (if it has not done so that day) and then every night at about
+03:30 (this PC's local time), it asks the website which of the next 7 days have no saved text, fetches each missing day from the daily study
+page (`chitas-site.vercel.app`, same politeness: 15 s limit, 3 MB limit, at least 5 s between requests, never at the same time as a library
+job), and posts it. A day that cannot be read is skipped (one log line). It is part of the same switch: nothing extra to turn on. Look for
+`daily study text saved` in the agent log about 2 minutes after the restart. Turn the website switch on only after that.
+
 It does nothing useful until ALL of these are true (a server that is not registered just logs one line and checks again every ~10 minutes):
 
 1. Migration `0055_library_cache_and_jobs.sql` is applied to the live database (Supabase SQL editor).
