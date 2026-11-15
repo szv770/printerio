@@ -50,7 +50,7 @@ $lines = @(
   "GATEWAY_BASE_DOMAIN=$baseDomain",
   "PRINTIO_CRON_SECRET=$cron"
 )
-foreach ($k in "PRINTIO_BOOTSTRAP_ADMIN_EMAIL", "PRINTIO_BOOTSTRAP_ORG_NAME", "NEXT_PUBLIC_GOOGLE_SIGNIN") { if ($old[$k]) { $lines += "$k=$($old[$k])" } }
+foreach ($k in "PRINTIO_BOOTSTRAP_ADMIN_EMAIL", "PRINTIO_BOOTSTRAP_ORG_NAME", "NEXT_PUBLIC_GOOGLE_SIGNIN", "LIBRARY_VIA_SERVER") { if ($old[$k]) { $lines += "$k=$($old[$k])" } }
 [IO.File]::WriteAllLines($envFile, $lines, (New-Object Text.UTF8Encoding $false))
 Write-Host "Wrote $envFile"
 

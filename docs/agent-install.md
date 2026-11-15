@@ -189,11 +189,57 @@ set these as real Windows environment variables (System Properties → Environme
 or `node-windows`'s service `env` option) if you'd rather not keep a `.env` file on disk at
 all — both approaches work and compose. The only required variable is `PRINTIO_API_URL`; everything else
 (`PRINTIO_LOCAL_STORAGE_PATH`, `PRINTIO_LOG_LEVEL`, `PRINTIO_POLL_INTERVAL_SECONDS`,
-`PRINTIO_SUMATRA_PATH`, `PRINTIO_PRINT_FIT_MODE`, `PRINTIO_SKIP_DEPENDENCY_CHECK`, etc.) has a documented default — see the
+`PRINTIO_SUMATRA_PATH`, `PRINTIO_PRINT_FIT_MODE`, `PRINTIO_SKIP_DEPENDENCY_CHECK`, `PRINTIO_LIBRARY_WORKER` (off; see below), etc.) has a documented default — see the
 `.env.example` file itself for the full list with rationale. `PRINTIO_AGENT_ID`/
 `PRINTIO_AGENT_SECRET` are normally **not** set by hand at all — `register` (§3) persists them
 to secure storage and `start` loads them from there automatically; setting them here is only
 for advanced/CI scenarios that deliberately bypass secure storage.
+
+### The library worker (optional; the owner's own server only)
+
+`PRINTIO_LIBRARY_WORKER=1` (or `true`) makes this Agent also fetch Mafteiach library pages for the website's shared cache
+(`docs/PHASE-C-PLAN.md`, C1). **Default: off. Unset, or any other value, means nothing runs: no timer, no network call.** School
+print servers never set it. When on, it runs on its own small timer (one job at a time, a look about every 20 s), never inside
+the print, heartbeat or command loops; an error in it is logged and ignored and cannot stop printing. It builds each page address
+itself from the job (never from an address the website sends), fetches only the one library site (own-site redirects only, 15 s
+limit, 3 MB limit, at least 5 s between two requests) and posts the parsed page back.
+
+It does nothing useful until ALL of these are true (a server that is not registered just logs one line and checks again every ~10 minutes):
+
+1. Migration `0055_library_cache_and_jobs.sql` is applied to the live database (Supabase SQL editor).
+2. This server is listed as a fetcher. Find its id on Admin > Agents, then in the SQL editor:
+   `insert into library_fetchers (agent_id) values ('<agent uuid>');`
+3. `PRINTIO_LIBRARY_WORKER=1` is in this PC's `apps\agent\.env` and the agent was restarted.
+4. The website has `LIBRARY_VIA_SERVER=1` (website environment) and was restarted.
+
+Exact steps on the owner's PC (Administrator PowerShell; short lines):
+
+```
+cd "C:\Users\MLM Office\printerio"
+git pull origin claude/upcoming-large-project-3d2j9p
+.\tools\self-host\setup-web.ps1 -Domain beta.printio.app
+```
+(That puts the new agent code on the PC and restarts the agent; the worker is still off.) Then do the SQL of steps 1 and 2 above. Then:
+```
+Add-Content apps\agent\.env "`nPRINTIO_LIBRARY_WORKER=1"
+Restart-Service "Printio Print Agent"
+```
+Look in the newest file in `C:\ProgramData\Printio\Agent\logs` for `library worker started`. Test one fetch BEFORE switching the website on, by queueing a job by hand
+in the SQL editor (put your agent id in; this is the same job the website would queue):
+```
+insert into server_jobs (kind, organization_id, params, dedupe_key)
+values ('library_fetch', (select organization_id from agents where id = '<agent uuid>'), '{"kind":"likkutei","volume":1}', 'likkutei:1');
+```
+Wait about 30 seconds, then `select status, error from server_jobs order by created_at desc limit 1;` should say `done`, and
+`select key, fetched_at from library_pages;` should list `likkutei:1`. If it says `failed`, the `error` column says why in plain words.
+Only then switch the website on:
+```
+Add-Content apps\web\.env.production.local "`nLIBRARY_VIA_SERVER=1"
+Stop-ScheduledTask "Printio Web"; Start-ScheduledTask "Printio Web"
+```
+Roll back: delete the `LIBRARY_VIA_SERVER` line and restart the website task (the old live fetch is back at once); to stop this
+server filling the cache, remove the `PRINTIO_LIBRARY_WORKER` line and `Restart-Service "Printio Print Agent"`, and/or
+`delete from library_fetchers where agent_id = '<agent uuid>';`. Jobs nobody takes expire after 10 minutes (failed, `expired`).
 
 ## 5. Install as a Windows service
 

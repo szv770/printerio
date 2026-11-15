@@ -179,3 +179,52 @@ describe("CloudClient retry/backoff", () => {
     15_000,
   );
 });
+
+describe("CloudClient library worker calls (server-jobs)", () => {
+  const make = (impl: Parameters<typeof mockFetch>[0]) => {
+    const fetchImpl = mockFetch(impl);
+    const client = new CloudClient({ apiUrl: "https://cloud.example", agentId: "agent-1", deviceSecret: "s3cret", logger, fetchImpl: fetchImpl as unknown as typeof fetch });
+    return { client, fetchImpl };
+  };
+
+  it("claim: 204 is null, 200 is the job; authenticated POST to server-jobs/claim, not retried", async () => {
+    const a = make(async () => new Response(null, { status: 204 }));
+    expect(await a.client.claimLibraryJob()).toBeNull();
+    const [url, init] = a.fetchImpl.mock.calls[0]!;
+    expect(url).toBe("https://cloud.example/api/agents/server-jobs/claim");
+    expect(init?.method).toBe("POST");
+    expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer agent-1.s3cret");
+    const b = make(async () => jsonResponse(200, { jobId: "j1", kind: "library_fetch", params: { kind: "likkutei", volume: 2 } }));
+    expect(await b.client.claimLibraryJob()).toEqual({ jobId: "j1", kind: "library_fetch", params: { kind: "likkutei", volume: 2 } });
+    const c = make(async () => jsonResponse(503, { error: { code: "x", message: "down" } }));
+    await expect(c.client.claimLibraryJob()).rejects.toMatchObject({ status: 503 });
+    expect(c.fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("claim 403 throws CloudApiError but never counts toward consecutiveAuthFailures (that number slows the print loop)", async () => {
+    const { client } = make(async () => jsonResponse(403, { error: { code: "not_a_library_fetcher", message: "no" } }));
+    await expect(client.claimLibraryJob()).rejects.toBeInstanceOf(CloudApiError);
+    await expect(client.claimLibraryJob()).rejects.toMatchObject({ status: 403, code: "not_a_library_fetcher" });
+    expect(client.consecutiveAuthFailures).toBe(0);
+  });
+
+  it("claim: a network failure is a CloudNetworkError", async () => {
+    const { client } = make(async () => { throw new TypeError("fetch failed"); });
+    await expect(client.claimLibraryJob()).rejects.toBeInstanceOf(CloudNetworkError);
+  });
+
+  it("complete sends exactly { payload }; fail sends { error }; a 400 throws and is not retried", async () => {
+    const a = make(async () => jsonResponse(200, { ok: true }));
+    await a.client.completeLibraryJob("j 1", { parshiyos: [] });
+    const [url, init] = a.fetchImpl.mock.calls[0]!;
+    expect(url).toBe("https://cloud.example/api/agents/server-jobs/j%201/complete");
+    expect(JSON.parse(String(init?.body))).toEqual({ payload: { parshiyos: [] } });
+    await a.client.failLibraryJob("j1", "page not found");
+    const [url2, init2] = a.fetchImpl.mock.calls[1]!;
+    expect(url2).toBe("https://cloud.example/api/agents/server-jobs/j1/fail");
+    expect(JSON.parse(String(init2?.body))).toEqual({ error: "page not found" });
+    const b = make(async () => jsonResponse(400, { error: { code: "payload_invalid", message: "bad" } }));
+    await expect(b.client.completeLibraryJob("j1", {})).rejects.toMatchObject({ status: 400, code: "payload_invalid" });
+    expect(b.fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});

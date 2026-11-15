@@ -141,6 +141,13 @@ export interface RemoteCommandEnvelope {
   payload: Record<string, unknown>;
 }
 
+/** What `server-jobs/claim` hands out: structured params only, never an address (docs/agent-api.md). */
+export interface LibraryJobEnvelope {
+  jobId: string;
+  kind: string;
+  params: unknown;
+}
+
 export interface CloudClientOptions {
   apiUrl: string;
   agentId?: string;
@@ -410,6 +417,34 @@ export class CloudClient {
       { kind, ...(detail ? { detail: detail.slice(0, 300) } : {}) },
       { auth: true, retry: true },
     );
+  }
+
+  /**
+   * POST /api/agents/server-jobs/claim - the optional library worker's poll. `null` = 204, nothing to do.
+   * Deliberately NOT routed through `poll()`: a 403 here only means "this server is not a library fetcher" and must never
+   * count toward `consecutiveAuthFailures`, which slows the print loop down. Never retried inside the request; the worker
+   * has its own backoff. Throws CloudApiError (4xx/5xx) or CloudNetworkError.
+   */
+  async claimLibraryJob(): Promise<LibraryJobEnvelope | null> {
+    const { status, json } = await this.sendWithRetry("POST", "/api/agents/server-jobs/claim", undefined, { auth: true, retry: false });
+    if (status === 204) return null;
+    if (status === 200) {
+      const body = (json ?? {}) as Partial<LibraryJobEnvelope>;
+      if (typeof body.jobId === "string" && typeof body.kind === "string") return { jobId: body.jobId, kind: body.kind, params: body.params };
+      throw new CloudApiError("server-jobs/claim answered 200 without a job", "BAD_RESPONSE", 200);
+    }
+    const errBody = (json ?? {}) as ApiErrorBody;
+    throw new CloudApiError(errBody.error?.message ?? `claim failed with status ${status}`, errBody.error?.code ?? `HTTP_${status}`, status);
+  }
+
+  /** POST /api/agents/server-jobs/:jobId/complete with exactly `{ payload }`. Not retried here (a 4xx is a decision; the lease is 120 s). */
+  async completeLibraryJob(jobId: string, payload: unknown): Promise<void> {
+    await this.request<{ ok: true }>("POST", `/api/agents/server-jobs/${encodeURIComponent(jobId)}/complete`, { payload }, { auth: true, retry: false, timeoutMs: 30_000 });
+  }
+
+  /** POST /api/agents/server-jobs/:jobId/fail with `{ error }` (a short plain-English reason; the website shows it to people). */
+  async failLibraryJob(jobId: string, error: string): Promise<void> {
+    await this.request<{ ok: true }>("POST", `/api/agents/server-jobs/${encodeURIComponent(jobId)}/fail`, { error }, { auth: true, retry: false });
   }
 
   /** GET /api/agents/commands */
