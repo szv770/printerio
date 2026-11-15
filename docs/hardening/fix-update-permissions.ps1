@@ -6,6 +6,8 @@
   (for example C:\Users\MLM Office\AppData\Local\pnpm\store). The limited account is not allowed to look there, so any
   update that needs new packages fails the first time. (A retry works because nothing new is needed the second time.)
 
+  (Second part, added 2026-11-15: the same message can also name ...\AppData\Roaming; that is the folder pnpm itself is installed in, which the script now opens for reading too.)
+
   WHAT THIS DOES: lets `printio-svc` walk through the folders leading to the pnpm store (it may look at their
   attributes only: no listing, no reading of anything else in AppData) and gives it change access to the pnpm store
   folder itself. Nothing else in your profile becomes reachable.
@@ -69,13 +71,26 @@ foreach ($st in $stores) {
     $change += $st
   }
 }
+# Second place the update can fail (seen 2026-11-15 after the store was fixed): pnpm ITSELF lives in the person's profile
+# (for example C:\Users\MLM Office\AppData\Roaming\npm), and node cannot even open it as printio-svc
+# ("EPERM ... lstat 'C:\Users\MLM Office\AppData\Roaming'"). Allow walking to that folder and reading it (no changes).
+$read = @()
+$pnpmDir = (Split-Path $pnpm -Parent)
+if ($pnpmDir -and $pnpmDir.StartsWith($usersRoot, [StringComparison]::OrdinalIgnoreCase)) {
+  $read += $pnpmDir
+  $p = Split-Path $pnpmDir -Parent
+  while ($p -and $p.Length -gt $usersRoot.Length -and $p.StartsWith($usersRoot, [StringComparison]::OrdinalIgnoreCase)) { $walk += $p; $p = Split-Path $p -Parent }
+}
 $walk = $walk | Select-Object -Unique
 $change = $change | Select-Object -Unique
+$read = $read | Select-Object -Unique
 
 Write-Host "Folders '$Account' will be allowed to walk through (attributes only):"
 $walk | ForEach-Object { Write-Host "    $_" }
 Write-Host "Folders '$Account' will get change access to:"
 $change | ForEach-Object { Write-Host "    $_" }
+Write-Host "Folders '$Account' will be allowed to read (where pnpm itself is installed):"
+$read | ForEach-Object { Write-Host "    $_" }
 Write-Host ""
 
 if (-not $Apply) {
@@ -84,5 +99,6 @@ if (-not $Apply) {
 }
 
 foreach ($w in $walk) { if (Test-Path $w) { & icacls.exe $w /grant "${Account}:(X,RA)" | Out-Null } }
+foreach ($r in $read) { if (Test-Path $r) { & icacls.exe $r /grant "${Account}:(OI)(CI)(RX)" /T /C /Q | Out-Null } }
 foreach ($c in $change) { if (Test-Path $c) { & icacls.exe $c /grant "${Account}:(OI)(CI)(M)" /T /C /Q | Out-Null } else { New-Item -ItemType Directory -Force -Path $c | Out-Null; & icacls.exe $c /grant "${Account}:(OI)(CI)(M)" /T /C /Q | Out-Null } }
 Write-Host "Done. Now press 'Update this server' in Printio Admin: it should finish the first time."
