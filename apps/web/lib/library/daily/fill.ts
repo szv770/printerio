@@ -1,8 +1,8 @@
 import { PDFDocument, rgb, type PDFFont } from "pdf-lib";
 import { EZRA_SIL_REGULAR_BASE64 } from "@/lib/booklet/fonts/ezra-sil-regular";
 import { drawShaped, widthOfShaped } from "@/lib/booklet/shaped";
-import { drawableRuns, embedFonts, type Fonts } from "@/lib/booklet/frontmatter";
-import type { Direction } from "@/lib/booklet/bidi";
+import { drawableRuns, embedFonts, type Fonts, type LatinFontBytes } from "@/lib/booklet/frontmatter";
+import { hasHebrew, paragraphDirection, type Direction } from "@/lib/booklet/bidi";
 import type { StudySection } from "./page";
 
 /**
@@ -16,25 +16,55 @@ import type { StudySection } from "./page";
  * Layout follows the Chitas & Rambam builder the owner likes: with both languages, Hebrew on the left and English on the right,
  * side by side, row by row (verse number between them), and Rashi in a lightly shaded box. One language alone uses the full width.
  * Text is only drawn, never changed: Hebrew is set in Ezra SIL, which has every vowel and cantillation mark; English in David Libre.
+ * Optional fonts: `hebrewFont` (Hebrew body), `titleFont` (Hebrew in titles only, drawn as it is) and `latinFont` (all text that is not
+ * Hebrew); a line that mixes them is drawn piece by piece, each piece in a font that has it. Titles can also have a Hebrew form (`titleHe`).
  * See docs/daily-study.md.
  */
 
 export type Language = "he" | "en" | "both";
 
-/** English regular and bold (David Libre), and Hebrew (Ezra SIL unless an uploaded font was given). */
+/** English regular and bold (David Libre unless `latinFont`), Hebrew (Ezra SIL unless an uploaded font was given) and the title font, if any. */
 interface LayoutFonts extends Fonts {
   hebrew: PDFFont;
+  /** An English font replaced David Libre, so Hebrew letters inside English text need the Hebrew font. */
+  latinReplaced: boolean;
 }
-const fontName = (f: LayoutFonts, font: PDFFont): DrawOp["font"] => (font === f.hebrew ? "hebrew" : font === f.bold ? "bold" : "regular");
+type FontKind = DrawOp["font"];
+const kindFont = (f: LayoutFonts, kind: FontKind): PDFFont => (kind === "title" ? f.title ?? f.hebrew : kind === "hebrew" ? f.hebrew : kind === "bold" ? f.bold : f.regular);
+/** A Hebrew title is drawn in the title font when there is one, else the body Hebrew font. */
+const resolveKind = (f: LayoutFonts, kind: Para["kind"]): FontKind => (kind === "title" ? (f.title ? "title" : "hebrew") : kind);
+
+const LATIN_LETTER = /[A-Za-z\u00C0-\u024F]/;
+const charSets = new WeakMap<PDFFont, Set<number>>();
+const hasLetters = (font: PDFFont, text: string): boolean => {
+  let set = charSets.get(font);
+  if (!set) charSets.set(font, (set = new Set(font.getCharacterSet())));
+  return Array.from(text).every((ch) => !LATIN_LETTER.test(ch) || set!.has(ch.codePointAt(0)!));
+};
+
+/**
+ * The font that draws one piece of a line (a run of one direction): a Hebrew font never draws English letters, nor an English font
+ * Hebrew letters. Titles always take Latin pieces from the English bold font; a Hebrew paragraph only when its font lacks the letters.
+ */
+function pieceKind(f: LayoutFonts, kind: FontKind, text: string): FontKind {
+  if (kind === "hebrew" || kind === "title") {
+    if (hasHebrew(text) || !LATIN_LETTER.test(text)) return kind;
+    return kind === "title" || !hasLetters(f.hebrew, text) ? (kind === "title" ? "bold" : "regular") : kind;
+  }
+  return f.latinReplaced && hasHebrew(text) ? "hebrew" : kind;
+}
 
 export interface FillItem {
   title: string;
-  sections: StudySection[];
+  /** The item's title in Hebrew (e.g. "חומש - פרשת בראשית"): drawn instead of, or above, the English title, by the booklet's language. */
+  titleHe?: string;  sections: StudySection[];
 }
 
 export interface FillInput {
   /** The booklet's title, at the top of the first page. */
   title: string;
+  /** The booklet's title in Hebrew. Language "he": drawn alone (the English title if absent); "both": large, with the English title smaller beneath; "en": ignored. */
+  titleHe?: string;
   items: FillItem[];
   language: Language;
   /** One booklet page, in points (half-letter: 396 x 612). */
@@ -47,6 +77,10 @@ export interface FillInput {
   credit?: string;
   /** Bytes of an uploaded font (.ttf/.otf) to set Hebrew in instead of Ezra SIL. A font that cannot be read throws; there is no silent fallback. */
   hebrewFont?: Uint8Array;
+  /** Bytes of a Hebrew-capable font (.ttf/.otf) for Hebrew text in titles and headings only, drawn as it is (never made bolder). Latin text in a title stays in the English bold font. Unreadable: throws. */
+  titleFont?: Uint8Array;
+  /** English (Latin) font used instead of David Libre for all text that is not Hebrew. Without `bold`, bold rows use the regular face. Unreadable: throws. */
+  latinFont?: LatinFontBytes;
 }
 
 export interface DrawOp {
@@ -59,8 +93,8 @@ export interface DrawOp {
   width: number;
   size: number;
   bold: boolean;
-  /** Which bundled font draws it: Hebrew paragraphs use "hebrew". */
-  font: "regular" | "bold" | "hebrew";
+  /** Which font draws it: Hebrew paragraphs use "hebrew"; Hebrew titles "title" when a title font was given. */
+  font: "regular" | "bold" | "hebrew" | "title";
   dir: Direction;
   role: "heading" | "body" | "credit" | "number";
 }
@@ -112,7 +146,9 @@ const BOX_PAD = 4;
 
 interface Para {
   text: string;
-  kind: "regular" | "bold" | "hebrew";
+  kind: "regular" | "bold" | "hebrew" | "title";
+  /** A right-to-left line kept at the left edge, where the English title next to it sits. */
+  flushLeft?: boolean;
   dir: Direction;
   scale: number;
   /** Space above it, in font sizes (inside a column, between its paragraphs). */
@@ -134,26 +170,35 @@ interface Row {
   shade?: boolean;
 }
 
-const heading = (text: string, scale: number, before: number, center = false): Row => ({
-  left: [{ text, kind: "bold", dir: "ltr", scale, before: 0, role: "heading" }],
-  right: [],
-  full: true,
-  center,
-  keepWithNext: true,
-  before,
-});
+/** One title line: Hebrew letters mean the title font (right-to-left), anything else the English bold font. */
+const titleLine = (text: string, scale: number, flushLeft: boolean, before = 0): Para =>
+  hasHebrew(text) ? { text, kind: "title", dir: paragraphDirection(text), scale, before, role: "heading", flushLeft } : { text, kind: "bold", dir: "ltr", scale, before, role: "heading" };
+
+/**
+ * A title or heading row. With a Hebrew form: language "he" draws only that; "both" draws it large with the English one smaller beneath,
+ * both where the English title sits alone (centred for the booklet's title, at the left edge for the rest); "en" draws only the English.
+ */
+function heading(language: Language, text: string, textHe: string | undefined, scale: number, before: number, center = false): Row {
+  const he = textHe?.trim();
+  const flushLeft = language !== "he";
+  let left: Para[];
+  if (he && language === "he") left = [titleLine(he, scale, false)];
+  else if (he && language === "both") left = [titleLine(he, scale * 1.2, flushLeft), titleLine(text, Math.max(0.85, scale * 0.72), flushLeft, 0.1)];
+  else left = [titleLine(text, scale, flushLeft)];
+  return { left, right: [], full: true, center, keepWithNext: true, before };
+}
 
 function rows(input: FillInput): Row[] {
-  const out: Row[] = [heading(input.title, 1.3, 0, true)];
+  const out: Row[] = [heading(input.language, input.title, input.titleHe, 1.3, 0, true)];
   const both = input.language === "both";
   const he = (text: string, scale: number, before = 0): Para => ({ text, kind: "hebrew", dir: "rtl", scale, before, role: "body" });
   // English is set in David Libre, which has the letters and vowel marks but no cantillation marks: leave those out of Hebrew words quoted inside English.
   const en = (text: string, scale: number, before = 0, bold = false): Para => ({ text: text.replace(/[֑-ֽ֯]/g, ""), kind: bold ? "bold" : "regular", dir: "ltr", scale, before, role: "body" });
 
   for (const item of input.items) {
-    out.push(heading(item.title, 1.12, 0.9));
+    out.push(heading(input.language, item.title, item.titleHe, 1.12, 0.9));
     for (const section of item.sections) {
-      if (section.heading && section.heading !== item.title) out.push(heading(section.heading, 1.02, 0.6));
+      if (section.heading && section.heading !== item.title) out.push(heading(input.language, section.heading, undefined, 1.02, 0.6));
       for (const b of section.blocks) {
         const rashi = b.kind === "rashi";
         const scale = rashi || b.kind === "note" ? 0.9 : 1;
@@ -180,14 +225,17 @@ function rows(input: FillInput): Row[] {
   return out;
 }
 
-/** Measures each word once per font (text width is exactly proportional to the font size): measuring is the slow part of laying out many pages. */
+/**
+ * Measures each word once per font (text width is exactly proportional to the font size): measuring is the slow part of laying out many pages.
+ * A word is measured piece by piece in the fonts that will draw it (see `pieceKind`).
+ */
 function measurer(fonts: LayoutFonts) {
   const cache = new Map<string, number>();
-  return (font: PDFFont, size: number, text: string): number => {
-    const key = `${fontName(fonts, font)}|${text}`;
+  return (kind: FontKind, size: number, text: string): number => {
+    const key = `${kind}|${text}`;
     let unit = cache.get(key);
     if (unit === undefined) {
-      unit = widthOfShaped(font, text, 1000);
+      unit = drawableRuns(text, "ltr").reduce((sum, r) => sum + widthOfShaped(kindFont(fonts, pieceKind(fonts, kind, r.visual)), r.draw, 1000), 0);
       cache.set(key, unit);
     }
     return (unit * size) / 1000;
@@ -196,7 +244,7 @@ function measurer(fonts: LayoutFonts) {
 type Measure = ReturnType<typeof measurer>;
 
 /** Breaks text into lines that fit `maxWidth`; a word wider than a line is cut by letters rather than overflowing. */
-function wrap(text: string, font: PDFFont, size: number, maxWidth: number, measure: Measure): { text: string; width: number }[] {
+function wrap(text: string, font: FontKind, size: number, maxWidth: number, measure: Measure): { text: string; width: number }[] {
   const words = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
   const space = measure(font, size, " ");
   const lines: { text: string; width: number }[] = [];
@@ -230,7 +278,8 @@ interface ColLine {
   text: string;
   width: number;
   size: number;
-  font: PDFFont;
+  font: FontKind;
+  flushLeft: boolean;
   dir: Direction;
   role: DrawOp["role"];
   /** Height it takes, including any space above it. */
@@ -243,10 +292,10 @@ function column(paras: Para[], fonts: LayoutFonts, size: number, width: number, 
   const out: ColLine[] = [];
   paras.forEach((p, pi) => {
     const sz = size * p.scale;
-    const font = p.kind === "hebrew" ? fonts.hebrew : p.kind === "bold" ? fonts.bold : fonts.regular;
+    const font = resolveKind(fonts, p.kind);
     const lh = sz * line;
     wrap(p.text, font, sz, width, measure).forEach((l, li) => {
-      out.push({ text: l.text, width: l.width, size: sz, font, dir: p.dir, role: p.role, lh, h: lh + (li === 0 && pi > 0 ? p.before * size : 0) });
+      out.push({ text: l.text, width: l.width, size: sz, font, flushLeft: !!p.flushLeft, dir: p.dir, role: p.role, lh, h: lh + (li === 0 && pi > 0 ? p.before * size : 0) });
     });
   });
   return out;
@@ -322,8 +371,8 @@ function layout(input: FillInput, fonts: LayoutFonts, size: number, measure: Mea
           const l = c[k]!;
           const h = startOfRow && k === from ? l.lh : l.h;
           yy -= h;
-          const x = row.center ? (left + right - l.width) / 2 : l.dir === "rtl" || rtlSide ? x1 - l.width : x0;
-          emit({ logical: l.text, x, y: yy + l.lh * 0.22, width: l.width, size: l.size, bold: l.font === fonts.bold, font: fontName(fonts, l.font), dir: l.dir, role: l.role });
+          const x = row.center ? (left + right - l.width) / 2 : l.flushLeft ? x0 : l.dir === "rtl" || rtlSide ? x1 - l.width : x0;
+          emit({ logical: l.text, x, y: yy + l.lh * 0.22, width: l.width, size: l.size, bold: l.font === "bold", font: l.font, dir: l.dir, role: l.role });
         }
       };
       if (row.full) place(L, li, a.n, hebrewX, hebrewX + colW, false);
@@ -332,8 +381,10 @@ function layout(input: FillInput, fonts: LayoutFonts, size: number, measure: Mea
         place(R, ri, b.n, englishX, englishX + colW, false);
         if (row.num && startOfRow) {
           const numSize = size * 0.8;
-          const nw = measure(fonts.hebrew, numSize, row.num);
-          emit({ logical: row.num, x: hebrewX + colW + (GUTTER - nw) / 2, y: cy - L[0]!.lh + L[0]!.lh * 0.22, width: nw, size: numSize, bold: false, font: "hebrew", dir: "rtl", role: "number" });
+          // Digits come from the English font when one was chosen (the Hebrew fonts are for Hebrew letters); Hebrew letter numbers stay Hebrew.
+          const numKind: FontKind = fonts.latinReplaced && !hasHebrew(row.num) ? "regular" : "hebrew";
+          const nw = measure(numKind, numSize, row.num);
+          emit({ logical: row.num, x: hebrewX + colW + (GUTTER - nw) / 2, y: cy - L[0]!.lh + L[0]!.lh * 0.22, width: nw, size: numSize, bold: false, font: numKind, dir: "rtl", role: "number" });
         }
       }
       if (row.shade) rects[rects.length - 1]!.push({ x: left, y: boxTop - used - 2 * pad, width: right - left, height: used + 2 * pad });
@@ -378,9 +429,11 @@ export function findMissingMarks(plan: FillPlan, font: Pick<PDFFont, "getCharact
 
 export async function buildFilledPdf(input: FillInput): Promise<FillResult> {
   const doc = await PDFDocument.create();
-  const base = await embedFonts(doc, input.hebrewFont);
-  const hebrew = base.hebrew ?? (await doc.embedFont(Buffer.from(EZRA_SIL_REGULAR_BASE64, "base64"), { subset: true }));
-  const fonts: LayoutFonts = { ...base, hebrew };
+  const base = await embedFonts(doc, input.hebrewFont ?? new Uint8Array(Buffer.from(EZRA_SIL_REGULAR_BASE64, "base64")), {
+    ...(input.latinFont ? { latinFont: input.latinFont } : {}),
+    ...(input.titleFont ? { titleFont: input.titleFont } : {}),
+  });
+  const fonts: LayoutFonts = { ...base, hebrew: base.hebrew!, latinReplaced: !!input.latinFont };
   const minSize = input.minSize ?? MIN_SIZE;
   const maxSize = input.maxSize ?? MAX_SIZE;
 
@@ -430,10 +483,10 @@ export async function buildFilledPdf(input: FillInput): Promise<FillResult> {
     const page = doc.addPage([input.page.width, input.page.height]);
     for (const r of plan.rects[pi] ?? []) page.drawRectangle({ x: r.x, y: r.y, width: r.width, height: r.height, color: SHADE });
     for (const op of ops) {
-      const font = fonts[op.font];
       let x = op.x;
       const runs = drawableRuns(op.logical, op.dir);
       for (const r of runs) {
+        const font = kindFont(fonts, pieceKind(fonts, op.font, r.visual));
         drawShaped(page, r.draw, { x, y: op.y, size: op.size, font, color: INK });
         // Only a line made of several pieces needs each piece measured; the usual single piece does not.
         if (runs.length > 1) x += widthOfShaped(font, r.draw, op.size);
