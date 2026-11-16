@@ -1,6 +1,7 @@
 import { IdCard } from "lucide-react";
 import { Card, Collapsible, PageHeader } from "@/components/ui";
 import { ProfileForm } from "./ProfileForm";
+import { PrintPreferencesForm } from "./PrintPreferencesForm";
 
 /** The profile page body. Presentational (no data access) so the dev preview can render it with sample data. */
 export function ProfileView({
@@ -10,6 +11,7 @@ export function ProfileView({
   role,
   department,
   hasMembership,
+  printPreferences = null,
 }: {
   displayName: string | null;
   email: string;
@@ -17,6 +19,8 @@ export function ProfileView({
   role: string | null;
   department: string | null;
   hasMembership: boolean;
+  /** The print-page setting; null hides it (the preferences table is not there yet). */
+  printPreferences?: { rememberLast: boolean } | null;
 }) {
   const shownName = displayName?.trim() || email;
   const initial = shownName.trim().charAt(0).toUpperCase() || "?";
@@ -39,6 +43,12 @@ export function ProfileView({
           </div>
           <ProfileForm displayName={displayName} />
         </Card>
+
+        {printPreferences && (
+          <Card className="sm:p-6">
+            <PrintPreferencesForm rememberLast={printPreferences.rememberLast} />
+          </Card>
+        )}
 
         {hasMembership && (
           <Collapsible

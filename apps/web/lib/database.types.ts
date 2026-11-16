@@ -1605,6 +1605,35 @@ export type Database = {
           },
         ]
       }
+      user_print_preferences: {
+        Row: {
+          user_id: string
+          remember_last: boolean
+          last_choices: Json | null
+          updated_at: string
+        }
+        Insert: {
+          user_id: string
+          remember_last?: boolean
+          last_choices?: Json | null
+          updated_at?: string
+        }
+        Update: {
+          user_id?: string
+          remember_last?: boolean
+          last_choices?: Json | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_print_preferences_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

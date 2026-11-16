@@ -3,6 +3,9 @@
 Written 2026-10-22 so nothing is lost between sessions. Read `docs/HANDOFF.md` first for what is built and proven.
 Working rule from the owner: one agent at a time, go step by step, do not burn usage with many agents at once.
 
+## Done 2026-11-16: the Print page starts clean (owner decision)
+Every visit to the Print page starts clean (single-sided, 1 copy, all pages, Letter, plain paper, no staple, no punch, no booklet, black and white); the browser no longer remembers choices. A per-user Profile setting "Remember my last print choices" (default off) brings back the last submitted job's choices except the booklet (`user_print_preferences`, migration `0056_user_print_preferences.sql`, **NOT yet applied to the live database**: the app works without it, the setting just stays hidden/off until the owner applies it in the Supabase SQL editor). Handoffs (booklet builder, library pages, shared / built, Print again) still win. See docs/FEATURES.md ("Built, testing"); code in `apps/web/lib/print-start-choices.ts` and `print-preferences.ts`.
+
 ## Asks recorded 2026-11-15 (owner; NOT started - build later, in this order of mention)
 Recorded verbatim in intent so nothing is lost. Not part of the Cloudflare / phase plan (`docs/TARGET-ARCHITECTURE.md`); schedule them after phase 1 unless the owner says otherwise.
 1. **Repeat one page many times on a sheet ("step and repeat").** Someone opens a file and can make the same page appear several times on each sheet, for example 20 copies of one page on a single sheet (labels, tickets, name cards, handouts cut apart afterwards). Needs: a choice of how many per sheet or rows x columns, cut-guide marks optional, and it must live in the imposition code (`apps/web/lib/pdf/imposition*.ts`; after phase 1 that work runs on the school's print server). Open questions to ask when starting: one chosen page repeated, or every page of the file each repeated; spacing/margins; whether copies of a page should also be collated.
