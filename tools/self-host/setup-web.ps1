@@ -59,8 +59,14 @@ if (-not $SkipBuild) {
   corepack enable
   pnpm install --frozen-lockfile
   if ($LASTEXITCODE) { throw "pnpm install failed" }
-  pnpm --filter "@printio/web" build
-  if ($LASTEXITCODE) { throw "build failed" }
+  # Run the build with its keyboard input turned off (< NUL). Next 16.4 otherwise offers to copy an "upgrade prompt" to the
+  # clipboard when it sees an interactive window, and over a remote desktop that step hangs (2026-11-16). Next also writes
+  # harmless warnings to stderr, so do not let PowerShell treat those as errors: success is the exit code only.
+  $prevEap = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+  cmd /c 'pnpm --filter "@printio/web" build < NUL'
+  $buildExit = $LASTEXITCODE
+  $ErrorActionPreference = $prevEap
+  if ($buildExit) { throw "build failed" }
   # INTERIM: a fresh build lands in plain .next, so forget which folder update-web.ps1 last used.
   Remove-Item (Join-Path $(if ($env:ProgramData) { $env:ProgramData } else { "C:\ProgramData" }) "Printio\WebUpdate\active-dist.txt") -ErrorAction SilentlyContinue
 }

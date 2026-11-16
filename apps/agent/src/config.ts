@@ -121,6 +121,16 @@ export interface LoadConfigOptions {
   env?: NodeJS.ProcessEnv;
 }
 
+/** True for http(s)://localhost, 127.x.x.x and [::1]: the website runs on this same machine. */
+export function isLoopbackUrl(url: string): boolean {
+  try {
+    const h = new URL(url).hostname.toLowerCase();
+    return h === "localhost" || h === "[::1]" || h === "::1" || /^127\.\d+\.\d+\.\d+$/.test(h);
+  } catch {
+    return false;
+  }
+}
+
 export function loadConfig(options: LoadConfigOptions = {}): AgentConfig {
   const env = options.env ?? process.env;
 
@@ -168,10 +178,13 @@ export function loadConfig(options: LoadConfigOptions = {}): AgentConfig {
     MIN_POLL_INTERVAL_SECONDS,
     parsePositiveInt("PRINTIO_POLL_INTERVAL_SECONDS", env.PRINTIO_POLL_INTERVAL_SECONDS, DEFAULT_POLL_INTERVAL_SECONDS),
   );
+  // After an outage the slow-down (6 s, 12 s, ... up to this cap) decides how long the Agent takes to notice the website is
+  // back. With the website on the SAME PC (a loopback address) nobody is protected by a long wait, and on 2026-11-16 a 10
+  // minute site restart left the Agent silent for 5 more minutes: cap that case at 30 s. A remote website keeps 300 s.
   const maxPollIntervalSeconds = parsePositiveInt(
     "PRINTIO_MAX_POLL_INTERVAL_SECONDS",
     env.PRINTIO_MAX_POLL_INTERVAL_SECONDS,
-    300,
+    isLoopbackUrl(apiUrl) ? Math.max(30, pollIntervalSeconds) : 300,
   );
   if (maxPollIntervalSeconds < pollIntervalSeconds) {
     throw new ConfigError(
