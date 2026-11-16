@@ -17,7 +17,20 @@ const previewFonts = [
   { id: "f2", name: "Sample no trop", hasVowels: true, hasCantillation: false, hasHebrew: true, hasLatin: false },
   { id: "f3", name: "OT Talmudis", hasVowels: true, hasCantillation: false, hasHebrew: true, hasLatin: false },
   { id: "f4", name: "Sample English serif", hasVowels: false, hasCantillation: false, hasHebrew: false, hasLatin: true },
+  { id: "f5", name: "OT Siddur Classic Bold", hasVowels: true, hasCantillation: true, hasHebrew: true, hasLatin: false },
+  { id: "f6", name: "OT Siddur Classic Light", hasVowels: true, hasCantillation: true, hasHebrew: true, hasLatin: false },
+  { id: "f7", name: "Sample English serif Bold", hasVowels: false, hasCantillation: false, hasHebrew: false, hasLatin: true },
 ];
+// What the server reads from the font files: the family and the weight of each.
+const previewFaces = {
+  f1: { family: "OT Siddur Classic", weight: 400 },
+  f2: { family: "Sample no trop", weight: 400 },
+  f3: { family: "OT Talmudis", weight: 400 },
+  f4: { family: "Sample English serif", weight: 400 },
+  f5: { family: "OT Siddur Classic", weight: 700 },
+  f6: { family: "OT Siddur Classic", weight: 300 },
+  f7: { family: "Sample English serif", weight: 700 },
+};
 const previewEnglishFonts = [
   { id: "david-libre", name: "David Libre (default)" },
   { id: "eb-garamond", name: "EB Garamond" },
@@ -44,7 +57,7 @@ export function DailyStudyPreview() {
           ]}
         />
       </div>
-      <DailyStudyPanel api={{ day: async () => ({ ok: true, items }), build: async () => ({ ok: false, message: "Preview only." }), fonts: async () => ({ ok: true, fonts: previewFonts, englishFonts: previewEnglishFonts }) }} />
+      <DailyStudyPanel api={{ day: async () => ({ ok: true, items }), build: async () => ({ ok: false, message: "Preview only." }), fonts: async () => ({ ok: true, fonts: previewFonts, englishFonts: previewEnglishFonts, faces: previewFaces }) }} />
     </div>
   );
 }

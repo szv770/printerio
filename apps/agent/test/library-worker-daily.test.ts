@@ -282,6 +282,8 @@ describe("what a pass does", () => {
 
   it("a hanging source times out after the worker's time limit and the day is skipped", async () => {
     vi.useFakeTimers();
+    // Pin the clock: fake timers start at the REAL date otherwise, and WEEK starts at TODAY (this test broke on 2026-11-16).
+    vi.setSystemTime(at(2026, 11, 15, 2, 0));
     const log = makeLogger();
     const cloud = makeCloud();
     cloud.getMissingDailyDates.mockResolvedValue([WEEK[0]!]);
