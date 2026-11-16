@@ -1,7 +1,6 @@
 "use client";
 
 import { printerStatusLabel } from "@/lib/printers/status-label";
-import { readBuilderParams, readPagesParam } from "@/lib/booklet/builder-params";
 import { useActionState, useEffect, useRef, useState, startTransition } from "react";
 import { AlertTriangle, BookOpen, FileText, FileUp, ListOrdered, Minus, Palette, Paperclip, Plus, Printer, SlidersHorizontal } from "lucide-react";
 import { parsePageRange } from "@printio/shared";
@@ -19,7 +18,8 @@ import {
   type SidesChoice,
   type StapleChoice,
 } from "@/lib/print-choices";
-import { paperSizeForForm, type PrintAgainFormChoices } from "@/lib/jobs/print-again";
+import type { PrintAgainFormChoices } from "@/lib/jobs/print-again";
+import { CLEAN_START, resolveStartChoices, type RememberedChoices } from "@/lib/print-start-choices";
 import { liveSummaryLine, summarizeAdvanced, summarizeFinishing, summarizePages, summarizePaperColor } from "@/lib/print-form-summary";
 import dynamic from "next/dynamic";
 import { submitPrintJobAction, type SubmitJobState } from "./actions";
@@ -59,51 +59,8 @@ function statusFor(p: { printerOnline: boolean; printerStatus?: string; printerD
 }
 
 const THUMBNAIL_MAX_WIDTH_PX = 200;
-const STORAGE_KEY = "printio.print-choices.v1";
-
-interface SavedChoices {
-  profileId?: string;
-  sides?: SidesChoice;
-  staple?: StapleChoice;
-  booklet?: BookletChoice;
-  bookletFit?: "fill" | "keep";
-  bookletSheet?: "letter" | "tabloid";
-  copies?: number;
-  colorMode?: "bw" | "color";
-  paperSize?: string;
-  punch?: boolean;
-}
-
-/** Remembered choices are a convenience only: any failure (private window, blocked storage, junk) means "no memory". */
-function readSavedChoices(): SavedChoices {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return {};
-    const v = JSON.parse(raw) as Record<string, unknown>;
-    const out: SavedChoices = {};
-    if (typeof v.profileId === "string") out.profileId = v.profileId;
-    if (v.sides === "one" || v.sides === "two") out.sides = v.sides;
-    if (v.staple === "none" || v.staple === "top-left" || v.staple === "top-right" || v.staple === "dual-left") out.staple = v.staple;
-    if (v.booklet === "none" || v.booklet === "left" || v.booklet === "right") out.booklet = v.booklet;
-    if (typeof v.copies === "number" && Number.isInteger(v.copies) && v.copies >= 1 && v.copies <= MAX_COPIES) out.copies = v.copies;
-    if (v.colorMode === "bw" || v.colorMode === "color") out.colorMode = v.colorMode;
-    if (typeof v.paperSize === "string") out.paperSize = v.paperSize;
-    if (typeof v.punch === "boolean") out.punch = v.punch;
-    if (v.bookletFit === "fill" || v.bookletFit === "keep") out.bookletFit = v.bookletFit;
-    if (v.bookletSheet === "letter" || v.bookletSheet === "tabloid") out.bookletSheet = v.bookletSheet;
-    return out;
-  } catch {
-    return {};
-  }
-}
-
-function writeSavedChoices(c: SavedChoices) {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(c));
-  } catch {
-    /* storage unavailable - the form just will not remember */
-  }
-}
+/** The key the page used to remember choices under in the browser. It no longer remembers anything there; the key is just cleaned up. */
+const LEGACY_STORAGE_KEY = "printio.print-choices.v1";
 
 const STAGED_REUSE_MS = 20 * 60 * 1000;
 const stagedNow = () => Date.now();
@@ -130,9 +87,12 @@ export function PrintForm({
   maxUploadBytes,
   blockType3Fonts = true,
   again,
+  remembered,
 }: {
   /** "Print again": the earlier job's choices. Applied once after mount, over the remembered ones; every control stays changeable. */
   again?: PrintAgainFormChoices;
+  /** Only present when the member switched on "Remember my last print choices" (validated on the server, never with a booklet). Without it every visit starts clean. */
+  remembered?: RememberedChoices;
   printerProfiles: PrinterOption[];
   /** organization_settings.max_upload_size_bytes, forwarded only so the file picker can reject an oversized file
    *  instantly. Advisory: print/actions.ts re-reads the same setting server-side and is the real gate. */
@@ -176,9 +136,9 @@ export function PrintForm({
   /** Set by a refused submit (Enter pressed while the form is invalid); cleared by the next valid submit. */
   const [clientError, setClientError] = useState<string | null>(null);
 
-  const [sides, setSides] = useState<SidesChoice>("two");
-  const [staple, setStaple] = useState<StapleChoice>("none");
-  const [booklet, setBooklet] = useState<BookletChoice>("none");
+  const [sides, setSides] = useState<SidesChoice>(CLEAN_START.sides);
+  const [staple, setStaple] = useState<StapleChoice>(CLEAN_START.staple);
+  const [booklet, setBooklet] = useState<BookletChoice>(CLEAN_START.booklet);
   const [copiesText, setCopiesText] = useState("1");
   const [pageRange, setPageRange] = useState("");
   /** Presentation only: whether the "Some pages" box is showing. The text in pageRange is still what is submitted. */
@@ -196,7 +156,7 @@ export function PrintForm({
   const [autoPreview, setAutoPreview] = useState(false);
   const autoPreviewFired = useRef(false);
   const [preview, setPreview] = useState<{ status: "idle" | "loading" | "error" | "ready"; error?: string; data?: BookletPreviewData; signature?: string }>({ status: "idle" });
-  /** False until the remembered choices have been read, so the first render never overwrites them. */
+  /** False until the start choices have been applied (the booklet preview waits for it). */
   const [restored, setRestored] = useState(false);
 
   const profile = printerProfiles.find((p) => p.id === profileId) ?? printerProfiles[0];
@@ -205,54 +165,34 @@ export function PrintForm({
   // With no printer at all the form is a preview only (Submit is disabled), so nothing is greyed out.
   const caps = profile?.declaredCapabilities ?? { duplex: true, color: true, staple: true, booklet: true, punch: true };
 
-  // Restore the member's last choices after mount (never during the first render: it would not match the
-  // server-rendered HTML). A timer rather than a direct setState keeps this out of the render/commit cascade.
+  // Apply the start choices after mount (never during the first render: it would not match the server-rendered HTML).
+  // Clean by default; the member's remembered choices only when they switched that on; then the handoffs (print again, the
+  // booklet builder, a library page range) over both. See lib/print-start-choices.ts. A timer rather than a direct setState
+  // keeps this out of the render/commit cascade.
   useEffect(() => {
     const t = setTimeout(() => {
-      const saved = readSavedChoices();
-      if (saved.profileId && printerProfiles.some((p) => p.id === saved.profileId)) setProfileId(saved.profileId);
-      if (saved.sides) setSides(saved.sides);
-      if (saved.staple) setStaple(saved.staple);
-      if (saved.booklet) setBooklet(saved.booklet);
-      if (saved.copies) setCopiesText(String(saved.copies));
-      if (saved.colorMode) setColorMode(saved.colorMode);
-      if (saved.paperSize) setPaperSize(saved.paperSize);
-      if (typeof saved.punch === "boolean") setPunch(saved.punch);
-      if (saved.bookletFit) setBookletFit(saved.bookletFit);
-      if (saved.bookletSheet) setBookletSheet(saved.bookletSheet);
-      // "Print again": everything the earlier job used, over the remembered choices (and over the ones above).
-      if (again) {
-        const againProfile = printerProfiles.find((p) => p.id === again.profileId) ?? printerProfiles.find((p) => p.id === saved.profileId) ?? printerProfiles[0];
-        if (againProfile) setProfileId(againProfile.id);
-        setSides(again.sides);
-        setStaple(again.staple);
-        setBooklet(again.booklet);
-        setCopiesText(String(again.copies));
-        setColorMode(again.colorMode);
-        setPaperSize(paperSizeForForm(again.paperSize, againProfile?.declaredPaperSizes ?? []));
-        setPunch(again.punch);
-        setBookletFit(again.bookletFit);
-        setBookletSheet(again.bookletSheet);
-        setFlip(again.flip ?? "long");
-        setFlipOffered(again.flip === "short");
-        if (again.pageRange) {
-          setPagesMode("range");
-          setPageRange(again.pageRange);
-        }
+      // This page used to remember choices in the browser; it no longer does (the setting lives on the member's profile).
+      try {
+        window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+      } catch {
+        /* storage unavailable - nothing to clean up */
       }
-      // Coming from the booklet builder: ?booklet=left|right switches the booklet on for the built file (after the saved choices).
-      const fromBuilder = readBuilderParams(window.location.search);
-      if (fromBuilder.booklet) {
-        setBooklet(fromBuilder.booklet);
-        if (fromBuilder.sheet) setBookletSheet(fromBuilder.sheet); // overrides a size remembered from last time
-        setAutoPreview(true);
-      }
-      // One file picked in the library with the pages to use (a source's cover and dedication pages are skipped).
-      const pagesFromLibrary = readPagesParam(window.location.search);
-      if (pagesFromLibrary) {
-        setPagesMode("range");
-        setPageRange(pagesFromLibrary);
-      }
+      const c = resolveStartChoices({ printers: printerProfiles, remembered, again, search: window.location.search });
+      if (c.profileId) setProfileId(c.profileId);
+      setSides(c.sides);
+      setStaple(c.staple);
+      setBooklet(c.booklet);
+      setCopiesText(String(c.copies));
+      setColorMode(c.colorMode);
+      setPaperSize(c.paperSize);
+      setPunch(c.punch);
+      setBookletFit(c.bookletFit);
+      setBookletSheet(c.bookletSheet);
+      setFlip(c.flip);
+      setFlipOffered(c.flipOffered);
+      setPagesMode(c.pagesMode);
+      setPageRange(c.pageRange);
+      if (c.autoPreview) setAutoPreview(true);
       setRestored(true);
     }, 0);
     return () => clearTimeout(t);
@@ -263,11 +203,6 @@ export function PrintForm({
   const copiesNumber = /^\d+$/.test(copiesText.trim()) ? parseInt(copiesText, 10) : NaN;
   const copiesValid = Number.isInteger(copiesNumber) && copiesNumber >= 1 && copiesNumber <= MAX_COPIES;
   const copies = copiesValid ? copiesNumber : 1;
-
-  useEffect(() => {
-    if (!restored) return;
-    writeSavedChoices({ profileId, sides, staple, booklet, bookletFit, bookletSheet, copies, colorMode, paperSize, punch });
-  }, [restored, profileId, sides, staple, booklet, bookletFit, bookletSheet, copies, colorMode, paperSize, punch]);
 
   /**
    * What the form will actually submit, given what the selected printer can do. The raw picks stay in state, so
@@ -530,19 +465,15 @@ export function PrintForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoPreview, restored, estimatedPages, hasPrinters, rangeError, fileError, effBooklet]);
 
+  /** Back to the clean start (only offered when the member's "remember my last choices" setting is on). */
   function resetChoices() {
-    try {
-      window.localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      /* storage unavailable - nothing to forget */
-    }
-    setSides("two");
-    setStaple("none");
-    setBooklet("none");
-    setCopiesText("1");
-    setColorMode("bw");
-    setPaperSize("letter");
-    setPunch(false);
+    setSides(CLEAN_START.sides);
+    setStaple(CLEAN_START.staple);
+    setBooklet(CLEAN_START.booklet);
+    setCopiesText(String(CLEAN_START.copies));
+    setColorMode(CLEAN_START.colorMode);
+    setPaperSize(CLEAN_START.paperSize);
+    setPunch(CLEAN_START.punch);
   }
 
   const paperChoice = profile?.declaredPaperSizes.includes(paperSize) ? paperSize : (profile?.declaredPaperSizes[0] ?? "letter");
@@ -1051,12 +982,14 @@ export function PrintForm({
             {showPunch && (
               <Switch name="punch" label="Hole punch" description="Punches holes along the left edge." checked={punch} onChange={(e) => setPunch(e.target.checked)} />
             )}
-            <div>
-              <p className="mb-2 text-[13px] text-[var(--color-muted)]">This page remembers your last choices on this device. Forget them to start fresh.</p>
-              <Button type="button" variant="secondary" size="sm" onClick={resetChoices}>
-                Forget my saved choices
-              </Button>
-            </div>
+            {remembered !== undefined && (
+              <div>
+                <p className="mb-2 text-[13px] text-[var(--color-muted)]">This page started from what you chose last time (your Profile setting). Start fresh to clear it.</p>
+                <Button type="button" variant="secondary" size="sm" onClick={resetChoices}>
+                  Start fresh
+                </Button>
+              </div>
+            )}
           </div>
         </Collapsible>
       </div>

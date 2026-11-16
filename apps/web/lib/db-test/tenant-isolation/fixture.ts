@@ -191,6 +191,10 @@ async function seed(db: Db) {
         `${s}${k.slice(0, 3).toUpperCase()}`,
       ]);
     }
+    // Everyone has a print-preferences row (the page's own-row-only setting), so a leak has something to leak.
+    for (const k of ["admin", "approver", "member"] as RoleKey[]) {
+      await q(`insert into user_print_preferences (user_id, remember_last, last_choices) values ($1, true, '{"sides":"two"}')`, [I.users[k]]);
+    }
     await q(`insert into groups (id, organization_id, name, kind) values ($1,$2,$3,'class')`, [I.group, I.org, `Class ${s}`]);
     await q(`insert into group_members (group_id, user_id) values ($1,$2)`, [I.group, I.users.member]);
     await q(`insert into organization_invitations (organization_id, code, role, created_by, group_id) values ($1,$2,'student',$3,$4)`, [

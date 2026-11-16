@@ -15,6 +15,7 @@ import { PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 import { PRINT_AGAIN_NOT_FOUND_MESSAGE, PRINT_AGAIN_PURGED_MESSAGE, resolvePrintAgain, type PrintAgainResult } from "@/lib/jobs/print-again";
 import { canUseLinks } from "@/lib/sources/access";
+import { readPrintPreferences } from "@/lib/print-preferences";
 import { PrintForm } from "./PrintForm";
 
 // "Print from a link" fetches a file on the server (up to 30 s) and the upload then needs time too.
@@ -30,7 +31,7 @@ export default async function PrintPage({ searchParams }: { searchParams: Promis
   const supabase = await createClient();
   const againParam = (await searchParams).again;
   const againId = typeof againParam === "string" ? againParam.trim() : "";
-  const [{ data: profiles }, { data: settings }] = await Promise.all([
+  const [{ data: profiles }, { data: settings }, preferences] = await Promise.all([
     supabase
       .from("printer_profiles")
       .select(
@@ -47,6 +48,8 @@ export default async function PrintPage({ searchParams }: { searchParams: Promis
       .select("max_upload_size_bytes")
       .eq("organization_id", session.membership.organization_id)
       .maybeSingle(),
+    // The member's own "Remember my last print choices" setting. Never throws: a missing table or any error means off.
+    readPrintPreferences(supabase, session.userId),
   ]);
 
   const printerProfiles = (profiles ?? []).map((p) => ({
@@ -138,7 +141,7 @@ export default async function PrintPage({ searchParams }: { searchParams: Promis
           </Link>
         </div>
       )}
-      <PrintForm printerProfiles={printerProfiles} maxUploadBytes={maxUploadBytes} blockType3Fonts={process.env.PRINTIO_ALLOW_TYPE3_FONTS !== "1"} again={again?.choices} />
+      <PrintForm printerProfiles={printerProfiles} maxUploadBytes={maxUploadBytes} blockType3Fonts={process.env.PRINTIO_ALLOW_TYPE3_FONTS !== "1"} again={again?.choices} remembered={preferences.remembered ?? undefined} />
     </main>
   );
 }

@@ -434,6 +434,27 @@ export const EXPECTED: Record<string, TableAccess> = {
       params: [c.T.org, who(c)],
     }),
   },
+  user_print_preferences: {
+    why: "A person's own print-page preferences (0056: 'Remember my last print choices' and the last choices). OWN ROW ONLY for everyone, admins included: nobody reads or changes another user's row, in either school; no delete (the row goes with the profile); nothing for anon.",
+    school: "(select m.organization_id from organization_members m where m.user_id = t.user_id limit 1)",
+    owner: "t.user_id",
+    select: { admin: "own", approver: "own", member: "own" },
+    insert: "member",
+    update: "member",
+    delete: "none",
+    ownOnly: true,
+    // The row is always for ONE user. Aimed at the school the actor belongs to, it is the actor's own row (replacing the seeded one so the
+    // primary key cannot clash); aimed at anyone else (the other school, no school, anon) it is a row for that school's member: the attack.
+    makeInsert: (c) => {
+      const own = c.actor.userId !== null && Object.values(c.T.users).includes(c.actor.userId);
+      const userId = own ? c.actor.userId! : c.T.users.member;
+      return {
+        sql: `insert into user_print_preferences (user_id) values ($1)`,
+        params: [userId],
+        pre: [{ sql: `delete from user_print_preferences where user_id = $1`, params: [userId] }],
+      };
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------------------------------------------------

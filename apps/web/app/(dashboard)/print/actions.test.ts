@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The server actions are thin: parse the form, call the shared pipeline, redirect on success. These tests pin
 // that wrapper (the pipeline itself is covered in lib/jobs/create-print-job.test.ts).
@@ -151,3 +151,69 @@ describe("submitPrintJobAction with a staged (direct-uploaded) file", () => {
   });
 });
 
+
+describe("submitPrintJobAction and 'Remember my last print choices'", () => {
+  type Row = { user_id: string; remember_last: boolean; last_choices: unknown };
+  /** One table, filters applied like the database would: update() only touches rows matching every eq(). */
+  function prefsTable(rows: Row[], fail?: "throw" | "error") {
+    (supabase as Record<string, unknown>).from = (table: string) => {
+      expect(table).toBe("user_print_preferences");
+      if (fail === "throw") throw new Error("boom");
+      return {
+        update: (values: Record<string, unknown>) => {
+          const filters: [string, unknown][] = [];
+          const b = {
+            eq(k: string, v: unknown) {
+              filters.push([k, v]);
+              return b;
+            },
+            then(resolve: (v: unknown) => void) {
+              if (fail === "error") return resolve({ error: { code: "42P01", message: "missing" } });
+              for (const r of rows) if (filters.every(([k, v]) => (r as Record<string, unknown>)[k] === v)) Object.assign(r, values);
+              resolve({ error: null });
+            },
+          };
+          return b;
+        },
+      };
+    };
+  }
+  afterEach(() => {
+    delete (supabase as Record<string, unknown>).from;
+  });
+  const ok = { ok: true, jobId: "job-9", jobNumber: "JOB-1", status: "approved", heldReason: null, policyReasons: [] };
+
+  it("stores the submitted choices when the setting is on", async () => {
+    const row: Row = { user_id: "u1", remember_last: true, last_choices: null };
+    prefsTable([row]);
+    createPrintJob.mockResolvedValue(ok);
+    await expect(submitPrintJobAction({}, form({ sides: "one", staple: "top-left", copies: "3", colorMode: "color", paperSize: "legal", punch: "on", booklet: "none" }))).rejects.toMatchObject({ to: "/jobs/job-9" });
+    expect(row.last_choices).toEqual({ profileId: "p1", sides: "one", staple: "top-left", booklet: "none", copies: 3, colorMode: "color", paperSize: "legal", punch: true, bookletFit: "fill", bookletSheet: "letter" });
+  });
+
+  it("writes nothing when the setting is off", async () => {
+    const row: Row = { user_id: "u1", remember_last: false, last_choices: null };
+    prefsTable([row]);
+    createPrintJob.mockResolvedValue(ok);
+    await expect(submitPrintJobAction({}, form())).rejects.toMatchObject({ to: "/jobs/job-9" });
+    expect(row.last_choices).toBeNull();
+  });
+
+  it("writes nothing when the job was not created (an error or the booklet question)", async () => {
+    const row: Row = { user_id: "u1", remember_last: true, last_choices: null };
+    prefsTable([row]);
+    createPrintJob.mockResolvedValue({ ok: false, kind: "error", code: "quota_exceeded", error: "quota" });
+    await submitPrintJobAction({}, form());
+    createPrintJob.mockResolvedValue({ ok: false, kind: "needs_booklet_confirm", needsBookletConfirm: { sourcePages: 3, paddedPages: 4, blankPagesAdded: 1 } });
+    await submitPrintJobAction({}, form({ booklet: "left" }));
+    expect(row.last_choices).toBeNull();
+  });
+
+  it("still creates the job and redirects when the table is missing or the write throws", async () => {
+    for (const fail of ["error", "throw"] as const) {
+      prefsTable([], fail);
+      createPrintJob.mockResolvedValue(ok);
+      await expect(submitPrintJobAction({}, form())).rejects.toMatchObject({ to: "/jobs/job-9" });
+    }
+  });
+});

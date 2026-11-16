@@ -12,6 +12,7 @@ import { readFormPdf } from "./form-pdf";
 import { BOOKLET_BINDING_REASON } from "@/lib/gateway/ipp-choices";
 import { createPrintJob, type JobOptions } from "@/lib/jobs/create-print-job";
 import { bookletSheetChoice } from "@/lib/pdf/booklet-build";
+import { lastChoicesFromSubmit, writeLastChoices } from "@/lib/print-preferences";
 
 export interface SubmitJobState {
   error?: string;
@@ -43,9 +44,14 @@ async function runPipeline(
   originalBytes: Uint8Array,
   originalFileName: string,
   opts: JobOptions,
+  /** Runs once the job exists, before the redirect. Must never throw (see writeLastChoices). */
+  afterCreated?: () => Promise<void>,
 ): Promise<SubmitJobState> {
   const result = await createPrintJob(supabase, session, originalBytes, originalFileName, { ...opts, writeClient: createServiceRoleClient() });
-  if (result.ok) redirect(routes.job(result.jobId));
+  if (result.ok) {
+    await afterCreated?.();
+    redirect(routes.job(result.jobId));
+  }
   if (result.kind === "needs_booklet_confirm") return { needsBookletConfirm: result.needsBookletConfirm };
   return { error: result.error, ...(result.fieldErrors ? { fieldErrors: result.fieldErrors } : {}) };
 }
@@ -64,7 +70,7 @@ export async function submitPrintJobAction(_prev: SubmitJobState, formData: Form
   const parsedChoices = parseChoices((name) => formData.get(name));
   if (!parsedChoices.ok) return { error: parsedChoices.reason };
 
-  return runPipeline(supabase, session as SessionWithMembership, pdf.bytes, pdf.fileName, {
+  const jobOptions: JobOptions = {
     printerProfileId: String(formData.get("printerProfileId") ?? ""),
     choices: parsedChoices.choices,
     colorMode: formData.get("colorMode") === "color" ? "color" : "bw",
@@ -73,7 +79,26 @@ export async function submitPrintJobAction(_prev: SubmitJobState, formData: Form
     confirmBookletPadding: formData.get("confirmBookletPadding") === "true",
     bookletFit: formData.get("bookletFit") === "keep" ? "keep" : "fill",
     bookletSheet: bookletSheetChoice(formData.get("bookletSheet")),
-  });
+  };
+  // "Remember my last print choices": only writes when the member switched it on (and never errors the submit).
+  const afterCreated = () =>
+    writeLastChoices(
+      supabase,
+      session.userId,
+      lastChoicesFromSubmit({
+        printerProfileId: jobOptions.printerProfileId,
+        sides: parsedChoices.choices.sides,
+        staple: parsedChoices.choices.staple,
+        booklet: parsedChoices.choices.booklet,
+        copies: parsedChoices.choices.copies,
+        colorMode: jobOptions.colorMode,
+        paperSize: jobOptions.paperSize,
+        punch: jobOptions.punch,
+        bookletFit: jobOptions.bookletFit ?? "fill",
+        bookletSheet: jobOptions.bookletSheet ?? "letter",
+      }),
+    );
+  return runPipeline(supabase, session as SessionWithMembership, pdf.bytes, pdf.fileName, jobOptions, afterCreated);
 }
 
 /**

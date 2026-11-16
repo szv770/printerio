@@ -3605,3 +3605,18 @@ alter table library_fetchers enable row level security; -- no policy on purpose:
 revoke all on public.library_fetchers from authenticated;
 revoke all on public.library_fetchers from anon;
 grant select, insert, update, delete on public.library_fetchers to service_role;
+
+-- 0056: per-user print page preferences ("Remember my last print choices"). Own row only; the app works without this table.
+create table user_print_preferences (
+  user_id uuid primary key references profiles (id) on delete cascade,
+  remember_last boolean not null default false,
+  last_choices jsonb check (last_choices is null or (jsonb_typeof(last_choices) = 'object' and octet_length(last_choices::text) <= 2000)),
+  updated_at timestamptz not null default now()
+);
+alter table user_print_preferences enable row level security;
+create policy "users read their own print preferences" on user_print_preferences for select to authenticated using (user_id = (select auth.uid()));
+create policy "users add their own print preferences" on user_print_preferences for insert to authenticated with check (user_id = (select auth.uid()));
+create policy "users change their own print preferences" on user_print_preferences for update to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+revoke delete, truncate, references, trigger on public.user_print_preferences from authenticated;
+revoke all on public.user_print_preferences from anon;
+grant select, insert, update on public.user_print_preferences to authenticated, service_role;
