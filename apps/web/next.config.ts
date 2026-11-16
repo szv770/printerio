@@ -23,6 +23,9 @@ const buildStamp: Record<string, string> = {
 };
 
 const nextConfig: NextConfig = {
+  // INTERIM (delete when the website moves to Cloudflare, phase H/J in docs/TARGET-ARCHITECTURE.md): tools/self-host/update-web.ps1
+  // builds the new site into a second folder while the old one keeps serving, then switches. Unset = the normal `.next`.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   // Server Actions handle multipart PDF uploads; keep this in step with
   // organization_settings.max_upload_size_bytes (checked again server-side
   // regardless - this is just the framework-level ceiling).

@@ -3,6 +3,9 @@
 Written 2026-10-22 so nothing is lost between sessions. Read `docs/HANDOFF.md` first for what is built and proven.
 Working rule from the owner: one agent at a time, go step by step, do not burn usage with many agents at once.
 
+## Interim 2026-11-16: "Update this server" also rebuilds the website (delete when the website moves to Cloudflare)
+The admin button now also starts the on-demand task `Printio Web Update` (`tools/self-host/update-web.ps1`: build next to the live site, swap in seconds, health check, roll back on failure). Needs `setup-web.ps1 -SkipBuild` run once on the PC to register it. Built and unit-tested on the Agent side only; the PowerShell has NOT been run on Windows yet. Remove with the website move (phase H/J, `docs/TARGET-ARCHITECTURE.md`). How it works: `docs/agent-install.md`.
+
 ## Done 2026-11-16: the Print page starts clean (owner decision)
 Every visit to the Print page starts clean (single-sided, 1 copy, all pages, Letter, plain paper, no staple, no punch, no booklet, black and white); the browser no longer remembers choices. A per-user Profile setting "Remember my last print choices" (default off) brings back the last submitted job's choices except the booklet (`user_print_preferences`, migration `0056_user_print_preferences.sql`, **NOT yet applied to the live database**: the app works without it, the setting just stays hidden/off until the owner applies it in the Supabase SQL editor). Handoffs (booklet builder, library pages, shared / built, Print again) still win. See docs/FEATURES.md ("Built, testing"); code in `apps/web/lib/print-start-choices.ts` and `print-preferences.ts`.
 

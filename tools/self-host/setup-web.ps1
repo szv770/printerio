@@ -61,6 +61,8 @@ if (-not $SkipBuild) {
   if ($LASTEXITCODE) { throw "pnpm install failed" }
   pnpm --filter "@printio/web" build
   if ($LASTEXITCODE) { throw "build failed" }
+  # INTERIM: a fresh build lands in plain .next, so forget which folder update-web.ps1 last used.
+  Remove-Item (Join-Path $(if ($env:ProgramData) { $env:ProgramData } else { "C:\ProgramData" }) "Printio\WebUpdate\active-dist.txt") -ErrorAction SilentlyContinue
 }
 
 # The gateway and agent run as the limited local account printio-svc (docs/SECURITY.md). pnpm hardlinks packages from the
@@ -80,6 +82,21 @@ $cronScript = Join-Path $PSScriptRoot "run-cron.ps1"
 Register-Task "Printio Web" (New-ScheduledTaskTrigger -AtStartup) $web "-Port $Port"
 Register-Task "Printio cron sweep" (New-ScheduledTaskTrigger -Daily -At "08:00") $cronScript "-Job sweep -Port $Port"
 Register-Task "Printio cron cleanup" (New-ScheduledTaskTrigger -Daily -At "03:00") $cronScript "-Job cleanup -Port $Port"
+
+# INTERIM (delete when the website moves to Cloudflare, phase H/J in docs/TARGET-ARCHITECTURE.md): on-demand only, no schedule.
+# The Agent's "Update this server" button starts it (schtasks /Run) after pulling new code; update-web.ps1 rebuilds the site.
+$updAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $PSScriptRoot 'update-web.ps1')`" -Port $Port" -WorkingDirectory $repo
+$updSettings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 30) -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName "Printio Web Update" -Action $updAction -Settings $updSettings -User "SYSTEM" -RunLevel Highest -Force | Out-Null
+# The Agent runs as printio-svc and may only START this one task (read + execute on the task, nothing else).
+$svcUser = Get-LocalUser -Name "printio-svc" -ErrorAction SilentlyContinue
+if ($svcUser) {
+  $sched = New-Object -ComObject "Schedule.Service"; $sched.Connect()
+  $updTask = $sched.GetFolder("\").GetTask("Printio Web Update")
+  $sddl = $updTask.GetSecurityDescriptor(4)
+  if ($sddl -notlike "*$($svcUser.SID.Value)*") { $updTask.SetSecurityDescriptor("$sddl(A;;GRGX;;;$($svcUser.SID.Value))", 0) }
+}
+Write-Host "Registered the on-demand task 'Printio Web Update' (used by the Update this server button)."
 
 Stop-ScheduledTask "Printio Web" -ErrorAction SilentlyContinue
 Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like "*next*start*$Port*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }

@@ -117,6 +117,23 @@ Agent, `apps/agent/scripts/setup-agent.ps1` was written and reviewed in a sandbo
 container with no Windows machine to run it against — treat it as reviewed, not verified,
 until it's actually been double-clicked on a real Windows machine.
 
+## The admin "Update this server" button (and, for now, the website)
+
+The button runs `git pull --ff-only` and `pnpm install` in the checkout, restarts the gateway, then the Agent. **INTERIM
+(delete when the website moves to Cloudflare, phase H/J in `docs/TARGET-ARCHITECTURE.md`):** when something changed it also
+starts the scheduled task `Printio Web Update`, which rebuilds the website that runs on this same PC
+(`tools/self-host/update-web.ps1`). The site keeps serving the old build while the new one builds (a few minutes), is then
+stopped and started on the new build (a few seconds of downtime), and is checked on `127.0.0.1`; if it does not answer, the old
+build is put back. The old build is kept. The result message says "The website is being rebuilt..." or, if the task is not
+there, "The website was not rebuilt (run setup-web.ps1 once to enable that)."
+
+- **Enable once** (as an administrator, on the print PC): `.\tools\self-host\setup-web.ps1 -SkipBuild`. It registers the
+  on-demand task (no schedule, runs as SYSTEM, the `printio-svc` account may only start it) and restarts the site.
+- **See what happened:** `C:\ProgramData\Printio\WebUpdate\status.json` (state `building` / `done` / `failed`, a message,
+  a time) and `update.log` in the same folder. The site's own log is `tools\self-host\web.log`.
+- **Run it by hand:** `schtasks /Run /TN "Printio Web Update"`. Running `setup-web.ps1` without `-SkipBuild` still works
+  and resets the site to a plain `.next` build.
+
 ## 1. Obtain an enrollment code
 
 An `org_admin` creates the Agent's row in the Printio dashboard (Admin → Agents

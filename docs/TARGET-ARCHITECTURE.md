@@ -70,6 +70,8 @@ Each phase has a GO gate (what must be true to start the next) and a rollback. N
 - **I. First outside school** (Pro is on; a data agreement is signed; the school's tunnel is made by hand, then the automatic, separately isolated one is built and tried on the second school).
 - **J. Retire the PC website** a month after H, only if it ran clean.
 
+**Interim bridge until H/J:** the admin "Update this server" button also rebuilds the website on the PC (`tools/self-host/update-web.ps1`, task `Printio Web Update`, `NEXT_DIST_DIR` in `apps/web/next.config.ts`, the folder pointer in `run-web.ps1`). Delete all of it when the website moves to Cloudflare (phase H, final cleanup in J); see `docs/agent-install.md`.
+
 ### Before the owner connects ANY real Cloudflare account
 Trials on a throwaway account with no card, against a SECOND Supabase test project (never the live database); two-step sign-in on the real one; the only key ever issued on the real account is deploy-for-this-one-site; website cookies host-only (`__Host-`); the key-scoping and quota tests written down and passed.
 

@@ -47,6 +47,12 @@
  *   The Agent's own restart is scheduled by the caller only after this
  *   function returns, so it always happens last (it is the process that
  *   reports the result).
+ * - **INTERIM, delete when the website moves to Cloudflare (phase H/J in docs/TARGET-ARCHITECTURE.md): the website
+ *   rebuild is one more fixed command.** The website runs on this same PC (scheduled task "Printio Web") and needs a
+ *   rebuild after every update. After the gateway step, on win32 only, this runs exactly
+ *   `schtasks.exe /Run /TN "Printio Web Update"` (hardcoded argv, `shell: false`, a timeout, nothing from the payload).
+ *   That task runs tools/self-host/update-web.ps1, which takes no input at all. A missing task, an access error or a
+ *   failure to start it never fails the update; it becomes one plain sentence in the message.
  * - **pnpm is found on the local disk, never from the cloud.** The Agent runs
  *   as a Windows service (LocalSystem): no user npm folder on PATH, and Node
  *   >= 20 cannot spawn a `.cmd` shim with shell:false. `resolvePnpmLauncher`
@@ -68,6 +74,10 @@ import type { Logger } from "./logger.js";
 const GIT_TIMEOUT_MS = 120_000;
 const INSTALL_TIMEOUT_MS = 600_000;
 const GATEWAY_RESTART_TIMEOUT_MS = 60_000;
+const WEB_UPDATE_TIMEOUT_MS = 30_000;
+
+/** INTERIM (see the module header): the one fixed way to start the on-demand website rebuild created by setup-web.ps1. */
+const WEB_UPDATE_TASK_ARGS: readonly string[] = ["/Run", "/TN", "Printio Web Update"];
 
 /** Display name of the gateway service (apps/gateway/src/windows-service.ts); proven on the real server with `Start-Service -DisplayName`. */
 const GATEWAY_SERVICE_DISPLAY_NAME = "Printio IPP Gateway";
@@ -102,6 +112,8 @@ export interface SelfUpdateResult {
   repoRoot: string;
   /** Only set when `updated`: whether the gateway service was restarted (false = a note explains why is in `message`). */
   gatewayRestarted?: boolean;
+  /** Only set when `updated`: whether the website rebuild task was started (INTERIM; undefined off Windows). */
+  webRebuildStarted?: boolean;
   /** Short commit before / after, when known (set when `updated`). */
   from?: string;
   to?: string;
@@ -493,6 +505,26 @@ async function restartGateway(deps: SelfUpdateDeps): Promise<string | null> {
 }
 
 /**
+ * INTERIM (delete when the website moves to Cloudflare): starts the on-demand website rebuild task. Never throws.
+ * Returns null off Windows (nothing to say), otherwise whether it started plus the plain sentence for the message.
+ */
+async function startWebRebuild(deps: SelfUpdateDeps): Promise<{ started: boolean; note: string } | null> {
+  if ((deps.platform ?? process.platform) !== "win32") return null;
+  const notRebuilt = (why: string) => ({ started: false, note: `The website was not rebuilt (${why}).` });
+  try {
+    const out = await deps.run("schtasks.exe", WEB_UPDATE_TASK_ARGS, deps.repoRoot, WEB_UPDATE_TIMEOUT_MS);
+    if (out.exitCode === 0) {
+      return { started: true, note: "The website is being rebuilt; it can take a few minutes and may reload once." };
+    }
+    const detail = (out.stderr || out.stdout).trim().replace(/\s+/g, " ");
+    if (/cannot find|does not exist/i.test(detail)) return notRebuilt("run setup-web.ps1 once to enable that");
+    return notRebuilt(`could not start the rebuild: ${out.exitCode === null ? "it timed out" : detail.slice(0, 160) || `exit code ${out.exitCode}`}`);
+  } catch (err) {
+    return notRebuilt(`could not start the rebuild: ${(err instanceof Error ? err.message : String(err)).slice(0, 160)}`);
+  }
+}
+
+/**
  * Runs the fixed update sequence and reports, precisely, what happened.
  * Never throws: every failure mode becomes a `SelfUpdateResult` the caller
  * acks back to the cloud, because a command handler that throws would ack a
@@ -642,6 +674,8 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
   if (gatewayProblem) {
     logger.warn("CHECK_FOR_UPDATE: gateway service not restarted", { reason: gatewayProblem });
   }
+  const web = await startWebRebuild(deps);
+  if (web && !web.started) logger.warn("CHECK_FOR_UPDATE: website rebuild not started", { note: web.note });
   deps.pending?.clear();
   logger.warn("CHECK_FOR_UPDATE: updated and dependencies re-installed - a restart will follow");
   return {
@@ -652,9 +686,11 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
       (gatewayProblem
         ? `The phone/print-dialog gateway was not restarted: ${gatewayProblem} `
         : "Restarted the gateway. ") +
+      (web ? `${web.note} ` : "") +
       "The print server is restarting and will be back in about a minute.",
     repoRoot,
     gatewayRestarted: gatewayProblem === null,
+    ...(web ? { webRebuildStarted: web.started } : {}),
     from: unfinishedFrom ?? before,
     to: after,
   };
