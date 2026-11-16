@@ -30,6 +30,8 @@ export interface PrintChoices {
   punch?: boolean;
   /** Double-sided only: "short" flips on the short edge (like a notepad). Absent = the usual long edge. */
   flip?: "short";
+  /** "cardstock" = the bypass tray's paper (stored as finishing.paperType). Absent = plain paper from the normal trays. */
+  paper?: "cardstock";
   /** Raw text as typed ("1-5, 8"); empty = the whole document. Parsed with parsePageRange. */
   pageRange: string;
 }
@@ -70,7 +72,9 @@ export function parseChoices(get: (name: string) => FormDataEntryValue | null): 
   const n = parseInt(str("copies"), 10);
   const copies = Number.isFinite(n) && n >= 1 ? Math.min(n, MAX_COPIES) : 1;
   const flip = sides === "two" && booklet === "none" && str("flip") === "short" ? ({ flip: "short" } as const) : {};
-  return { ok: true, choices: { sides, staple, booklet, copies, ...punch, ...flip, pageRange: str("pageRange").trim() } };
+  // Only "cardstock" means anything; absent, "plain" or junk is plain paper (older forms never sent it).
+  const paper = str("paperType") === "cardstock" ? ({ paper: "cardstock" } as const) : {};
+  return { ok: true, choices: { sides, staple, booklet, copies, ...punch, ...flip, ...paper, pageRange: str("pageRange").trim() } };
 }
 
 export type PageSubsetPlan =
@@ -128,6 +132,8 @@ export interface MappedRawOptions {
   copies: number;
   /** "short" when the sheet flips on the short edge (double-sided, not a booklet); null = the usual long edge. */
   duplexEdge: "short" | null;
+  /** "cardstock" when the job asks for the bypass tray's paper (stored as finishing.paperType); null = plain. */
+  paperType: "cardstock" | null;
   /** What the Agent will hand to buildPjlSettings, minus the job name. */
   pjl: Omit<RawPrintOptions, "jobName">;
   /** Plain-language reason the job must be held instead of printed, or null. */
@@ -150,6 +156,7 @@ export function mapRawChoices(c: PrintChoices, profile: RawProfileContext): Mapp
   const stapled = c.staple !== "none";
   const dual = c.staple === "dual-left";
   const punch = !!c.punch;
+  const paperType: "cardstock" | null = c.paper === "cardstock" ? "cardstock" : null;
   const staplePosition: StaplePosition | null =
     c.staple === "top-left" || c.staple === "top-right" ? c.staple : c.staple === "profile" ? profile.stapleDefault : null;
   const paperSize = profile.declaredPaperSizes.includes("letter") ? "letter" : (profile.declaredPaperSizes[0] ?? "letter");
@@ -163,10 +170,13 @@ export function mapRawChoices(c: PrintChoices, profile: RawProfileContext): Mapp
     ...(punch ? { punch: true } : {}),
     booklet: isBooklet,
     ...(bindingSide ? { bindingSide } : {}),
+    ...(paperType ? { mediaType: paperType } : {}),
   };
 
   let heldReason: string | null = null;
-  if (isBooklet && stapled) {
+  if (isBooklet && paperType) {
+    heldReason = "A booklet cannot be printed on cardstock, so nothing was printed. Choose either a booklet or cardstock.";
+  } else if (isBooklet && stapled) {
     heldReason = "A booklet is stapled for you, so it cannot also be stapled in a corner. Choose either a booklet or a staple.";
   } else if (isBooklet && punch) {
     heldReason = "A booklet cannot also have Hole punch, so nothing was printed. Choose either a booklet or Hole punch.";
@@ -198,6 +208,7 @@ export function mapRawChoices(c: PrintChoices, profile: RawProfileContext): Mapp
     staplePosition,
     bindingSide,
     duplexEdge,
+    paperType,
     colorMode: "bw",
     paperSize,
     copies: c.copies,

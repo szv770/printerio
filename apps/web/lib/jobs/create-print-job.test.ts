@@ -23,6 +23,7 @@ vi.mock("@/lib/pdf/content-analysis", () => ({ analyzePdfContent: async () => nu
 
 import { TEXT_CHANGED_MESSAGE } from "@/lib/pdf/text-fidelity";
 import { createPrintJob, type JobOptions, type JobSession } from "./create-print-job";
+import { pipelineSettingsFromJob } from "./print-again";
 
 const ORG = "org-1";
 const USER = "user-1";
@@ -690,6 +691,69 @@ describe("createPrintJob: 11x17 (ledger) jobs from the print dialog", () => {
   });
 });
 
+
+describe("createPrintJob: cardstock (finishing.paperType, no migration)", () => {
+  const caps = { duplex: true, staple: true, booklet: true, punch: true };
+  const choicesOf = (over: Record<string, unknown>) => ({ sides: "one" as const, staple: "none" as const, booklet: "none" as const, copies: 1, pageRange: "", ...over });
+
+  it("stores finishing.paperType = cardstock, carried into the job and not held", async () => {
+    use({ profile: profileRow({ declared_capabilities: caps, declared_paper_sizes: ["letter", "11x17"] }) });
+    const res = await run(pdf3, baseOpts({ choices: choicesOf({ paper: "cardstock" }) }));
+    expect(res).toMatchObject({ ok: true, status: "approved", heldReason: null });
+    expect(insertedJob()).toMatchObject({ paper_size: "letter", finishing: { staple: false, booklet: false, punch: false, paperType: "cardstock" } });
+  });
+
+  it("a plain job stores exactly the finishing it always did (no paperType key)", async () => {
+    use({ profile: profileRow({ declared_capabilities: caps }) });
+    await run(pdf3, baseOpts());
+    expect(insertedJob().finishing).toEqual({ staple: false, booklet: false, punch: false });
+  });
+
+  it("cardstock together with 11x17 is held with a plain reason (cardstock is only loaded in Letter)", async () => {
+    use({ profile: profileRow({ declared_capabilities: caps, declared_paper_sizes: ["letter", "11x17"] }) });
+    const res = await run(pdf3, baseOpts({ paperSize: "11x17", choices: choicesOf({ paper: "cardstock" }) }));
+    expect(res).toMatchObject({ ok: true, status: "held", heldReason: expect.stringMatching(/only loaded in Letter/) });
+  });
+
+  it("cardstock together with a booklet is held, never printed as a booklet on the wrong paper", async () => {
+    use({ profile: profileRow({ declared_capabilities: caps }) });
+    const res = await run(pdf3, baseOpts({ confirmBookletPadding: true, choices: choicesOf({ sides: "two", booklet: "left", paper: "cardstock" }) }));
+    expect(res).toMatchObject({ ok: true, status: "held", heldReason: expect.stringMatching(/booklet cannot be printed on cardstock/i) });
+  });
+
+  it("a Windows-queue printer holds a cardstock job (it cannot be told the paper type)", async () => {
+    use({ profile: profileRow({ output_mode: "queue", windows_queue_name: "Q", declared_capabilities: caps }) });
+    const res = await run(pdf3, baseOpts({ choices: choicesOf({ paper: "cardstock" }) }));
+    expect(res).toMatchObject({ ok: true, status: "held", heldReason: expect.stringMatching(/cardstock/) });
+  });
+
+  it("Print again: a stored cardstock job re-created from its row stores cardstock again", async () => {
+    use({ profile: profileRow({ declared_capabilities: caps }) });
+    await run(pdf3, baseOpts({ choices: choicesOf({ paper: "cardstock" }) }));
+    const stored = insertedJob();
+    const again = pipelineSettingsFromJob({
+      id: "j",
+      organization_id: ORG,
+      created_by: USER,
+      original_file_name: "a.pdf",
+      original_file_path: "p",
+      files_purged_at: null,
+      source_pdf_pages: 3,
+      copies: stored.copies as number,
+      duplex: stored.duplex as boolean,
+      color_mode: stored.color_mode as string,
+      paper_size: stored.paper_size as string,
+      finishing: stored.finishing,
+      staple_position: null,
+      booklet_binding_side: null,
+      page_range: null,
+      printer_profile_id: "profile-1",
+    });
+    use({ profile: profileRow({ declared_capabilities: caps }) });
+    await run(pdf3, baseOpts({ choices: again.choices }));
+    expect(insertedJob().finishing).toMatchObject({ paperType: "cardstock" });
+  });
+});
 
 describe("createPrintJob: two staples (left) and hole punch on a raw printer", () => {
   const caps = { duplex: true, staple: true, booklet: true, punch: true };

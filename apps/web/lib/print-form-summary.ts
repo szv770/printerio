@@ -14,6 +14,12 @@ export function liveSummaryLine(c: {
   staple: StapleChoice;
   booklet: BookletChoice;
   punch?: boolean;
+  /** Double-sided only; "short" is said out loud (long is the usual and stays unsaid). */
+  edge?: "long" | "short";
+  /** Tabloid is said out loud (Letter is the usual). */
+  size?: "letter" | "tabloid";
+  /** Cardstock is said out loud (plain is the usual). */
+  paper?: "plain" | "cardstock";
 }): string {
   const parts: string[] = [];
   if (c.pages && c.pages > 0) parts.push(plural(c.pages, "page", "pages"));
@@ -21,11 +27,13 @@ export function liveSummaryLine(c: {
   if (c.booklet !== "none") {
     parts.push("booklet");
   } else {
-    parts.push(c.sides === "two" ? "double-sided" : "single-sided");
+    parts.push(c.sides === "two" ? (c.edge === "short" ? "double-sided, short edge" : "double-sided") : "single-sided");
     if (c.staple === "dual-left") parts.push("two staples");
     else if (c.staple !== "none") parts.push("stapled");
     if (c.punch) parts.push("hole punch");
   }
+  if (c.size === "tabloid") parts.push("Tabloid (11x17)");
+  if (c.paper === "cardstock") parts.push("cardstock");
   return parts.join(" · ");
 }
 
@@ -51,6 +59,11 @@ export function summarizeFinishing(c: { staple: StapleChoice; booklet: BookletCh
 /** Closed "Paper & color" section. */
 export function summarizePaperColor(c: { colorMode: "bw" | "color"; paperSize: string }): string {
   return `${c.colorMode === "color" ? "Colour" : "Black & white"}, ${c.paperSize}`;
+}
+
+/** Closed "Color" section (paper size and type moved to the quick controls on the main card). */
+export function summarizeColor(c: { colorMode: "bw" | "color" }): string {
+  return c.colorMode === "color" ? "Colour" : "Black & white";
 }
 
 /** Closed "Advanced" section. */

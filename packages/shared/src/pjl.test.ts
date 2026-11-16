@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPjlSettings, buildRawJob, PROVEN_FINISHING_COMBOS, sanitizePjlText, uniquePjlJobName } from "./pjl";
+import { buildPjlSettings, buildRawJob, MEDIATYPE_CARDSTOCK_UNPROVEN, PROVEN_FINISHING_COMBOS, sanitizePjlText, uniquePjlJobName } from "./pjl";
 
 const base = { copies: 1, colorMode: "color" as const, duplex: true, jobName: "Quiz 3" };
 
@@ -19,6 +19,60 @@ describe("buildPjlSettings: 11x17 (ledger) paper", () => {
       if (!r.ok) throw new Error(r.reason);
       expect(r.settings.join(" ")).not.toMatch(/PAPER/);
     }
+  });
+});
+
+describe("cardstock (MEDIATYPE, UNPROVEN) and plain jobs", () => {
+  const pdf = new TextEncoder().encode("%PDF-1.4\n%%EOF");
+  const UEL = "\x1b%-12345X";
+  const text = (b: Uint8Array) => Array.from(b, (c) => String.fromCharCode(c)).join("");
+
+  it("a plain job's bytes are EXACTLY what was sent before the paper type existed (byte for byte)", () => {
+    const r = buildRawJob({ copies: 2, colorMode: "bw", duplex: false, jobName: "Quiz 3" }, pdf);
+    if (!r.ok) throw new Error(r.reason);
+    expect(text(r.bytes)).toBe(
+      `${UEL}@PJL\r\n@PJL JOB NAME="Quiz 3"\r\n@PJL SET DUPLEX=OFF\r\n@PJL SET QTY=2\r\n@PJL ENTER LANGUAGE=PDF\r\n%PDF-1.4\n%%EOF\r\n${UEL}@PJL EOJ NAME="Quiz 3"\r\n${UEL}`,
+    );
+  });
+
+  it("plain double-sided short edge with a corner staple, a ledger booklet and a punched job keep their exact settings (no MEDIATYPE anywhere)", () => {
+    const settings = (o: Parameters<typeof buildPjlSettings>[0]) => {
+      const r = buildPjlSettings(o);
+      if (!r.ok) throw new Error(r.reason);
+      return r.settings;
+    };
+    expect(settings({ copies: 1, colorMode: "bw", duplex: true, jobName: "x", duplexEdge: "short" })).toEqual(["DUPLEX=ON", "BINDING=SHORTEDGE", "QTY=1"]);
+    expect(settings({ copies: 3, colorMode: "bw", duplex: true, jobName: "x", staple: "top-left" })).toEqual(["DUPLEX=ON", "BINDING=LONGEDGE", "OUTBIN=OPTIONFACEDOWN", "STAPLEOPTION=ONE", "FINISH=STAPLE", "QTY=3"]);
+    expect(settings({ copies: 1, colorMode: "bw", duplex: true, jobName: "x", booklet: true, bindingSide: "right", paper: "ledger" })).toEqual([
+      "DUPLEX=ON",
+      "BINDING=SHORTEDGE",
+      "OUTBIN=KBOOKLET",
+      "FINISH=KFOLD",
+      "PAPER=LEDGER",
+      "QTY=1",
+    ]);
+    expect(settings({ copies: 1, colorMode: "bw", duplex: false, jobName: "x", punch: true })).toEqual(["DUPLEX=OFF", "OUTBIN=OPTIONFACEDOWN", "FINISH=KPUNCH", "QTY=1"]);
+    // An explicit "no media type" is the same as none.
+    const none = buildRawJob({ copies: 2, colorMode: "bw", duplex: false, jobName: "Quiz 3", mediaType: undefined }, pdf);
+    const plain = buildRawJob({ copies: 2, colorMode: "bw", duplex: false, jobName: "Quiz 3" }, pdf);
+    expect(none).toEqual(plain);
+  });
+
+  it("cardstock sends the (unproven) MEDIATYPE line, once, before the copies; nothing else changes", () => {
+    expect(MEDIATYPE_CARDSTOCK_UNPROVEN).toBe("MEDIATYPE=CARDSTOCK");
+    const r = buildPjlSettings({ copies: 2, colorMode: "bw", duplex: false, jobName: "x", mediaType: "cardstock" });
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.settings).toEqual(["DUPLEX=OFF", "MEDIATYPE=CARDSTOCK", "QTY=2"]);
+    const job = buildRawJob({ copies: 1, colorMode: "bw", duplex: false, jobName: "x", mediaType: "cardstock" }, pdf);
+    if (!job.ok) throw new Error(job.reason);
+    expect(text(job.bytes).match(/MEDIATYPE=CARDSTOCK/g)).toHaveLength(1);
+  });
+
+  it("cardstock can be combined with a staple, a corner flip and double-sided (the printer's own rules apply) but never with a booklet or a ledger sheet", () => {
+    const ok = buildPjlSettings({ copies: 1, colorMode: "bw", duplex: true, jobName: "x", staple: "top-left", mediaType: "cardstock" });
+    expect(ok).toMatchObject({ ok: true });
+    expect(buildPjlSettings({ copies: 1, colorMode: "bw", duplex: true, jobName: "x", booklet: true, bindingSide: "left", mediaType: "cardstock" })).toMatchObject({ ok: false, reason: expect.stringMatching(/cardstock/) });
+    expect(buildPjlSettings({ copies: 1, colorMode: "bw", duplex: false, jobName: "x", paper: "ledger", mediaType: "cardstock" })).toMatchObject({ ok: false, reason: expect.stringMatching(/Letter/) });
   });
 });
 

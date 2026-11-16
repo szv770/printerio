@@ -3,7 +3,7 @@ import { authenticateAgentRequest } from "@/lib/agent-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { rawTargetFromProfile } from "@/lib/printers/raw-target";
-import { compareAgentVersions, expectedRawPages, FINISHING_MIN_AGENT_VERSION, type ResolvedPrintRequest } from "@printio/shared";
+import { CARDSTOCK_MIN_AGENT_VERSION, compareAgentVersions, expectedRawPages, FINISHING_MIN_AGENT_VERSION, type ResolvedPrintRequest } from "@printio/shared";
 
 const SIGNED_URL_TTL_SECONDS = 300;
 
@@ -47,6 +47,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
     const state = compareAgentVersions(agent.reported?.version, FINISHING_MIN_AGENT_VERSION);
     if (state === "unknown" || state === "outdated") {
       return apiError(409, "agent_outdated", "This job needs hole punch or two staples, which this print server's software is too old to do. Update the Printio agent, then try again.");
+    }
+  }
+
+  if ((job.finishing as { paperType?: string } | null)?.paperType === "cardstock" && profile.output_mode === "raw") {
+    // An older Agent would ignore the paper type and print on plain paper from the normal trays: refuse, never print the wrong paper.
+    const state = compareAgentVersions(agent.reported?.version, CARDSTOCK_MIN_AGENT_VERSION);
+    if (state === "unknown" || state === "outdated") {
+      return apiError(409, "agent_outdated", "This job asks for cardstock, which this print server's software is too old to do. Update the Printio agent, then try again.");
     }
   }
 
@@ -108,6 +116,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
     duplexEdge: (job.finishing as { duplexEdge?: string } | null)?.duplexEdge === "short" ? "short" : null,
     // An 11x17 booklet is stored with paper_size "tabloid": tell the printer to use 11x17 sheets (otherwise it shrinks onto letter).
     paper: job.paper_size === "tabloid" ? "ledger" : null,
+    mediaType: (job.finishing as { paperType?: string } | null)?.paperType === "cardstock" ? "cardstock" : null,
   });
 
   const printRequest: ResolvedPrintRequest = {

@@ -197,6 +197,7 @@ export async function createPrintJob(
   let bindingSide: BindingSide | null;
   let duplexEdge: "short" | null = null;
   let stapleStyle: "dual-left" | null = null;
+  let paperType: "cardstock" | null = null;
   let heldReason: string | null = null;
   const copies = choices.copies;
   if (printerProfile.output_mode === "raw") {
@@ -219,6 +220,9 @@ export async function createPrintJob(
       if (printerProfile.declared_paper_sizes.includes("11x17")) paperSize = "11x17";
       else heldReason = heldReason ?? "This printer is not set up for 11x17 paper yet, so nothing was printed. Ask your administrator, or use the website.";
     }
+    // Cardstock (the bypass tray, UNPROVEN: see MEDIATYPE_CARDSTOCK_UNPROVEN) is loaded in Letter size only.
+    paperType = mapped.paperType;
+    if (paperType && paperSize === "11x17") heldReason = heldReason ?? "Cardstock is only loaded in Letter size, so nothing was printed. Choose Letter or plain paper.";
   } else {
     const mapped = mapQueueChoices(choices, { bookletBindingSide: profileBindingSide });
     ({ duplex, staple, booklet, staplePosition, bindingSide } = mapped);
@@ -235,6 +239,8 @@ export async function createPrintJob(
     if (unsupported) return fail(unsupported, "unsupported_option");
     // A Windows queue cannot be told which edge to flip on from here: hold it with a plain reason, never print it the wrong way.
     if (choices.flip === "short" && duplex && !booklet) heldReason = "This printer is not set up to flip on the short edge, so nothing was printed. Choose double-sided (long edge).";
+    // Nor can it be told the paper type: only a raw-port printer can ask for the bypass tray's cardstock.
+    if (choices.paper === "cardstock") heldReason = heldReason ?? "This printer is not set up to choose cardstock, so nothing was printed. Choose plain paper.";
   }
   // The caller can force a hold with its own plain-language reason (the IPP gateway does this for anything the
   // print dialog asked for that the website pipeline cannot honour). It wins over the printer's own reason.
@@ -634,6 +640,8 @@ export async function createPrintJob(
       ...(stapleStyle ? { stapleStyle } : {}),
       ...(booklet ? { bookletFit, ...(bookletSheet === "tabloid" ? { bookletSheet } : {}) } : {}),
       ...(duplexEdge ? { duplexEdge } : {}),
+      // Absent = plain, so a plain job's stored finishing is exactly what it was before this key existed.
+      ...(paperType ? { paperType } : {}),
     },
     // Per-job choices (migrations 0028 + 0030). staple_position is non-null exactly for a stapled raw job; a
     // booklet always records which edge it is bound on, so imposition, the Agent and a re-print agree.

@@ -42,6 +42,8 @@ export interface JobFinishing {
   bookletFit: "fill" | "keep";
   bookletSheet: "letter" | "tabloid";
   duplexEdge?: "short";
+  /** Absent = plain paper (every older job). */
+  paperType?: "cardstock";
 }
 
 /** print_jobs.finishing is JSON written by createPrintJob; read it defensively (older rows lack the newer keys). */
@@ -55,6 +57,7 @@ export function readFinishing(value: unknown): JobFinishing {
     bookletFit: f.bookletFit === "keep" ? "keep" : "fill",
     bookletSheet: f.bookletSheet === "tabloid" ? "tabloid" : "letter",
     ...(f.duplexEdge === "short" ? { duplexEdge: "short" as const } : {}),
+    ...(f.paperType === "cardstock" ? { paperType: "cardstock" as const } : {}),
   };
 }
 
@@ -99,6 +102,7 @@ export function pipelineSettingsFromJob(job: PrintAgainJob): {
     copies: job.copies,
     ...(f.punch ? { punch: true } : {}),
     ...(f.duplexEdge === "short" && job.duplex && !f.booklet ? { flip: "short" as const } : {}),
+    ...(f.paperType === "cardstock" && !f.booklet ? { paper: "cardstock" as const } : {}),
     pageRange: job.page_range ?? "",
   };
   return {
@@ -116,6 +120,8 @@ export interface PrintAgainFormChoices {
   profileId: string | null;
   sides: SidesChoice;
   flip: "short" | null;
+  /** "cardstock" when the earlier job asked for it; "plain" for every older job. */
+  paper: "plain" | "cardstock";
   staple: Exclude<StapleChoice, "profile">;
   booklet: Exclude<BookletChoice, "profile">;
   copies: number;
@@ -135,6 +141,7 @@ export function formChoicesFromJob(job: PrintAgainJob): PrintAgainFormChoices {
     profileId: job.printer_profile_id,
     sides: c.booklet !== "none" ? "two" : c.sides,
     flip: c.flip ?? null,
+    paper: c.paper === "cardstock" ? "cardstock" : "plain",
     staple: c.staple === "profile" ? "top-left" : c.staple,
     booklet: c.booklet === "profile" ? "left" : c.booklet,
     copies: c.copies,
@@ -167,6 +174,7 @@ export function printAgainSummary(job: PrintAgainJob): string {
     parts.push("flips on the short edge");
   }
   if (c.pageRange.trim()) parts.push(`only pages ${c.pageRange.trim()}`);
+  if (c.paper === "cardstock") parts.push("cardstock (bypass tray)");
   if (c.colorMode === "color") parts.push("color");
   if (c.paperSize !== "letter") parts.push(c.paperSize === "tabloid" ? "11x17 paper" : `${c.paperSize} paper`);
   return parts.join(" · ");

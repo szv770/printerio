@@ -1,5 +1,6 @@
 import { readBuilderParams, readPagesParam } from "@/lib/booklet/builder-params";
 import { paperSizeForForm, type PrintAgainFormChoices } from "@/lib/jobs/print-again";
+import { sizeFromPaperSize, type PaperValue, type SizeValue } from "@/lib/print-choice-rules";
 import { MAX_COPIES, type BookletChoice, type SidesChoice, type StapleChoice } from "@/lib/print-choices";
 
 /**
@@ -81,11 +82,14 @@ export interface StartChoices {
   copies: number;
   colorMode: "bw" | "color";
   paperSize: string;
+  /** The page size as the quick control shows it (Letter / Tabloid), from paperSize (or the booklet builder's sheet). */
+  size: SizeValue;
+  /** Paper type. Never remembered (a stuck cardstock choice would make the printer wait for the bypass tray): clean = plain. */
+  paper: PaperValue;
   punch: boolean;
   bookletFit: "fill" | "keep";
   bookletSheet: "letter" | "tabloid";
   flip: "long" | "short";
-  flipOffered: boolean;
   pagesMode: "all" | "range";
   pageRange: string;
   /** Coming from the booklet builder: show the booklet preview without a press. */
@@ -110,11 +114,12 @@ export function resolveStartChoices(input: {
     copies: r.copies ?? CLEAN_START.copies,
     colorMode: r.colorMode ?? CLEAN_START.colorMode,
     paperSize: r.paperSize ?? CLEAN_START.paperSize,
+    size: sizeFromPaperSize(r.paperSize ?? CLEAN_START.paperSize),
+    paper: "plain",
     punch: r.punch ?? CLEAN_START.punch,
     bookletFit: r.bookletFit ?? CLEAN_START.bookletFit,
     bookletSheet: r.bookletSheet ?? CLEAN_START.bookletSheet,
     flip: CLEAN_START.flip,
-    flipOffered: false,
     pagesMode: CLEAN_START.pagesMode,
     pageRange: CLEAN_START.pageRange,
     autoPreview: false,
@@ -130,11 +135,12 @@ export function resolveStartChoices(input: {
     out.copies = again.copies;
     out.colorMode = again.colorMode;
     out.paperSize = paperSizeForForm(again.paperSize, againProfile?.declaredPaperSizes ?? []);
+    out.size = sizeFromPaperSize(again.paperSize);
+    out.paper = again.paper;
     out.punch = again.punch;
     out.bookletFit = again.bookletFit;
     out.bookletSheet = again.bookletSheet;
     out.flip = again.flip ?? "long";
-    out.flipOffered = again.flip === "short";
     if (again.pageRange) {
       out.pagesMode = "range";
       out.pageRange = again.pageRange;
@@ -145,7 +151,10 @@ export function resolveStartChoices(input: {
   const fromBuilder = readBuilderParams(search);
   if (fromBuilder.booklet) {
     out.booklet = fromBuilder.booklet;
-    if (fromBuilder.sheet) out.bookletSheet = fromBuilder.sheet;
+    if (fromBuilder.sheet) {
+      out.bookletSheet = fromBuilder.sheet;
+      out.size = fromBuilder.sheet; // a booklet's sheet is the page size choice (print-choice-rules.ts)
+    }
     out.autoPreview = true;
   }
 

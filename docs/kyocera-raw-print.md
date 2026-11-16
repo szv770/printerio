@@ -257,6 +257,8 @@ Setting `@PJL USTATUS DEVICE=VERBOSE`, `JOB=ON`, `PAGE=ON` (and optionally `TIME
 | TRAY3, TRAY4 (INTRAY5, INTRAY6) | regular Letter, portrait, 1500 sheets each | cannot make booklets (wrong orientation), fine for everything else |
 | BYPASS (INTRAY1) | **cardstock** is the tray's configured type (Letter) | the likely route for hardstock/labels; needs the right paper loaded or the printer waits |
 
+**Cardstock (UNPROVEN, wired 2026-11-16):** the Print page's Paper type "Cardstock" sends `MEDIATYPE=CARDSTOCK` (the constant `MEDIATYPE_CARDSTOCK_UNPROVEN` in `packages/shared/src/pjl.ts`) and nothing else about the tray, so the printer should pick the BYPASS tray. An earlier bare `MEDIATYPE=CARDSTOCK` job never came out (no error on the display; it may simply have waited for paper). Test with ONE job: load one sheet of Letter cardstock in the bypass tray, then `node tools/raw-print/run-cardstock-round.mjs <ip> --bypass-is-loaded`. Record the result here.
+
 Rule that follows: the printer chooses the tray from `PAPER` (+ `MEDIATYPE`), so a job should ask for a size and type and not name a tray. **Never send a size or type nothing is loaded for** (Legal, A4, A3, Statement and so on are not loaded anywhere): the printer stops and asks for paper, and every later job waits behind it until someone cancels at the panel. Printio therefore advertises and accepts only Letter and Ledger for now.
 
 ## Hebrew and fonts (2026-11-01)

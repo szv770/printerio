@@ -29,6 +29,16 @@ export const PROVEN_FINISHING_COMBOS: FinishingCombo[] = [
 ];
 
 
+/**
+ * UNPROVEN. The PJL line that asks for cardstock (so the printer picks the BYPASS tray, whose configured type is
+ * CARDSTOCK; docs/kyocera-raw-print.md "Paper trays as loaded"). The printer LISTS CARDSTOCK among the MEDIATYPE values it
+ * accepts, and MEDIATYPE=PLAIN is proven, but a cardstock job has never been seen coming out of the bypass tray (an
+ * earlier MEDIATYPE=CARDSTOCK job "never came out", no error shown; possibly it just waited for paper). Test with ONE
+ * labelled job before trusting it: `node tools/raw-print/run-cardstock-round.mjs` (load the bypass tray first, the printer
+ * WAITS if it is empty). If the real test shows another value is needed, change only this constant.
+ */
+export const MEDIATYPE_CARDSTOCK_UNPROVEN = "MEDIATYPE=CARDSTOCK";
+
 export interface RawPrintOptions {
   copies: number;
   colorMode: "bw" | "color";
@@ -44,6 +54,8 @@ export interface RawPrintOptions {
   bindingSide?: "left" | "right";
   /** "ledger" = 11x17 sheets (an 11x17 booklet). Without it the printer uses its default paper (letter) and shrinks the pages. Proven by a real booklet print 2026-10-26: PAPER=LEDGER with the booklet settings. */
   paper?: "ledger";
+  /** "cardstock" = ask for cardstock (the bypass tray); see MEDIATYPE_CARDSTOCK_UNPROVEN. Absent = plain: nothing about the paper type is sent (byte-identical to before). Letter only, never with a booklet. */
+  mediaType?: "cardstock";
   /** Printer feedback: state the printer's default reporting (@PJL USTATUS JOB=ON / DEVICE=ON; see pjl-ustatus.ts). Off by default: the bytes are then identical to before. */
   ustatus?: boolean;
 }
@@ -90,6 +102,11 @@ export function buildPjlSettings(o: RawPrintOptions): PjlSettingsResult {
   }
   const settings: string[] = [];
 
+  if (o.mediaType === "cardstock") {
+    if (o.booklet) return { ok: false, reason: "booklet together with cardstock is not supported" };
+    if (o.paper === "ledger") return { ok: false, reason: "cardstock is only loaded in Letter size" };
+  }
+
   if (o.booklet) {
     if (o.bindingSide !== "left" && o.bindingSide !== "right") {
       return { ok: false, reason: "booklet needs a binding side" };
@@ -135,6 +152,7 @@ export function buildPjlSettings(o: RawPrintOptions): PjlSettingsResult {
   }
 
   if (o.paper === "ledger") settings.push("PAPER=LEDGER");
+  if (o.mediaType === "cardstock") settings.push(MEDIATYPE_CARDSTOCK_UNPROVEN);
   settings.push(`QTY=${o.copies}`);
   // KCOLORMODE=MONO is deliberately NOT sent: unverified on the printer, and the web form stores colour as
   // "bw" by default, which would turn staff prints grey. Add it back only after a labelled test proves it.
