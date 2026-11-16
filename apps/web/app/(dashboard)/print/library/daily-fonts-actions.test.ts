@@ -82,9 +82,11 @@ describe("buildDailyBookletAction: Hebrew titles", () => {
   it("gives the renderer a Hebrew booklet title (the Hebrew date) and a Hebrew title per study, with the parsha only for the Chumash", async () => {
     const res = await buildDailyBookletAction(base);
     expect(res.ok).toBe(true);
-    const input = built.inputs[0] as { titleHe: string; items: { title: string; titleHe: string }[]; titleFont?: unknown; latinFont?: unknown };
-    // 2026-11-02 is 22 Cheshvan 5787 (Rosh Chodesh Cheshvan was 2026-10-12).
-    expect(input.titleHe).toBe("לימוד יומי - כ״ב חשון תשפ״ז");
+    const input = built.inputs[0] as { titleHe: string; cover: { dateHe: string; dateEn: string }; items: { title: string; titleHe: string }[]; titleFont?: unknown; latinFont?: unknown };
+    // The title is on the front page, with the date under it. 2026-11-02 is 22 Cheshvan 5787 (Rosh Chodesh Cheshvan was 2026-10-12).
+    expect(input.titleHe).toBe("לימוד יומי");
+    expect(input.cover.dateHe).toBe("יום שני, כ״ב חשון תשפ״ז");
+    expect(input.cover.dateEn).toBe("Monday, November 2, 2026");
     expect(input.items.map((i) => i.titleHe)).toEqual(["חומש - פרשת חיי שרה", "תניא", "רמב״ם - פרק אחד"]);
     // The English titles are unchanged.
     expect(input.items[1]!.title).toMatch(/^Tanya - /);
@@ -142,7 +144,66 @@ describe("buildDailyBookletAction: font choices", () => {
   });
 });
 
+describe("buildDailyBookletAction: fonts by job", () => {
+  type Roles = { hebrewFont?: Uint8Array; titleFont?: Uint8Array; rashiFont?: Uint8Array; latinFont?: { regular: Uint8Array; bold?: Uint8Array }; latinRashiFont?: Uint8Array };
+
+  it("loads a Rashi font and English title and Rashi fonts, each scoped to the member's organization", async () => {
+    const res = await buildDailyBookletAction({ ...base, fontId: BOTH_ID, titleFontId: HE_ID, rashiFontId: HE_ID, latinFontId: LATIN_ID, latinTitleFontId: BOTH_ID, latinRashiFontId: LATIN_ID });
+    expect(res.ok).toBe(true);
+    const input = built.inputs[0] as Roles;
+    expect([...input.rashiFont!]).toEqual([9, 9, 9]);
+    expect([...input.latinFont!.bold!]).toEqual([9, 9, 9]);
+    expect([...input.latinRashiFont!]).toEqual([9, 9, 9]);
+    for (const c of dbCalls.calls.filter((c) => c.table === "org_fonts")) expect(c.filters).toContainEqual(["eq", "organization_id", "o1"]);
+  });
+
+  it("a bundled family's files can be chosen by job: its regular for titles, its bold for Rashi", async () => {
+    const res = await buildDailyBookletAction({ ...base, latinFontId: "eb-garamond", latinTitleFontId: "eb-garamond", latinRashiFontId: "eb-garamond:bold" });
+    expect(res.ok).toBe(true);
+    const input = built.inputs[0] as Roles;
+    expect(input.latinFont!.bold).toEqual(input.latinFont!.regular);
+    expect(input.latinRashiFont!.length).toBeGreaterThan(1000);
+    expect(input.latinRashiFont).not.toEqual(input.latinFont!.regular);
+    expect(input.rashiFont).toBeUndefined();
+  });
+
+  it("an English title font on top of the default English font keeps David Libre for the body", async () => {
+    const res = await buildDailyBookletAction({ ...base, latinTitleFontId: LATIN_ID });
+    expect(res.ok).toBe(true);
+    const input = built.inputs[0] as Roles;
+    expect(input.latinFont!.regular.length).toBeGreaterThan(1000);
+    expect([...input.latinFont!.bold!]).toEqual([9, 9, 9]);
+  });
+
+  it("checks each job's font: own organization, the right letters, a real id", async () => {
+    expect(await buildDailyBookletAction({ ...base, rashiFontId: OTHER_ORG_ID })).toEqual({ ok: false, message: expect.stringMatching(/Rashi font is no longer available/) });
+    expect(await buildDailyBookletAction({ ...base, rashiFontId: LATIN_ID })).toEqual({ ok: false, message: expect.stringMatching(/"Some Serif" has no Hebrew letters.*Rashi font/) });
+    expect(await buildDailyBookletAction({ ...base, latinTitleFontId: HE_ID })).toEqual({ ok: false, message: expect.stringMatching(/"OT Talmudis" has no English letters.*English title font/) });
+    expect(await buildDailyBookletAction({ ...base, latinRashiFontId: OTHER_ORG_ID })).toEqual({ ok: false, message: expect.stringMatching(/no longer available/) });
+    expect(built.inputs).toHaveLength(0);
+    dbCalls.calls.length = 0;
+    expect(await buildDailyBookletAction({ ...base, rashiFontId: "eb-garamond" })).toEqual({ ok: false, message: "Choose a Rashi font from the list." });
+    expect(await buildDailyBookletAction({ ...base, latinTitleFontId: "eb-garamond:italic" })).toEqual({ ok: false, message: "Choose an English title font from the list." });
+    expect(await buildDailyBookletAction({ ...base, latinRashiFontId: "comic-sans:bold" })).toEqual({ ok: false, message: "Choose an English Rashi font from the list." });
+    expect(dbCalls.calls.filter((c) => c.table === "org_fonts")).toHaveLength(0);
+  });
+});
+
 describe("dailyFontsAction", () => {
+  it("says which family and weight each uploaded font is, so the form can group them (the name decides when the file cannot be read)", async () => {
+    const SID_BOLD = "66666666-6666-4666-8666-666666666666";
+    orgFonts.listed = [
+      { id: BOTH_ID, name: "OT Sid Daled", hasVowels: true, hasCantillation: true, hasHebrew: true, hasLatin: false },
+      { id: SID_BOLD, name: "OT Sid Daled Bold", hasVowels: true, hasCantillation: true, hasHebrew: true, hasLatin: false },
+    ];
+    const res = await dailyFontsAction();
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.faces).toEqual({ [BOTH_ID]: { family: "OT Sid Daled", weight: 400 }, [SID_BOLD]: { family: "OT Sid Daled", weight: 700 } });
+    // the font files are only read for the member's own organization
+    for (const c of dbCalls.calls.filter((c) => c.table === "org_fonts")) expect(c.filters).toContainEqual(["eq", "organization_id", "o1"]);
+  });
+
   it("returns the uploaded fonts with what they cover, and the bundled English fonts (David Libre first)", async () => {
     orgFonts.listed = [{ id: HE_ID, name: "OT Talmudis", hasVowels: true, hasCantillation: false, hasHebrew: true, hasLatin: false }];
     const res = await dailyFontsAction();

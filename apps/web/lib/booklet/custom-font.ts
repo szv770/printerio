@@ -281,3 +281,91 @@ export async function loadFontChoices(db: SupabaseClient<Database>, organization
   }
   return out;
 }
+
+/**
+ * The fonts of a booklet by job (see font-families.ts): on top of the three choices above, a Hebrew font for Rashi, and English
+ * fonts for the titles and for Rashi. An English choice is an uploaded font's id, or a bundled family's id for its regular file
+ * ("eb-garamond") or with ":bold" for its bold file ("eb-garamond:bold").
+ */
+export interface RoleFontInput extends FontChoiceInput {
+  rashiFontId?: string | null;
+  latinTitleFontId?: string | null;
+  latinRashiFontId?: string | null;
+}
+
+export type RoleFonts =
+  | (Extract<FontChoices, { ok: true }> & {
+      /** The Hebrew font for Rashi; undefined means the body font. */
+      rashiFont?: Uint8Array;
+      /** The English font for Rashi; undefined means the English body font. */
+      latinRashiFont?: Uint8Array;
+    })
+  | { ok: false; message: string };
+
+const bundledFace = (ref: string): { id: string; bold: boolean } | null => {
+  const [id, face, ...rest] = ref.split(":");
+  if (rest.length > 0 || (face !== undefined && face !== "bold")) return null;
+  return ENGLISH_FONT_CHOICES.some((c) => c.id === id) ? { id: id!, bold: face === "bold" } : null;
+};
+
+const isLatinFaceRef = (ref: unknown): ref is string => typeof ref === "string" && (UUID_RE.test(ref) || bundledFace(ref) !== null);
+
+/** Plain-language message when a choice is not a valid id, or null. Empty means "the default". */
+export function checkRoleFontIds(input: RoleFontInput): string | null {
+  const bad = checkFontChoiceIds(input);
+  if (bad) return bad;
+  const { rashiFontId, latinTitleFontId, latinRashiFontId } = input;
+  if (rashiFontId != null && (typeof rashiFontId !== "string" || !UUID_RE.test(rashiFontId))) return "Choose a Rashi font from the list.";
+  if (latinTitleFontId != null && !isLatinFaceRef(latinTitleFontId)) return "Choose an English title font from the list.";
+  if (latinRashiFontId != null && !isLatinFaceRef(latinRashiFontId)) return "Choose an English Rashi font from the list.";
+  return null;
+}
+
+/**
+ * Loads every font a booklet form chose, by job. The same rules as loadFontChoices (own organization only; a Hebrew job needs a
+ * font with Hebrew letters, an English job one with English letters). `db` must be the service-role client.
+ */
+export async function loadRoleFonts(db: SupabaseClient<Database>, organizationId: string, input: RoleFontInput): Promise<RoleFonts> {
+  const bad = checkRoleFontIds(input);
+  if (bad) return { ok: false, message: bad };
+  const base = await loadFontChoices(db, organizationId, input);
+  if (!base.ok) return base;
+  const out: Extract<RoleFonts, { ok: true }> = { ...base };
+
+  if (input.rashiFontId) {
+    const font = await loadOrgFontBytes(db, organizationId, input.rashiFontId);
+    if (!font) return { ok: false, message: "That Rashi font is no longer available. Choose another one." };
+    if (!font.hasHebrew) return { ok: false, message: `"${font.name}" has no Hebrew letters, so it cannot be the Rashi font. Choose a Hebrew font.` };
+    out.rashiFont = font.bytes;
+  }
+
+  const latinFace = async (ref: string, job: string): Promise<{ ok: true; bytes: Uint8Array } | { ok: false; message: string }> => {
+    const bundled = bundledFace(ref);
+    if (bundled) {
+      const files = await loadBundledEnglishFont(bundled.id);
+      if (!files) return { ok: false, message: "That English font is not available. Choose another one." };
+      return { ok: true, bytes: bundled.bold ? files.bold : files.regular };
+    }
+    const font = await loadOrgFontBytes(db, organizationId, ref);
+    if (!font) return { ok: false, message: `That English ${job} font is no longer available. Choose another one.` };
+    if (!font.hasLatin) return { ok: false, message: `"${font.name}" has no English letters, so it cannot be the English ${job} font. Choose an English font.` };
+    return { ok: true, bytes: font.bytes };
+  };
+
+  if (input.latinTitleFontId || input.latinRashiFontId) {
+    // A title or Rashi choice on top of the default English font: the default family supplies the rest.
+    out.latinFont ??= (await loadBundledEnglishFont(ENGLISH_FONT_CHOICES[0]!.id)) ?? undefined;
+    if (!out.latinFont) return { ok: false, message: "That English font is not available. Choose another one." };
+    if (input.latinTitleFontId) {
+      const face = await latinFace(input.latinTitleFontId, "title");
+      if (!face.ok) return face;
+      out.latinFont = { regular: out.latinFont.regular, bold: face.bytes };
+    }
+    if (input.latinRashiFontId) {
+      const face = await latinFace(input.latinRashiFontId, "Rashi");
+      if (!face.ok) return face;
+      out.latinRashiFont = face.bytes;
+    }
+  }
+  return out;
+}

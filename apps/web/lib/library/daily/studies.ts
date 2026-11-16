@@ -24,3 +24,35 @@ export function longDate(iso: string): string {
   const d = new Date(`${iso}T12:00:00Z`);
   return d.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
 }
+
+/** The study names in the front page's list of what is inside (short, as people say them). */
+export const CONTENTS_LABELS: Record<OfferedStudy, string> = {
+  chumash: "Chumash with Rashi",
+  tanya: "Tanya",
+  hayomyom: "Hayom Yom",
+  rambam3: "Rambam (3 perakim)",
+  rambam1: "Rambam (1 perek)",
+};
+
+/** "Monday" for an ISO date. */
+export function weekday(iso: string): string {
+  return new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" });
+}
+
+/** "Monday, November 16" for an ISO date (no year). */
+export function dayAndMonth(iso: string): string {
+  return new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" });
+}
+
+/** The most days one booklet can hold. */
+export const MAX_BOOKLET_DAYS = 7;
+
+/** Every ISO date from `from` to `to`, both included; null when the range is backwards or longer than MAX_BOOKLET_DAYS. */
+export function datesBetween(from: string, to: string): string[] | null {
+  const a = Date.parse(`${from}T12:00:00Z`);
+  const b = Date.parse(`${to}T12:00:00Z`);
+  if (Number.isNaN(a) || Number.isNaN(b) || b < a) return null;
+  const days = Math.round((b - a) / 86_400_000) + 1;
+  if (days > MAX_BOOKLET_DAYS) return null;
+  return Array.from({ length: days }, (_, i) => new Date(a + i * 86_400_000).toISOString().slice(0, 10));
+}

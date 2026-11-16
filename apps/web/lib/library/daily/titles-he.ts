@@ -15,6 +15,24 @@ export const STUDY_LABELS_HE: Record<OfferedStudy, string> = {
   rambam1: "רמב״ם - פרק אחד",
 };
 
+/** The study names in the front page's list of what is inside, in Hebrew. */
+export const CONTENTS_LABELS_HE: Record<OfferedStudy, string> = {
+  chumash: "חומש עם רש״י",
+  tanya: "תניא",
+  hayomyom: "היום יום",
+  rambam3: "רמב״ם (ג׳ פרקים)",
+  rambam1: "רמב״ם (פרק אחד)",
+};
+
+const WEEKDAYS_HE = ["יום ראשון", "יום שני", "יום שלישי", "יום רביעי", "יום חמישי", "יום שישי", "שבת קודש"];
+
+/** "יום שני" for an ISO date (the civil day, like hebrewDate: it flips at midnight, not at sunset). */
+export function hebrewWeekday(isoDate: string): string {
+  const date = new Date(`${isoDate}T12:00:00Z`);
+  if (Number.isNaN(date.getTime())) throw new RangeError(`Not a real date: ${isoDate}`);
+  return WEEKDAYS_HE[date.getUTCDay()]!;
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Hebrew date
 // ---------------------------------------------------------------------------------------------------------------------

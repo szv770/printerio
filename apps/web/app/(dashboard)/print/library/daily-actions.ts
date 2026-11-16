@@ -9,13 +9,15 @@ import { prepareImport } from "@/lib/library/daily/import";
 import type { Json } from "@/lib/database.types";
 import { canUseLinks } from "@/lib/sources/access";
 import { libraryViaServer, onlineFetcherExists } from "@/lib/library/cache";
-import { buildFilledPdf, type Language } from "@/lib/library/daily/fill";
+import { buildFilledPdf, type ColumnSplit, type Language } from "@/lib/library/daily/fill";
 import type { StudySection } from "@printio/shared/library/daily/page";
-import { checkFontChoiceIds, loadFontChoices } from "@/lib/booklet/custom-font";
+import { checkRoleFontIds, loadRoleFonts } from "@/lib/booklet/custom-font";
 import { listOrgFonts, type OrgFontOption } from "@/lib/booklet/org-fonts";
+import { loadOrgFontFacts } from "@/lib/booklet/org-font-facts";
+import type { FontFacts } from "@/lib/booklet/font-families";
 import { ENGLISH_FONT_CHOICES } from "@/lib/booklet/fonts/english";
-import { STUDY_LABELS_HE, hebrewDate, hebrewPortionName } from "@/lib/library/daily/titles-he";
-import { DAILY_CREDIT, isOfferedStudy, longDate, OFFERED_STUDIES, STUDY_LABELS, type OfferedStudy } from "@/lib/library/daily/studies";
+import { coverDates, mergeDays, type Arrange, type DayText } from "@/lib/library/daily/merge";
+import { datesBetween, DAILY_CREDIT, isOfferedStudy, longDate, MAX_BOOKLET_DAYS, OFFERED_STUDIES, STUDY_LABELS, type OfferedStudy } from "@/lib/library/daily/studies";
 
 /**
  * "Import from my browser" in the library's Daily study tab. Org admins only. Chabad.org shows automated visitors a Cloudflare check
@@ -107,10 +109,28 @@ async function libraryGate(): Promise<{ userId: string; organizationId: string }
  * with hasHebrew / hasLatin, so the form can offer Hebrew fonts and English fonts in the right lists) and the English fonts
  * bundled with Printio.
  */
-export async function dailyFontsAction(): Promise<{ ok: true; fonts: OrgFontOption[]; englishFonts: { id: string; name: string }[] } | Failure> {
+export async function dailyFontsAction(): Promise<
+  | {
+      ok: true;
+      fonts: OrgFontOption[];
+      englishFonts: { id: string; name: string }[];
+      /** The family and weight of each uploaded font, by font id, read from the font files (see lib/booklet/font-families.ts). */
+      faces: Record<string, FontFacts>;
+    }
+  | Failure
+> {
   const who = await libraryGate();
   if ("ok" in who) return who;
-  return { ok: true, fonts: await listOrgFonts(who.organizationId), englishFonts: ENGLISH_FONT_CHOICES };
+  const fonts = await listOrgFonts(who.organizationId);
+  let faces: Record<string, FontFacts> = {};
+  if (fonts.length > 0) {
+    try {
+      faces = await loadOrgFontFacts(createServiceRoleClient(), who.organizationId, fonts);
+    } catch {
+      // Weights are a convenience: without them every font is its own family, as before.
+    }
+  }
+  return { ok: true, fonts, englishFonts: ENGLISH_FONT_CHOICES, faces };
 }
 
 const validDate = (d: unknown): d is string => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(d)) && Math.abs(Date.parse(d) - Date.now()) <= 400 * DAY_MS;
@@ -129,6 +149,7 @@ interface DayRow {
 
 const NOT_SAVED_YET = "That day has not been saved yet. Your print server saves the next week every night; try again later.";
 const NOT_SAVED_NO_SERVER = "That day has not been saved yet, and no print server is online to save it right now. Try again when it is on.";
+const TOO_MANY_DAYS = "That is a lot of days at once. Wait a few minutes and try again.";
 
 /**
  * The day's saved text. When nothing is saved for the date yet, Printio asks the source once (as a person opening the page and
@@ -136,10 +157,17 @@ const NOT_SAVED_NO_SERVER = "That day has not been saved yet, and no print serve
  * With the switch LIBRARY_VIA_SERVER on it never asks the source: the owner's print server saves the next week every night
  * (docs/PHASE-C-PLAN.md, C1d), so a day that is not saved is answered with a plain message (and says when no print server is online).
  */
-async function ensureDay(db: ReturnType<typeof createServiceRoleClient>, date: string, userId: string): Promise<{ ok: true; rows: DayRow[] } | Failure> {
+async function ensureDay(
+  db: ReturnType<typeof createServiceRoleClient>,
+  date: string,
+  userId: string,
+  /** Only for a booklet of several days: `savedOnly` never asks the source; `beforeFetch` runs just before the source is asked. */
+  opts: { savedOnly?: boolean; beforeFetch?: () => Promise<void> } = {},
+): Promise<{ ok: true; rows: DayRow[] } | Failure> {
   const { data } = await db.from("library_daily_texts").select("study, portion, sections").eq("study_date", date);
   const saved = (data ?? []) as unknown as DayRow[];
   if (saved.length > 0) return { ok: true, rows: saved };
+  if (opts.savedOnly) return { ok: false, message: "That day has not been saved yet." };
 
   if (libraryViaServer()) return { ok: false, message: (await onlineFetcherExists(db)) ? NOT_SAVED_YET : NOT_SAVED_NO_SERVER };
 
@@ -148,8 +176,9 @@ async function ensureDay(db: ReturnType<typeof createServiceRoleClient>, date: s
     p_max_count: 12,
     p_window_seconds: 10 * 60,
   });
-  if (!limitError && allowed === false) return { ok: false, message: "That is a lot of days at once. Wait a few minutes and try again." };
+  if (!limitError && allowed === false) return { ok: false, message: TOO_MANY_DAYS };
 
+  await opts.beforeFetch?.();
   const got = await fetchShiurDay(date);
   if (!got.ok) {
     return {
@@ -183,33 +212,71 @@ export async function dailyDayAction(date: string): Promise<{ ok: true; items: D
 }
 
 export interface BuildDailyInput {
+  /** The day, or the first day of several. */
   date: string;
+  /** The last day (up to 7 days in one booklet); leave out for one day. */
+  toDate?: string | null;
+  /** Several days: "day" prints day 1's studies, then day 2's...; "study" prints every day's Chumash, then every day's Tanya... Default "day". */
+  arrange?: Arrange;
+  /** Several days: leave out the days (or a study of a day) that are not available instead of stopping. Default off. */
+  skipMissing?: boolean;
   studies: OfferedStudy[];
   language: Language;
   sheet: "letter" | "tabloid";
+  /** Both languages side by side: how the width is shared. Default "auto" (measured; English usually gets more). */
+  columns?: ColumnSplit;
   /** An uploaded Hebrew font of the member's organization (the Hebrew text); leave out for Printio's own (Ezra SIL). */
   fontId?: string | null;
-  /** An uploaded Hebrew font for the Hebrew titles; leave out to use the same font as the text. */
+  /** An uploaded Hebrew font for the Hebrew titles (the family's Bold); leave out to use the same font as the text. */
   titleFontId?: string | null;
+  /** An uploaded Hebrew font for Rashi; leave out to use the same font as the text. */
+  rashiFontId?: string | null;
   /** The English font: an id from ENGLISH_FONT_CHOICES ("david-libre", ...) or the id of an uploaded English font; leave out for David Libre. */
   latinFontId?: string | null;
+  /** The English font for titles: an uploaded font's id, or a bundled one ("eb-garamond:bold"); leave out for the English font's own bold. */
+  latinTitleFontId?: string | null;
+  /** The English font for Rashi, likewise; leave out to use the English font. */
+  latinRashiFontId?: string | null;
 }
 export type BuildDailyResult =
-  | { ok: true; pdfBase64: string; fileName: string; pages: number; fontSize: number; direction: "ltr" | "rtl"; fontWarning?: string }
+  | {
+      ok: true;
+      pdfBase64: string;
+      fileName: string;
+      pages: number;
+      fontSize: number;
+      direction: "ltr" | "rtl";
+      fontWarning?: string;
+      /** Days (or one study of a day) that were not available and were left out, in plain words. Only with skipMissing. */
+      skipped?: string[];
+    }
   | Failure;
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Builds the filled-page booklet PDF from the saved text; the print page then folds it into a booklet. */
 export async function buildDailyBookletAction(input: BuildDailyInput): Promise<BuildDailyResult> {
   const who = await libraryGate();
   if ("ok" in who) return who;
-  const { date, studies, language, sheet, fontId, titleFontId, latinFontId } = input ?? ({} as BuildDailyInput);
+  const { date, toDate, studies, language, sheet, fontId, titleFontId, rashiFontId, latinFontId, latinTitleFontId, latinRashiFontId } = input ?? ({} as BuildDailyInput);
+  const arrange = input?.arrange ?? "day";
+  const columns = input?.columns ?? "auto";
+  const skipMissing = input?.skipMissing === true;
   if (!validDate(date)) return { ok: false, message: "Choose a date." };
+  if (toDate != null && toDate !== "" && !validDate(toDate)) return { ok: false, message: "Choose the last day." };
+  const dates = datesBetween(date, toDate || date);
+  if (!dates) {
+    return { ok: false, message: Date.parse(toDate!) < Date.parse(date) ? "The last day is before the first day." : `One booklet holds up to ${MAX_BOOKLET_DAYS} days. Choose a shorter range.` };
+  }
   if (!Array.isArray(studies) || studies.length === 0 || studies.length > OFFERED_STUDIES.length || !studies.every(isOfferedStudy) || new Set(studies).size !== studies.length) {
     return { ok: false, message: "Choose what to print." };
   }
   if (language !== "he" && language !== "en" && language !== "both") return { ok: false, message: "Choose Hebrew, English or both." };
   if (sheet !== "letter" && sheet !== "tabloid") return { ok: false, message: "Choose the sheet size." };
-  const badFont = checkFontChoiceIds({ fontId, titleFontId, latinFontId });
+  if (arrange !== "day" && arrange !== "study") return { ok: false, message: "Choose how to arrange the days." };
+  if (columns !== "auto" && columns !== "even" && columns !== "wider" && columns !== "much") return { ok: false, message: "Choose the column widths." };
+  const fontIds = { fontId, titleFontId, rashiFontId, latinFontId, latinTitleFontId, latinRashiFontId };
+  const badFont = checkRoleFontIds(fontIds);
   if (badFont) return { ok: false, message: badFont };
 
   const db = createServiceRoleClient();
@@ -220,55 +287,73 @@ export async function buildDailyBookletAction(input: BuildDailyInput): Promise<B
   });
   if (!limitError && allowed === false) return { ok: false, message: "That is a lot of booklets at once. Wait a few minutes and try again." };
 
-  const day = await ensureDay(db, date, who.userId);
-  if (!day.ok) return day;
-  const byStudy = new Map(day.rows.map((r) => [r.study, r]));
-  const ordered = OFFERED_STUDIES.filter((s) => studies.includes(s));
-  const missing = ordered.filter((s) => !byStudy.has(s));
-  if (missing.length > 0) {
-    return { ok: false, message: `${missing.map((s) => STUDY_LABELS[s]).join(" and ")} ${missing.length === 1 ? "is" : "are"} not in the source for that day.` };
+  // Each day goes through the same one-day path as ever (the shared saved text first, then the per-person limit and one request
+  // to the source, or with LIBRARY_VIA_SERVER the saved text only). One day that fails stops a one-day booklet with its own message.
+  const days: DayText[] = [];
+  let fetched = 0;
+  let sourceFailed = false;
+  for (const d of dates) {
+    const day = await ensureDay(db, d, who.userId, {
+      // After the source failed once in this booklet it is not asked again: the remaining days are used only if already saved.
+      savedOnly: sourceFailed,
+      // Several days that all need fetching are spaced out, as a person clicking through them would be.
+      beforeFetch: async () => {
+        if (fetched++ > 0) await pause(1200);
+      },
+    });
+    if (day.ok) {
+      days.push({ date: d, rows: day.rows });
+      continue;
+    }
+    if (dates.length === 1) return { ok: false, message: day.message };
+    if (day.message === TOO_MANY_DAYS) return { ok: false, message: day.message };
+    if (!libraryViaServer()) sourceFailed = true;
+    days.push({ date: d, rows: null });
   }
+  const merged = mergeDays({ days, studies, arrange, skipMissing });
+  if (!merged.ok) return merged;
 
-  const fonts = await loadFontChoices(db, who.organizationId, { fontId, titleFontId, latinFontId });
+  const fonts = await loadRoleFonts(db, who.organizationId, fontIds);
   if (!fonts.ok) return fonts;
-  const { hebrewFont, titleFont, latinFont, hebrewFontName: fontName } = fonts;
+  const { hebrewFont, titleFont, rashiFont, latinFont, latinRashiFont, hebrewFontName: fontName } = fonts;
 
   const tabloid = sheet === "tabloid";
+  const first = merged.dates[0]!;
+  const last = merged.dates[merged.dates.length - 1]!;
+  const when = coverDates(merged.dates);
   let built: Awaited<ReturnType<typeof buildFilledPdf>>;
   try {
     built = await buildFilledPdf({
-    title: `Daily Study - ${longDate(date)}`,
-    titleHe: `לימוד יומי - ${hebrewDate(date)}`,
-    items: ordered.map((s) => {
-      const row = byStudy.get(s)!;
-      const portionHe = hebrewPortionName(s, row.portion);
-      return {
-        title: `${STUDY_LABELS[s]} - ${row.portion}`,
-        // The Hebrew title: the study name and, for the Chumash, the parsha - only when the source's portion line gave a name we know.
-        titleHe: portionHe ? `${STUDY_LABELS_HE[s]} - ${portionHe}` : STUDY_LABELS_HE[s],
-        sections: Array.isArray(row.sections) ? row.sections : [],
-      };
-    }),
-    language,
-    page: tabloid ? { width: 612, height: 792 } : { width: 396, height: 612 },
-    margin: tabloid ? 40 : 28,
-    credit: DAILY_CREDIT,
-    hebrewFont,
-    titleFont,
-    latinFont,
-  });
+      title: "Daily Study",
+      titleHe: "לימוד יומי",
+      items: merged.items,
+      language,
+      columns,
+      page: tabloid ? { width: 612, height: 792 } : { width: 396, height: 612 },
+      margin: tabloid ? 40 : 28,
+      credit: DAILY_CREDIT,
+      cover: { ...when, contents: merged.contents },
+      footer: { text: when.dateEn, textHe: when.dateHe },
+      hebrewFont,
+      titleFont,
+      rashiFont,
+      latinFont,
+      latinRashiFont,
+    });
   } catch (err) {
-    if ((hebrewFont || titleFont || latinFont) && err instanceof Error && err.message.startsWith("That font could not be read")) return { ok: false, message: err.message };
+    if ((hebrewFont || titleFont || rashiFont || latinFont || latinRashiFont) && err instanceof Error && err.message.startsWith("That font could not be read")) return { ok: false, message: err.message };
     throw err;
   }
   const lacks = [built.missingMarks.vowels && "vowel points", built.missingMarks.cantillation && "cantillation marks (trop)"].filter(Boolean).join(" and ");
   return {
     ok: true,
     pdfBase64: Buffer.from(built.bytes).toString("base64"),
-    fileName: `Daily study ${date}.pdf`,
+    fileName: first === last ? `Daily study ${first}.pdf` : `Daily study ${first} to ${last}.pdf`,
     pages: built.pages,
     fontSize: built.fontSize,
     direction: language === "he" ? "rtl" : "ltr",
-    ...(lacks ? { fontWarning: `${fontName} has no ${lacks}, so those marks in this text are missing on the page. Choose a font that has them if you need them.` } : {}),
+    ...(lacks ? { fontWarning: `${fontName || "The chosen Hebrew font"} has no ${lacks}, so those marks in this text are missing on the page. Choose a font that has them if you need them.` } : {}),
+    ...(merged.skipped.length > 0 ? { skipped: merged.skipped } : {}),
   };
 }
+
