@@ -11,7 +11,7 @@ import { jobEventDisplay } from "@/lib/job-event-labels";
 import { formatFileSize } from "@/lib/pdf/client-precheck";
 import { canOwnerPurgeFiles } from "@/lib/retention";
 import { JobStatusLive } from "./JobStatusLive";
-import { ReprintButton } from "./ReprintButton";
+import { PrintAgainLink, ReprintButton } from "./ReprintButton";
 import { DeleteFileButton } from "./DeleteFileButton";
 import { CancelJobButton } from "./CancelJobButton";
 import { RetryJobButton } from "./RetryJobButton";
@@ -90,7 +90,10 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
     plan.retry || plan.cancel || plan.reprint || plan.atPrinter ? (
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
         {plan.retry && <RetryJobButton jobId={job.id} big />}
-        {plan.reprint && <ReprintButton jobId={job.id} big primary={plan.reprintPrimary} />}
+        {/* "Print again" opens the print page filled in (file + every choice, changeable); the small one-click button
+         *  next to it re-sends exactly the same job without opening anything. */}
+        {plan.reprint && <PrintAgainLink jobId={job.id} big primary={plan.reprintPrimary} />}
+        {plan.reprint && <ReprintButton jobId={job.id} big label="Same settings, print now" />}
         {plan.cancel && <CancelJobButton jobId={job.id} big />}
         {plan.atPrinter && (
           <p className="text-sm text-[var(--color-muted)]">This job has already gone to the printer. Clear it at the printer.</p>
