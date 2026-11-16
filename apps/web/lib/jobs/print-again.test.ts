@@ -77,6 +77,7 @@ describe("formChoicesFromJob: every choice the job used", () => {
       profileId: "p1",
       sides: "two",
       flip: null,
+      paper: "plain",
       staple: "none",
       booklet: "none",
       copies: 2,
@@ -87,6 +88,18 @@ describe("formChoicesFromJob: every choice the job used", () => {
       bookletFit: "fill",
       bookletSheet: "letter",
     });
+  });
+
+  it("a cardstock job comes back as cardstock (and every older job as plain)", () => {
+    const withCard = job({ finishing: { staple: false, booklet: false, punch: false, paperType: "cardstock" } });
+    expect(formChoicesFromJob(withCard).paper).toBe("cardstock");
+    expect(pipelineSettingsFromJob(withCard).choices.paper).toBe("cardstock");
+    expect(printAgainBanner(withCard)).toContain("cardstock");
+    expect(formChoicesFromJob(job({ finishing: { staple: false, booklet: false, punch: false, paperType: "plain" } })).paper).toBe("plain");
+    expect(formChoicesFromJob(job({ finishing: null })).paper).toBe("plain");
+    expect("paper" in pipelineSettingsFromJob(job()).choices).toBe(false);
+    // A cardstock note on a booklet row can not happen, but if it does the booklet wins (a booklet is never cardstock).
+    expect(pipelineSettingsFromJob(job({ finishing: { staple: false, booklet: true, punch: false, paperType: "cardstock" }, booklet_binding_side: "left" })).choices.paper).toBeUndefined();
   });
 
   it("a single-sided, colour, stapled (top-right), punched job", () => {

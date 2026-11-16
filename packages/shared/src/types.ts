@@ -80,6 +80,8 @@ export interface RawTarget {
   duplexEdge?: "long" | "short";
   /** "ledger" for an 11x17 job (PAPER=LEDGER); absent = the printer's default paper. */
   paper?: "ledger";
+  /** "cardstock" = MEDIATYPE for the bypass tray (UNPROVEN, see MEDIATYPE_CARDSTOCK_UNPROVEN in pjl.ts); absent = plain, nothing sent. Older Agents ignore it, see CARDSTOCK_MIN_AGENT_VERSION. */
+  mediaType?: "cardstock";
   /** "dual-left" = two staples on the left edge (request.finishing.staple is then true; staplePosition is ignored). Older Agents ignore it, see FINISHING_MIN_AGENT_VERSION. */
   stapleStyle?: "dual-left";
   /** 3-hole punch on the left edge. Older Agents ignore it, see FINISHING_MIN_AGENT_VERSION. */
@@ -130,7 +132,7 @@ export interface RemoteCommandPayload {
  * apps/agent/test/version.test.ts fails the build if the two ever drift, so
  * this cannot silently go stale.
  */
-export const LATEST_AGENT_VERSION = "0.2.1";
+export const LATEST_AGENT_VERSION = "0.2.2";
 
 /**
  * First Agent version that understands CHECK_FOR_UPDATE with payload { mode: "check_only" }. Older Agents ignore
@@ -145,6 +147,13 @@ export const CHECK_ONLY_MIN_AGENT_VERSION = "0.2.0";
  * hand such a job to an Agent that has not reported at least this version.
  */
 export const FINISHING_MIN_AGENT_VERSION = "0.2.1";
+
+/**
+ * First Agent version that sends the paper type (raw.mediaType = cardstock). An older Agent would ignore it and print the
+ * job on plain paper from the normal trays, so the download-url route refuses to hand a cardstock job to an older Agent.
+ * The Agent's own package.json version must be raised to this when the change ships.
+ */
+export const CARDSTOCK_MIN_AGENT_VERSION = "0.2.2";
 
 /**
  * Compares two dot-separated version strings numerically (not

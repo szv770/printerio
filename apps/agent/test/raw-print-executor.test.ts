@@ -138,6 +138,23 @@ describe("executeRawPrint", () => {
     expect(Buffer.concat(letter.received).toString("latin1")).not.toContain("PAPER=");
   });
 
+  it("a cardstock job reaches the printer with MEDIATYPE=CARDSTOCK (unproven value), and a plain job sends no MEDIATYPE at all", async () => {
+    const card = await listen(() => {});
+    const res = await executeRawPrint({ raw: { ...raw(card.port), mediaType: "cardstock" as const }, request: req, pdf });
+    await card.closed;
+    expect(res.ok).toBe(true);
+    expect(Buffer.concat(card.received).toString("latin1")).toContain("@PJL SET MEDIATYPE=CARDSTOCK");
+    const plain = await listen(() => {});
+    await executeRawPrint({ raw: raw(plain.port), request: req, pdf });
+    await plain.closed;
+    expect(Buffer.concat(plain.received).toString("latin1")).not.toContain("MEDIATYPE");
+  });
+
+  it("a cardstock booklet is refused as invalid_job and nothing is sent", async () => {
+    const res = await executeRawPrint({ raw: { ...raw(1), mediaType: "cardstock" as const }, request: { ...req, finishing: { staple: false, booklet: true, punch: false } }, pdf });
+    expect(res).toMatchObject({ ok: false, failure: { kind: "invalid_job" } });
+  });
+
   it("returns ok:false with the reason and opens NO connection when buildRawJob refuses", async () => {
     let connections = 0;
     const { port } = await listen(() => {

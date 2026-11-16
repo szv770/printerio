@@ -367,6 +367,7 @@ export async function executeRawPrint(args: {
         jobName: jobName,
         ...(raw.duplexEdge ? { duplexEdge: raw.duplexEdge } : {}),
         ...(raw.paper ? { paper: raw.paper } : {}),
+        ...(raw.mediaType === "cardstock" ? { mediaType: "cardstock" as const } : {}),
         staple: request.finishing.staple ? (raw.stapleStyle === "dual-left" ? "dual-left" : raw.staplePosition) : undefined,
         ...(raw.punch ? { punch: true } : {}),
         booklet: request.finishing.booklet,

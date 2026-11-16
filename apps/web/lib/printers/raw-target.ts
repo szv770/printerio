@@ -93,6 +93,8 @@ export function rawTargetFromProfile(
     duplexEdge?: "short" | null;
     /** "ledger" for an 11x17 job (the row's paper size is tabloid); null/absent = the printer's default paper. */
     paper?: "ledger" | null;
+    /** "cardstock" (the job's finishing.paperType): the printer is asked for the bypass tray's paper type. Null/absent = plain, nothing is sent. */
+    mediaType?: "cardstock" | null;
     /** Two staples on the left edge (the job's finishing.stapleStyle); absent = a corner staple or none. */
     stapleStyle?: "dual-left" | null;
     /** The job's finishing.punch. */
@@ -110,6 +112,7 @@ export function rawTargetFromProfile(
     bindingSide: side,
     ...(opts.duplexEdge === "short" ? { duplexEdge: "short" as const } : {}),
     ...(opts.paper === "ledger" ? { paper: "ledger" as const } : {}),
+    ...(opts.mediaType === "cardstock" ? { mediaType: "cardstock" as const } : {}),
     ...(opts.stapleStyle === "dual-left" ? { stapleStyle: "dual-left" as const } : {}),
     ...(opts.punch ? { punch: true } : {}),
     jobName: printerJobName(opts.jobTitle, opts.senderCode),

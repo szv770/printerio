@@ -121,4 +121,17 @@ describe("download-url: hole punch and two staples (left) reach the Agent", () =
     agentVersion = "0.2.0";
     expect((await get("?keepClaimed=1")).status).toBe(200);
   });
+
+  it("cardstock reaches the Agent as raw.mediaType, a plain job carries none, and an Agent that cannot send it is refused (409)", async () => {
+    job.finishing = { staple: false, booklet: false, punch: false, paperType: "cardstock" };
+    agentVersion = "0.2.2";
+    const j = await (await get("?keepClaimed=1")).json();
+    expect(j.printRequest.raw).toMatchObject({ mediaType: "cardstock" });
+    job.status = "claimed";
+    agentVersion = "0.2.1";
+    expect((await get("?keepClaimed=1")).status).toBe(409);
+    job.finishing = { staple: false, booklet: false, punch: false };
+    const plain = await (await get("?keepClaimed=1")).json();
+    expect(plain.printRequest.raw.mediaType).toBeUndefined();
+  });
 });

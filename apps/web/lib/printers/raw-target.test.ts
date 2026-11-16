@@ -119,4 +119,9 @@ describe("duplex edge on the raw target", () => {
     expect(rawTargetFromProfile(base, { jobTitle: "A" })).not.toHaveProperty("duplexEdge");
     expect(rawTargetFromProfile(base, { jobTitle: "A", duplexEdge: null })).not.toHaveProperty("duplexEdge");
   });
+  it("carries cardstock (the paper type) to the Agent, and nothing for plain paper", () => {
+    expect(rawTargetFromProfile(base, { jobTitle: "A", mediaType: "cardstock" })?.mediaType).toBe("cardstock");
+    expect(rawTargetFromProfile(base, { jobTitle: "A" })).not.toHaveProperty("mediaType");
+    expect(rawTargetFromProfile(base, { jobTitle: "A", mediaType: null })).not.toHaveProperty("mediaType");
+  });
 });

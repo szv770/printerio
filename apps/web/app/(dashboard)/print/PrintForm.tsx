@@ -6,21 +6,29 @@ import { AlertTriangle, BookOpen, FileText, FileUp, ListOrdered, Minus, Palette,
 import { parsePageRange } from "@printio/shared";
 import { bookletBlankPagesNote } from "@/lib/booklet-note";
 import { PagePicker } from "@/components/print/PagePicker";
-import { Button, Card, Collapsible, FieldError, FieldLabel, FormError, Input, Segmented, Select, Spinner, StatusDot, Switch } from "@/components/ui";
+import { Button, Card, Collapsible, FieldError, FieldLabel, FormError, Input, Segmented, Spinner, StatusDot, Switch } from "@/components/ui";
 import { hasType3Fonts, PICTURE_COPY_MAX_PAGES, TYPE3_HELD_MESSAGE, TYPE3_PICTURE_NOTICE } from "@/lib/pdf/type3-fonts";
 import { formatFileSize, precheckPdfHeader, precheckSelectedFile, shouldPreviewInBrowser } from "@/lib/pdf/client-precheck";
 import { renderPdfPageToCanvas } from "@/lib/pdf/render-page";
+import { MAX_COPIES, buildSummary } from "@/lib/print-choices";
 import {
-  MAX_COPIES,
-  buildSummary,
-  describeAvailability,
-  type BookletChoice,
-  type SidesChoice,
-  type StapleChoice,
-} from "@/lib/print-choices";
+  CARDSTOCK_WARNING,
+  CLEAN_CHOICES,
+  applyTap,
+  fitToPrinter,
+  settleState,
+  type BookletValue,
+  type ChoiceState,
+  type ChoiceTap,
+  type EdgeValue,
+  type SidesValue,
+  type SizeValue,
+  type StapleValue,
+  type PaperValue,
+} from "@/lib/print-choice-rules";
 import type { PrintAgainFormChoices } from "@/lib/jobs/print-again";
 import { CLEAN_START, resolveStartChoices, type RememberedChoices } from "@/lib/print-start-choices";
-import { liveSummaryLine, summarizeAdvanced, summarizeFinishing, summarizePages, summarizePaperColor } from "@/lib/print-form-summary";
+import { liveSummaryLine, summarizeAdvanced, summarizeColor, summarizeFinishing, summarizePages } from "@/lib/print-form-summary";
 import dynamic from "next/dynamic";
 import { submitPrintJobAction, type SubmitJobState } from "./actions";
 import { previewBookletAction, type BookletPreviewState } from "./preview-action";
@@ -136,22 +144,17 @@ export function PrintForm({
   /** Set by a refused submit (Enter pressed while the form is invalid); cleared by the next valid submit. */
   const [clientError, setClientError] = useState<string | null>(null);
 
-  const [sides, setSides] = useState<SidesChoice>(CLEAN_START.sides);
-  const [staple, setStaple] = useState<StapleChoice>(CLEAN_START.staple);
-  const [booklet, setBooklet] = useState<BookletChoice>(CLEAN_START.booklet);
+  /** The quick controls (sides, flip edge, staple, punch, booklet, size, paper type) as one value; every tap goes through applyTap (lib/print-choice-rules.ts). */
+  const [choice, setChoice] = useState<ChoiceState>(CLEAN_CHOICES);
+  /** What the last tap had to switch besides itself, in plain words ("Single-sided because hole punch with a staple needs it."). Shown in the live summary. */
+  const [tapNote, setTapNote] = useState<string | null>(null);
   const [copiesText, setCopiesText] = useState("1");
   const [pageRange, setPageRange] = useState("");
   /** Presentation only: whether the "Some pages" box is showing. The text in pageRange is still what is submitted. */
   const [pagesMode, setPagesMode] = useState<"all" | "range">("all");
   const [colorMode, setColorMode] = useState<"bw" | "color">("bw");
-  const [paperSize, setPaperSize] = useState("letter");
-  const [punch, setPunch] = useState(false);
-  /** Double-sided only: which edge the sheet flips on. Offered only when "Print again" brings a short-edge job (the rest of the form never sets it). */
-  const [flip, setFlip] = useState<"long" | "short">("long");
-  const [flipOffered, setFlipOffered] = useState(false);
   /** Booklets only: "fill" crops the document's own blank margins so the content fills the page; "keep" scales the whole page. */
   const [bookletFit, setBookletFit] = useState<"fill" | "keep">("fill");
-  const [bookletSheet, setBookletSheet] = useState<"letter" | "tabloid">("letter");
   /** Set when the page was opened from the booklet builder: the booklet preview then builds itself once the file is in. */
   const [autoPreview, setAutoPreview] = useState(false);
   const autoPreviewFired = useRef(false);
@@ -179,17 +182,26 @@ export function PrintForm({
       }
       const c = resolveStartChoices({ printers: printerProfiles, remembered, again, search: window.location.search });
       if (c.profileId) setProfileId(c.profileId);
-      setSides(c.sides);
-      setStaple(c.staple);
-      setBooklet(c.booklet);
+      const startRaw = (printerProfiles.find((p) => p.id === (c.profileId ?? printerProfiles[0]?.id)) ?? printerProfiles[0])?.isRaw ?? false;
+      // A handoff (the booklet builder, Print again) may bring a mix that does not fit together: the booklet wins, silently, before anything is touched.
+      setChoice(
+        settleState(
+          {
+            sides: c.sides,
+            edge: c.flip,
+            staple: c.staple === "profile" ? "top-left" : c.staple,
+            punch: c.punch,
+            booklet: c.booklet === "profile" ? "left" : c.booklet,
+            size: c.size,
+            paper: c.paper,
+          },
+          { raw: startRaw },
+        ),
+      );
+      setTapNote(null);
       setCopiesText(String(c.copies));
       setColorMode(c.colorMode);
-      setPaperSize(c.paperSize);
-      setPunch(c.punch);
       setBookletFit(c.bookletFit);
-      setBookletSheet(c.bookletSheet);
-      setFlip(c.flip);
-      setFlipOffered(c.flipOffered);
       setPagesMode(c.pagesMode);
       setPageRange(c.pageRange);
       if (c.autoPreview) setAutoPreview(true);
@@ -209,17 +221,22 @@ export function PrintForm({
    * switching back to a printer that supports an option restores it; but what is shown and sent is always the
    * effective value, so the page never shows something it will not do.
    */
-  const exclusive = isRaw; // only a raw-port printer cannot combine a booklet with a corner staple
-  const effBooklet: BookletChoice = describeAvailability({ staple, booklet }, caps, { exclusive }).bookletDisabledReason ? "none" : booklet;
-  const effStaple: StapleChoice = describeAvailability({ staple, booklet: effBooklet }, caps, { exclusive }).stapleDisabledReason
-    ? "none"
-    : isRaw
-      ? staple
-      : staple === "none"
-        ? "none"
-        : "top-left";
-  const avail = describeAvailability({ staple: effStaple, booklet: effBooklet }, caps, { exclusive });
-  const effSides: SidesChoice = avail.sidesLocked ? "two" : caps.duplex ? sides : "one";
+  const declared = profile?.declaredPaperSizes ?? ["letter", "11x17"];
+  /** How this printer spells 11x17 (raw printers: "11x17"; a queue may declare "tabloid"). */
+  const tabloidValue = declared.includes("tabloid") && !declared.includes("11x17") ? "tabloid" : "11x17";
+  const offersTabloid = declared.includes("11x17") || declared.includes("tabloid");
+  const letterValue = declared.includes("letter") ? "letter" : (declared[0] ?? "letter");
+  const ruleCtx = { raw: isRaw };
+  const eff = fitToPrinter(choice, { raw: isRaw, duplex: caps.duplex, staple: caps.staple, booklet: caps.booklet, punch: caps.punch, tabloid: offersTabloid });
+  const effBooklet: BookletValue = eff.booklet;
+  const effStaple: StapleValue = eff.staple;
+  const effSides: SidesValue = eff.sides;
+  /** One tap on a quick control: the rules decide what else must switch and say so in plain words. Taps start from what is shown. */
+  function tap(t: ChoiceTap) {
+    const r = applyTap(eff, t, ruleCtx);
+    setChoice(r.state);
+    setTapNote(r.note);
+  }
 
   // The page range, checked as far as the browser can (the server checks it again against the real document).
   const rangeText = pageRange.trim();
@@ -413,7 +430,7 @@ export function PrintForm({
   }
 
   /** The preview belongs to one exact set of choices and one file; any change hides it (and a new press rebuilds it). */
-  const previewSignature = JSON.stringify([formSignature, bookletFit, bookletSheet, paperSize, rangeText]);
+  const previewSignature = JSON.stringify([formSignature, bookletFit, eff.size, rangeText]);
 
   async function onPreviewBooklet() {
     if (preview.status === "loading") return;
@@ -467,22 +484,28 @@ export function PrintForm({
 
   /** Back to the clean start (only offered when the member's "remember my last choices" setting is on). */
   function resetChoices() {
-    setSides(CLEAN_START.sides);
-    setStaple(CLEAN_START.staple);
-    setBooklet(CLEAN_START.booklet);
+    setChoice(CLEAN_CHOICES);
+    setTapNote(null);
     setCopiesText(String(CLEAN_START.copies));
     setColorMode(CLEAN_START.colorMode);
-    setPaperSize(CLEAN_START.paperSize);
-    setPunch(CLEAN_START.punch);
   }
 
-  const paperChoice = profile?.declaredPaperSizes.includes(paperSize) ? paperSize : (profile?.declaredPaperSizes[0] ?? "letter");
-  const showPaperColor = !isRaw;
+  const showColor = !isRaw;
   const showPunch = !isRaw && caps.punch;
-  // A raw printer shows hole punch next to the staple choices; a booklet cannot also be punched (it stays in state, never sent).
+  // A raw printer shows hole punch next to the staple choices; a Windows queue keeps it under Advanced.
   const showPunchFinishing = isRaw && caps.punch;
-  const effPunch = punch && effBooklet === "none";
-  const liveLine = liveSummaryLine({ pages: selectedPages, copies, sides: effSides, staple: effStaple, booklet: effBooklet, punch: showPunchFinishing && effPunch });
+  const effPunch = eff.punch;
+  const liveLine = liveSummaryLine({
+    pages: selectedPages,
+    copies,
+    sides: effSides,
+    staple: effStaple,
+    booklet: effBooklet,
+    punch: showPunchFinishing && effPunch,
+    edge: isRaw ? eff.edge : "long",
+    size: eff.size,
+    paper: isRaw ? eff.paper : "plain",
+  });
   const barError = needsBookletConfirm ? null : (clientError ?? serverError);
 
   return (
@@ -521,7 +544,7 @@ export function PrintForm({
               variant="outline"
               size="lg"
               onClick={() => {
-                setBooklet("none");
+                tap({ kind: "booklet", value: "none" });
                 setDismissedState(state);
               }}
             >
@@ -717,37 +740,149 @@ export function PrintForm({
           )}
         </div>
 
-        <Segmented<SidesChoice>
+        {/* Quick controls: one tap each. Nothing here is ever greyed out because of another choice: a tap switches what it
+            cannot live with and the live summary below says what it switched (lib/print-choice-rules.ts). */}
+        <Segmented<SidesValue>
           name="sides"
           label="Sides"
-          value={effSides}
-          onChange={setSides}
+          value={effBooklet !== "none" ? "two" : effSides}
+          onChange={(v) => tap({ kind: "sides", value: v })}
           options={[
-            { value: "one", label: "Single-sided", disabledReason: avail.sidesLocked ? "A booklet is always double-sided." : null },
+            { value: "one", label: "Single-sided" },
             { value: "two", label: "Double-sided", disabledReason: caps.duplex ? null : "This printer can't print double-sided." },
           ]}
-          hint={
-            avail.sidesLocked
-              ? "A booklet is always double-sided."
-              : !caps.duplex
-                ? "This printer prints single-sided only."
-                : effSides === "two"
-                  ? "Long edge: pages flip like a book."
-                  : undefined
-          }
+          hint={!caps.duplex ? "This printer prints single-sided only." : undefined}
         />
-        {flipOffered && isRaw && effSides === "two" && effBooklet === "none" && (
-          <Segmented<"long" | "short">
+        {isRaw && effSides === "two" && effBooklet === "none" && (
+          <Segmented<EdgeValue>
             name="flip"
             label="Flip on"
-            value={flip}
-            onChange={setFlip}
+            value={eff.edge}
+            onChange={(v) => tap({ kind: "edge", value: v })}
             options={[
-              { value: "long", label: "Long edge" },
-              { value: "short", label: "Short edge" },
+              { value: "long", label: "Long edge (like a book)" },
+              { value: "short", label: "Short edge (like a notepad)" },
             ]}
-            hint={flip === "short" ? "Short edge: pages flip like a notepad." : "Long edge: pages flip like a book."}
           />
+        )}
+
+        {/* The hidden input carries the printer's own spelling of the size (a raw printer asks for "11x17"). */}
+        <input type="hidden" name="paperSize" value={eff.size === "tabloid" ? tabloidValue : letterValue} />
+        {offersTabloid && (
+          <Segmented<SizeValue>
+            label="Page size"
+            value={eff.size}
+            onChange={(v) => tap({ kind: "size", value: v })}
+            options={[
+              { value: "letter", label: "Letter" },
+              { value: "tabloid", label: "Tabloid (11x17)" },
+            ]}
+          />
+        )}
+
+        {isRaw && (
+          <div>
+            <Segmented<PaperValue>
+              name="paperType"
+              label="Paper type"
+              value={eff.paper}
+              onChange={(v) => tap({ kind: "paper", value: v })}
+              options={[
+                { value: "plain", label: "Plain" },
+                { value: "cardstock", label: "Cardstock" },
+              ]}
+            />
+            {eff.paper === "cardstock" && (
+              <p role="status" className="mt-2 flex items-start gap-1.5 rounded-xl bg-[var(--color-warning-soft)] px-3 py-2 text-sm text-[var(--color-warning-ink)]">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>{CARDSTOCK_WARNING}</span>
+              </p>
+            )}
+          </div>
+        )}
+
+        {caps.booklet && caps.duplex && (
+          <div>
+            <Segmented<BookletValue>
+              name="booklet"
+              label="Booklet"
+              value={effBooklet}
+              onChange={(v) => tap({ kind: "booklet", value: v })}
+              options={[
+                { value: "none", label: "Off" },
+                { value: "left", label: "Left binding" },
+                { value: "right", label: "Right binding" },
+              ]}
+              hint={
+                effBooklet === "none"
+                  ? "Folds and staples the pages into a booklet. Left binding reads left to right. Right binding is for right-to-left languages such as Hebrew."
+                  : effBooklet === "left"
+                    ? "Bound on the left edge, like an English book."
+                    : "Bound on the right edge, like a Hebrew book."
+              }
+            />
+            {effBooklet !== "none" && (
+              <div className="mt-4 flex flex-col gap-4">
+                {bookletNote && (
+                  <p role="status" className="rounded-xl bg-[var(--color-surface-2)] px-3 py-2 text-sm text-[var(--color-muted)]">
+                    {bookletNote}
+                  </p>
+                )}
+                <Segmented<SizeValue>
+                  name="bookletSheet"
+                  label="Booklet size"
+                  value={eff.size}
+                  onChange={(v) => tap({ kind: "size", value: v })}
+                  options={[
+                    { value: "letter", label: "Regular (Letter sheet)" },
+                    { value: "tabloid", label: "11x17 (full-size pages)" },
+                  ]}
+                  hint={
+                    eff.size === "letter"
+                      ? "Each page is scaled to fit a statement-size page (half a Letter sheet), as big as it can be without being cut off."
+                      : "Letter pages stay about full size on an 11x17 sheet, folded and stapled in the middle. Not tested yet - may not come out right. Put 11x17 paper in the printer first."
+                  }
+                />
+                {eff.size === "letter" && (
+                  <Segmented<"fill" | "keep">
+                    name="bookletFit"
+                    label="Booklet fit"
+                    value={bookletFit}
+                    onChange={setBookletFit}
+                    options={[
+                      { value: "fill", label: "Fill the page (recommended)" },
+                      { value: "keep", label: "Keep original margins" },
+                    ]}
+                    hint={
+                      bookletFit === "fill"
+                        ? "Trims your document's own blank margins so the text fills each booklet page. Pages of the same size are trimmed the same, so the text stays one size. Scans of other sizes are fitted on their own."
+                        : "Shrinks the whole page, margins included, to fit. Text comes out smaller."
+                    }
+                  />
+                )}
+                <div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={!fileName || !!fileError || !hasPrinters || !!rangeError}
+                    pending={preview.status === "loading"}
+                    pendingLabel="Building preview..."
+                    onClick={onPreviewBooklet}
+                  >
+                    <BookOpen className="h-4 w-4" aria-hidden="true" />
+                    Preview booklet
+                  </Button>
+                  {!fileName && <p className="mt-1 text-xs text-[var(--color-muted)]">Choose a PDF to preview the booklet.</p>}
+                  {preview.status === "error" && preview.error && <FormError message={preview.error} />}
+                  {preview.status === "ready" && preview.data && preview.signature === previewSignature && <BookletPreview data={preview.data} />}
+                  {preview.status === "ready" && preview.signature !== previewSignature && (
+                    <p className="mt-2 text-xs text-[var(--color-muted)]">Your choices changed. Press Preview booklet to see the new layout.</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </Card>
 
@@ -823,17 +958,16 @@ export function PrintForm({
         <Collapsible
           id="print-finishing"
           title="Finishing"
-          forceOpen={autoPreview || preview.status !== "idle"}
           icon={<Paperclip className="h-4 w-4" aria-hidden="true" />}
           summary={summarizeFinishing({ staple: effStaple, booklet: effBooklet, punch: showPunchFinishing && effPunch })}
         >
           <div className="flex flex-col gap-5">
-            <Segmented<StapleChoice>
+            <Segmented<StapleValue>
               name="staple"
               label="Staple"
               value={effStaple}
-              onChange={setStaple}
-              disabled={!!avail.stapleDisabledReason}
+              onChange={(v) => tap({ kind: "staple", value: v })}
+              disabled={!caps.staple}
               options={
                 isRaw
                   ? [
@@ -847,105 +981,26 @@ export function PrintForm({
                       { value: "top-left", label: "Staple" },
                     ]
               }
-              hint={avail.stapleDisabledReason ?? undefined}
+              hint={!caps.staple ? "This printer can't staple." : undefined}
             />
             {showPunchFinishing && (
               <Switch
                 name="punch"
                 label="Hole punch (3 holes, left)"
-                description={effBooklet !== "none" ? "A booklet can't also be punched." : "Punches 3 holes along the left edge. Single-sided only for now; other combinations are held until tested."}
+                description="Punches 3 holes along the left edge."
                 checked={effPunch}
-                disabled={effBooklet !== "none"}
-                onChange={(e) => setPunch(e.target.checked)}
+                onChange={(e) => tap({ kind: "punch", value: e.target.checked })}
               />
-            )}
-            <Segmented<BookletChoice>
-              name="booklet"
-              label="Booklet"
-              value={effBooklet}
-              onChange={setBooklet}
-              disabled={!!avail.bookletDisabledReason}
-              options={[
-                { value: "none", label: "None" },
-                { value: "left", label: "Left edge" },
-                { value: "right", label: "Right edge" },
-              ]}
-              hint={
-                avail.bookletDisabledReason ??
-                (effBooklet === "none"
-                  ? "Folds and staples the pages into a booklet. Left edge reads left to right. Right edge is for right-to-left languages such as Hebrew."
-                  : effBooklet === "left"
-                    ? "Bound on the left edge, like an English book."
-                    : "Bound on the right edge, like a Hebrew book.")
-              }
-            />
-            {effBooklet !== "none" && (
-              <div>
-                {bookletNote && (
-                  <p role="status" className="mb-3 rounded-xl bg-[var(--color-surface-2)] px-3 py-2 text-sm text-[var(--color-muted)]">
-                    {bookletNote}
-                  </p>
-                )}
-                <Segmented<"letter" | "tabloid">
-                  name="bookletSheet"
-                  label="Booklet size"
-                  value={bookletSheet}
-                  onChange={setBookletSheet}
-                  options={[
-                    { value: "letter", label: "Regular (Letter sheet)" },
-                    { value: "tabloid", label: "11x17 (full-size pages)" },
-                  ]}
-                  hint={
-                    bookletSheet === "letter"
-                      ? "Each page is scaled to fit a statement-size page (half a Letter sheet), as big as it can be without being cut off."
-                      : "Letter pages stay about full size on an 11x17 sheet, folded and stapled in the middle. Not tested yet - may not come out right. Put 11x17 paper in the printer first."
-                  }
-                />
-                {bookletSheet === "letter" && <div className="mt-4"><Segmented<"fill" | "keep">
-                  name="bookletFit"
-                  label="Booklet fit"
-                  value={bookletFit}
-                  onChange={setBookletFit}
-                  options={[
-                    { value: "fill", label: "Fill the page (recommended)" },
-                    { value: "keep", label: "Keep original margins" },
-                  ]}
-                  hint={
-                    bookletFit === "fill"
-                      ? "Trims your document's own blank margins so the text fills each booklet page. Pages of the same size are trimmed the same, so the text stays one size. Scans of other sizes are fitted on their own."
-                      : "Shrinks the whole page, margins included, to fit. Text comes out smaller."
-                  }
-                /></div>}
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  className="mt-3"
-                  disabled={!fileName || !!fileError || !hasPrinters || !!rangeError}
-                  pending={preview.status === "loading"}
-                  pendingLabel="Building preview..."
-                  onClick={onPreviewBooklet}
-                >
-                  <BookOpen className="h-4 w-4" aria-hidden="true" />
-                  Preview booklet
-                </Button>
-                {!fileName && <p className="mt-1 text-xs text-[var(--color-muted)]">Choose a PDF to preview the booklet.</p>}
-                {preview.status === "error" && preview.error && <FormError message={preview.error} />}
-                {preview.status === "ready" && preview.data && preview.signature === previewSignature && <BookletPreview data={preview.data} />}
-                {preview.status === "ready" && preview.signature !== previewSignature && (
-                  <p className="mt-2 text-xs text-[var(--color-muted)]">Your choices changed. Press Preview booklet to see the new layout.</p>
-                )}
-              </div>
             )}
           </div>
         </Collapsible>
 
-        {showPaperColor && (
+        {showColor && (
           <Collapsible
             id="print-paper"
-            title="Paper & color"
+            title="Color"
             icon={<Palette className="h-4 w-4" aria-hidden="true" />}
-            summary={summarizePaperColor({ colorMode: caps.color ? colorMode : "bw", paperSize: paperChoice })}
+            summary={summarizeColor({ colorMode: caps.color ? colorMode : "bw" })}
           >
             <div className="flex flex-col gap-5">
               <Segmented<"bw" | "color">
@@ -958,16 +1013,6 @@ export function PrintForm({
                   { value: "color", label: "Color", disabledReason: caps.color ? null : "This printer can't print in color." },
                 ]}
               />
-              <div>
-                <FieldLabel htmlFor="paperSize">Paper size</FieldLabel>
-                <Select id="paperSize" name="paperSize" value={paperChoice} onChange={(e) => setPaperSize(e.target.value)}>
-                  {(profile?.declaredPaperSizes.length ? profile.declaredPaperSizes : ["letter"]).map((size) => (
-                    <option key={size} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                </Select>
-              </div>
             </div>
           </Collapsible>
         )}
@@ -976,11 +1021,11 @@ export function PrintForm({
           id="print-advanced"
           title="Advanced"
           icon={<SlidersHorizontal className="h-4 w-4" aria-hidden="true" />}
-          summary={summarizeAdvanced({ punchAvailable: showPunch, punch })}
+          summary={summarizeAdvanced({ punchAvailable: showPunch, punch: effPunch })}
         >
           <div className="flex flex-col gap-4">
             {showPunch && (
-              <Switch name="punch" label="Hole punch" description="Punches holes along the left edge." checked={punch} onChange={(e) => setPunch(e.target.checked)} />
+              <Switch name="punch" label="Hole punch" description="Punches holes along the left edge." checked={effPunch} onChange={(e) => tap({ kind: "punch", value: e.target.checked })} />
             )}
             {remembered !== undefined && (
               <div>
@@ -1009,6 +1054,11 @@ export function PrintForm({
             </p>
           )}
         </div>
+        {tapNote && (
+          <p role="status" data-testid="choice-note" className="mt-1 text-sm font-medium text-[var(--color-warning-ink)]">
+            {tapNote}
+          </p>
+        )}
         {summary && summary.blankPagesAdded > 0 && (
           <p className="mt-0.5 text-xs text-[var(--color-muted)]">
             Includes {summary.blankPagesAdded} blank {summary.blankPagesAdded === 1 ? "page" : "pages"} to fill the booklet.
