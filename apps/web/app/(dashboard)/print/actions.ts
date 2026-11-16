@@ -5,7 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requireSessionOrRedirect, type SessionWithMembership } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
-import { parseChoices, type PrintChoices } from "@/lib/print-choices";
+import { parseChoices } from "@/lib/print-choices";
+import { pipelineSettingsFromJob } from "@/lib/jobs/print-again";
 import { PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { readFormPdf } from "./form-pdf";
 import { BOOKLET_BINDING_REASON } from "@/lib/gateway/ipp-choices";
@@ -121,32 +122,20 @@ export async function reprintJobAction(_prev: SubmitJobState, formData: FormData
   }
   const originalBytes = new Uint8Array(await fileData.arrayBuffer());
 
-  const finishing = job.finishing as { staple: boolean; booklet: boolean; punch: boolean; stapleStyle?: string; bookletFit?: string; bookletSheet?: string };
-
-  // The stored per-job choices go back through the same pipeline, applied to the untouched original. An
+  // Everything the job used (sides + short-edge flip, staple corner / two-staple style, punch, booklet side / fit /
+  // sheet, page range, colour, paper) goes back through the same pipeline, applied to the untouched original. An
   // older job that never stored a staple corner / binding side falls back to the printer's own default.
-  const choices: PrintChoices = {
-    sides: job.duplex ? "two" : "one",
-    staple: finishing.staple ? (finishing.stapleStyle === "dual-left" ? "dual-left" : job.staple_position === "top-left" || job.staple_position === "top-right" ? job.staple_position : "profile") : "none",
-    booklet: finishing.booklet
-      ? job.booklet_binding_side === "left" || job.booklet_binding_side === "right"
-        ? job.booklet_binding_side
-        : "profile"
-      : "none",
-    copies: job.copies,
-    ...(finishing.punch ? { punch: true } : {}),
-    pageRange: job.page_range ?? "",
-  };
+  const settings = pipelineSettingsFromJob(job);
 
   return runPipeline(supabase, session as SessionWithMembership, originalBytes, job.original_file_name, {
     printerProfileId: job.printer_profile_id ?? "",
-    choices,
-    colorMode: job.color_mode as "bw" | "color",
-    paperSize: job.paper_size,
-    punch: finishing.punch,
+    choices: settings.choices,
+    colorMode: settings.colorMode,
+    paperSize: settings.paperSize,
+    punch: settings.punch,
     confirmBookletPadding: true,
-    bookletFit: finishing.bookletFit === "keep" ? "keep" : "fill",
-    bookletSheet: bookletSheetChoice(finishing.bookletSheet),
+    bookletFit: settings.bookletFit,
+    bookletSheet: bookletSheetChoice(settings.bookletSheet),
   });
 }
 

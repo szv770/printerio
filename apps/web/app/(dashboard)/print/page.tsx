@@ -9,17 +9,27 @@ import { DEFAULT_MAX_UPLOAD_BYTES } from "@/lib/pdf/client-precheck";
 import { SharedFileHandoff } from "@/components/pwa/SharedFileHandoff";
 import { BuiltBookletHandoff } from "@/components/print/BuiltBookletHandoff";
 import { LinkImport } from "@/components/print/LinkImport";
+import { PrintAgainHandoff } from "@/components/print/PrintAgainHandoff";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { PRINT_JOBS_BUCKET } from "@/lib/storage";
+import { logger } from "@/lib/logger";
+import { PRINT_AGAIN_NOT_FOUND_MESSAGE, PRINT_AGAIN_PURGED_MESSAGE, resolvePrintAgain, type PrintAgainResult } from "@/lib/jobs/print-again";
 import { canUseLinks } from "@/lib/sources/access";
 import { PrintForm } from "./PrintForm";
 
 // "Print from a link" fetches a file on the server (up to 30 s) and the upload then needs time too.
 export const maxDuration = 60;
 
-export default async function PrintPage() {
+/** How long the link to the stored original stays valid: the browser fetches it as soon as the page loads. */
+const AGAIN_FILE_URL_TTL_SECONDS = 300;
+
+export default async function PrintPage({ searchParams }: { searchParams: Promise<{ again?: string | string[] }> }) {
   const session = await requireSessionOrRedirect();
   if (!session.membership) redirect(routes.noAccess);
 
   const supabase = await createClient();
+  const againParam = (await searchParams).again;
+  const againId = typeof againParam === "string" ? againParam.trim() : "";
   const [{ data: profiles }, { data: settings }] = await Promise.all([
     supabase
       .from("printer_profiles")
@@ -61,6 +71,39 @@ export default async function PrintPage() {
 
   const maxUploadBytes = settings?.max_upload_size_bytes ?? DEFAULT_MAX_UPLOAD_BYTES;
 
+  // "Print again": the job is read through the member's own session AND filtered to their own job in their own
+  // organization (the same scoping as reprintJobAction); the link to the stored file is minted only after that.
+  // Any failure becomes a plain note above the ordinary empty form - this never throws.
+  let again: Extract<PrintAgainResult, { kind: "ok" }> | null = null;
+  let againFileUrl: string | null = null;
+  let againNotice: string | null = null;
+  if (againId) {
+    try {
+      const { data: job } = await supabase
+        .from("print_jobs")
+        .select("*")
+        .eq("id", againId)
+        .eq("created_by", session.userId)
+        .eq("organization_id", session.membership.organization_id)
+        .maybeSingle();
+      const resolved = resolvePrintAgain(job, { userId: session.userId, role: session.membership.role, organizationId: session.membership.organization_id });
+      if (resolved.kind === "ok") {
+        const { data: signed } = await createServiceRoleClient().storage.from(PRINT_JOBS_BUCKET).createSignedUrl(resolved.filePath, AGAIN_FILE_URL_TTL_SECONDS);
+        if (signed?.signedUrl) {
+          again = resolved;
+          againFileUrl = signed.signedUrl;
+        } else {
+          againNotice = PRINT_AGAIN_PURGED_MESSAGE;
+        }
+      } else {
+        againNotice = resolved.message;
+      }
+    } catch (err) {
+      logger.error("print again could not load the job", { jobId: againId, error: err instanceof Error ? err.message : String(err) });
+      againNotice = PRINT_AGAIN_NOT_FOUND_MESSAGE;
+    }
+  }
+
   return (
     <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
       <PageHeader title="Print a document" description="Choose a PDF, check the basics, press Print." />
@@ -68,6 +111,12 @@ export default async function PrintPage() {
        *  its own inline notice and disables Submit in that case, rather than
        *  blocking the user from picking a file and preparing everything
        *  else just because a printer isn't connected yet. */}
+      {again && againFileUrl && <PrintAgainHandoff banner={again.banner} fileName={again.fileName} fileUrl={againFileUrl} />}
+      {againNotice && (
+        <p role="status" className="mb-4 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3.5 text-sm">
+          {againNotice}
+        </p>
+      )}
       <SharedFileHandoff maxUploadBytes={maxUploadBytes} />
       <BuiltBookletHandoff />
       {canUseLinks(session.membership.role, session.membership.early_tools) && (
@@ -89,7 +138,7 @@ export default async function PrintPage() {
           </Link>
         </div>
       )}
-      <PrintForm printerProfiles={printerProfiles} maxUploadBytes={maxUploadBytes} blockType3Fonts={process.env.PRINTIO_ALLOW_TYPE3_FONTS !== "1"} />
+      <PrintForm printerProfiles={printerProfiles} maxUploadBytes={maxUploadBytes} blockType3Fonts={process.env.PRINTIO_ALLOW_TYPE3_FONTS !== "1"} again={again?.choices} />
     </main>
   );
 }

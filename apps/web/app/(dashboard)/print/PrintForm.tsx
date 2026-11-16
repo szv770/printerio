@@ -19,6 +19,7 @@ import {
   type SidesChoice,
   type StapleChoice,
 } from "@/lib/print-choices";
+import { paperSizeForForm, type PrintAgainFormChoices } from "@/lib/jobs/print-again";
 import { liveSummaryLine, summarizeAdvanced, summarizeFinishing, summarizePages, summarizePaperColor } from "@/lib/print-form-summary";
 import dynamic from "next/dynamic";
 import { submitPrintJobAction, type SubmitJobState } from "./actions";
@@ -128,7 +129,10 @@ export function PrintForm({
   printerProfiles,
   maxUploadBytes,
   blockType3Fonts = true,
+  again,
 }: {
+  /** "Print again": the earlier job's choices. Applied once after mount, over the remembered ones; every control stays changeable. */
+  again?: PrintAgainFormChoices;
   printerProfiles: PrinterOption[];
   /** organization_settings.max_upload_size_bytes, forwarded only so the file picker can reject an oversized file
    *  instantly. Advisory: print/actions.ts re-reads the same setting server-side and is the real gate. */
@@ -182,6 +186,9 @@ export function PrintForm({
   const [colorMode, setColorMode] = useState<"bw" | "color">("bw");
   const [paperSize, setPaperSize] = useState("letter");
   const [punch, setPunch] = useState(false);
+  /** Double-sided only: which edge the sheet flips on. Offered only when "Print again" brings a short-edge job (the rest of the form never sets it). */
+  const [flip, setFlip] = useState<"long" | "short">("long");
+  const [flipOffered, setFlipOffered] = useState(false);
   /** Booklets only: "fill" crops the document's own blank margins so the content fills the page; "keep" scales the whole page. */
   const [bookletFit, setBookletFit] = useState<"fill" | "keep">("fill");
   const [bookletSheet, setBookletSheet] = useState<"letter" | "tabloid">("letter");
@@ -213,6 +220,26 @@ export function PrintForm({
       if (typeof saved.punch === "boolean") setPunch(saved.punch);
       if (saved.bookletFit) setBookletFit(saved.bookletFit);
       if (saved.bookletSheet) setBookletSheet(saved.bookletSheet);
+      // "Print again": everything the earlier job used, over the remembered choices (and over the ones above).
+      if (again) {
+        const againProfile = printerProfiles.find((p) => p.id === again.profileId) ?? printerProfiles.find((p) => p.id === saved.profileId) ?? printerProfiles[0];
+        if (againProfile) setProfileId(againProfile.id);
+        setSides(again.sides);
+        setStaple(again.staple);
+        setBooklet(again.booklet);
+        setCopiesText(String(again.copies));
+        setColorMode(again.colorMode);
+        setPaperSize(paperSizeForForm(again.paperSize, againProfile?.declaredPaperSizes ?? []));
+        setPunch(again.punch);
+        setBookletFit(again.bookletFit);
+        setBookletSheet(again.bookletSheet);
+        setFlip(again.flip ?? "long");
+        setFlipOffered(again.flip === "short");
+        if (again.pageRange) {
+          setPagesMode("range");
+          setPageRange(again.pageRange);
+        }
+      }
       // Coming from the booklet builder: ?booklet=left|right switches the booklet on for the built file (after the saved choices).
       const fromBuilder = readBuilderParams(window.location.search);
       if (fromBuilder.booklet) {
@@ -778,6 +805,19 @@ export function PrintForm({
                   : undefined
           }
         />
+        {flipOffered && isRaw && effSides === "two" && effBooklet === "none" && (
+          <Segmented<"long" | "short">
+            name="flip"
+            label="Flip on"
+            value={flip}
+            onChange={setFlip}
+            options={[
+              { value: "long", label: "Long edge" },
+              { value: "short", label: "Short edge" },
+            ]}
+            hint={flip === "short" ? "Short edge: pages flip like a notepad." : "Long edge: pages flip like a book."}
+          />
+        )}
       </Card>
 
       {/* 3. One level down. Every section starts closed and says in one line what it is set to. */}
