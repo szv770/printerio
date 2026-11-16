@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PrintAgainLink } from "@/app/(dashboard)/jobs/[id]/ReprintButton";
 import { ChevronLeft, Search, Layers } from "lucide-react";
 import { Button, ButtonLink, EmptyState, Input, PageHeader, Pills, ResponsiveTable, StatusDot, type TableColumn } from "@/components/ui";
 import { LocalTime } from "@/app/(dashboard)/jobs/LocalTime";
@@ -46,6 +47,7 @@ export function JobsView({ rows, query, hasOlder }: { rows: JobListRow[]; query:
       cell: (j) => (j.copies > 1 ? `${j.pages} x ${j.copies}` : String(j.pages)),
     },
     { header: "Sent", cell: (j) => <LocalTime iso={j.createdAt} /> },
+    { header: "", align: "right", cell: (j) => (j.isTest ? null : <PrintAgainLink jobId={j.id} />) },
   ];
 
   const filtered = query.status !== "all" || query.q !== "";

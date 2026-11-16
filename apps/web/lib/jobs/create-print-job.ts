@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
 import { preflightPdf } from "@/lib/pdf/preflight";
 import { TYPE3_HELD_MESSAGE } from "@/lib/pdf/type3-fonts";
+import { withSizeAliases } from "@/lib/paper-sizes";
 import { rasterizePdf } from "@/lib/pdf/type3-rasterize";
 import { bookletSheetChoice, padAndImposeBooklet, type BookletSheet } from "@/lib/pdf/booklet-build";
 import type { BookletFit } from "@/lib/pdf/imposition";
@@ -206,7 +207,7 @@ export async function createPrintJob(
       capabilities: { duplex: !!caps?.duplex, staple: !!caps?.staple, booklet: !!caps?.booklet, punch: !!caps?.punch },
       bookletBindingSide: profileBindingSide,
       stapleDefault: printerProfile.raw_staple_position === "top-right" ? "top-right" : "top-left",
-      declaredPaperSizes: printerProfile.declared_paper_sizes,
+      declaredPaperSizes: withSizeAliases(printerProfile.declared_paper_sizes),
     });
     ({ duplex, colorMode, paperSize, staplePosition, bindingSide, heldReason } = mapped);
     duplexEdge = mapped.duplexEdge;
@@ -217,7 +218,7 @@ export async function createPrintJob(
     stapleStyle = mapped.finishing.stapleStyle ?? null;
     if (opts.paperSize === "11x17" && !booklet) {
       // Ledger from the print dialog: only for a printer that declares 11x17, never silently printed on Letter.
-      if (printerProfile.declared_paper_sizes.includes("11x17")) paperSize = "11x17";
+      if (withSizeAliases(printerProfile.declared_paper_sizes).includes("11x17")) paperSize = "11x17";
       else heldReason = heldReason ?? "This printer is not set up for 11x17 paper yet, so nothing was printed. Ask your administrator, or use the website.";
     }
     // Cardstock (the bypass tray, UNPROVEN: see MEDIATYPE_CARDSTOCK_UNPROVEN) is loaded in Letter size only.

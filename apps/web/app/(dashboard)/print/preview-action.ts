@@ -1,5 +1,6 @@
 "use server";
 
+import { withSizeAliases } from "@/lib/paper-sizes";
 import { randomUUID } from "node:crypto";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
@@ -81,7 +82,7 @@ export async function previewBookletAction(formData: FormData): Promise<BookletP
       capabilities: { duplex: !!caps?.duplex, staple: !!caps?.staple, booklet: !!caps?.booklet, punch: !!caps?.punch },
       bookletBindingSide: profileBindingSide,
       stapleDefault: printerProfile.raw_staple_position === "top-right" ? "top-right" : "top-left",
-      declaredPaperSizes: printerProfile.declared_paper_sizes,
+      declaredPaperSizes: withSizeAliases(printerProfile.declared_paper_sizes),
     });
     ({ bindingSide, paperSize } = mapped);
   } else {

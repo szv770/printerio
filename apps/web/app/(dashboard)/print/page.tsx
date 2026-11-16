@@ -1,3 +1,4 @@
+import { withSizeAliases } from "@/lib/paper-sizes";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BookOpen, Library } from "lucide-react";
@@ -59,7 +60,7 @@ export default async function PrintPage({ searchParams }: { searchParams: Promis
     isRaw: p.output_mode === "raw",
     label: p.output_mode === "raw" ? p.printers.name : `${p.printers.name} — ${p.label}`,
     description: p.description,
-    declaredPaperSizes: p.declared_paper_sizes,
+    declaredPaperSizes: withSizeAliases(p.declared_paper_sizes),
     declaredCapabilities: p.declared_capabilities as {
       duplex: boolean;
       color: boolean;
@@ -86,7 +87,6 @@ export default async function PrintPage({ searchParams }: { searchParams: Promis
         .from("print_jobs")
         .select("*")
         .eq("id", againId)
-        .eq("created_by", session.userId)
         .eq("organization_id", session.membership.organization_id)
         .maybeSingle();
       const resolved = resolvePrintAgain(job, { userId: session.userId, role: session.membership.role, organizationId: session.membership.organization_id });
