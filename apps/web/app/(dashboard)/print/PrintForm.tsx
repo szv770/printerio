@@ -1017,6 +1017,7 @@ export function PrintForm({
           </Collapsible>
         )}
 
+        {(showPunch || remembered !== undefined) && (
         <Collapsible
           id="print-advanced"
           title="Advanced"
@@ -1037,6 +1038,7 @@ export function PrintForm({
             )}
           </div>
         </Collapsible>
+        )}
       </div>
 
       {/* 4. The action bar. On a phone it floats just above the tab bar (--sticky-bottom, set by the member shell);

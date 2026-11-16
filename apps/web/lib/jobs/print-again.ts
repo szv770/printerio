@@ -207,7 +207,7 @@ export function resolvePrintAgain(
   job: PrintAgainJob | null | undefined,
   viewer: { userId: string; role: string | null; organizationId: string | null },
 ): PrintAgainResult {
-  if (!job || !canViewJobFile(viewer, job) || job.created_by !== viewer.userId) {
+  if (!job || !canViewJobFile(viewer, job)) {
     return { kind: "not_found", message: PRINT_AGAIN_NOT_FOUND_MESSAGE };
   }
   const path = jobFilePath({ original_file_path: job.original_file_path, derived_file_path: job.derived_file_path ?? null, files_purged_at: job.files_purged_at }, "original");

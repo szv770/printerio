@@ -48,8 +48,17 @@ describe("resolvePrintAgain: who may use a job and when", () => {
     expect(resolvePrintAgain(job({ organization_id: "org2" }), viewer)).toEqual({ kind: "not_found", message: PRINT_AGAIN_NOT_FOUND_MESSAGE });
   });
 
-  it("refuses a colleague's job in the same organization (print again is for the sender, like reprintJobAction)", () => {
-    expect(resolvePrintAgain(job({ created_by: "u2" }), { ...viewer, role: "org_admin" }).kind).toBe("not_found");
+  it("an admin or approver can print again any job in their own organization (owner ask 2026-11-16)", () => {
+    expect(resolvePrintAgain(job({ created_by: "u2" }), { ...viewer, role: "org_admin" }).kind).toBe("ok");
+    expect(resolvePrintAgain(job({ created_by: "u2" }), { ...viewer, role: "approver" }).kind).toBe("ok");
+  });
+
+  it("a plain member still cannot use a colleague's job", () => {
+    expect(resolvePrintAgain(job({ created_by: "u2" }), { ...viewer, role: "staff" }).kind).toBe("not_found");
+  });
+
+  it("an admin of another organization still gets nothing", () => {
+    expect(resolvePrintAgain(job({ organization_id: "org2", created_by: "u2" }), { ...viewer, role: "org_admin" }).kind).toBe("not_found");
   });
 
   it("refuses someone with no membership", () => {
