@@ -67,6 +67,7 @@ The printer address defaults to 192.168.100.168 (add `-PrinterIp x.x.x.x` if you
 
 - **The print gateway computer holds the master database key.** If someone broke into that computer they would have the database. Mitigation today: keep it locked down, rotate keys after any scare (above). Proper fix (later): give the gateway only narrow access.
 - **One shared secret guards the gateway's web routes.** If it leaks, rotate it (step 2). A network allowlist would add a second lock.
+- **The website rebuild runs repo code as SYSTEM (interim).** The "Update this server" button also starts the task `Printio Web Update`, which runs `tools/self-host/update-web.ps1` (and `next build`) from the checkout as SYSTEM, so it is only as safe as who can write that checkout. The Agent's limited account already has to write it (`git pull`) and `Printio Web` already runs repo code as SYSTEM, so this adds no new kind of exposure; the script takes no input at all (nothing from the cloud reaches it) and `printio-svc` may only start that one task. Removed when the website moves to Cloudflare (`docs/TARGET-ARCHITECTURE.md`, phase H/J).
 - Any member can see the printer's internal address and port (not a way in; it is on your private network).
 - Someone who knows a person's email can annoy them by locking their emailed-code sign-in for 15 minutes.
 - A member can add fake lines to the history of their own job (cosmetic; it does not change what prints).
