@@ -309,6 +309,17 @@ function envGet(env: NodeJS.ProcessEnv, name: string): string | undefined {
 export const PNPM_INSTALL_ARGS = ["install", "--frozen-lockfile", "--ignore-scripts"] as const;
 
 /**
+ * The package store used by the update's `pnpm install`: PRINTIO_PNPM_STORE_DIR when set, otherwise `.pnpm-store`
+ * inside the checkout (gitignored). See `storeDir` on resolvePnpmLauncher for why it is not pnpm's default.
+ */
+export function pnpmStoreDir(repoRoot: string, platform: string, env: NodeJS.ProcessEnv): string {
+  const P = platform === "win32" ? path.win32 : path.posix;
+  const override = envGet(env, "PRINTIO_PNPM_STORE_DIR");
+  if (override && P.isAbsolute(override)) return override;
+  return P.join(repoRoot, ".pnpm-store");
+}
+
+/**
  * Finds a way to run `pnpm install` that works from a Windows service and on
  * Linux/mac, without a shell wherever possible. Everything comes from the
  * local filesystem and environment; no cloud value is involved. Pure apart
@@ -319,11 +330,20 @@ export function resolvePnpmLauncher(opts: {
   env: NodeJS.ProcessEnv;
   execPath: string;
   fs: SelfUpdateFs;
+  /**
+   * Where pnpm keeps its package store for this install. The default pnpm store lives in the user profile
+   * (`AppData\\Local\\pnpm\\store`), which the limited service account cannot walk: that is the EPERM that made
+   * the first update fail on the owner's server. A store inside the repo folder is always writable by the account that
+   * can already write the checkout. Left out (pnpm's own default) when the path is not usable.
+   */
+  storeDir?: string;
 }): PnpmResolution {
   const { platform, env, execPath, fs } = opts;
   const win = platform === "win32";
   const P = win ? path.win32 : path.posix;
   const rejected: string[] = [];
+  const storeDir = opts.storeDir && P.isAbsolute(opts.storeDir) && !CMD_UNSAFE.test(opts.storeDir) ? opts.storeDir : undefined;
+  const installArgs: string[] = storeDir ? [...PNPM_INSTALL_ARGS, "--store-dir", storeDir] : [...PNPM_INSTALL_ARGS];
   const nodeDir = P.dirname(execPath);
 
   const childEnv = (): Record<string, string> => {
@@ -350,7 +370,7 @@ export function resolvePnpmLauncher(opts: {
     }
     return {
       command: "cmd.exe",
-      args: ["/d", "/s", "/c", `""${shim}" ${PNPM_INSTALL_ARGS.join(" ")}"`],
+      args: ["/d", "/s", "/c", `""${shim}" ${PNPM_INSTALL_ARGS.join(" ")}${storeDir ? ` --store-dir "${storeDir}"` : ""}"`],
       kind: "cmd-shim",
       env: childEnv(),
       windowsVerbatimArguments: true,
@@ -364,9 +384,9 @@ export function resolvePnpmLauncher(opts: {
     let found: PnpmLauncher | null = null;
     if (!P.isAbsolute(override)) rejected.push("PRINTIO_PNPM_PATH is not an absolute path");
     else if (!fs.exists(override)) rejected.push("PRINTIO_PNPM_PATH does not exist");
-    else if (base === "pnpm.cjs") found = viaNode(override, "node-cjs", [...PNPM_INSTALL_ARGS]);
+    else if (base === "pnpm.cjs") found = viaNode(override, "node-cjs", installArgs);
     else if (base === "pnpm.exe" || (!win && base === "pnpm")) {
-      found = { command: override, args: [...PNPM_INSTALL_ARGS], kind: "exe", env: childEnv() };
+      found = { command: override, args: installArgs, kind: "exe", env: childEnv() };
     } else if (base === "pnpm.cmd" && win) found = cmdShim(override);
     if (found) return { launcher: found, rejected };
     if (rejected.length === 0) {
@@ -378,7 +398,7 @@ export function resolvePnpmLauncher(opts: {
     for (const dir of (envGet(env, "PATH") ?? "").split(":")) {
       if (!dir || !P.isAbsolute(dir)) continue;
       const exe = P.join(dir, "pnpm");
-      if (fs.exists(exe)) return { launcher: { command: exe, args: [...PNPM_INSTALL_ARGS], kind: "exe", env: childEnv() }, rejected };
+      if (fs.exists(exe)) return { launcher: { command: exe, args: installArgs, kind: "exe", env: childEnv() }, rejected };
     }
     return { launcher: null, rejected };
   }
@@ -398,7 +418,7 @@ export function resolvePnpmLauncher(opts: {
 
   for (const prefix of prefixes) {
     const cjs = P.join(prefix, "node_modules", "pnpm", "bin", "pnpm.cjs");
-    if (fs.exists(cjs)) return { launcher: viaNode(cjs, "node-cjs", [...PNPM_INSTALL_ARGS]), rejected };
+    if (fs.exists(cjs)) return { launcher: viaNode(cjs, "node-cjs", installArgs), rejected };
   }
   // only a .cmd shim exists
   for (const prefix of prefixes) {
@@ -408,7 +428,7 @@ export function resolvePnpmLauncher(opts: {
   // corepack, last resort (ships next to node.exe)
   const corepack = P.join(nodeDir, "node_modules", "corepack", "dist", "corepack.js");
   if (fs.exists(corepack)) {
-    const l = viaNode(corepack, "corepack", ["pnpm", ...PNPM_INSTALL_ARGS]);
+    const l = viaNode(corepack, "corepack", ["pnpm", ...installArgs]);
     l.env = { ...(l.env ?? {}), COREPACK_ENABLE_DOWNLOAD_PROMPT: "0" };
     return { launcher: l, rejected };
   }
@@ -554,6 +574,7 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
     env: deps.env ?? process.env,
     execPath: deps.execPath ?? process.execPath,
     fs: deps.fs ?? realFs,
+    storeDir: pnpmStoreDir(repoRoot, deps.platform ?? process.platform, deps.env ?? process.env),
   });
   const launcher = resolution.launcher;
   if (!launcher) {

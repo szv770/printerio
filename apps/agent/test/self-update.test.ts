@@ -131,7 +131,8 @@ describe("performSelfUpdate", () => {
     );
     const order = run.mock.calls.map((c) => (c[0] === "git" ? `git ${c[1][0]}` : c[0]));
     expect(order).toEqual(["git rev-parse", "git pull", "git rev-parse", NODE_EXE, "powershell.exe", "schtasks.exe"]);
-    expect(callsOf(run, NODE_EXE)[0]![1]).toEqual([PNPM_CJS_PF, ...INSTALL]);
+    // The install uses a package store INSIDE the checkout, never the user profile (that was the EPERM on the first update).
+    expect(callsOf(run, NODE_EXE)[0]![1]).toEqual([PNPM_CJS_PF, ...INSTALL, "--store-dir", "\\fake\\repo\\.pnpm-store"]);
   });
 
   it("restarts the gateway with one fixed argv and a timeout, nothing variable in it", async () => {

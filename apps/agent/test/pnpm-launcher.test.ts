@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   performSelfUpdate,
+  pnpmStoreDir,
   resolvePnpmLauncher,
   type CommandOutcome,
   type SelfUpdateDeps,
@@ -11,6 +12,9 @@ import { createLogger } from "../src/logger.js";
 /** The one install argv: reproducible (frozen lockfile) and no dependency lifecycle scripts (security review F5). */
 const INSTALL = ["install", "--frozen-lockfile", "--ignore-scripts"];
 const logger = createLogger({ level: "error" });
+/** The update installs into a package store inside the checkout (repoRoot is "/fake/repo" in these tests). */
+const STORE_FOR_FAKE_REPO_WIN = "\\fake\\repo\\.pnpm-store";
+const STORE_FOR_FAKE_REPO_LINUX = "/fake/repo/.pnpm-store";
 const NODE_EXE = "C:\\Program Files\\nodejs\\node.exe";
 const PNPM_CJS_PF = "C:\\Program Files\\nodejs\\node_modules\\pnpm\\bin\\pnpm.cjs";
 const APPDATA = "C:\\Windows\\system32\\config\\systemprofile\\AppData\\Roaming";
@@ -153,7 +157,7 @@ describe("performSelfUpdate - pnpm launcher integration", () => {
     const result = await performSelfUpdate(deps({ run }));
     expect(result.updated).toBe(true);
     const call = run.mock.calls.find((c) => c[0] === NODE_EXE)!;
-    expect(call[1]).toEqual([PNPM_CJS_PF, ...INSTALL]);
+    expect(call[1]).toEqual([PNPM_CJS_PF, ...INSTALL, "--store-dir", STORE_FOR_FAKE_REPO_WIN]);
     expect(call[4]?.env?.Path?.startsWith("C:\\Program Files\\nodejs;")).toBe(true);
     expect(call[4]?.windowsVerbatimArguments).toBeFalsy();
   });
@@ -182,6 +186,42 @@ describe("performSelfUpdate - pnpm launcher integration", () => {
       deps({ run, platform: "linux", execPath: "/usr/bin/node", env: { PATH: "/usr/bin" }, fs: fakeFs(["/usr/bin/pnpm"]) }),
     );
     expect(result.updated).toBe(true);
-    expect(run.mock.calls.find((c) => c[0] === "/usr/bin/pnpm")![1]).toEqual(INSTALL);
+    expect(run.mock.calls.find((c) => c[0] === "/usr/bin/pnpm")![1]).toEqual([...INSTALL, "--store-dir", STORE_FOR_FAKE_REPO_LINUX]);
+  });
+});
+
+describe("package store for the update install (service account cannot walk the user profile)", () => {
+  const STORE = "C:\\Users\\MLM Office\\printerio\\.pnpm-store";
+  const cjs = PNPM_CJS_PF;
+
+  it("adds --store-dir after the fixed install arguments, for node+cjs", () => {
+    const r = resolvePnpmLauncher({ ...winBase, env: { ...winBase.env, PRINTIO_PNPM_PATH: cjs }, fs: fakeFs([cjs]), storeDir: STORE });
+    expect(r.launcher?.args).toEqual([cjs, ...INSTALL, "--store-dir", STORE]);
+  });
+
+  it("puts the quoted store path inside the cmd shim command line", () => {
+    const shim = "C:\\Program Files\\nodejs\\pnpm.cmd";
+    const r = resolvePnpmLauncher({ ...winBase, env: { ...winBase.env, PRINTIO_PNPM_PATH: shim }, fs: fakeFs([shim]), storeDir: STORE });
+    expect(r.launcher?.kind).toBe("cmd-shim");
+    expect(r.launcher?.args[3]).toBe(`""${shim}" ${INSTALL.join(" ")} --store-dir "${STORE}""`);
+  });
+
+  it("leaves pnpm's own default in place when the path has shell characters or is not absolute", () => {
+    for (const bad of ['C:\\x" & calc', "relative\\store", 'C:\\a%b']) {
+      const r = resolvePnpmLauncher({ ...winBase, env: { ...winBase.env, PRINTIO_PNPM_PATH: cjs }, fs: fakeFs([cjs]), storeDir: bad });
+      expect(r.launcher?.args).toEqual([cjs, ...INSTALL]);
+    }
+  });
+
+  it("without storeDir the arguments are exactly the old ones", () => {
+    const r = resolvePnpmLauncher({ ...winBase, env: { ...winBase.env, PRINTIO_PNPM_PATH: cjs }, fs: fakeFs([cjs]) });
+    expect(r.launcher?.args).toEqual([cjs, ...INSTALL]);
+  });
+
+  it("pnpmStoreDir defaults to .pnpm-store inside the checkout and honours an absolute PRINTIO_PNPM_STORE_DIR", () => {
+    expect(pnpmStoreDir("C:\\Users\\MLM Office\\printerio", "win32", {})).toBe(STORE);
+    expect(pnpmStoreDir("/opt/printio", "linux", {})).toBe("/opt/printio/.pnpm-store");
+    expect(pnpmStoreDir("C:\\r", "win32", { PRINTIO_PNPM_STORE_DIR: "D:\\store" })).toBe("D:\\store");
+    expect(pnpmStoreDir("C:\\r", "win32", { PRINTIO_PNPM_STORE_DIR: "relative" })).toBe("C:\\r\\.pnpm-store");
   });
 });
