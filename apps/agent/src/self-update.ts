@@ -101,7 +101,8 @@ export type SelfUpdateReason =
   | "git_unavailable"
   | "git_failed"
   | "install_failed"
-  | "pnpm_not_found";
+  | "pnpm_not_found"
+  | "node_too_old";
 
 export interface SelfUpdateResult {
   /** True only when the checkout actually advanced AND dependencies were re-installed successfully - i.e. a restart is warranted. */
@@ -157,6 +158,8 @@ export interface SelfUpdateFs {
 }
 
 export interface SelfUpdateDeps {
+  /** Test seam: the Node version this Agent runs on (default process.versions.node). */
+  nodeVersion?: string;
   repoRoot: string;
   logger: Logger;
   /** Injected so tests can drive every branch without a real git remote; production passes `runCommand`. */
@@ -506,6 +509,40 @@ async function currentVersion(deps: SelfUpdateDeps): Promise<string> {
 }
 
 /** Restarts the sibling IPP gateway service. Never throws; returns null on success or a plain reason on failure. */
+/** `>=22.13` style requirement against a version like `22.1.0`. null = a form we do not understand (then do not block). */
+export function nodeMeetsRequirement(requirement: string, nodeVersion: string): boolean | null {
+  const m = /^>=\s*v?(\d+)(?:\.(\d+))?(?:\.(\d+))?\s*$/.exec(requirement.trim());
+  const v = /^v?(\d+)\.(\d+)\.(\d+)/.exec(nodeVersion.trim());
+  if (!m || !v) return null;
+  const need = [Number(m[1]), Number(m[2] ?? 0), Number(m[3] ?? 0)];
+  const have = [Number(v[1]), Number(v[2]), Number(v[3])];
+  for (let i = 0; i < 3; i++) {
+    if (have[i]! !== need[i]!) return have[i]! > need[i]!;
+  }
+  return true;
+}
+
+/**
+ * Before anything is changed: does the NEW code need a newer Node than this machine has? Reads package.json from the
+ * upstream commit (after a plain `git fetch`; fixed argv). Never blocks on anything it cannot read: a failed fetch is
+ * left for `git pull` to report in its own words.
+ */
+async function nodeRequirementProblem(deps: SelfUpdateDeps): Promise<{ requirement: string; have: string } | null> {
+  const { repoRoot } = deps;
+  try {
+    const fetched = await deps.run("git", ["fetch", "--quiet"], repoRoot, GIT_TIMEOUT_MS);
+    if (fetched.exitCode !== 0) return null;
+    const shown = await deps.run("git", ["show", "@{u}:package.json"], repoRoot, GIT_TIMEOUT_MS);
+    if (shown.exitCode !== 0) return null;
+    const requirement = (JSON.parse(shown.stdout) as { engines?: { node?: unknown } }).engines?.node;
+    if (typeof requirement !== "string") return null;
+    const have = deps.nodeVersion ?? process.versions.node;
+    return nodeMeetsRequirement(requirement, have) === false ? { requirement, have } : null;
+  } catch {
+    return null;
+  }
+}
+
 async function restartGateway(deps: SelfUpdateDeps): Promise<string | null> {
   if ((deps.platform ?? process.platform) !== "win32") {
     return "only Windows print servers run the gateway as a service.";
@@ -587,6 +624,20 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
         "pnpm was not found on that machine; set PRINTIO_PNPM_PATH in apps/agent/.env (the full path to pnpm.cjs, pnpm.cmd or pnpm.exe) and press Update again. " +
         "Nothing was changed." +
         (resolution.rejected.length ? ` (${resolution.rejected.join("; ")}.)` : ""),
+      repoRoot,
+    };
+  }
+
+  const nodeProblem = await nodeRequirementProblem(deps);
+  if (nodeProblem) {
+    logger.warn("CHECK_FOR_UPDATE: the new code needs a newer Node.js than this machine has", nodeProblem);
+    return {
+      updated: false,
+      reason: "node_too_old",
+      failedStep: "checking",
+      message:
+        `This update needs Node.js ${nodeProblem.requirement} but this print server runs Node ${nodeProblem.have}, so it was NOT started and nothing was changed. ` +
+        "Install the current LTS version of Node.js (nodejs.org) on that machine, then press Update again.",
       repoRoot,
     };
   }
