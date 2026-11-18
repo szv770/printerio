@@ -1,4 +1,4 @@
-<!-- Approved 2026-11-16 with the owner. Companion to docs/TARGET-ARCHITECTURE.md (phases A-J). Update as items ship. -->
+<!-- Approved with the owner 2026-11-16, extended 2026-11-18 (independence and one-button updates go first). Companion to docs/TARGET-ARCHITECTURE.md (phases A-J). Update as items ship. -->
 # Printio SaaS launch plan: from one school to 3-5 hand-held beta orgs, then open to more
 
 ## Context
@@ -13,6 +13,8 @@ Decisions made with the owner (this session, 2026-11-16):
 - **Domain:** `printio.app` (not szvtech.org). `beta.printio.app` is the stable site and stays put. `printio.app` is the test site.
 - **Release process:** staged. Owner's server first, then a beta channel, then everyone, with one-click rollback.
 - **Polish first:** a docs page, real help, a site that survives a server outage, a first-run checklist, bug and feedback reporting. Docs are written so any AI can read them (a public docs site plus a plain-text copy to paste into Claude or ChatGPT). No built-in AI chat for now.
+
+**PRIORITY OVERRIDE (owner, 2026-11-18): the section "Independence and one-button updates" at the bottom of this file goes FIRST, before the rest of the order below.** The owner clarified: the website is hosted on Cloudflare (not Vercel, not the PC), must run on its own with every print server down, and the "Update this server" button must work every time without remote access. Anything in this plan or in older docs that says Vercel or "the site runs on the PC" is out of date.
 
 **Read this first: my first three audits ran on a stale checkout.** This branch (`claude/members-onboarding`) is 97 commits behind the default branch `claude/upcoming-large-project-3d2j9p`. Step 0 of the build is to merge the default branch in, then re-check the "re-verify" items below. Nothing in this plan changes code yet.
 
@@ -149,7 +151,68 @@ Merge `origin/claude/upcoming-large-project-3d2j9p` into the working branch. Re-
 - Test print and profiles: `apps/web/lib/pdf/test-print.ts`, `apps/web/app/admin/printers/actions.ts`, `packages/shared/src/pjl.ts`
 - Migrations: `supabase/migrations` (numbered; mirror each into `schema.sql`; each new table needs an explicit grant)
 
+---
+
+# Independence and one-button updates (owner clarification 2026-11-18, goes first)
+
+## The principle (owner's words, tidied)
+1. **The website runs on its own, on Cloudflare.** With every print server off, people can still sign in, make accounts, join by invite, use all admin pages, add a NEW print server (enrollment code), and add or edit printers and rules.
+2. **A print server only prints and handles uploads for its own organization.** It never runs, builds or updates the website, and the website never needs it to be online to be set up.
+3. **Updating the website never needs a print server.** It deploys by itself when a change is merged.
+4. **The "Update this server" button works every time,** so nobody has to remote-desktop into a server to update it.
+
+## What the audits found (read from code; nothing was run)
+**Already independent (no change needed):** sign-in and magic link, sign-up, invites and join, all admin pages, creating an enrollment code for a new print server, adding and editing printers and printer profiles, job viewing, retry and reprint, print submit, **file upload (the browser uploads straight to Supabase Storage, not through a print server)**, booklet building and preview (the website does the PDF work itself). The website never calls a print server or the gateway; all contact goes through database rows (`remote_commands`, `server_jobs`) that servers pick up when they are online.
+
+**Coupled to fix:**
+| # | Coupling | Where | Fix |
+|---|---|---|---|
+| 1 | The printer setup wizard cannot finish unless a print server was online in the last 5 minutes, and step 3 only offers queue names a server reported | `apps/web/app/admin/printers/setup/SetupWizard.tsx` (`ready = onlineAgents.length > 0`, "Next" disabled; queue list from `discoveredQueues`) | "Next" always enabled, online state shown as a note ("saved, will start working when a print server connects"); free-text queue name when none were reported. The save action already allows it (`app/admin/printers/actions.ts` skips the queue check when nothing was reported). |
+| 2 | **The print server's agent builds and restarts the website** through the "Update this server" button (the interim bridge: `startWebRebuild` in `apps/agent/src/self-update.ts`, `tools/self-host/update-web.ps1`, the `Printio Web Update` scheduled task, `NEXT_DIST_DIR`, `run-web.ps1`) | listed in the update audit | Delete the whole bridge once Cloudflare deploys the site itself (see Step W2). |
+| 3 | `setup-web.ps1 -SwitchServices` points the agent and gateway at a site on the same PC, and the agent backed off for 5 minutes after the site went down on 2026-11-16 | `tools/self-host/setup-web.ps1`, agent retry cap | Agents and gateways point at the Cloudflare address only; keep the 30 s retry cap. |
+| 4 | Cron routes (`/api/cron/sweep`, `/api/cron/cleanup`) are triggered by Windows scheduled tasks on the PC (`tools/self-host/run-cron.ps1`) | `setup-web.ps1:88-90` | Cloudflare cron triggers (or Supabase scheduled functions) call the same routes with `PRINTIO_CRON_SECRET`. |
+| 5 | Library and daily study fetching go through a print server only when `LIBRARY_VIA_SERVER=1` | `apps/web/lib/library/cache.ts` | Leave the switch OFF for now; it is already opt-in. |
+
+**Honest limit to say out loud:** PDF building (booklets, imposition, previews) currently runs on the website host. On Cloudflare that code is subject to its CPU limits (free plan 10 ms per request, which this will not fit; the paid Workers plan allows far more). Either the paid plan is needed, or this work moves to print-server jobs (phase C) and then **booklet building and previews will say "your print server is offline" when none is online**, while everything else keeps working. Decide which at the Cloudflare trial (phase E); until then treat it as unverified.
+
+## Step W0: confirm how the website is hosted today (read-only, first)
+The owner says the site is on Cloudflare Workers/Pages. The repo has **no Cloudflare deploy config** (no wrangler or OpenNext files), and the docs still say "runs on the PC behind a Cloudflare tunnel". Before changing anything: ask the owner to open the Cloudflare dashboard and report (a) is it a Worker/Pages project connected to GitHub, (b) which branch deploys and does it deploy on every merge, (c) which domain, (d) are `NEXT_PUBLIC_*`, `SUPABASE_SERVICE_ROLE_KEY`, `GATEWAY_*`, `PRINTIO_CRON_SECRET` set there, (e) is the PC site still running. Record the answers in `docs/STATE-*.md`, and fix `CLAUDE.md` and the docs that still say Vercel or PC. **Nothing in W2 is deleted until a merge is seen to deploy the site by itself.**
+
+## Step W1: unblock printer setup with no server online (small, safe, do first)
+- Edit `SetupWizard.tsx` as in the table row 1; add a test that the wizard finishes with zero online agents and with a typed queue name.
+- Keep the "Test print" step as a separate action that says "needs a print server online".
+
+## Step U: make "Update this server" dependable (the owner's most important ask)
+Today it fails or half-works in these ways (audit): `pnpm install` EPERM because the service account cannot walk the owner's profile; pnpm not found; `git pull` fails on a dirty tree or no GitHub access; Node version not checked; gateway restart failure is reported as success; **no rollback** if the new build crashes at start; offline servers make the UI give up after 5 minutes; the UI guesses "restarted" from a newer heartbeat. Several fixes exist only as manual owner scripts (`docs/hardening/fix-update-permissions.ps1`, `limit-printio-services.ps1`).
+
+Build, in this order (each with unit tests on the agent side; real Windows is untested):
+1. **No more EPERM:** give the update its own pnpm store directory owned by the service account (`PRINTIO_PNPM_STORE_DIR` passed as `--store-dir`, created by `setup-agent.ps1`) and install pnpm machine-wide or bundle it. Removes the need for the manual hardening script on the update path.
+2. **Check before changing anything:** after `git fetch`, read the target commit's `engines` (Node) and refuse early with a plain message if the server cannot run it; check disk space; confirm `git` and the remote are reachable.
+3. **Rollback watchdog:** record the previous commit before pulling. A small separate "Printio Updater" Windows service (not the agent) waits for the agent to report the new version in its heartbeat; if it does not within a few minutes it runs `git reset --hard <previous>`, reinstalls and restarts. Visible on the website as "update failed, rolled back to <version>".
+4. **Tell the truth:** the agent reports the running commit and version (not just a heartbeat), the gateway restart is a real step that fails the update when it fails, and the UI shows "now running abc123, was def456".
+5. **Offline servers:** the command stays queued and the page says "queued, will update when this server comes back" (no 5-minute give-up), with one-click cancel and one-click rollback.
+6. **Self-heal:** `setup-agent.ps1` (and later the installer) sets the Windows service recovery options so a crash restarts the service; verify it as part of the install check.
+7. **The unavoidable one-time step:** servers must receive the new update code once by hand (chicken and egg, per the backlog); after that, every update is the button. Say this plainly in the owner steps.
+8. **The long-term fix is phase G** (signed release bundles, no git, no GitHub access, no pnpm or Node on the customer machine, automatic revert). Steps 1-6 make the git-based path dependable for the owner's server and the first 1-2 hand-installed orgs; phase G and the .exe installer (Track 4) are what let later orgs update themselves.
+
+## Step W2: remove the website from the print server's job (after W0 confirms the pipeline)
+- Delete: `startWebRebuild`, `WEB_UPDATE_TASK_ARGS`, `WEB_UPDATE_TIMEOUT_MS`, `webRebuildStarted` and their messages and tests in `apps/agent/src/self-update.ts`; `tools/self-host/update-web.ps1`; the task registration and ACL block in `tools/self-host/setup-web.ps1`; `NEXT_DIST_DIR` in `apps/web/next.config.ts`; the folder pointer in `run-web.ps1`; the "Printio Web Update" section of `docs/agent-install.md`.
+- Add: GitHub-to-Cloudflare deploy on merge (config committed to the repo so it is reviewable), a Cloudflare cron for the two cron routes, and a `/api/health` route.
+- Update `CLAUDE.md`, `docs/STATE-2026-11-01.md` and `docs/TARGET-ARCHITECTURE.md` so no document says the site runs on Vercel or on the PC.
+
+## Verification for this section
+- `pnpm -r typecheck lint test build` after each step.
+- W1: a test that completes the printer wizard with no agent online; then, on the live site, add a printer while every print server is switched off.
+- Independence drill (the owner's own sentence as a test): switch off every print server, then sign in, create an account through an invite, create an enrollment code for a new print server, add a printer, change a rule. All must work. Switch a server back on and confirm queued jobs print.
+- U: unit tests for each failure case (EPERM, no pnpm, dirty tree, Node too old, gateway restart fails, new build never reports); then the **broken-release drill on a Windows VM**: push a deliberately crashing build, press the button, and confirm the server rolls back by itself and the website says so. Until this passes, the UI keeps labelling the button "not fully tested".
+- W2: merge a trivial change and watch Cloudflare deploy it with no print server involved; then delete the bridge and press the update button to confirm it updates only the agent and gateway.
+
+## Updated order of work
+1. W0 (owner answers about Cloudflare), 2. W1 (wizard), 3. Step U items 1-6 (update button), 4. W2 (remove the bridge, cron to Cloudflare), 5. back to the main plan: phase D (per-organization gateway secret), then Track 2 onboarding, Track 3 help and docs, Track 5 resilience, Track 4 installer, Track 6 test pack.
+
 ## Status log
 - 2026-11-18, Step 0 done: default branch merged into `claude/members-onboarding`. typecheck, lint and all tests pass (shared 214, gateway 207, agent 612, web 222 files).
 - D1 built 2026-11-18 (phase D, first step): the gateway no longer needs the master Supabase key. New route `POST /api/gateway/intake/sign` mints a single-use signed upload token for one `gateway-intake/<deviceId>/<file>` path (device must exist and be usable); the gateway uploads with only the public anon key. Legacy mode (service-role key) still works with a warning for one release. Built and unit-tested (web 75 route tests, gateway 215 tests); NOT yet run against the real Supabase or on the real gateway. Still open in phase D: a per-organization gateway credential (today `GATEWAY_SHARED_SECRET` is one value for everyone and can act for any device whose id it knows), per-server tokens for the agent, retiring the legacy mode.
 - FIXED 2026-11-18: Next and eslint-config-next upgraded to 16.4.6; the web build, typecheck, lint and all tests pass again.
+- W1 built 2026-11-18 (the printer setup wizard no longer needs a print server online): Step 2's "Next" is always enabled and the server state is only a note; Step 3 lets the admin type the Windows queue name when none was reported (raw-port printers were already queue-free); a clear message when no print server is registered at all. Rules live in `apps/web/app/admin/printers/setup/wizard-rules.ts` (13 tests). The server action already accepted this. NOT yet tried in a browser on the live site; do the independence drill from this doc with every print server off.
+- Still waiting on the owner for W0: how the website is hosted on Cloudflare today (project type, deploy branch, env vars, whether the PC site still runs). Nothing in W2 is deleted before that.

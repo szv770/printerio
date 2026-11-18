@@ -10,6 +10,7 @@ import { PRINTER_ARCHETYPE_IDS, PRINTER_ARCHETYPES, buildRecipeCards, isPrinterA
 import { createPrinterProfilesFromWizardAction, type PrinterActionState } from "../actions";
 import { routes } from "@/lib/routes";
 import { isValidRawHost, parseRawPort } from "@/lib/printers/raw-target";
+import { allQueuesChosen as queuesComplete, queueEntryMode, serverStatusNote } from "./wizard-rules";
 
 // A "use server" file may only export async functions, so this trivial seed
 // value for useActionState lives here instead of alongside the action.
@@ -272,7 +273,8 @@ function Step2RegisterMachine({
   onBack: () => void;
   onNext: () => void;
 }) {
-  const ready = onlineAgents.length > 0;
+  const status = serverStatusNote(onlineAgents.length, agents.length);
+  const ready = status.tone === "ready";
   // Only meaningful client-side (window is undefined during server
   // rendering) - this is exactly the value setup-agent.bat's first prompt
   // asks for, so showing it here removes the one piece of information nobody
@@ -313,13 +315,11 @@ function Step2RegisterMachine({
       <div className="mb-4 rounded-lg border border-[var(--color-border)] p-3">
         {ready ? (
           <p className="flex items-center gap-2 text-sm text-[var(--color-success)]">
-            <CheckCircle2 className="h-4 w-4" /> {onlineAgents.length} Agent{onlineAgents.length > 1 ? "s" : ""} online and ready
-            ({onlineAgents.map((a) => a.name).join(", ")}).
+            <CheckCircle2 className="h-4 w-4" /> {status.text} ({onlineAgents.map((a) => a.name).join(", ")})
           </p>
         ) : (
           <p className="flex items-center gap-2 text-sm text-[var(--color-muted)]">
-            <WifiOff className="h-4 w-4" /> No Agent is online yet
-            {agents.length > 0 ? ` (${agents.length} registered, none active/recent)` : " (none registered yet)"}.
+            <WifiOff className="h-4 w-4 shrink-0" /> {status.text}
           </p>
         )}
         <Button type="button" variant="outline" size="sm" onClick={onRecheck} className="mt-2">
@@ -334,7 +334,7 @@ function Step2RegisterMachine({
           </Button>
           <CancelLink />
         </div>
-        <Button type="button" onClick={onNext} disabled={!ready}>
+        <Button type="button" onClick={onNext}>
           Next: Finish <ArrowRight className="ml-1 inline h-4 w-4" />
         </Button>
       </div>
@@ -382,9 +382,14 @@ function Step3Finish({
   const rawHostError = rawHostTouched && rawHost.trim() && !isValidRawHost(rawHost.trim()) ? "That isn't a valid IP address (like 192.168.1.50) or hostname." : null;
   const rawPortParsed = parseRawPort(rawPort);
   const rawPortError = rawPortParsed.ok ? null : rawPortParsed.error;
-  const allQueuesChosen = isRaw
-    ? isValidRawHost(rawHost.trim()) && rawPortParsed.ok
-    : recipeCards.every((c) => !!queueByCardKey[c.key]);
+  const queueMode = queueEntryMode(isRaw, discoveredQueues.length);
+  const allQueuesChosen = queuesComplete({
+    mode: queueMode,
+    cardKeys: recipeCards.map((c) => c.key),
+    queueByCardKey,
+    rawHostValid: isValidRawHost(rawHost.trim()),
+    rawPortOk: rawPortParsed.ok,
+  });
   const canSubmit = !!agentId && (printerId !== "" || (creatingNewPrinter && newPrinterName.trim() !== "")) && allQueuesChosen && !pending;
 
   const cardsPayload = recipeCards.map((c) => ({
@@ -496,9 +501,16 @@ function Step3Finish({
           </div>
         )}
 
-        {agentId && !isRaw && discoveredQueues.length === 0 && (
+        {agents.length === 0 && (
           <EmptyState
-            message="This Agent hasn't reported any Windows queues yet. Set up the queue(s) in Windows per docs/printer-setup.md, then wait for its next heartbeat (or recheck below)."
+            message="No print server is registered yet. Go back one step and create an enrollment code first (Admin, then Agents). The server does not have to be online, it only has to exist."
+            icon={ListChecks}
+          />
+        )}
+
+        {agentId && queueMode === "type" && (
+          <EmptyState
+            message="This print server has not reported its Windows queues yet (it may be offline). You can still finish: type each queue name exactly as it appears in Windows (Settings, Printers). If a name is wrong, the job will wait and say why, and you can fix it here later."
             icon={ListChecks}
             action={
               <Button type="button" variant="outline" size="sm" onClick={onRecheck}>
@@ -508,7 +520,8 @@ function Step3Finish({
           />
         )}
 
-        {agentId && (isRaw || discoveredQueues.length > 0) && (
+        {agentId && (
+
           <ul className="flex flex-col gap-3">
             {recipeCards.map((card) => {
               const Icon = PRINTER_PROFILE_ICON_COMPONENTS[card.iconKey as PrinterProfileIconKey];
@@ -521,6 +534,14 @@ function Step3Finish({
                   {!isRaw && (
                   <>
                   <FieldLabel htmlFor={`queue-${card.key}`}>Windows queue</FieldLabel>
+                  {queueMode === "type" ? (
+                    <Input
+                      id={`queue-${card.key}`}
+                      placeholder="Type the queue name, e.g. KX Booklet"
+                      value={queueByCardKey[card.key] ?? ""}
+                      onChange={(e) => setQueueByCardKey((prev) => ({ ...prev, [card.key]: e.target.value }))}
+                    />
+                  ) : (
                   <Select
                     id={`queue-${card.key}`}
                     value={queueByCardKey[card.key] ?? ""}
@@ -534,6 +555,7 @@ function Step3Finish({
                       </option>
                     ))}
                   </Select>
+                  )}
                   </>
                   )}
 
