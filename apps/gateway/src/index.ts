@@ -12,7 +12,7 @@ import { ConfigError, loadConfig } from "./config.js";
 import { createLogger } from "./logger.js";
 import { JobRegistry } from "./job-registry.js";
 import { createGatewayServer } from "./server.js";
-import { createSupabaseStorage } from "./storage.js";
+import { createSignedIntakeStorage, createSupabaseStorage } from "./storage.js";
 import { createWebClient } from "./web-client.js";
 import { UploadGuard } from "./upload-guard.js";
 import { installService, uninstallService } from "./windows-service.js";
@@ -31,7 +31,18 @@ async function start(): Promise<void> {
     secret: config.sharedSecret,
     onWarn: (m, f) => logger.warn(m, f),
   });
-  const storage = createSupabaseStorage(config.supabaseUrl, config.supabaseServiceRoleKey);
+  let storage;
+  if (config.supabaseAnonKey) {
+    storage = createSignedIntakeStorage({ url: config.supabaseUrl, anonKey: config.supabaseAnonKey, sign: (p) => web.signIntakeUpload(p) });
+    if (config.supabaseServiceRoleKey) {
+      logger.warn("SUPABASE_SERVICE_ROLE_KEY is set but no longer used: remove it from this server's .env (the gateway uploads with signed URLs now)");
+    }
+  } else if (config.supabaseServiceRoleKey) {
+    logger.warn("Uploading with the MASTER Supabase key (legacy). Set SUPABASE_ANON_KEY (the public key) and remove SUPABASE_SERVICE_ROLE_KEY from this server's .env");
+    storage = createSupabaseStorage(config.supabaseUrl, config.supabaseServiceRoleKey);
+  } else {
+    throw new Error("No Supabase key configured"); // loadConfig already refuses this; kept for the type checker
+  }
   const server = createGatewayServer({
     deps: { web, storage, logger, printerName: config.printerName, finishings: config.advertiseFinishings === "basic" ? [3] : undefined, registry, startedAt: Date.now() },
     baseDomain: config.baseDomain,

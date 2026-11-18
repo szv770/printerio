@@ -48,3 +48,20 @@ describe("ADVERTISE_FINISHINGS", () => {
     expect(() => loadConfig({ ...base, ADVERTISE_FINISHINGS: "lots" })).toThrow();
   });
 });
+
+describe("Supabase key (the gateway should not need the master key)", () => {
+  const noKey = { WEB_BASE_URL: "https://web.test", GATEWAY_SHARED_SECRET: "x".repeat(32), SUPABASE_URL: "https://sb.test", BASE_DOMAIN: "example.test" };
+  it("accepts the public anon key alone", () => {
+    const c = loadConfig({ ...noKey, SUPABASE_ANON_KEY: "anon" });
+    expect(c.supabaseAnonKey).toBe("anon");
+    expect(c.supabaseServiceRoleKey).toBeUndefined();
+  });
+  it("still accepts the legacy service-role key alone (an existing server keeps working)", () => {
+    const c = loadConfig({ ...noKey, SUPABASE_SERVICE_ROLE_KEY: "svc" });
+    expect(c.supabaseServiceRoleKey).toBe("svc");
+    expect(c.supabaseAnonKey).toBeUndefined();
+  });
+  it("refuses to start with neither, and says which setting to add", () => {
+    expect(() => loadConfig(noKey)).toThrow(/SUPABASE_ANON_KEY/);
+  });
+});

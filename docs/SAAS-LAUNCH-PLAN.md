@@ -151,4 +151,5 @@ Merge `origin/claude/upcoming-large-project-3d2j9p` into the working branch. Re-
 
 ## Status log
 - 2026-11-18, Step 0 done: default branch merged into `claude/members-onboarding`. typecheck, lint and all tests pass (shared 214, gateway 207, agent 612, web 222 files).
+- D1 built 2026-11-18 (phase D, first step): the gateway no longer needs the master Supabase key. New route `POST /api/gateway/intake/sign` mints a single-use signed upload token for one `gateway-intake/<deviceId>/<file>` path (device must exist and be usable); the gateway uploads with only the public anon key. Legacy mode (service-role key) still works with a warning for one release. Built and unit-tested (web 75 route tests, gateway 215 tests); NOT yet run against the real Supabase or on the real gateway. Still open in phase D: a per-organization gateway credential (today `GATEWAY_SHARED_SECRET` is one value for everyone and can act for any device whose id it knows), per-server tokens for the agent, retiring the legacy mode.
 - FIXED 2026-11-18: Next and eslint-config-next upgraded to 16.4.6; the web build, typecheck, lint and all tests pass again.
