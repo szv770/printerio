@@ -151,4 +151,4 @@ Merge `origin/claude/upcoming-large-project-3d2j9p` into the working branch. Re-
 
 ## Status log
 - 2026-11-18, Step 0 done: default branch merged into `claude/members-onboarding`. typecheck, lint and all tests pass (shared 214, gateway 207, agent 612, web 222 files).
-- FOUND: `pnpm --filter @printio/web build` fails with `SecurityFatalError` because Next 16.4.2 has a known security advisory (same on the default branch; package.json pins `^16.4.2`). The backlog already lists the 16.4.2 -> 16.4.6 patch upgrade; do it first, with tests, before any deploy.
+- FIXED 2026-11-18: Next and eslint-config-next upgraded to 16.4.6; the web build, typecheck, lint and all tests pass again.
