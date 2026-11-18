@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildSummary,
   describeAvailability,
+  describeChoices,
   mapQueueChoices,
   mapRawChoices,
   parseChoices,
@@ -234,5 +235,79 @@ describe("planPageSubset", () => {
   it("needs no subset for an empty range or the whole document", () => {
     expect(planPageSubset({ pageRangeText: null, pageCount: 4, held: false })).toEqual({ ok: true, sourcePages: 4, subsetPages: null });
     expect(planPageSubset({ pageRangeText: "1-4", pageCount: 4, held: false })).toEqual({ ok: true, sourcePages: 4, subsetPages: null });
+  });
+});
+
+describe("flip on the short edge", () => {
+  const profile = { capabilities: { duplex: true, staple: true, booklet: true }, bookletBindingSide: "left" as const, stapleDefault: "top-left" as const, declaredPaperSizes: ["letter"] };
+  const base = { sides: "two" as const, staple: "none" as const, booklet: "none" as const, copies: 1, pageRange: "" };
+
+  it("parseChoices reads flip=short and ignores anything else", () => {
+    const get = (m: Record<string, string>) => (n: string) => (m[n] ?? null) as FormDataEntryValue | null;
+    expect(parseChoices(get({ sides: "two", flip: "short" }))).toMatchObject({ ok: true, choices: { sides: "two", flip: "short" } });
+    const other = parseChoices(get({ sides: "two", flip: "sideways" }));
+    expect(other.ok && other.choices).not.toHaveProperty("flip");
+  });
+
+  it("mapRawChoices sends BINDING=SHORTEDGE for double-sided short edge, nothing held", () => {
+    const m = mapRawChoices({ ...base, flip: "short" }, profile);
+    expect(m.heldReason).toBeNull();
+    expect(m.duplexEdge).toBe("short");
+    expect(m.pjl).toMatchObject({ duplex: true, duplexEdge: "short" });
+  });
+
+  it("flip does nothing for single-sided or a booklet", () => {
+    expect(mapRawChoices({ ...base, sides: "one", flip: "short" }, profile).duplexEdge).toBeNull();
+    expect(mapRawChoices({ ...base, booklet: "left", flip: "short" }, profile).duplexEdge).toBeNull();
+    expect(mapRawChoices(base, profile).duplexEdge).toBeNull();
+  });
+
+  it("a corner staple with a short-edge flip is held", () => {
+    expect(mapRawChoices({ ...base, staple: "top-left", flip: "short" }, profile).heldReason).toMatch(/short/i);
+  });
+});
+
+describe("dual staple (left) and hole punch", () => {
+  const caps = { ...CAPS, punch: true };
+  const profile: RawProfileContext = { ...PROFILE, capabilities: caps };
+
+  it("parseChoices reads dual-left and punch", () => {
+    const c = okChoices(fd({ sides: "one", staple: "dual-left", punch: "on", copies: "1" }));
+    expect(c).toMatchObject({ staple: "dual-left", punch: true });
+    expect(okChoices(fd({ sides: "one", staple: "none" })).punch).toBeFalsy();
+  });
+
+  it("dual staple single-sided: stored as finishing style, no corner, PJL carries dual-left", () => {
+    const m = mapRawChoices(choices({ sides: "one", staple: "dual-left" }), profile);
+    expect(m.heldReason).toBeNull();
+    expect(m.finishing).toEqual({ staple: true, booklet: false, punch: false, stapleStyle: "dual-left" });
+    expect(m.staplePosition).toBeNull();
+    expect(m.pjl.staple).toBe("dual-left");
+  });
+
+  it("punch single-sided: finishing.punch true", () => {
+    const m = mapRawChoices(choices({ sides: "one", punch: true }), profile);
+    expect(m.heldReason).toBeNull();
+    expect(m.finishing).toMatchObject({ staple: false, punch: true });
+    expect(m.pjl.punch).toBe(true);
+  });
+
+  it("double-sided punch is allowed (proven by labelled print P1, 2026-11-01)", () => {
+    expect(mapRawChoices(choices({ sides: "two", punch: true }), profile).heldReason).toBeFalsy();
+  });
+
+  it("not-yet-tested combinations are held", () => {
+    expect(mapRawChoices(choices({ sides: "two", staple: "dual-left" }), profile).heldReason).toMatch(/not tested/i);
+    expect(mapRawChoices(choices({ sides: "one", punch: true, staple: "dual-left" }), profile).heldReason).toMatch(/hole punch/i);
+    expect(mapRawChoices(choices({ booklet: "left", punch: true }), profile).heldReason).toMatch(/booklet/i);
+  });
+
+  it("capability off holds with the plain wording", () => {
+    expect(mapRawChoices(choices({ sides: "one", punch: true }), { ...PROFILE, capabilities: { ...CAPS, punch: false } }).heldReason).toMatch(/Hole punch/);
+    expect(mapRawChoices(choices({ sides: "one", staple: "dual-left" }), { ...PROFILE, capabilities: { ...CAPS, staple: false } }).heldReason).toMatch(/Two staples \(left\)/);
+  });
+
+  it("describeChoices wording", () => {
+    expect(describeChoices({ sides: "one", staple: "dual-left", booklet: "none" })).toContain("two staples, left");
   });
 });

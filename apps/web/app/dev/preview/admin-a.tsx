@@ -6,6 +6,8 @@ import { describeAgentConnection, describeAgentVersion } from "@/lib/agent-detai
 import { UnmatchedSignups } from "@/app/admin/users/UnmatchedSignups";
 import { MembersTable } from "@/app/admin/users/MembersTable";
 import { MemberAccessCard } from "@/app/admin/users/[userId]/MemberAccessCard";
+import { SetupStatusPanel } from "@/app/admin/devices/SetupStatusPanel";
+import { summarizeSetups } from "@/lib/devices/setup-feedback";
 import { InvitesPanel } from "@/app/admin/users/InvitesPanel";
 import { GroupsPanel } from "@/app/admin/groups/GroupsPanel";
 import { PrintersPanel } from "@/app/admin/printers/PrintersPanel";
@@ -260,10 +262,10 @@ export function ServerDetailPreview({ variant }: { variant?: string } = {}) {
 }
 
 const DEVICES: AdminDevice[] = [
-  { id: "d1", userName: "Moshe Levi", name: "Pixel 8", device_type: "android", created_at: ago(2000), revoked_at: null, last_seen_at: ago(20), first_job_at: ago(100), first_printed_at: null, last_user_agent: "Android 14", stuck: "job_not_printed", issues: [{ id: "x1", kind: "nothing_prints", note: "I press print and nothing comes out.", status: "open", created_at: ago(60), resolved_note: null, resolved_at: null }] },
-  { id: "d2", userName: "Rivka Stein", name: "School Chromebook", device_type: "chromebook", created_at: ago(5000), revoked_at: null, last_seen_at: ago(30), first_job_at: null, first_printed_at: null, last_user_agent: null, stuck: "connected_no_job", issues: [] },
-  { id: "d3", userName: "Dana Kaplan", name: "Work laptop", device_type: "windows", created_at: ago(9000), revoked_at: null, last_seen_at: ago(120), first_job_at: ago(8000), first_printed_at: ago(7990), last_user_agent: null, stuck: null, issues: [] },
-  { id: "d4", userName: "Avi Goldman", name: "Old iPad", device_type: "iphone", created_at: ago(20000), revoked_at: ago(1000), last_seen_at: ago(1500), first_job_at: ago(19000), first_printed_at: ago(18990), last_user_agent: null, stuck: null, issues: [] },
+  { id: "d1", userName: "Moshe Levi", name: "Pixel 8", device_type: "android", created_at: ago(2000), revoked_at: null, last_seen_at: ago(20), first_job_at: ago(100), first_printed_at: null, last_user_agent: "Android 14", stuck: "job_not_printed", connection: null, issues: [{ id: "x1", kind: "nothing_prints", note: "I press print and nothing comes out.", status: "open", created_at: ago(60), resolved_note: null, resolved_at: null }] },
+  { id: "d2", userName: "Rivka Stein", name: "School Chromebook", device_type: "chromebook", created_at: ago(5000), revoked_at: null, last_seen_at: ago(30), first_job_at: null, first_printed_at: null, last_user_agent: null, stuck: "connected_no_job", connection: { verdict: "address_blocked", createdAt: ago(40) }, issues: [] },
+  { id: "d3", userName: "Dana Kaplan", name: "Work laptop", device_type: "windows", created_at: ago(9000), revoked_at: null, last_seen_at: ago(120), first_job_at: ago(8000), first_printed_at: ago(7990), last_user_agent: null, stuck: null, connection: { verdict: "reachable", createdAt: ago(7900) }, issues: [] },
+  { id: "d4", userName: "Avi Goldman", name: "Old iPad", device_type: "iphone", created_at: ago(20000), revoked_at: ago(1000), last_seen_at: ago(1500), first_job_at: ago(19000), first_printed_at: ago(18990), last_user_agent: null, stuck: null, connection: null, issues: [] },
 ];
 
 export function UserDevicesPreview({ variant }: { variant?: string }) {
@@ -307,6 +309,27 @@ export function MemberAccessPreview({ variant }: { variant?: string }) {
           }
         />
       </div>
+    </Frame>
+  );
+}
+
+export function SetupStatusPreview() {
+  const fb = (setup_key: string, outcome: "ok" | "problem", user_id: string, note = "") => ({ setup_key, outcome, user_id, note, created_at: "2026-10-23T09:00:00Z" });
+  const setups = summarizeSetups(
+    [
+      fb("windows_manual_wizard", "ok", "u1"),
+      fb("windows_manual_wizard", "ok", "u2"),
+      fb("windows_manual_wizard", "problem", "u3", "It printed on the wrong paper size and the first page was cut off"),
+      fb("android_bare_host", "ok", "u4"),
+      fb("mac_lpadmin", "problem", "u5", "Terminal said the printer was not found"),
+      fb("other_chromebook", "ok", "u6"),
+    ],
+    [{ setup_key: "windows_manual_wizard" }],
+  );
+  return (
+    <Frame path="/admin/devices">
+      <PageHeader title="All devices" description="Phones and laptops people print from. The ones that need a look are at the top." />
+      <SetupStatusPanel setups={setups} canConfirm />
     </Frame>
   );
 }

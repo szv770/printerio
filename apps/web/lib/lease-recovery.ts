@@ -10,6 +10,10 @@ type Client = SupabaseClient<Database>;
 /** Job states in which an Agent holds the job but has not finished with it. */
 export const MID_FLIGHT_STATUSES = ["downloading", "downloaded", "printing", "submitted_to_spooler"] as const;
 
+/** Exactly the columns the recovery step reads (quota release, retry decision); not the whole print_jobs row. */
+const STUCK_JOB_COLUMNS =
+  "id, organization_id, created_by, attempt_count, max_attempts, is_test_print, source_pdf_pages, copies, estimated_printed_sides, estimated_physical_sheets, color_mode";
+
 export const STALE_LEASE_MESSAGE = "Agent lease expired mid-operation (agent likely disconnected or crashed).";
 
 export interface LeaseRecoveryOptions {
@@ -88,7 +92,7 @@ export async function recoverExpiredLeases(supabase: Client, opts: LeaseRecovery
   //    per group, each guarded by `attempt_count = <that value>` so a job whose attempt_count changed in between is
   //    excluded rather than double-bumped.
   for (const midFlightStatus of MID_FLIGHT_STATUSES) {
-    let stuckQuery = supabase.from("print_jobs").select("*").eq("status", midFlightStatus).lt("lease_expires_at", cutoffIso);
+    let stuckQuery = supabase.from("print_jobs").select(STUCK_JOB_COLUMNS).eq("status", midFlightStatus).lt("lease_expires_at", cutoffIso);
     if (scope) {
       stuckQuery = stuckQuery.eq("organization_id", scope.organizationId).in("printer_profile_id", scope.printerProfileIds);
     }
@@ -186,11 +190,26 @@ export async function recoverExpiredLeases(supabase: Client, opts: LeaseRecovery
 export const OPPORTUNISTIC_LIMIT = 50;
 export const OPPORTUNISTIC_GRACE_MS = 120_000;
 
+/** An agent's own poll recovers its leases at most this often (per server instance); the daily sweep is the backstop. */
+export const OPPORTUNISTIC_MIN_INTERVAL_MS = 5 * 60_000;
+const lastRecoveryByAgent = new Map<string, number>();
+
+/** Test hook: forget when each agent was last recovered. */
+export function resetLeaseRecoveryThrottle(): void {
+  lastRecoveryByAgent.clear();
+}
+
 export async function recoverExpiredLeasesForAgent(
   supabase: Client,
   scope: { organizationId: string; agentId: string; printerProfileIds: string[] },
   now: Date = new Date(),
 ): Promise<LeaseRecoveryResult | null> {
+  // Throttled: a lease only matters minutes after it expired, so checking on every poll is pure database load.
+  // Returns null (same as "failed, ignored") when skipped. The stamp is taken up front so concurrent polls don't pile in.
+  const last = lastRecoveryByAgent.get(scope.agentId);
+  if (last !== undefined && now.getTime() - last < OPPORTUNISTIC_MIN_INTERVAL_MS) return null;
+  if (lastRecoveryByAgent.size > 1000) lastRecoveryByAgent.clear();
+  lastRecoveryByAgent.set(scope.agentId, now.getTime());
   try {
     const result = await recoverExpiredLeases(supabase, {
       nowIso: now.toISOString(),

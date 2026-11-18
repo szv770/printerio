@@ -8,14 +8,14 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
   return (
     <html lang="en">
       <body>
-        <main className="flex min-h-screen flex-col items-center justify-center gap-4 px-4 text-center">
+        <main className="flex min-h-dvh flex-col items-center justify-center gap-4 px-4 text-center">
           <h1 className="text-2xl font-semibold">Printio hit an unexpected error</h1>
           <p className="max-w-sm text-sm text-[var(--color-muted)]">
             {error.digest && <span className="block font-mono text-xs">Reference: {error.digest}</span>}
           </p>
           <button
             onClick={reset}
-            className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-[var(--color-primary-fg)]"
+            className="min-h-11 rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-[var(--color-primary-fg)]"
           >
             Try again
           </button>

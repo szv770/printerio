@@ -92,6 +92,69 @@ describe("executeRawPrint", () => {
     expect(Buffer.concat(received).equals(Buffer.from(expected.bytes))).toBe(true);
   });
 
+  it("a short-edge double-sided job reaches the printer with BINDING=SHORTEDGE", async () => {
+    const { port, received, closed } = await listen(() => {});
+    const res = await executeRawPrint({
+      raw: { ...raw(port), duplexEdge: "short" as const },
+      request: { ...req, finishing: { staple: false, booklet: false, punch: false } },
+      pdf,
+    });
+    await closed;
+    expect(res.ok).toBe(true);
+    const sent = Buffer.concat(received).toString("latin1");
+    expect(sent).toContain("@PJL SET BINDING=SHORTEDGE");
+    expect(sent).not.toContain("BINDING=LONGEDGE");
+  });
+
+  it("hole punch and two staples (left) reach the printer as the proven settings", async () => {
+    const one = { ...req, duplex: false };
+    const p = await listen(() => {});
+    expect((await executeRawPrint({ raw: { ...raw(p.port), punch: true }, request: { ...one, finishing: { staple: false, booklet: false, punch: true } }, pdf })).ok).toBe(true);
+    await p.closed;
+    const sentP = Buffer.concat(p.received).toString("latin1");
+    expect(sentP).toContain("@PJL SET FINISH=KPUNCH");
+    const d = await listen(() => {});
+    expect((await executeRawPrint({ raw: { ...raw(d.port), stapleStyle: "dual-left" as const }, request: { ...one, finishing: { staple: true, booklet: false, punch: false } }, pdf })).ok).toBe(true);
+    await d.closed;
+    const sentD = Buffer.concat(d.received).toString("latin1");
+    expect(sentD).toContain("@PJL SET STAPLEOPTION=TWO");
+    expect(sentD).toContain("@PJL SET FINISH=STAPLE");
+  });
+
+  it("a not-yet-tested finishing combination is refused as invalid_job and nothing is sent", async () => {
+    const res = await executeRawPrint({ raw: { ...raw(1), stapleStyle: "dual-left" as const }, request: { ...req, duplex: true, finishing: { staple: true, booklet: false, punch: false } }, pdf });
+    expect(res).toMatchObject({ ok: false, failure: { kind: "invalid_job" } });
+  });
+
+  it("an 11x17 job reaches the printer with PAPER=LEDGER, and a letter job does not", async () => {
+    const ledger = await listen(() => {});
+    const res = await executeRawPrint({ raw: { ...raw(ledger.port), paper: "ledger" as const }, request: { ...req, finishing: { staple: false, booklet: true, punch: false } }, pdf });
+    await ledger.closed;
+    expect(res.ok).toBe(true);
+    expect(Buffer.concat(ledger.received).toString("latin1")).toContain("@PJL SET PAPER=LEDGER");
+    const letter = await listen(() => {});
+    await executeRawPrint({ raw: raw(letter.port), request: req, pdf });
+    await letter.closed;
+    expect(Buffer.concat(letter.received).toString("latin1")).not.toContain("PAPER=");
+  });
+
+  it("a cardstock job reaches the printer with MEDIATYPE=CARDSTOCK (unproven value), and a plain job sends no MEDIATYPE at all", async () => {
+    const card = await listen(() => {});
+    const res = await executeRawPrint({ raw: { ...raw(card.port), mediaType: "cardstock" as const }, request: req, pdf });
+    await card.closed;
+    expect(res.ok).toBe(true);
+    expect(Buffer.concat(card.received).toString("latin1")).toContain("@PJL SET MEDIATYPE=CARDSTOCK");
+    const plain = await listen(() => {});
+    await executeRawPrint({ raw: raw(plain.port), request: req, pdf });
+    await plain.closed;
+    expect(Buffer.concat(plain.received).toString("latin1")).not.toContain("MEDIATYPE");
+  });
+
+  it("a cardstock booklet is refused as invalid_job and nothing is sent", async () => {
+    const res = await executeRawPrint({ raw: { ...raw(1), mediaType: "cardstock" as const }, request: { ...req, finishing: { staple: false, booklet: true, punch: false } }, pdf });
+    expect(res).toMatchObject({ ok: false, failure: { kind: "invalid_job" } });
+  });
+
   it("returns ok:false with the reason and opens NO connection when buildRawJob refuses", async () => {
     let connections = 0;
     const { port } = await listen(() => {
@@ -183,7 +246,7 @@ describe("RAW_DEFERRED_STATUSES", () => {
 });
 
 describe("write timeout: did everything go out?", () => {
-  it("peer that reads it all but never closes -> write_timeout with flushed=true (the printer may have the whole job)", async () => {
+  it("peer that reads it all but never closes -> still a success once everything is flushed (the Kyocera holds the connection until its job ends)", async () => {
     const server = net.createServer({ allowHalfOpen: true }, (s) => {
       sockets.push(s);
       s.on("data", () => {});
@@ -192,12 +255,45 @@ describe("write timeout: did everything go out?", () => {
     servers.push(server);
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
     const port = (server.address() as net.AddressInfo).port;
-    const res = await executeRawPrint({ raw: raw(port), request: req, pdf, timeouts: { writeTimeoutMs: 300 } });
+    const started = Date.now();
+    const res = await executeRawPrint({ raw: raw(port), request: req, pdf, timeouts: { writeTimeoutMs: 5_000, closeGraceMs: 200 } });
+    expect(res.ok).toBe(true);
+    expect(Date.now() - started).toBeLessThan(3_000);
+  });
+
+  it("peer that resets the connection right after reading everything is still a failure", async () => {
+    const server = net.createServer({ allowHalfOpen: true }, (s) => {
+      s.on("data", () => {});
+      s.on("end", () => s.resetAndDestroy());
+      s.on("error", () => {});
+    });
+    servers.push(server);
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as net.AddressInfo).port;
+    const res = await executeRawPrint({ raw: raw(port), request: req, pdf, timeouts: { writeTimeoutMs: 5_000, closeGraceMs: 2_000 } });
     expect(res.ok).toBe(false);
-    if (!res.ok) {
-      expect(res.failure).toMatchObject({ kind: "write_timeout", flushed: true });
-      expect(res.reason).toMatch(/all data was sent but the printer did not confirm/);
-    }
+  });
+
+  it("a slow printer that keeps taking bytes is not timed out just because the whole job takes longer than the stall window", async () => {
+    const got: Buffer[] = [];
+    const server = net.createServer((s) => {
+      sockets.push(s);
+      s.pause();
+      const timer = setInterval(() => {
+        const c = s.read(256 * 1024);
+        if (c) got.push(c);
+      }, 20);
+      s.on("end", () => clearInterval(timer));
+      s.on("close", () => clearInterval(timer));
+      s.on("error", () => {});
+      s.resume = s.resume; // keep paused; read() drives it
+    });
+    servers.push(server);
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as net.AddressInfo).port;
+    // Keep the socket pulling data steadily so progress never stalls for the 500ms window.
+    const res = await executeRawPrint({ raw: raw(port), request: req, pdf: new Uint8Array(2 * 1024 * 1024), timeouts: { writeTimeoutMs: 500, closeGraceMs: 200 } });
+    expect(res.ok).toBe(true);
   });
 
   it("peer that stops reading a big job -> write_timeout, and 'flushed' says whether the OS took every byte", async () => {

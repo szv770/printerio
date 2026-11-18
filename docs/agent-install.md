@@ -117,6 +117,23 @@ Agent, `apps/agent/scripts/setup-agent.ps1` was written and reviewed in a sandbo
 container with no Windows machine to run it against — treat it as reviewed, not verified,
 until it's actually been double-clicked on a real Windows machine.
 
+## The admin "Update this server" button (and, for now, the website)
+
+The button runs `git pull --ff-only` and `pnpm install` in the checkout, restarts the gateway, then the Agent. **INTERIM
+(delete when the website moves to Cloudflare, phase H/J in `docs/TARGET-ARCHITECTURE.md`):** when something changed it also
+starts the scheduled task `Printio Web Update`, which rebuilds the website that runs on this same PC
+(`tools/self-host/update-web.ps1`). The site keeps serving the old build while the new one builds (a few minutes), is then
+stopped and started on the new build (a few seconds of downtime), and is checked on `127.0.0.1`; if it does not answer, the old
+build is put back. The old build is kept. The result message says "The website is being rebuilt..." or, if the task is not
+there, "The website was not rebuilt (run setup-web.ps1 once to enable that)."
+
+- **Enable once** (as an administrator, on the print PC): `.\tools\self-host\setup-web.ps1 -SkipBuild`. It registers the
+  on-demand task (no schedule, runs as SYSTEM, the `printio-svc` account may only start it) and restarts the site.
+- **See what happened:** `C:\ProgramData\Printio\WebUpdate\status.json` (state `building` / `done` / `failed`, a message,
+  a time) and `update.log` in the same folder. The site's own log is `tools\self-host\web.log`.
+- **Run it by hand:** `schtasks /Run /TN "Printio Web Update"`. Running `setup-web.ps1` without `-SkipBuild` still works
+  and resets the site to a plain `.next` build.
+
 ## 1. Obtain an enrollment code
 
 An `org_admin` creates the Agent's row in the Printio dashboard (Admin → Agents
@@ -189,11 +206,64 @@ set these as real Windows environment variables (System Properties → Environme
 or `node-windows`'s service `env` option) if you'd rather not keep a `.env` file on disk at
 all — both approaches work and compose. The only required variable is `PRINTIO_API_URL`; everything else
 (`PRINTIO_LOCAL_STORAGE_PATH`, `PRINTIO_LOG_LEVEL`, `PRINTIO_POLL_INTERVAL_SECONDS`,
-`PRINTIO_SUMATRA_PATH`, `PRINTIO_PRINT_FIT_MODE`, `PRINTIO_SKIP_DEPENDENCY_CHECK`, etc.) has a documented default — see the
+`PRINTIO_HEARTBEAT_SECONDS` (default 30, range 10-120; set `0` to send a heartbeat every poll cycle as before - the rollback switch),
+`PRINTIO_SUMATRA_PATH`, `PRINTIO_PRINT_FIT_MODE`, `PRINTIO_SKIP_DEPENDENCY_CHECK`, `PRINTIO_LIBRARY_WORKER` (off; see below), etc.) has a documented default — see the
 `.env.example` file itself for the full list with rationale. `PRINTIO_AGENT_ID`/
 `PRINTIO_AGENT_SECRET` are normally **not** set by hand at all — `register` (§3) persists them
 to secure storage and `start` loads them from there automatically; setting them here is only
 for advanced/CI scenarios that deliberately bypass secure storage.
+
+### The library worker (optional; the owner's own server only)
+
+`PRINTIO_LIBRARY_WORKER=1` (or `true`) makes this Agent also fetch Mafteiach library pages for the website's shared cache
+(`docs/PHASE-C-PLAN.md`, C1). **Default: off. Unset, or any other value, means nothing runs: no timer, no network call.** School
+print servers never set it. When on, it runs on its own small timer (one job at a time, a look about every 20 s), never inside
+the print, heartbeat or command loops; an error in it is logged and ignored and cannot stop printing. It builds each page address
+itself from the job (never from an address the website sends), fetches only the one library site (own-site redirects only, 15 s
+limit, 3 MB limit, at least 5 s between two requests) and posts the parsed page back.
+
+It also fetches the next week of daily study text: about 2 minutes after the agent starts (if it has not done so that day) and then every night at about
+03:30 (this PC's local time), it asks the website which of the next 7 days have no saved text, fetches each missing day from the daily study
+page (`chitas-site.vercel.app`, same politeness: 15 s limit, 3 MB limit, at least 5 s between requests, never at the same time as a library
+job), and posts it. A day that cannot be read is skipped (one log line). It is part of the same switch: nothing extra to turn on. Look for
+`daily study text saved` in the agent log about 2 minutes after the restart. Turn the website switch on only after that.
+
+It does nothing useful until ALL of these are true (a server that is not registered just logs one line and checks again every ~10 minutes):
+
+1. Migration `0055_library_cache_and_jobs.sql` is applied to the live database (Supabase SQL editor).
+2. This server is listed as a fetcher. Find its id on Admin > Agents, then in the SQL editor:
+   `insert into library_fetchers (agent_id) values ('<agent uuid>');`
+3. `PRINTIO_LIBRARY_WORKER=1` is in this PC's `apps\agent\.env` and the agent was restarted.
+4. The website has `LIBRARY_VIA_SERVER=1` (website environment) and was restarted.
+
+Exact steps on the owner's PC (Administrator PowerShell; short lines):
+
+```
+cd "C:\Users\MLM Office\printerio"
+git pull origin claude/upcoming-large-project-3d2j9p
+.\tools\self-host\setup-web.ps1 -Domain beta.printio.app
+```
+(That puts the new agent code on the PC and restarts the agent; the worker is still off.) Then do the SQL of steps 1 and 2 above. Then:
+```
+Add-Content apps\agent\.env "`nPRINTIO_LIBRARY_WORKER=1"
+Restart-Service "Printio Print Agent"
+```
+Look in the newest file in `C:\ProgramData\Printio\Agent\logs` for `library worker started`. Test one fetch BEFORE switching the website on, by queueing a job by hand
+in the SQL editor (put your agent id in; this is the same job the website would queue):
+```
+insert into server_jobs (kind, organization_id, params, dedupe_key)
+values ('library_fetch', (select organization_id from agents where id = '<agent uuid>'), '{"kind":"likkutei","volume":1}', 'likkutei:1');
+```
+Wait about 30 seconds, then `select status, error from server_jobs order by created_at desc limit 1;` should say `done`, and
+`select key, fetched_at from library_pages;` should list `likkutei:1`. If it says `failed`, the `error` column says why in plain words.
+Only then switch the website on:
+```
+Add-Content apps\web\.env.production.local "`nLIBRARY_VIA_SERVER=1"
+Stop-ScheduledTask "Printio Web"; Start-ScheduledTask "Printio Web"
+```
+Roll back: delete the `LIBRARY_VIA_SERVER` line and restart the website task (the old live fetch is back at once); to stop this
+server filling the cache, remove the `PRINTIO_LIBRARY_WORKER` line and `Restart-Service "Printio Print Agent"`, and/or
+`delete from library_fetchers where agent_id = '<agent uuid>';`. Jobs nobody takes expire after 10 minutes (failed, `expired`).
 
 ## 5. Install as a Windows service
 

@@ -11,11 +11,12 @@
  * independent connections.
  */
 
+import { formatPrinterErrorMarker } from "@printio/shared";
 import { createWriteStream, mkdirSync, readFileSync, rmSync, statSync, unlinkSync } from "node:fs";
 import { Readable } from "node:stream";
 import path from "node:path";
-import type { AgentConfig } from "./config.js";
-import type { CloudClient, ClaimableJob } from "./cloud-client.js";
+import { effectivePollSeconds, type AgentConfig } from "./config.js";
+import type { CloudClient, ClaimableJob, RemoteCommandEnvelope } from "./cloud-client.js";
 import type { JobQueue } from "./job-queue.js";
 import type { PrinterManager } from "./printer-manager.js";
 import type { SpoolerMonitor } from "./spooler-monitor.js";
@@ -23,7 +24,9 @@ import { findNewJobId } from "./spooler-monitor.js";
 import type { HealthMonitor } from "./health-monitor.js";
 import { buildPrintSettingsString, executePrint } from "./print-executor.js";
 import { checkRawTarget as defaultCheckRawTarget, type RawTargetCheck } from "./raw-host-policy.js";
-import { RAW_DEFERRED_STATUSES, RAW_SUCCESS_STATUSES, executeRawPrint, type RawTimeouts } from "./raw-print-executor.js";
+import { trackSending } from "./send-activity.js";
+import { RAW_DEFERRED_STATUSES, RAW_SUCCESS_STATUSES, executeRawPrint, feedbackCapMs, type PrinterVerdict, type RawListen, type RawTimeouts } from "./raw-print-executor.js";
+import { createPrinterHealthGate, type PrinterHealthGateOptions } from "./printer-health-gate.js";
 import { PROFILE_COOLDOWN_MS, decideDownloadFailure, decideRawFailure, type WaitKind } from "./retry-policy.js";
 import { handleCommand } from "./commands.js";
 import { createSelfUpdateDeps, performSelfUpdate, performUpdateCheck } from "./self-update.js";
@@ -52,6 +55,10 @@ export interface OrchestratorDeps {
   rawPrint?: typeof executeRawPrint;
   /** Raw connect/write timeouts, injectable for tests. */
   rawTimeouts?: RawTimeouts;
+  /** Printer-feedback timings (poll interval, read time, overall cap), injectable for tests. */
+  rawFeedbackTimings?: Pick<RawListen, "pollIntervalMs" | "readMs" | "capMs">;
+  /** Safety net after an unconfirmed raw job (printer-health-gate.ts): the status read, the cap and the retry pause, injectable for tests. */
+  printerGate?: Pick<PrinterHealthGateOptions, "probe" | "capMs" | "retryDelayMs">;
   /** Decides whether a raw target may be sent to (private-LAN only, optional allow-list); injectable for tests. */
   checkRawTarget?: (target: { host: string; port: number }) => Promise<RawTargetCheck>;
   /** Tests/dev only: allow http / loopback download URLs (production requires a public https host). */
@@ -142,6 +149,21 @@ export function computeNextPollDelayMs(
   return Math.min(scaledMs, maxMs);
 }
 
+/** After this many consecutive 401/403 answers the credentials are almost certainly revoked: stop hammering the cloud. */
+export const AUTH_FAILURE_THRESHOLD = 5;
+export const AUTH_FAILURE_BACKOFF_MS = 10 * 60_000;
+
+/** Continuous 0-10% on top of a cycle sleep (never shortens it), so a fleet cannot stay phase-locked. */
+export function applyCycleJitter(delayMs: number, random: () => number = Math.random): number {
+  return delayMs * (1 + random() * 0.1);
+}
+
+/** The sleep before the next cycle: the computed delay, raised to the auth backoff once credentials keep being refused, plus jitter. */
+export function nextSleepMs(delayMs: number, consecutiveAuthFailures: number, random: () => number = Math.random): number {
+  const base = consecutiveAuthFailures >= AUTH_FAILURE_THRESHOLD ? Math.max(delayMs, AUTH_FAILURE_BACKOFF_MS) : delayMs;
+  return applyCycleJitter(base, random);
+}
+
 async function downloadJobFile(
   downloadUrl: string,
   destPath: string,
@@ -228,6 +250,10 @@ export function createOrchestrator(deps: OrchestratorDeps) {
   let restartRequested = false;
   /** printerProfileId -> epoch ms until which its queued jobs are left alone (see PROFILE_COOLDOWN_MS). */
   const profileCooldownUntil = new Map<string, number>();
+  /** jobId -> printerProfileId of raw jobs that are being confirmed by polling the printer. Their final report waits for the verdict, and the same printer's next job waits too (one job at a time per printer, and the printer's queued messages must not mix between jobs). */
+  const listening = new Map<string, string>();
+  /** Raw printers whose last job was not confirmed are checked once before the next raw job is sent to them. */
+  const printerGate = createPrinterHealthGate({ logger, now, ...deps.printerGate });
 
   async function safeReportStatus(jobId: string, status: Parameters<CloudClient["reportStatus"]>[1], message?: string, metadata?: Record<string, unknown>) {
     try {
@@ -285,17 +311,19 @@ export function createOrchestrator(deps: OrchestratorDeps) {
    * each one. Stops quietly on a network/server problem (the next poll tries again); drops the record when the web app
    * says the job is no longer ours (409/403/404: e.g. the sweep re-queued it), so it is never retried for ever.
    */
-  async function driveSentReports(jobId: string, jobLogger: Logger): Promise<void> {
+  async function driveSentReports(jobId: string, jobLogger: Logger, opts: { holdLast?: boolean } = {}): Promise<void> {
     for (;;) {
       const rec = jobQueue.getJob(jobId);
       const next = rec?.sentUnreported?.[0];
       if (!rec || !next) return;
+      // Printer feedback: the last report (completed, or failed when the printer needs attention) waits for the printer's verdict.
+      if (opts.holdLast && (rec.sentUnreported?.length ?? 0) <= 1) return;
       const sentChain = next === "submitted_to_spooler" || next === "completed";
       try {
         await cloudClient.reportStatus(
           jobId,
           next as Parameters<CloudClient["reportStatus"]>[1],
-          sentChain ? "sent to printer raw port" : undefined,
+          next === "completed" && rec.reportNote ? rec.reportNote : sentChain ? "sent to printer raw port" : next === "failed" ? rec.lastError : undefined,
           sentChain ? { bytesSent: rec.bytesSent } : undefined,
         );
       } catch (err) {
@@ -312,7 +340,8 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       }
       const rest = (rec.sentUnreported ?? []).slice(1);
       if (rest.length === 0) {
-        jobQueue.upsertJob(jobId, { state: "completed", sentUnreported: [] }); // completed prunes the record
+        if (next === "failed") jobQueue.removeJob(jobId); // the printer's attention message is reported: nothing more to track, and the job is never sent again
+        else jobQueue.upsertJob(jobId, { state: "completed", sentUnreported: [] }); // completed prunes the record
         return;
       }
       jobQueue.upsertJob(jobId, { sentUnreported: rest });
@@ -321,9 +350,48 @@ export function createOrchestrator(deps: OrchestratorDeps) {
 
   async function redriveUnreported(): Promise<void> {
     for (const record of jobQueue.listActiveJobs()) {
+      if (listening.has(record.jobId)) continue; // still waiting for the printer's verdict
       if (record.sentUnreported && record.sentUnreported.length > 0) {
         await driveSentReports(record.jobId, logger.child({ jobId: record.jobId }));
       }
+    }
+  }
+
+  /**
+   * Printer feedback: the printer's verdict decides the LAST report of a job that was already sent. Confirmed or
+   * unconfirmed (silence, a close, a reset) both end as `completed` - only the words differ; the printer needing
+   * attention when we stopped waiting ends as `failed` with the printer's own words (the web app never re-queues
+   * that). Nothing here ever sends the document again. Runs in the background so the poll loop is not held.
+   */
+  async function finishAfterPrinterVerdict(jobId: string, verdict: Promise<PrinterVerdict>, jobLogger: Logger, printerKey: string): Promise<void> {
+    let v: PrinterVerdict | undefined;
+    try {
+      v = await verdict;
+    } catch {
+      /* the verdict never rejects; unconfirmed it is */
+    }
+    listening.delete(jobId);
+    // Not confirmed (silence, attention, a short count) = suspect: the next raw job to this printer is only sent after one healthy status read.
+    if (v?.outcome === "confirmed") printerGate.markHealthy(printerKey);
+    else printerGate.markSuspect(printerKey);
+    try {
+      const rec = jobQueue.getJob(jobId);
+      if (!rec?.sentUnreported?.length) return; // dropped meanwhile (the web app no longer accepts reports)
+      if (v?.outcome === "attention") {
+        const message = formatPrinterErrorMarker({ ...(v.code !== undefined ? { code: v.code } : {}), text: v.text });
+        jobLogger.warn("the printer needs attention and did not finish this job in time", { code: v.code, text: v.text, pages: v.pages, expected: v.expected });
+        jobQueue.upsertJob(jobId, { sentUnreported: [...rec.sentUnreported.filter((x) => x !== "completed"), "failed"], lastError: message });
+      } else if (v?.outcome === "confirmed") {
+        const n = Math.min(v.pages, v.expected);
+        jobLogger.info("printer confirmed every page", { pages: v.pages, expected: v.expected });
+        jobQueue.upsertJob(jobId, { reportNote: `Printer confirmed ${n} of ${v.expected} page${v.expected === 1 ? "" : "s"}` });
+      } else {
+        jobLogger.info("printer did not confirm every page - counted as sent, as before", { reason: v?.reason, pages: v?.pages, expected: v?.expected });
+        jobQueue.upsertJob(jobId, { reportNote: "Sent to the printer; it did not confirm each page" });
+      }
+      await driveSentReports(jobId, jobLogger);
+    } catch (err) {
+      jobLogger.error("could not report the printer's verdict - the remaining reports are re-driven on the next poll", { error: err instanceof Error ? err.message : String(err) });
     }
   }
 
@@ -419,12 +487,46 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           await safeReportStatus(claimable.jobId, "failed", `raw print: ${target.reason}`);
           return procOutcome;
         }
-        const result = await rawPrint({
-          raw: { ...dl.printRequest.raw, host: target.host, port: target.port },
-          request: dl.printRequest,
-          pdf: readFileSync(localFilePath),
-          timeouts: deps.rawTimeouts,
-        });
+        const rawTarget = dl.printRequest.raw;
+        // Safety net (printer-health-gate.ts): after an unconfirmed job, one status read before sending anything more. Only a
+        // job that can still be released can wait; an older web app that already moved it on keeps today's behaviour.
+        const printerKey = `${target.host}:${target.port}`;
+        if (holdsClaim) {
+          const gate = await printerGate.check(printerKey, { host: target.host, port: target.port });
+          if (!gate.allow) {
+            jobLogger.warn("raw job not sent: the printer does not read ready after an unconfirmed job", { printer: printerKey, reason: gate.reason });
+            procOutcome.printerNotAvailable = true;
+            await releaseJobToQueue(claimable.jobId, "unavailable", gate.reason, jobLogger);
+            return procOutcome;
+          }
+        }
+        // Printer feedback needs a known page count (older servers do not send one: then nothing changes).
+        const expectedPages = dl.printRequest.expectedPages;
+        // The listen is held to the job's real lease (leaseExpiresAt from the claim): past it the stale-lease sweep would fail a job that may still print.
+        const leaseCapMs = config.printerFeedback && Number.isInteger(expectedPages) && (expectedPages as number) > 0 ? feedbackCapMs(expectedPages as number, leaseExpiresAt, now()) : null;
+        const feedback: RawListen | undefined =
+          leaseCapMs !== null
+            ? {
+                expectedPages: expectedPages as number,
+                jobToken: claimable.jobId.replace(/[^A-Za-z0-9]/g, "").slice(0, 8),
+                capMs: leaseCapMs,
+                countBaseline: true, // read the printer's page counter before the job; the rise afterwards is the dependable confirmation
+                ...deps.rawFeedbackTimings,
+                onUpdate: (u) => {
+                  if (u.attention) jobLogger.warn("printer says it needs attention", { code: u.attention.code, text: u.attention.text, pages: u.pages, expected: u.expected });
+                  else jobLogger.info("printer progress", { pages: u.pages, expected: u.expected });
+                },
+              }
+            : undefined;
+        const result = await trackSending(() =>
+          rawPrint({
+            raw: { ...rawTarget, host: target.host, port: target.port },
+            request: dl.printRequest,
+            pdf: readFileSync(localFilePath),
+            timeouts: deps.rawTimeouts,
+            ...(feedback ? { feedback } : {}),
+          }),
+        );
         if (!result.ok) {
           const decision = holdsClaim ? decideRawFailure(result.failure) : ({ action: "fail" } as const);
           if (decision.action === "release") {
@@ -447,7 +549,14 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           sentUnreported: [...(holdsClaim ? RAW_DEFERRED_STATUSES : RAW_SUCCESS_STATUSES)],
           bytesSent: result.bytesSent,
         });
-        await driveSentReports(claimable.jobId, jobLogger);
+        if (result.printerOutcome) {
+          // Report everything except the last status now, then wait (in the background) for the printer to say how it went.
+          listening.set(claimable.jobId, claimable.printerProfileId);
+          await driveSentReports(claimable.jobId, jobLogger, { holdLast: true });
+          void finishAfterPrinterVerdict(claimable.jobId, result.printerOutcome, jobLogger, printerKey);
+        } else {
+          await driveSentReports(claimable.jobId, jobLogger);
+        }
         jobLogger.info("job sent to the printer (raw port)", { bytesSent: result.bytesSent });
         return procOutcome;
       }
@@ -575,6 +684,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     for (const record of jobQueue.listActiveJobs()) {
       const jobLogger = logger.child({ jobId: record.jobId });
       // Sent to the printer before we died: only the reports are missing. Never release or fail it (a re-send prints twice).
+      if (listening.has(record.jobId)) continue;
       if (record.sentUnreported && record.sentUnreported.length > 0) {
         jobLogger.info("a job that was already sent to the printer is missing its status reports - sending them now");
         await driveSentReports(record.jobId, jobLogger);
@@ -635,6 +745,15 @@ export function createOrchestrator(deps: OrchestratorDeps) {
    * `getClaimableJobs()` itself failed after cloud-client.ts's own retries.
    */
   async function pollClaimableJobs(): Promise<boolean> {
+    return (await pollJobs(false)).ok;
+  }
+
+  /**
+   * One claimable-jobs poll. With `embedCommands` the same call also brings the pending remote commands: they are
+   * handled BEFORE any job is worked on (as the separate commands call always was), and when the website did not
+   * include them (an older website) the separate commands call is made as before. `commandsOk` is only set then.
+   */
+  async function pollJobs(embedCommands: boolean): Promise<{ ok: boolean; commandsOk?: boolean }> {
     // First, finish reporting any job that was already sent to the printer (before anything new is claimed).
     await redriveUnreported();
     // Defense in depth on top of the cloud's own refusal (see
@@ -645,20 +764,41 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     // would wrongly escalate the outer poll backoff (see CycleOutcome).
     if (healthMonitor.isPaused()) {
       logger.debug("agent is paused by an administrator - not polling for claimable jobs this cycle");
-      return true;
+      return { ok: true };
     }
 
     let jobs: ClaimableJob[];
+    let embedded: RemoteCommandEnvelope[] | undefined;
     try {
-      jobs = await cloudClient.getClaimableJobs();
+      if (embedCommands) {
+        const res = await cloudClient.getClaimableAndCommands();
+        jobs = res.jobs;
+        embedded = res.commands;
+      } else {
+        jobs = await cloudClient.getClaimableJobs();
+      }
     } catch (err) {
       logger.warn("could not fetch claimable jobs this cycle", {
         error: err instanceof Error ? err.message : String(err),
       });
-      return false;
+      return { ok: false, ...(embedCommands ? { commandsOk: false } : {}) };
+    }
+    let commandsOk: boolean | undefined;
+    if (embedCommands) {
+      if (embedded) {
+        await runCommands(embedded);
+        commandsOk = true;
+      } else {
+        // An older website (or a failed commands lookup there): ask for them separately, as before.
+        commandsOk = await pollCommands();
+      }
     }
     // The cloud lists jobs oldest first and we keep that order, one at a time.
     for (const job of jobs) {
+      if ([...listening.values()].includes(job.printerProfileId)) {
+        logger.debug("a job for this printer is still being confirmed by the printer - leaving its queued jobs alone for now", { jobId: job.jobId, printerProfileId: job.printerProfileId });
+        continue;
+      }
       const until = profileCooldownUntil.get(job.printerProfileId);
       if (until !== undefined) {
         if (now() < until) {
@@ -671,7 +811,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       if (outcome.printerNotAvailable) profileCooldownUntil.set(job.printerProfileId, now() + PROFILE_COOLDOWN_MS);
       else if (outcome.sent) profileCooldownUntil.delete(job.printerProfileId);
     }
-    return true;
+    return { ok: true, ...(commandsOk !== undefined ? { commandsOk } : {}) };
   }
 
   /**
@@ -691,6 +831,12 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       });
       return false;
     }
+    await runCommands(commands);
+    return true;
+  }
+
+  /** Handles commands the cloud handed over (from `GET commands` or embedded in the claimable-jobs answer). Never throws. */
+  async function runCommands(commands: RemoteCommandEnvelope[]): Promise<void> {
     for (const envelope of commands) {
       try {
         const result = await handleCommand(envelope, {
@@ -737,34 +883,89 @@ export function createOrchestrator(deps: OrchestratorDeps) {
       await sleep(1000);
       process.exit(1);
     }
-    return true;
   }
 
+  /** Epoch ms of the last heartbeat attempt (-Infinity = none yet, so the first cycle sends one at start-up). */
+  let lastHeartbeatAttemptAt = Number.NEGATIVE_INFINITY;
+  let lastHeartbeatOk = true;
+  let heartbeatInFlight: Promise<void> | null = null;
+  /** After a failed heartbeat, try again sooner than the normal interval (but never every cycle). */
+  const HEARTBEAT_RETRY_MS = 10_000;
+
   /**
-   * Runs the three polled sub-calls (heartbeat, commands, claimable jobs)
-   * and classifies the cycle as a whole (see CycleOutcome doc comment).
-   * None of the three sub-calls ever throws by contract, but each is still
-   * wrapped in its own `.catch()` here as defense in depth (docs/
-   * architecture.md sec 17: this loop must never die from an unexpected
-   * exception) - a caught-here exception counts the same as that sub-call
-   * reporting `false`.
+   * Starts a heartbeat in the background when one is due, and returns at once: a slow or failing heartbeat never
+   * delays the job poll (it used to run in front of it every cycle). At most one is in flight. Due = at start-up,
+   * then every `heartbeatIntervalSeconds` (sooner after a failure), and every cycle while this agent believes it is
+   * paused so a resume is noticed as fast as before.
    */
-  async function runOnce(): Promise<CycleOutcome> {
-    const heartbeatOk = await healthMonitor
+  function startHeartbeatIfDue(intervalMs: number): void {
+    if (heartbeatInFlight) return;
+    const waitMs = healthMonitor.isPaused() ? 0 : lastHeartbeatOk ? intervalMs : Math.min(intervalMs, HEARTBEAT_RETRY_MS);
+    if (now() - lastHeartbeatAttemptAt < waitMs) return;
+    lastHeartbeatAttemptAt = now();
+    heartbeatInFlight = healthMonitor
       .sendHeartbeat()
       .catch((err) => {
         logger.error("unexpected heartbeat error", { error: String(err) });
         return false;
+      })
+      .then((ok) => {
+        lastHeartbeatOk = ok;
+      })
+      .finally(() => {
+        heartbeatInFlight = null;
       });
-    const commandsOk = await pollCommands().catch((err) => {
-      logger.error("unexpected command-poll error", { error: String(err) });
-      return false;
-    });
-    const claimableOk = await pollClaimableJobs().catch((err) => {
+  }
+
+  /**
+   * Runs one poll cycle and classifies it as a whole (see CycleOutcome doc comment). No sub-call ever throws by
+   * contract, but each is still wrapped in its own `.catch()` here as defense in depth (docs/architecture.md sec 17:
+   * this loop must never die from an unexpected exception) - a caught-here exception counts the same as that
+   * sub-call reporting `false`.
+   *
+   * Normal mode (heartbeatIntervalSeconds > 0): ONE call per cycle - the claimable-jobs call also carries the pending
+   * remote commands - plus a heartbeat in the background about every 30 s. While paused, the commands are fetched
+   * separately (a paused agent does not ask for jobs) and the heartbeat goes every cycle, as before.
+   * Rollback mode (heartbeatIntervalSeconds = 0, PRINTIO_HEARTBEAT_SECONDS=0): exactly the old three calls per cycle.
+   */
+  async function runOnce(): Promise<CycleOutcome> {
+    const heartbeatMs = (config.heartbeatIntervalSeconds ?? 30) * 1000;
+    if (heartbeatMs <= 0) {
+      const heartbeatOk = await healthMonitor
+        .sendHeartbeat()
+        .catch((err) => {
+          logger.error("unexpected heartbeat error", { error: String(err) });
+          return false;
+        });
+      const commandsOk = await pollCommands().catch((err) => {
+        logger.error("unexpected command-poll error", { error: String(err) });
+        return false;
+      });
+      const claimableOk = await pollClaimableJobs().catch((err) => {
+        logger.error("unexpected job-poll error", { error: String(err) });
+        return false;
+      });
+      return classifyCycleOutcome([heartbeatOk, commandsOk, claimableOk]);
+    }
+
+    startHeartbeatIfDue(heartbeatMs);
+    if (healthMonitor.isPaused()) {
+      const commandsOk = await pollCommands().catch((err) => {
+        logger.error("unexpected command-poll error", { error: String(err) });
+        return false;
+      });
+      const claimableOk = await pollClaimableJobs().catch((err) => {
+        logger.error("unexpected job-poll error", { error: String(err) });
+        return false;
+      });
+      return classifyCycleOutcome([lastHeartbeatOk, commandsOk, claimableOk]);
+    }
+    const polled = await pollJobs(true).catch((err) => {
       logger.error("unexpected job-poll error", { error: String(err) });
-      return false;
+      return { ok: false, commandsOk: false };
     });
-    return classifyCycleOutcome([heartbeatOk, commandsOk, claimableOk]);
+    // The heartbeat's own result (from the latest finished one) still counts, so a cycle is judged as it always was.
+    return classifyCycleOutcome([lastHeartbeatOk, polled.commandsOk ?? polled.ok, polled.ok]);
   }
 
   return {
@@ -800,10 +1001,12 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           });
         }
 
+        // An admin can change the speed on the website (Print servers page); it arrives with the heartbeat.
+        const baseSeconds = effectivePollSeconds(config.pollIntervalSeconds, healthMonitor.adminPollSeconds?.() ?? null);
         let delayMs = computeNextPollDelayMs(
           consecutiveFailures,
-          config.pollIntervalSeconds,
-          config.maxPollIntervalSeconds,
+          baseSeconds,
+          Math.max(config.maxPollIntervalSeconds, baseSeconds),
         );
 
         if (outcome === "failure") {
@@ -822,7 +1025,12 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           delayMs += jitterMs;
         }
 
-        await sleep(delayMs);
+        if (cloudClient.consecutiveAuthFailures >= AUTH_FAILURE_THRESHOLD) {
+          logger.warn("the cloud keeps refusing this agent's credentials (revoked or re-enrolled?) - polling only every ~10 minutes until that changes", {
+            consecutiveAuthFailures: cloudClient.consecutiveAuthFailures,
+          });
+        }
+        await sleep(nextSleepMs(delayMs, cloudClient.consecutiveAuthFailures));
       }
     },
     stop(): void {
@@ -831,6 +1039,7 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     // Exposed so the release/cooldown behaviour can be tested without the sleeping poll loop.
     processJob,
     pollClaimableJobs,
+    runOnce,
     recoverInFlightJobs,
   };
 }

@@ -122,8 +122,7 @@ describe("CloudClient retry/backoff", () => {
       });
       const client = new CloudClient({ apiUrl: "https://c", agentId: "a", deviceSecret: "s", logger, fetchImpl: fetchImpl as unknown as typeof fetch });
 
-      const result = await client.heartbeat("1.0.0", []);
-      expect(result.ok).toBe(true);
+      await client.reportStatus("job-1", "printing");
       expect(calls).toBe(3);
     },
     10_000,
@@ -135,6 +134,36 @@ describe("CloudClient retry/backoff", () => {
 
     await expect(client.heartbeat("1.0.0", [])).rejects.toThrow(CloudApiError);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry the idempotent polls (heartbeat, commands, claimable) on 5xx or network errors: the next cycle is the retry", async () => {
+    for (const call of [
+      (c: CloudClient) => c.heartbeat("1.0.0", []),
+      (c: CloudClient) => c.getCommands(),
+      (c: CloudClient) => c.getClaimableJobs(),
+    ]) {
+      const f5xx = mockFetch(async () => jsonResponse(503, { error: { code: "UNAVAILABLE", message: "x" } }));
+      await expect(call(new CloudClient({ apiUrl: "https://c", agentId: "a", deviceSecret: "s", logger, fetchImpl: f5xx as unknown as typeof fetch }))).rejects.toThrow(CloudApiError);
+      expect(f5xx).toHaveBeenCalledTimes(1);
+      const fNet = mockFetch(async () => {
+        throw new TypeError("fetch failed");
+      });
+      await expect(call(new CloudClient({ apiUrl: "https://c", agentId: "a", deviceSecret: "s", logger, fetchImpl: fNet as unknown as typeof fetch }))).rejects.toBeInstanceOf(CloudNetworkError);
+      expect(fNet).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("counts consecutive 401/403 answers to the polls and resets on any success", async () => {
+    let status = 401;
+    const fetchImpl = mockFetch(async () => (status === 200 ? jsonResponse(200, { jobs: [] }) : jsonResponse(status, { error: { code: "unauthenticated", message: "x" } })));
+    const client = new CloudClient({ apiUrl: "https://c", agentId: "a", deviceSecret: "s", logger, fetchImpl: fetchImpl as unknown as typeof fetch });
+    await client.getClaimableJobs().catch(() => undefined);
+    status = 403;
+    await client.getClaimableJobs().catch(() => undefined);
+    expect(client.consecutiveAuthFailures).toBe(2);
+    status = 200;
+    await client.getClaimableJobs();
+    expect(client.consecutiveAuthFailures).toBe(0);
   });
 
   it(
@@ -149,4 +178,86 @@ describe("CloudClient retry/backoff", () => {
     },
     15_000,
   );
+});
+
+describe("CloudClient library worker calls (server-jobs)", () => {
+  const make = (impl: Parameters<typeof mockFetch>[0]) => {
+    const fetchImpl = mockFetch(impl);
+    const client = new CloudClient({ apiUrl: "https://cloud.example", agentId: "agent-1", deviceSecret: "s3cret", logger, fetchImpl: fetchImpl as unknown as typeof fetch });
+    return { client, fetchImpl };
+  };
+
+  it("claim: 204 is null, 200 is the job; authenticated POST to server-jobs/claim, not retried", async () => {
+    const a = make(async () => new Response(null, { status: 204 }));
+    expect(await a.client.claimLibraryJob()).toBeNull();
+    const [url, init] = a.fetchImpl.mock.calls[0]!;
+    expect(url).toBe("https://cloud.example/api/agents/server-jobs/claim");
+    expect(init?.method).toBe("POST");
+    expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer agent-1.s3cret");
+    const b = make(async () => jsonResponse(200, { jobId: "j1", kind: "library_fetch", params: { kind: "likkutei", volume: 2 } }));
+    expect(await b.client.claimLibraryJob()).toEqual({ jobId: "j1", kind: "library_fetch", params: { kind: "likkutei", volume: 2 } });
+    const c = make(async () => jsonResponse(503, { error: { code: "x", message: "down" } }));
+    await expect(c.client.claimLibraryJob()).rejects.toMatchObject({ status: 503 });
+    expect(c.fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("claim 403 throws CloudApiError but never counts toward consecutiveAuthFailures (that number slows the print loop)", async () => {
+    const { client } = make(async () => jsonResponse(403, { error: { code: "not_a_library_fetcher", message: "no" } }));
+    await expect(client.claimLibraryJob()).rejects.toBeInstanceOf(CloudApiError);
+    await expect(client.claimLibraryJob()).rejects.toMatchObject({ status: 403, code: "not_a_library_fetcher" });
+    expect(client.consecutiveAuthFailures).toBe(0);
+  });
+
+  it("claim: a network failure is a CloudNetworkError", async () => {
+    const { client } = make(async () => { throw new TypeError("fetch failed"); });
+    await expect(client.claimLibraryJob()).rejects.toBeInstanceOf(CloudNetworkError);
+  });
+
+  it("complete sends exactly { payload }; fail sends { error }; a 400 throws and is not retried", async () => {
+    const a = make(async () => jsonResponse(200, { ok: true }));
+    await a.client.completeLibraryJob("j 1", { parshiyos: [] });
+    const [url, init] = a.fetchImpl.mock.calls[0]!;
+    expect(url).toBe("https://cloud.example/api/agents/server-jobs/j%201/complete");
+    expect(JSON.parse(String(init?.body))).toEqual({ payload: { parshiyos: [] } });
+    await a.client.failLibraryJob("j1", "page not found");
+    const [url2, init2] = a.fetchImpl.mock.calls[1]!;
+    expect(url2).toBe("https://cloud.example/api/agents/server-jobs/j1/fail");
+    expect(JSON.parse(String(init2?.body))).toEqual({ error: "page not found" });
+    const b = make(async () => jsonResponse(400, { error: { code: "payload_invalid", message: "bad" } }));
+    await expect(b.client.completeLibraryJob("j1", {})).rejects.toMatchObject({ status: 400, code: "payload_invalid" });
+    expect(b.fetchImpl).toHaveBeenCalledTimes(1);
+  });
+  it("daily-missing: authenticated GET with from and days in the query, returns only the list of date strings, not retried", async () => {
+    const a = make(async () => jsonResponse(200, { missing: ["2026-11-16", "2026-11-18", 5, null] }));
+    expect(await a.client.getMissingDailyDates("2026-11-15", 7)).toEqual(["2026-11-16", "2026-11-18"]);
+    const [url, init] = a.fetchImpl.mock.calls[0]!;
+    expect(url).toBe("https://cloud.example/api/agents/library/daily-missing?from=2026-11-15&days=7");
+    expect(init?.method).toBe("GET");
+    expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer agent-1.s3cret");
+    const b = make(async () => jsonResponse(200, { nonsense: true }));
+    await expect(b.client.getMissingDailyDates("2026-11-15", 7)).rejects.toMatchObject({ code: "BAD_RESPONSE" });
+    const c = make(async () => jsonResponse(503, { error: { code: "x", message: "down" } }));
+    await expect(c.client.getMissingDailyDates("2026-11-15", 7)).rejects.toMatchObject({ status: 503 });
+    expect(c.fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("daily: authenticated POST of exactly { date, day } (no address), a 400 throws and is not retried", async () => {
+    const day = { date: "2026-11-16", studies: [] };
+    const a = make(async () => jsonResponse(200, { ok: true, inserted: 5, existing: 0 }));
+    await a.client.postDailyText("2026-11-16", day);
+    const [url, init] = a.fetchImpl.mock.calls[0]!;
+    expect(url).toBe("https://cloud.example/api/agents/library/daily");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({ date: "2026-11-16", day });
+    const b = make(async () => jsonResponse(400, { error: { code: "invalid_day", message: "bad" } }));
+    await expect(b.client.postDailyText("2026-11-16", day)).rejects.toMatchObject({ status: 400, code: "invalid_day" });
+    expect(b.fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("the two daily calls never count a 403 toward consecutiveAuthFailures (that number slows the print loop)", async () => {
+    const { client } = make(async () => jsonResponse(403, { error: { code: "not_a_library_fetcher", message: "no" } }));
+    await expect(client.getMissingDailyDates("2026-11-15", 7)).rejects.toMatchObject({ status: 403 });
+    await expect(client.postDailyText("2026-11-15", {})).rejects.toMatchObject({ status: 403 });
+    expect(client.consecutiveAuthFailures).toBe(0);
+  });
 });

@@ -20,6 +20,7 @@ import {
 import { ISSUE_KINDS, issueKindLabel, MAX_ISSUE_NOTE } from "@/lib/devices/admin";
 import { detectDeviceType, deviceAddress, deviceStatus, deviceTypeLabel, noStepsMessage, setupSteps } from "@/lib/devices/present";
 import { LocalTime } from "../jobs/LocalTime";
+import { ConnectionTest } from "./ConnectionTest";
 import {
   addDeviceAction,
   deleteDeviceAction,
@@ -54,7 +55,7 @@ const TYPE_OPTIONS: { value: string; label: string; Icon: LucideIcon }[] = [
 ];
 
 const noopSubscribe = () => () => {};
-const NO_STEPS_TYPES = new Set(["iphone", "chromebook", "other"]);
+const NO_STEPS_TYPES = new Set(["other"]);
 
 function DeviceTypeIcon({ type, className }: { type: string; className?: string }) {
   const Icon = TYPE_OPTIONS.find((o) => o.value === type)?.Icon ?? MonitorSmartphone;
@@ -71,6 +72,7 @@ export function DevicesView({ devices, startAdding = false }: { devices: DeviceI
 
   return (
     <div className="flex flex-col gap-5">
+      <BetaNote />
       {adding ? (
         <AddFlow onClose={() => setAdding(false)} />
       ) : (
@@ -109,6 +111,20 @@ function StepMarker({ step, title }: { step: 1 | 2; title: string }) {
         <span className={`h-1 w-10 rounded-full ${step === 2 ? "bg-[var(--color-primary)]" : "bg-[var(--color-border-strong)]"}`} />
       </div>
       <h2 className="mt-2 text-xl font-semibold leading-7">{title}</h2>
+    </div>
+  );
+}
+
+/** Printing from the normal Print button is still being tested; devices added earlier hold old paper choices. */
+function BetaNote() {
+  return (
+    <div role="note" className="rounded-[var(--radius-control)] bg-[var(--color-warning-soft)] px-4 py-3 text-sm text-[var(--color-warning-ink)]">
+      <p className="font-medium">Beta</p>
+      <p className="mt-1">
+        Printing from the Print button is still being tested, so some choices may not work yet. If a job does not come out, use the Print page in
+        this app. If you added a Printio printer on this device before, remove it and add it again so the device picks up the current paper
+        choices (Letter and Ledger).
+      </p>
     </div>
   );
 }
@@ -222,9 +238,9 @@ function AddressCard({ created, onDone }: { created: NonNullable<AddDeviceState[
   const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => headingRef.current?.focus(), []);
 
-  const urlBlock = <AddressBlock title="Full address (Windows and Mac need this one)" value={addr.url} copyLabel="Copy full address" highlight={guide?.needs === "url"} />;
+  const urlBlock = <AddressBlock title="Full address (Windows needs this one)" value={addr.url} copyLabel="Copy full address" highlight={guide?.needs === "url"} />;
   const hostBlock = (
-    <AddressBlock title="Hostname only (Android needs this one)" value={addr.hostname} copyLabel="Copy hostname" highlight={guide?.needs === "hostname"} />
+    <AddressBlock title="Hostname only (Android and Mac Settings need this one)" value={addr.hostname} copyLabel="Copy hostname" highlight={guide?.needs === "hostname"} />
   );
 
   return (
@@ -258,6 +274,8 @@ function AddressCard({ created, onDone }: { created: NonNullable<AddDeviceState[
         </>
       )}
 
+      <ConnectionTest deviceId={created.deviceId} hostname={created.hostname} />
+
       {guide ? (
         <div>
           <h3 className="mb-3 text-base font-semibold">Then, on your {deviceTypeLabel(created.deviceType)}</h3>
@@ -281,6 +299,13 @@ function AddressCard({ created, onDone }: { created: NonNullable<AddDeviceState[
               </li>
             ))}
           </ol>
+          {guide.profileDownload && (
+            <form method="post" action="/api/devices/airprint-profile" className="mt-4">
+              <input type="hidden" name="hostname" value={addr.hostname} />
+              <input type="hidden" name="name" value={created.name} />
+              <Button type="submit" variant="secondary">Download iPhone setup profile</Button>
+            </form>
+          )}
           {guide.command && (
             <div className="mt-4 rounded-xl border-2 border-[var(--color-border)] p-3.5">
               <p className="mb-1 text-[13px] font-medium text-[var(--color-muted)]">Line to paste into Terminal</p>
@@ -313,7 +338,7 @@ function AddressBlock({ title, value, copyLabel, highlight }: { title: string; v
 }
 
 /** The status word for the right of a closed row: short, so the name keeps its room on a phone. */
-const SHORT_STATUS: Record<string, string> = { revoked: "Off", created: "Not connected", connected: "Connected", job_received: "First print", printed: "Printed" };
+const SHORT_STATUS: Record<string, string> = { revoked: "Off", created: "Not connected", connected: "Not printed yet", job_received: "First print", printed: "Printed" };
 
 function statusTone(tone: "neutral" | "success" | "warning"): StatusTone {
   return tone;

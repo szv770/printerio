@@ -11,6 +11,7 @@ vi.mock("@/lib/jobs/create-print-job", () => ({ createPrintJob: (...args: unknow
 
 import { POST as resolvePOST } from "./device/resolve/route";
 import { POST as eventsPOST } from "./events/route";
+vi.mock("@/lib/jobs/ensure-user-code", () => ({ ensureMemberUserCode: async () => "SZV" }));
 import { POST as finalizePOST } from "./jobs/finalize/route";
 import { GET as statusGET } from "./jobs/[jobId]/route";
 import { POST as cancelPOST } from "./jobs/[jobId]/cancel/route";
@@ -49,6 +50,7 @@ function standardResponder(over: Partial<{ device: typeof device | null; member:
     if (call.table === "member_devices" && call.op === "select") return ok(dev);
     if (call.table === "organization_members") return ok(mem);
     if (call.table === "profiles") return ok({ display_name: "Ms. Cohen", email: "c@example.org" });
+    if (call.table === "printers") return ok({ name: "MLMI" });
     if (call.table === "printer_profiles") return ok(profile);
     if (call.table === "print_jobs" && call.op === "select") return ok(over.job ?? null);
     if (call.table === "print_jobs" && call.op === "update") return ok([{ id: JOB_ID }]);
@@ -131,7 +133,7 @@ describe("POST /api/gateway/device/resolve", () => {
     const res = await resolvePOST(req("/api/gateway/device/resolve", { tokenHash: HASH }));
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json).toEqual({ deviceId: DEVICE_ID, userId: USER_ID, organizationId: ORG_ID, displayName: "Ms. Cohen" });
+    expect(json).toEqual({ deviceId: DEVICE_ID, userId: USER_ID, organizationId: ORG_ID, displayName: "Ms. Cohen", deviceType: "android", printerLabel: "Printio-MLMI-SZV" });
     expect(JSON.stringify(json)).not.toContain(HASH);
 
     const lookup = fake.calls.find((c) => c.table === "member_devices" && c.op === "select")!;
@@ -146,6 +148,17 @@ describe("POST /api/gateway/device/resolve", () => {
     await resolvePOST(req("/api/gateway/device/resolve", { tokenHash: HASH }));
     const seen = fake.calls.find((c) => c.table === "member_devices" && c.op === "update")!;
     expect(seen.values).not.toHaveProperty("first_seen_at");
+  });
+
+  it("does not rewrite last_seen_at when it is under 5 minutes old, but does once it is older", async () => {
+    const seenAt = (ageMs: number) => new Date(Date.now() - ageMs).toISOString();
+    use(standardResponder({ device: { ...device, first_seen_at: seenAt(3_600_000), last_seen_at: seenAt(60_000) } as unknown as typeof device }));
+    expect((await resolvePOST(req("/api/gateway/device/resolve", { tokenHash: HASH }))).status).toBe(200);
+    expect(fake.calls.find((c) => c.table === "member_devices" && c.op === "update")).toBeUndefined();
+
+    use(standardResponder({ device: { ...device, first_seen_at: seenAt(3_600_000), last_seen_at: seenAt(10 * 60_000) } as unknown as typeof device }));
+    await resolvePOST(req("/api/gateway/device/resolve", { tokenHash: HASH }));
+    expect(fake.calls.find((c) => c.table === "member_devices" && c.op === "update")).toBeDefined();
   });
 
   it("404 unknown_device, 403 revoked, 403 inactive_member", async () => {
@@ -283,18 +296,28 @@ describe("POST /api/gateway/jobs/finalize", () => {
     createPrintJob.mockImplementation(async (_c, _s, _b, _n, opts) =>
       created("held", { heldReason: opts.forcedHeldReason }),
     );
-    const res = await finalizePOST(req("/api/gateway/jobs/finalize", goodBody({ sides: "two-sided-short-edge", media: "iso_a4_210x297mm", finishings: 21 })));
+    const res = await finalizePOST(req("/api/gateway/jobs/finalize", goodBody({ sides: "tumble", media: "iso_a4_210x297mm", finishings: 21 })));
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.status).toBe("held");
-    expect(json.message).toMatch(/short edge/);
+    expect(json.message).toMatch(/sides setting/);
     expect(json.message).toMatch(/iso_a4_210x297mm/);
     expect(json.message).toMatch(/choose it on the website/);
     const opts = createPrintJob.mock.calls[0]![4];
-    expect(opts.forcedHeldReason).toMatch(/short edge/);
+    expect(opts.forcedHeldReason).toMatch(/sides setting/);
     expect(opts.choices.staple).toBe("none");
     expect(opts.choices.booklet).toBe("none");
     expect(removed()).toHaveLength(1);
+  });
+
+  it("a short-edge flip from the dialog is passed on as a flip choice and is NOT held", async () => {
+    createPrintJob.mockImplementation(async (_c, _s, _b, _n, opts) => created(opts.forcedHeldReason ? "held" : "approved", { heldReason: opts.forcedHeldReason }));
+    const res = await finalizePOST(req("/api/gateway/jobs/finalize", goodBody({ sides: "two-sided-short-edge" })));
+    expect(res.status).toBe(200);
+    expect((await res.json()).status).not.toBe("held");
+    const opts = createPrintJob.mock.calls[0]![4];
+    expect(opts.forcedHeldReason ?? null).toBeNull();
+    expect(opts.choices).toMatchObject({ sides: "two", flip: "short" });
   });
 
   it("denied by policy: 200 with the state and the first policy reason", async () => {

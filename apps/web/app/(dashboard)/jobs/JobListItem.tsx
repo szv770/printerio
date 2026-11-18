@@ -4,7 +4,7 @@ import { routes } from "@/lib/routes";
 import { Badge } from "@/components/ui";
 import { jobAttentionLine } from "@/lib/job-progress";
 import { jobWaitingLine } from "@/lib/job-waiting";
-import { ReprintButton } from "./[id]/ReprintButton";
+import { PrintAgainLink } from "./[id]/ReprintButton";
 import { CancelJobButton } from "./[id]/CancelJobButton";
 import { JobStatusBadge } from "./JobStatusBadge";
 import { JobProgressBar } from "./JobProgressBar";
@@ -94,7 +94,7 @@ export function JobListItem({ job, eventTypes }: { job: JobRow; eventTypes?: str
             </p>
           )}
           {canCancel && <CancelJobButton jobId={job.id} compact />}
-          {showReprint && <ReprintButton jobId={job.id} />}
+          {showReprint && <PrintAgainLink jobId={job.id} />}
         </div>
       )}
     </li>

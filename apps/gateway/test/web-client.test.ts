@@ -8,6 +8,18 @@ function client(fetchImpl: typeof fetch, extra: { now?: () => number } = {}) {
   return createWebClient({ baseUrl: "https://web.test/", secret: "s".repeat(32), fetchImpl, ...extra });
 }
 
+describe("web client printer label", () => {
+  it("passes the printer label through when the web app sends one, and tolerates it being absent", async () => {
+    const withLabel = vi.fn(async () => json(200, { deviceId: "d", userId: "u", organizationId: "o", displayName: "P", printerLabel: "Printio-MLMI-SZV" }));
+    expect(await client(withLabel as unknown as typeof fetch).resolveDevice("h1")).toMatchObject({ kind: "ok", device: { printerLabel: "Printio-MLMI-SZV" } });
+    const without = vi.fn(async () => json(200, { deviceId: "d", userId: "u", organizationId: "o", displayName: "P" }));
+    const r = await client(without as unknown as typeof fetch).resolveDevice("h2");
+    expect(r.kind === "ok" && r.device.printerLabel).toBeUndefined();
+    const typed = vi.fn(async () => json(200, { deviceId: "d", userId: "u", organizationId: "o", displayName: "P", deviceType: "iphone" }));
+    expect(await client(typed as unknown as typeof fetch).resolveDevice("h3")).toMatchObject({ kind: "ok", device: { deviceType: "iphone" } });
+  });
+});
+
 describe("web client", () => {
   it("sends the Bearer secret and caches a positive resolve for 60 s", async () => {
     let t = 0;

@@ -15,6 +15,7 @@ import { hasActiveCommand } from "@/lib/command-result";
 import { deriveUpdateView, isUpdateLive } from "@/lib/update-progress";
 import { AgentDetail } from "./AgentDetail";
 import { CommandAutoRefresh } from "./CommandAutoRefresh";
+import { refreshIntervalMs } from "@/lib/ui/command-refresh";
 
 /** How many recently-issued remote commands to show. Enough to see whether the
  *  button you just pressed was actually picked up and what the Agent answered,
@@ -73,6 +74,11 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
         .select("printer_profile_id, created_at, status")
         .eq("organization_id", orgId)
         .in("printer_profile_id", profileIds)
+        // Bounded: recent usage only (this page's usage numbers cover the last 30 days).
+        // eslint-disable-next-line react-hooks/purity
+        .gte("created_at", new Date(Date.now() - 30 * 86_400_000).toISOString())
+        .order("created_at", { ascending: false })
+        .limit(1000)
     : { data: [] };
 
   const [{ data: leasedJobs }, { data: commands, error: commandsError }, { data: pausedByProfile }] = await Promise.all([
@@ -134,14 +140,14 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
   return (
     <div className="mx-auto max-w-3xl">
       <Link
-        href={routes.adminAgents}
+        href={`${routes.adminAgents}?manage=1`}
         className="mb-4 inline-flex items-center gap-1 text-sm text-[var(--color-muted)] hover:underline"
       >
         <ArrowLeft className="h-4 w-4" />
-        Back to print servers
+        Manage print servers (rename, delete, setup code)
       </Link>
 
-      <CommandAutoRefresh active={live} everyMs={updateLive ? 2_000 : undefined} />
+      <CommandAutoRefresh active={live} everyMs={refreshIntervalMs(updateLive)} />
 
       <PageHeader
         title={agent.name}

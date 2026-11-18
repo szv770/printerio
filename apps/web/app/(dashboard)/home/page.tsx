@@ -11,6 +11,8 @@ import { InstallCard } from "@/components/pwa/InstallCard";
 import { BigPrintCard } from "@/components/home/BigPrintCard";
 import { StatusCards } from "@/components/home/StatusCards";
 import { RecentJobs } from "@/components/home/RecentJobs";
+import { SetupFeedbackCard } from "@/components/devices/SetupFeedbackCard";
+import { listFeedbackCardDevices } from "@/lib/devices/setup-feedback-server";
 
 const RECENT_JOBS_LIMIT = 5;
 const COUNT_CAP = 100;
@@ -67,9 +69,10 @@ export default async function DashboardHomePage() {
     department: session.membership.department,
     groupIds: (groupRows ?? []).map((g) => g.group_id),
   };
-  const [limit, usage] = await Promise.all([
+  const [limit, usage, feedbackDevices] = await Promise.all([
     getApplicableQuotaLimit(supabase, ctx),
     getUsageSnapshot(supabase, orgId, session.userId, currentPeriod()),
+    listFeedbackCardDevices(supabase, { userId: session.userId, organizationId: orgId }),
   ]);
 
   const open = openJobs ?? [];
@@ -96,6 +99,7 @@ export default async function DashboardHomePage() {
         <BigPrintCard hint="Upload a PDF and choose your options." tourId="home-print-cta" />
       </div>
       <PendingShareBanner where="home" />
+      <SetupFeedbackCard devices={feedbackDevices} />
       <InstallCard />
       <StatusCards cards={cards} />
       <div className="mb-3 flex items-center justify-between">

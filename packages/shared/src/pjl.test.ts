@@ -1,7 +1,80 @@
 import { describe, expect, it } from "vitest";
-import { buildPjlSettings, buildRawJob, sanitizePjlText } from "./pjl";
+import { buildPjlSettings, buildRawJob, MEDIATYPE_CARDSTOCK_UNPROVEN, PROVEN_FINISHING_COMBOS, sanitizePjlText, uniquePjlJobName } from "./pjl";
 
 const base = { copies: 1, colorMode: "color" as const, duplex: true, jobName: "Quiz 3" };
+
+describe("buildPjlSettings: 11x17 (ledger) paper", () => {
+  const booklet = { ...base, booklet: true, bindingSide: "left" as const };
+  it("a ledger booklet adds PAPER=LEDGER after the proven booklet settings (proven by a real print, 2026-10-26)", () => {
+    const r = buildPjlSettings({ ...booklet, paper: "ledger" });
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.settings.slice(0, 5)).toEqual(["DUPLEX=ON", "BINDING=SHORTEDGE", "OUTBIN=KBOOKLET", "FINISH=KFOLD", "PAPER=LEDGER"]);
+  });
+  it("a plain ledger job also gets PAPER=LEDGER, and a normal job never does", () => {
+    const plain = buildPjlSettings({ ...base, duplex: true, duplexEdge: "short", paper: "ledger" });
+    if (!plain.ok) throw new Error(plain.reason);
+    expect(plain.settings).toContain("PAPER=LEDGER");
+    for (const o of [{ ...base }, { ...booklet }, { ...base, paper: undefined }]) {
+      const r = buildPjlSettings(o);
+      if (!r.ok) throw new Error(r.reason);
+      expect(r.settings.join(" ")).not.toMatch(/PAPER/);
+    }
+  });
+});
+
+describe("cardstock (MEDIATYPE, UNPROVEN) and plain jobs", () => {
+  const pdf = new TextEncoder().encode("%PDF-1.4\n%%EOF");
+  const UEL = "\x1b%-12345X";
+  const text = (b: Uint8Array) => Array.from(b, (c) => String.fromCharCode(c)).join("");
+
+  it("a plain job's bytes are EXACTLY what was sent before the paper type existed (byte for byte)", () => {
+    const r = buildRawJob({ copies: 2, colorMode: "bw", duplex: false, jobName: "Quiz 3" }, pdf);
+    if (!r.ok) throw new Error(r.reason);
+    expect(text(r.bytes)).toBe(
+      `${UEL}@PJL\r\n@PJL JOB NAME="Quiz 3"\r\n@PJL SET DUPLEX=OFF\r\n@PJL SET QTY=2\r\n@PJL ENTER LANGUAGE=PDF\r\n%PDF-1.4\n%%EOF\r\n${UEL}@PJL EOJ NAME="Quiz 3"\r\n${UEL}`,
+    );
+  });
+
+  it("plain double-sided short edge with a corner staple, a ledger booklet and a punched job keep their exact settings (no MEDIATYPE anywhere)", () => {
+    const settings = (o: Parameters<typeof buildPjlSettings>[0]) => {
+      const r = buildPjlSettings(o);
+      if (!r.ok) throw new Error(r.reason);
+      return r.settings;
+    };
+    expect(settings({ copies: 1, colorMode: "bw", duplex: true, jobName: "x", duplexEdge: "short" })).toEqual(["DUPLEX=ON", "BINDING=SHORTEDGE", "QTY=1"]);
+    expect(settings({ copies: 3, colorMode: "bw", duplex: true, jobName: "x", staple: "top-left" })).toEqual(["DUPLEX=ON", "BINDING=LONGEDGE", "OUTBIN=OPTIONFACEDOWN", "STAPLEOPTION=ONE", "FINISH=STAPLE", "QTY=3"]);
+    expect(settings({ copies: 1, colorMode: "bw", duplex: true, jobName: "x", booklet: true, bindingSide: "right", paper: "ledger" })).toEqual([
+      "DUPLEX=ON",
+      "BINDING=SHORTEDGE",
+      "OUTBIN=KBOOKLET",
+      "FINISH=KFOLD",
+      "PAPER=LEDGER",
+      "QTY=1",
+    ]);
+    expect(settings({ copies: 1, colorMode: "bw", duplex: false, jobName: "x", punch: true })).toEqual(["DUPLEX=OFF", "OUTBIN=OPTIONFACEDOWN", "FINISH=KPUNCH", "QTY=1"]);
+    // An explicit "no media type" is the same as none.
+    const none = buildRawJob({ copies: 2, colorMode: "bw", duplex: false, jobName: "Quiz 3", mediaType: undefined }, pdf);
+    const plain = buildRawJob({ copies: 2, colorMode: "bw", duplex: false, jobName: "Quiz 3" }, pdf);
+    expect(none).toEqual(plain);
+  });
+
+  it("cardstock sends the (unproven) MEDIATYPE line, once, before the copies; nothing else changes", () => {
+    expect(MEDIATYPE_CARDSTOCK_UNPROVEN).toBe("MEDIATYPE=CARDSTOCK");
+    const r = buildPjlSettings({ copies: 2, colorMode: "bw", duplex: false, jobName: "x", mediaType: "cardstock" });
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.settings).toEqual(["DUPLEX=OFF", "MEDIATYPE=CARDSTOCK", "QTY=2"]);
+    const job = buildRawJob({ copies: 1, colorMode: "bw", duplex: false, jobName: "x", mediaType: "cardstock" }, pdf);
+    if (!job.ok) throw new Error(job.reason);
+    expect(text(job.bytes).match(/MEDIATYPE=CARDSTOCK/g)).toHaveLength(1);
+  });
+
+  it("cardstock can be combined with a staple, a corner flip and double-sided (the printer's own rules apply) but never with a booklet or a ledger sheet", () => {
+    const ok = buildPjlSettings({ copies: 1, colorMode: "bw", duplex: true, jobName: "x", staple: "top-left", mediaType: "cardstock" });
+    expect(ok).toMatchObject({ ok: true });
+    expect(buildPjlSettings({ copies: 1, colorMode: "bw", duplex: true, jobName: "x", booklet: true, bindingSide: "left", mediaType: "cardstock" })).toMatchObject({ ok: false, reason: expect.stringMatching(/cardstock/) });
+    expect(buildPjlSettings({ copies: 1, colorMode: "bw", duplex: false, jobName: "x", paper: "ledger", mediaType: "cardstock" })).toMatchObject({ ok: false, reason: expect.stringMatching(/Letter/) });
+  });
+});
 
 describe("buildPjlSettings", () => {
   it("one-sided", () => {
@@ -14,6 +87,30 @@ describe("buildPjlSettings", () => {
     const r = buildPjlSettings(base);
     if (!r.ok) throw new Error(r.reason);
     expect(r.settings).toEqual(expect.arrayContaining(["DUPLEX=ON", "BINDING=LONGEDGE", "QTY=1"]));
+  });
+
+  it("duplex short edge sends BINDING=SHORTEDGE (plain documents, not only booklets)", () => {
+    const r = buildPjlSettings({ ...base, duplex: true, duplexEdge: "short" });
+    if (!r.ok) throw new Error(r.reason);
+    expect(r.settings).toEqual(expect.arrayContaining(["DUPLEX=ON", "BINDING=SHORTEDGE", "QTY=1"]));
+    expect(r.settings).not.toContain("BINDING=LONGEDGE");
+  });
+
+  it("an explicit long edge, or no edge, stays long edge; single-sided ignores the edge", () => {
+    for (const duplexEdge of ["long", undefined] as const) {
+      const r = buildPjlSettings({ ...base, duplex: true, duplexEdge });
+      if (!r.ok) throw new Error(r.reason);
+      expect(r.settings).toContain("BINDING=LONGEDGE");
+    }
+    const one = buildPjlSettings({ ...base, duplex: false, duplexEdge: "short" });
+    if (!one.ok) throw new Error(one.reason);
+    expect(one.settings).toContain("DUPLEX=OFF");
+    expect(one.settings.join()).not.toContain("BINDING");
+  });
+
+  it("short edge together with a staple is refused (the corner is not known for that combination)", () => {
+    const r = buildPjlSettings({ ...base, duplex: true, duplexEdge: "short", staple: "top-left" });
+    expect(r.ok).toBe(false);
   });
 
   it("copies map to QTY", () => {
@@ -113,5 +210,100 @@ describe("buildRawJob", () => {
   it("propagates a hold", () => {
     const r = buildRawJob({ ...base, copies: 0 }, new Uint8Array([1]));
     expect(r.ok).toBe(false);
+  });
+});
+
+describe("buildRawJob: printer feedback (USTATUS)", () => {
+  const dec = (b: Uint8Array) => Buffer.from(b).toString("latin1");
+  const pdf = new TextEncoder().encode("%PDF-1.4 x");
+  it("off (the default): byte-identical to before, no USTATUS lines", () => {
+    const r = buildRawJob(base, pdf);
+    if (!r.ok) throw new Error(r.reason);
+    expect(dec(r.bytes)).not.toContain("USTATUS");
+  });
+  it("on: only JOB=ON and DEVICE=ON (the printer's defaults) come before the JOB line; never PAGE, TIMED or VERBOSE", () => {
+    const r = buildRawJob({ ...base, ustatus: true }, pdf);
+    if (!r.ok) throw new Error(r.reason);
+    const s = dec(r.bytes);
+    expect(s).toContain("@PJL\r\n@PJL USTATUS JOB=ON\r\n@PJL USTATUS DEVICE=ON\r\n@PJL JOB NAME=");
+    expect(s).not.toMatch(/PAGE=|TIMED|VERBOSE/);
+  });
+});
+
+describe("uniquePjlJobName", () => {
+  it("appends the token to the title", () => {
+    expect(uniquePjlJobName("Report", "a1b2c3d4")).toBe("Report a1b2c3d4");
+  });
+  it("keeps the token when the title is too long (60 chars total)", () => {
+    const n = uniquePjlJobName("x".repeat(100), "a1b2c3d4");
+    expect(n.length).toBe(60);
+    expect(n.endsWith(" a1b2c3d4")).toBe(true);
+  });
+  it("sanitises the title and the token, and falls back to printio", () => {
+    expect(uniquePjlJobName('a"b@PJL', "ab-cd!ef")).toBe("abPJL abcdef");
+    expect(uniquePjlJobName("", "abc")).toBe("printio abc");
+  });
+  it("the same title with different tokens differs", () => {
+    expect(uniquePjlJobName("Same", "aaaaaaaa")).not.toBe(uniquePjlJobName("Same", "bbbbbbbb"));
+  });
+});
+
+describe("buildPjlSettings: dual staple left and 3-hole punch", () => {
+  const base = { copies: 1, colorMode: "bw" as const, duplex: false, jobName: "t" };
+  const ok = (o: Parameters<typeof buildPjlSettings>[0]) => {
+    const r = buildPjlSettings(o);
+    if (!r.ok) throw new Error(r.reason);
+    return r.settings;
+  };
+
+  it("dual staple left, single-sided: the labelled-print settings (2026-11-01)", () => {
+    expect(ok({ ...base, staple: "dual-left" })).toEqual(["DUPLEX=OFF", "OUTBIN=OPTIONFACEDOWN", "STAPLEOPTION=TWO", "FINISH=STAPLE", "QTY=1"]);
+  });
+
+  it("3-hole punch, single-sided: the labelled-print settings (2026-11-01)", () => {
+    expect(ok({ ...base, punch: true })).toEqual(["DUPLEX=OFF", "OUTBIN=OPTIONFACEDOWN", "FINISH=KPUNCH", "QTY=1"]);
+  });
+
+  it("3-hole punch, double-sided long edge: proven by a labelled print (P1, 2026-11-01)", () => {
+    expect(ok({ ...base, duplex: true, punch: true })).toEqual(["DUPLEX=ON", "BINDING=LONGEDGE", "OUTBIN=OPTIONFACEDOWN", "FINISH=KPUNCH", "QTY=1"]);
+  });
+
+  it("3-hole punch with a top-left staple, single-sided: proven by a labelled print (P2, 2026-11-01)", () => {
+    expect(ok({ ...base, punch: true, staple: "top-left" })).toEqual(["DUPLEX=OFF", "OUTBIN=OPTIONFACEDOWN", "STAPLEOPTION=ONE", "FINISH=KPNCHANDSTPL", "QTY=1"]);
+  });
+
+  it("dual staple on a double-sided job stays held: the printer gave ONE top-left staple, not two on the left (P3, 2026-11-01)", () => {
+    const r = buildPjlSettings({ ...base, duplex: true, staple: "dual-left" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/not tested on this printer yet/i);
+  });
+
+  it("the table lists four proven entries and one that did not work", () => {
+    expect(PROVEN_FINISHING_COMBOS.filter((c) => c.proven)).toHaveLength(4);
+    expect(PROVEN_FINISHING_COMBOS.filter((c) => !c.proven)).toHaveLength(1);
+    for (const c of PROVEN_FINISHING_COMBOS) expect(c.proof.length).toBeGreaterThan(5);
+  });
+
+  it("an entry flipped to proven is delivered", () => {
+    const entry = PROVEN_FINISHING_COMBOS.find((c) => c.duplex && c.staple === "dual-left")!;
+    entry.proven = true;
+    try {
+      expect(ok({ ...base, duplex: true, staple: "dual-left" })).toEqual(["DUPLEX=ON", "BINDING=LONGEDGE", "OUTBIN=OPTIONFACEDOWN", "STAPLEOPTION=TWO", "FINISH=STAPLE", "QTY=1"]);
+    } finally {
+      entry.proven = false;
+    }
+  });
+
+  it("always held: booklet, short-edge flip, punch together with two staples", () => {
+    expect(buildPjlSettings({ ...base, duplex: true, booklet: true, bindingSide: "left", punch: true }).ok).toBe(false);
+    expect(buildPjlSettings({ ...base, duplex: true, booklet: true, bindingSide: "left", staple: "dual-left" }).ok).toBe(false);
+    expect(buildPjlSettings({ ...base, duplex: true, duplexEdge: "short", punch: true }).ok).toBe(false);
+    expect(buildPjlSettings({ ...base, duplex: true, duplexEdge: "short", staple: "dual-left" }).ok).toBe(false);
+    expect(buildPjlSettings({ ...base, punch: true, staple: "dual-left" }).ok).toBe(false);
+    expect(buildPjlSettings({ ...base, punch: true, staple: "top-right" }).ok).toBe(false);
+  });
+
+  it("existing corner staples are untouched", () => {
+    expect(ok({ ...base, staple: "top-left" })).toContain("STAPLEOPTION=ONE");
   });
 });

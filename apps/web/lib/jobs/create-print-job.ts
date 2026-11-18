@@ -1,16 +1,20 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
 import { preflightPdf } from "@/lib/pdf/preflight";
-import { padAndImposeBooklet } from "@/lib/pdf/booklet-build";
+import { TYPE3_HELD_MESSAGE } from "@/lib/pdf/type3-fonts";
+import { withSizeAliases } from "@/lib/paper-sizes";
+import { rasterizePdf } from "@/lib/pdf/type3-rasterize";
+import { bookletSheetChoice, padAndImposeBooklet, type BookletSheet } from "@/lib/pdf/booklet-build";
 import type { BookletFit } from "@/lib/pdf/imposition";
 import { containsPjlEscape, PJL_ESCAPE_MESSAGE, computePrintMath, computeCostCents, computeBookletPadding, type PolicyAction, type PricingConfig, type OrgRole } from "@printio/shared";
 import { createPageSubsetPdf } from "@/lib/pdf/page-subset";
 import { stampFirstPage } from "@/lib/pdf/stamp";
+import { checkTextFidelity, TEXT_CHANGED_MESSAGE } from "@/lib/pdf/text-fidelity";
 import { buildStampText, normalizeStampSettings } from "@/lib/jobs/user-code";
 import { ensureMemberUserCode } from "@/lib/jobs/ensure-user-code";
 import { checkQueueCapabilities, mapQueueChoices, mapRawChoices, planPageSubset, type BindingSide, type PrintChoices } from "@/lib/print-choices";
 import { evaluateJobPolicy } from "@/lib/policy/build-facts";
-import { didBypassChangeOutcome, isAdminExemptFromRestrictions } from "@/lib/policy/admin-bypass";
+import { approverSkipsApproval, didBypassChangeOutcome, isAdminExemptFromRestrictions } from "@/lib/policy/admin-bypass";
 import { adjustMonthlyUsage, usageAmountsForJob, type UsageAmounts } from "@/lib/quota";
 import { jobFilePath, PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { logger } from "@/lib/logger";
@@ -40,6 +44,8 @@ export interface JobOptions {
   confirmBookletPadding: boolean;
   /** Booklet jobs only. "fill" (default; also what IPP / gateway jobs get) crops the document's own blank margins so the content fills the page; "keep" scales the whole page as before. Stored in print_jobs.finishing. */
   bookletFit?: BookletFit;
+  /** Booklet jobs only. "tabloid" = Letter pages at full size on an 11x17 sheet (whole page kept, no crop); default "letter" = regular statement-size pages. Stored in print_jobs.finishing; the row's paper_size becomes tabloid. */
+  bookletSheet?: BookletSheet;
   /** Create the job as held with this plain-language reason (wins over the printer's own held reason). */
   forcedHeldReason?: string;
   /** Where the job came from. Default "web". */
@@ -50,6 +56,12 @@ export interface JobOptions {
   /** Client for every write (quota, storage, print_jobs, events). The website passes the service-role client; defaults to the main client (the gateway already is service-role). */
   writeClient?: SupabaseClient<Database>;
 }
+
+/** The most sheets of paper one job may use (pages x copies, halved when double-sided). Applies to everyone, admins included. */
+export const MAX_SHEETS_PER_JOB = 300;
+/** How many jobs one person may have waiting or printing at the same time. */
+export const MAX_OPEN_JOBS_PER_USER = 10;
+const OPEN_JOB_STATUSES = ["held", "pending_approval", "approved", "claimed", "downloading", "downloaded", "printing", "submitted_to_spooler"];
 
 export type CreatePrintJobErrorCode =
   | "invalid_request"
@@ -113,6 +125,7 @@ export async function createPrintJob(
   const { printerProfileId, choices, confirmBookletPadding } = opts;
   const source = opts.source ?? "web";
   const bookletFit: BookletFit = opts.bookletFit === "keep" ? "keep" : "fill";
+  const bookletSheet: BookletSheet = bookletSheetChoice(opts.bookletSheet);
   // Reads go through `supabase`; every WRITE (quota reserve/release, storage upload/remove, the print_jobs insert,
   // the event trail) goes through `writer`. The website passes the service-role client here after its own session
   // checks, so members need no INSERT/UPDATE rights on print_jobs, monthly_usage or the print-jobs bucket
@@ -137,6 +150,18 @@ export async function createPrintJob(
     logger.error("rate limit check failed", { userId: session.userId, error: rateLimitError.message });
   } else if (!withinLimit) {
     return fail("You're submitting jobs too quickly. Wait a few minutes and try again.", "rate_limited");
+  }
+
+  // One person cannot stack up an endless queue (paper, toner and everyone else's waiting time). Checked before any
+  // expensive work. A failed count is not a reason to refuse the job.
+  const { count: openJobs } = await writer
+    .from("print_jobs")
+    .select("id", { count: "exact", head: true })
+    .eq("created_by", session.userId)
+    .eq("organization_id", organizationId)
+    .in("status", OPEN_JOB_STATUSES);
+  if ((openJobs ?? 0) >= MAX_OPEN_JOBS_PER_USER) {
+    return fail(`You already have ${MAX_OPEN_JOBS_PER_USER} jobs waiting or printing. Wait for some to finish, or cancel one, then try again.`, "rate_limited");
   }
 
   // Independent lookups - the profile doesn't gate the settings read or vice
@@ -171,24 +196,41 @@ export async function createPrintJob(
   let paperSize: string;
   let staplePosition: "top-left" | "top-right" | null;
   let bindingSide: BindingSide | null;
+  let duplexEdge: "short" | null = null;
+  let stapleStyle: "dual-left" | null = null;
+  let paperType: "cardstock" | null = null;
   let heldReason: string | null = null;
   const copies = choices.copies;
   if (printerProfile.output_mode === "raw") {
-    const caps = printerProfile.declared_capabilities as { duplex?: boolean; staple?: boolean; booklet?: boolean } | null;
+    const caps = printerProfile.declared_capabilities as { duplex?: boolean; staple?: boolean; booklet?: boolean; punch?: boolean } | null;
     const mapped = mapRawChoices(choices, {
-      capabilities: { duplex: !!caps?.duplex, staple: !!caps?.staple, booklet: !!caps?.booklet },
+      capabilities: { duplex: !!caps?.duplex, staple: !!caps?.staple, booklet: !!caps?.booklet, punch: !!caps?.punch },
       bookletBindingSide: profileBindingSide,
       stapleDefault: printerProfile.raw_staple_position === "top-right" ? "top-right" : "top-left",
-      declaredPaperSizes: printerProfile.declared_paper_sizes,
+      declaredPaperSizes: withSizeAliases(printerProfile.declared_paper_sizes),
     });
     ({ duplex, colorMode, paperSize, staplePosition, bindingSide, heldReason } = mapped);
+    duplexEdge = mapped.duplexEdge;
     staple = mapped.finishing.staple;
     booklet = mapped.finishing.booklet;
-    punch = false; // the raw builder has no punch setting, so it is never requested
+    // Hole punch and two staples (left) are proven single-sided (PROVEN_FINISHING_COMBOS in packages/shared/src/pjl.ts); mapRawChoices holds the rest.
+    punch = mapped.finishing.punch;
+    stapleStyle = mapped.finishing.stapleStyle ?? null;
+    if (opts.paperSize === "11x17" && !booklet) {
+      // Ledger from the print dialog: only for a printer that declares 11x17, never silently printed on Letter.
+      if (withSizeAliases(printerProfile.declared_paper_sizes).includes("11x17")) paperSize = "11x17";
+      else heldReason = heldReason ?? "This printer is not set up for 11x17 paper yet, so nothing was printed. Ask your administrator, or use the website.";
+    }
+    // Cardstock (the bypass tray, UNPROVEN: see MEDIATYPE_CARDSTOCK_UNPROVEN) is loaded in Letter size only.
+    paperType = mapped.paperType;
+    if (paperType && paperSize === "11x17") heldReason = heldReason ?? "Cardstock is only loaded in Letter size, so nothing was printed. Choose Letter or plain paper.";
   } else {
     const mapped = mapQueueChoices(choices, { bookletBindingSide: profileBindingSide });
     ({ duplex, staple, booklet, staplePosition, bindingSide } = mapped);
-    ({ colorMode, paperSize, punch } = opts);
+    ({ colorMode, paperSize } = opts);
+    punch = opts.punch || !!choices.punch;
+    // A Windows queue staples at its own fixed corner: it cannot be told to staple twice on the left.
+    if (choices.staple === "dual-left") return fail("This printer can't do Two staples (left). Choose a corner staple or no staple.", "unsupported_option");
     // The server is the authority on what a queue printer offers: refuse (inline, not held) anything the
     // profile does not declare, instead of sending it to a queue that would silently ignore it.
     const unsupported = checkQueueCapabilities(
@@ -196,11 +238,15 @@ export async function createPrintJob(
       printerProfile.declared_capabilities as { duplex?: boolean; staple?: boolean; booklet?: boolean; punch?: boolean } | null,
     );
     if (unsupported) return fail(unsupported, "unsupported_option");
+    // A Windows queue cannot be told which edge to flip on from here: hold it with a plain reason, never print it the wrong way.
+    if (choices.flip === "short" && duplex && !booklet) heldReason = "This printer is not set up to flip on the short edge, so nothing was printed. Choose double-sided (long edge).";
+    // Nor can it be told the paper type: only a raw-port printer can ask for the bypass tray's cardstock.
+    if (choices.paper === "cardstock") heldReason = heldReason ?? "This printer is not set up to choose cardstock, so nothing was printed. Choose plain paper.";
   }
   // The caller can force a hold with its own plain-language reason (the IPP gateway does this for anything the
   // print dialog asked for that the website pipeline cannot honour). It wins over the printer's own reason.
   if (opts.forcedHeldReason) heldReason = opts.forcedHeldReason;
-  const held = heldReason !== null;
+  let held = heldReason !== null;
 
   const maxUploadBytes = settings?.max_upload_size_bytes ?? 52428800;
   const quotaBasis = (settings?.quota_basis ?? "physical_sheets") as
@@ -220,12 +266,27 @@ export async function createPrintJob(
 
   const preflight = await preflightPdf(originalBytes, { maxSizeBytes: maxUploadBytes });
   if (!preflight.ok) return fail(preflight.reason, "bad_pdf");
+  // Type 3 fonts have crashed the printer's PDF reader (2026-11-15). Printio draws such a file page by page into a
+  // picture copy (lib/pdf/type3-rasterize.ts) and prints that instead; if it cannot (too many pages, too slow), the job
+  // is held with a plain message. PRINTIO_ALLOW_TYPE3_FONTS=1 sends them as they are again.
+  let pictureCopy: Uint8Array | null = null;
+  if (preflight.hasType3Fonts && process.env.PRINTIO_ALLOW_TYPE3_FONTS !== "1" && !heldReason) {
+    const drawn = await rasterizePdf(preflight.sanitizedBytes ?? originalBytes, { color: colorMode === "color" });
+    if (drawn.ok) {
+      pictureCopy = drawn.bytes;
+      logger.warn("PDF has Type 3 fonts; printing a picture copy", { organizationId, printerProfileId, pages: drawn.pages });
+    } else {
+      logger.warn("PDF has Type 3 fonts and could not be converted; job held", { organizationId, printerProfileId, reason: drawn.reason });
+      heldReason = TYPE3_HELD_MESSAGE;
+      held = true;
+    }
+  }
 
   // Attachments, JavaScript and launch actions are stripped rather than refused (a teacher cannot fix them, and
   // the Android print service adds one). The upload is still stored untouched as the original; everything that
   // prints is built from the sanitized copy, so a sanitized job always gets a derived file (the Agent prints the
   // derived file whenever there is one).
-  const sanitized = preflight.sanitizedBytes ?? null;
+  const sanitized = pictureCopy ?? preflight.sanitizedBytes ?? null;
   const sourceBytes = sanitized ?? originalBytes;
 
   // The page range is applied FIRST, so booklet padding, imposition, print math, policy and quota all work
@@ -308,6 +369,7 @@ export async function createPrintJob(
         // on the job, so imposition, the Agent and a re-print all agree on it.
         bindingSide: bindingSide ?? profileBindingSide,
         fit: bookletFit,
+        sheet: bookletSheet,
       });
       effectivePageCount = built.paddedPages;
       blankPagesAdded = built.blankPagesAdded;
@@ -361,11 +423,35 @@ export async function createPrintJob(
     }
   }
 
+  // Text safeguard: whatever the steps above did, the file that prints must say what the upload said. Only runs
+  // when there is a derived file and the original has non-Latin text (Hebrew etc.); fails open (a check that errors
+  // or runs out of time lets the job through and logs a warning). A real mismatch holds the job with a plain reason:
+  // nothing is stored as derived, no quota is reserved, and releasing it re-runs this same check.
+  // A picture copy has no text by design, so the check would always call it changed: it is skipped for those.
+  if (!held && derivedBytes && !pictureCopy) {
+    const fidelity = await checkTextFidelity({ original: originalBytes, derived: derivedBytes, sourcePages: plan.subsetPages ?? null, booklet });
+    if (fidelity.status === "changed") {
+      logger.error("derived PDF text differs from the upload; job held", { organizationId, printerProfileId, page: fidelity.page, booklet, pageRange: pageRangeText });
+      heldReason = TEXT_CHANGED_MESSAGE;
+      held = true;
+      derivedBytes = null;
+      effectivePageCount = booklet ? computeBookletPadding(sourcePages).paddedPages : sourcePages;
+    } else if (fidelity.status === "skipped" && fidelity.reason !== "no non-Latin text") {
+      logger.warn("text check skipped", { organizationId, reason: fidelity.reason });
+    }
+  }
+
   // Last line of defence (security review F1): nothing that would be streamed to a printer may carry its escape
   // sequences, whichever step produced it.
   if (derivedBytes && containsPjlEscape(derivedBytes)) return fail(PJL_ESCAPE_MESSAGE, "bad_pdf");
 
   const printMath = computePrintMath({ pageCount: effectivePageCount, copies, duplex, booklet });
+  if (printMath.physicalSheets > MAX_SHEETS_PER_JOB) {
+    return fail(
+      `This job would use about ${printMath.physicalSheets} sheets of paper, and the limit for one job is ${MAX_SHEETS_PER_JOB}. Print fewer copies or pages, or split it into several jobs.`,
+      "too_large",
+    );
+  }
   const pricing = (printerProfile.pricing as unknown as PricingConfig | null) ?? null;
   const costCents = computeCostCents({
     printedSides: printMath.printedSides,
@@ -418,7 +504,11 @@ export async function createPrintJob(
     adminExempt = isAdminExemptFromRestrictions(session.membership.role as OrgRole, evaluated.adminsBypassRestrictions);
     policyBypassed = didBypassChangeOutcome(adminExempt, evaluated.result.action);
 
-    if (!adminExempt) {
+    // An approver's own job skips the approval step (and only that step). Flagged like the admin bypass so it is disclosed.
+    const approverAuto = approverSkipsApproval(session.membership.role as OrgRole, evaluated.result.action);
+    if (approverAuto) policyBypassed = true;
+
+    if (!adminExempt && !approverAuto) {
       if (evaluated.result.action === "deny") jobStatus = "denied";
       else if (evaluated.result.action === "require_approval") jobStatus = "pending_approval";
     }
@@ -542,8 +632,18 @@ export async function createPrintJob(
     copies,
     color_mode: colorMode,
     duplex,
-    paper_size: paperSize,
-    finishing: { staple, booklet, punch, ...(booklet ? { bookletFit } : {}) },
+    // "tabloid" is the stored word for 11x17 (the agent turns it into PAPER=LEDGER); policy and pricing see "11x17".
+    paper_size: (booklet && bookletSheet === "tabloid") || paperSize === "11x17" ? "tabloid" : paperSize,
+    finishing: {
+      staple,
+      booklet,
+      punch,
+      ...(stapleStyle ? { stapleStyle } : {}),
+      ...(booklet ? { bookletFit, ...(bookletSheet === "tabloid" ? { bookletSheet } : {}) } : {}),
+      ...(duplexEdge ? { duplexEdge } : {}),
+      // Absent = plain, so a plain job's stored finishing is exactly what it was before this key existed.
+      ...(paperType ? { paperType } : {}),
+    },
     // Per-job choices (migrations 0028 + 0030). staple_position is non-null exactly for a stapled raw job; a
     // booklet always records which edge it is bound on, so imposition, the Agent and a re-print agree.
     staple_position: staple ? staplePosition : null,
@@ -586,7 +686,7 @@ export async function createPrintJob(
       event_type: "JOB_CREATED" as const,
       metadata: source === "ipp" ? { source: "ipp", deviceId: opts.deviceId ?? null } : {},
     },
-    { event_type: "PDF_UPLOADED" as const, metadata: { fileName: originalFileName, fileSizeBytes: preflight.fileSizeBytes } },
+    { event_type: "PDF_UPLOADED" as const, metadata: { fileName: originalFileName, fileSizeBytes: preflight.fileSizeBytes, ...(pictureCopy ? { printedAsPictures: true } : {}) } },
     { event_type: "PREFLIGHT_COMPLETED" as const, metadata: { sourcePages, blankPagesAdded } },
     ...(jobStatus === "held"
       ? []

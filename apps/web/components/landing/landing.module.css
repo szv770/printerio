@@ -1,0 +1,945 @@
+/* Public home page. Scoped so nothing here leaks into the app. Printing is the visual language: CMYK halftone, crop marks. */
+.root {
+  --ink: #0f1f38;
+  --ink-2: #3a4a66;
+  --paper: #f7f9fc;
+  --line: #d9e1ee;
+  --blue: #0a64d8;
+  --c: #0ea5d9;
+  --m: #e03a86;
+  --y: #f4b400;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.display {
+  font-family: var(--font-display), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.03em;
+}
+
+/* Halftone: three dot screens at different angles, the way a press lays down cyan, magenta and yellow. */
+.halftone {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle at 50% 50%, rgb(14 165 217 / 0.22) 1.2px, transparent 1.6px),
+    radial-gradient(circle at 50% 50%, rgb(224 58 134 / 0.16) 1.2px, transparent 1.6px),
+    radial-gradient(circle at 50% 50%, rgb(244 180 0 / 0.2) 1.2px, transparent 1.6px);
+  background-size: 18px 18px, 18px 18px, 18px 18px;
+  background-position: 0 0, 6px 6px, 12px 3px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 85% 20%, #000 0%, transparent 70%);
+  mask-image: radial-gradient(ellipse 70% 60% at 85% 20%, #000 0%, transparent 70%);
+}
+
+/* Crop marks frame the demo like a page on a press sheet. */
+.stage {
+  position: relative;
+  padding: 1.75rem 1.25rem 1.25rem;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 1.25rem;
+  box-shadow: 0 1px 2px rgb(15 31 56 / 0.05), 0 24px 48px -24px rgb(15 31 56 / 0.25);
+}
+.stage::before,
+.stage::after {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--ink);
+  opacity: 0.55;
+  pointer-events: none;
+}
+.stage::before {
+  top: -9px;
+  left: -9px;
+  border-right: 0;
+  border-bottom: 0;
+}
+.stage::after {
+  right: -9px;
+  bottom: -9px;
+  border-left: 0;
+  border-top: 0;
+}
+
+.tab {
+  min-height: 2.5rem;
+  padding: 0 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink-2);
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+.tab[aria-selected="true"] {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+.tab:focus-visible,
+.pressBtn:focus-visible,
+.toggle:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.flow {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+  align-items: stretch;
+}
+@media (min-width: 900px) {
+  .flow {
+    grid-template-columns: 1.15fr 0.5fr 0.9fr 0.5fr 1fr;
+    gap: 0.25rem;
+  }
+}
+
+.device {
+  border: 1.5px solid var(--ink);
+  border-radius: 1.1rem;
+  background: var(--paper);
+  padding: 0.8rem;
+  min-height: 11.5rem;
+}
+.dialogRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.6rem;
+  background: #fff;
+  border: 1px solid var(--line);
+  font-size: 0.8125rem;
+  margin-top: 0.4rem;
+}
+.pressBtn {
+  margin-top: 0.7rem;
+  width: 100%;
+  min-height: 2.6rem;
+  border: 0;
+  border-radius: 0.75rem;
+  background: var(--blue);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: transform 0.15s, background 0.2s;
+}
+.pressBtn:active {
+  transform: scale(0.97);
+}
+.pressBtn:disabled {
+  background: #8aa9d6;
+  cursor: default;
+}
+
+.rail {
+  position: relative;
+  height: 2.25rem;
+  align-self: center;
+  display: none;
+}
+@media (min-width: 900px) {
+  .rail {
+    display: block;
+    height: auto;
+    min-height: 2rem;
+  }
+}
+.rail::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  border-left: 2px dashed var(--line);
+}
+@media (min-width: 900px) {
+  .rail::before {
+    left: 0;
+    right: 0;
+    top: 50%;
+    bottom: auto;
+    border-left: 0;
+    border-top: 2px dashed var(--line);
+  }
+}
+.rail[data-on="true"]::before {
+  border-color: var(--blue);
+}
+
+.node {
+  border-radius: 1.1rem;
+  border: 1.5px solid var(--line);
+  background: #fff;
+  padding: 0.9rem;
+  min-height: 11.5rem;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+[data-phase="2"] .node,
+[data-phase="3"] .node {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 4px rgb(10 100 216 / 0.12);
+}
+.check {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  font-size: 0.8125rem;
+  margin-top: 0.4rem;
+  opacity: 0;
+  transform: translateX(-6px);
+  transition: opacity 0.35s, transform 0.35s;
+}
+[data-phase="2"] .check,
+[data-phase="3"] .check,
+[data-phase="4"] .check,
+[data-phase="5"] .check {
+  opacity: 1;
+  transform: none;
+}
+.check:nth-child(2) {
+  transition-delay: 0.15s;
+}
+.check:nth-child(3) {
+  transition-delay: 0.3s;
+}
+.check:nth-child(4) {
+  transition-delay: 0.45s;
+}
+
+.printer {
+  border: 1.5px solid var(--ink);
+  border-radius: 1.1rem;
+  background: #fff;
+  min-height: 11.5rem;
+  padding: 0.8rem;
+  position: relative;
+  overflow: hidden;
+}
+.panel {
+  height: 0.55rem;
+  width: 3.2rem;
+  border-radius: 99px;
+  background: var(--ink);
+  opacity: 0.85;
+}
+.led {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--y);
+  margin-right: 0.35rem;
+}
+[data-phase="5"] .led {
+  background: #1a9d4b;
+}
+[data-phase="3"] .led {
+  animation: blink 0.5s steps(2) infinite;
+}
+@keyframes blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+.slot {
+  margin: 0.7rem auto 0;
+  height: 0.5rem;
+  width: 82%;
+  border-radius: 99px;
+  background: var(--ink);
+}
+.sheet {
+  position: relative;
+  margin: -0.25rem auto 0;
+  width: 70%;
+  aspect-ratio: 8.5 / 5.5;
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 14px -8px rgb(15 31 56 / 0.5);
+  border-radius: 3px;
+  transform: translateY(-120%);
+  opacity: 0;
+  transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s;
+}
+[data-phase="3"] .sheet {
+  opacity: 1;
+  transform: translateY(-35%);
+}
+[data-phase="4"] .sheet,
+[data-phase="5"] .sheet {
+  opacity: 1;
+  transform: translateY(0);
+}
+.lines {
+  position: absolute;
+  inset: 0.5rem 0.5rem 1.4rem;
+  background: repeating-linear-gradient(to bottom, #c9d3e4 0 2px, transparent 2px 7px);
+}
+.stamp {
+  position: absolute;
+  right: 0.4rem;
+  bottom: 0.3rem;
+  font-weight: 800;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  color: var(--m);
+  opacity: 0.8;
+}
+
+.flyer {
+  width: 2.2rem;
+  height: 2.8rem;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  margin: 0.5rem auto 0;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+[data-phase="1"] .flyer {
+  opacity: 1;
+  animation: fly 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes fly {
+  from {
+    transform: translateX(-1.5rem);
+  }
+  to {
+    transform: translateX(1.5rem);
+  }
+}
+
+/* Flip-through booklet. Built for English (spine on the left); Hebrew mirrors the whole book. */
+.bkWrap {
+  perspective: 1500px;
+  margin: 1.25rem auto 0.5rem;
+  width: min(100%, 24rem);
+  touch-action: pan-y;
+  user-select: none;
+  outline: none;
+}
+.bkWrap:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 6px;
+  border-radius: 8px;
+}
+.bk {
+  position: relative;
+  height: 14.5rem;
+  transform-style: preserve-3d;
+}
+.bk {
+  transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.bk[data-rtl="true"] {
+  transform: scaleX(-1);
+}
+/* A closed book is one page wide: slide it to the middle. Written for English; the mirrored Hebrew view shifts the other way by itself. */
+.bk[data-pos="cover"] {
+  transform: translateX(-25%);
+}
+.bk[data-pos="back"] {
+  transform: translateX(25%);
+}
+.bk[data-rtl="true"][data-pos="cover"] {
+  transform: scaleX(-1) translateX(-25%);
+}
+.bk[data-rtl="true"][data-pos="back"] {
+  transform: scaleX(-1) translateX(25%);
+}
+.bk[data-rtl="true"] .bkNum {
+  transform: translateX(-50%) scaleX(-1);
+}
+.bkHalf {
+  position: absolute;
+  top: 0;
+  width: 50%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  display: block;
+}
+.bkHalf:disabled {
+  cursor: default;
+}
+.bkLeft {
+  left: 0;
+}
+.bkRight {
+  right: 0;
+}
+.bkPage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+/* A heading bar and lines of text, so it reads as a page and not as ruled paper. */
+.bkPage::before {
+  content: "";
+  position: absolute;
+  inset: 22% 13% 18%;
+  background: repeating-linear-gradient(to bottom, #c9d3e4 0 2px, transparent 2px 9px);
+}
+.bkPage::after {
+  content: "";
+  position: absolute;
+  left: 13%;
+  right: 42%;
+  top: 11%;
+  height: 7px;
+  border-radius: 4px;
+  background: var(--ink);
+}
+.bkNum {
+  position: absolute;
+  bottom: 5%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+/* Each half darkens toward the spine, and the book floats a little. */
+.bkLeft .bkPage {
+  border-radius: 6px 0 0 6px;
+  box-shadow: inset -18px 0 18px -18px rgb(15 31 56 / 0.4), 0 16px 28px -18px rgb(15 31 56 / 0.55);
+}
+.bkRight .bkPage {
+  border-radius: 0 6px 6px 0;
+  box-shadow: inset 18px 0 18px -18px rgb(15 31 56 / 0.4), 0 16px 28px -18px rgb(15 31 56 / 0.55);
+}
+/* The page that is turning: it starts on the right half and swings over the spine, lifting toward you. */
+.leaf {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 50%;
+  height: 100%;
+  z-index: 3;
+  transform-origin: left center;
+  transform-style: preserve-3d;
+  animation-duration: 0.8s;
+  animation-timing-function: cubic-bezier(0.45, 0.05, 0.25, 1);
+  animation-fill-mode: both;
+}
+.leaf[data-dir="next"] {
+  animation-name: turnNext;
+}
+.leaf[data-dir="prev"] {
+  animation-name: turnPrev;
+}
+@keyframes turnNext {
+  from {
+    transform: rotateY(0deg);
+  }
+  to {
+    transform: rotateY(-180deg);
+  }
+}
+@keyframes turnPrev {
+  from {
+    transform: rotateY(-180deg);
+  }
+  to {
+    transform: rotateY(0deg);
+  }
+}
+.leafFace {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+}
+.leafBack {
+  transform: rotateY(180deg);
+}
+.leafBack .bkPage {
+  border-radius: 6px 0 0 6px;
+}
+.turnBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+.turnBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.turnBtn:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+@keyframes panelIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.panelIn {
+  animation: panelIn 0.3s ease-out;
+}
+.toggle {
+  min-height: 2.5rem;
+  padding: 0 1rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.toggle[aria-pressed="true"] {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+
+/* Option chips inside the demo dialog */
+.chip {
+  min-height: 1.75rem;
+  padding: 0 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink-2);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.chip[aria-pressed="true"] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+.chip:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.chip:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+@media (max-width: 899px) {
+  /* Bigger tap targets on a phone */
+  .chip {
+    min-height: 2.25rem;
+    padding: 0 0.65rem;
+    font-size: 0.8125rem;
+  }
+  .dialogRow {
+    gap: 0.35rem;
+  }
+}
+
+/* What the printed page looks like for each finish, and how it gets finished. Every "hit" here sits at the same moment
+   the sound is scheduled for: see lib/landing-timing.ts (the staple lands at 40% of --stroke). */
+.sheetInner {
+  position: absolute;
+  inset: 0;
+}
+.staple {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  width: 15px;
+  height: 3px;
+  border-radius: 2px;
+  background: #4b5568;
+  transform: rotate(-35deg);
+  box-shadow: 0 1px 1px rgb(15 31 56 / 0.3);
+  opacity: 0;
+}
+[data-phase="5"] .staple {
+  opacity: 1;
+}
+.stapler {
+  position: absolute;
+  left: -2px;
+  top: -9px;
+  width: 28px;
+  height: 14px;
+  z-index: 2;
+  border-radius: 4px 4px 2px 2px;
+  background: linear-gradient(#34476a, #0f1f38);
+  opacity: 0;
+  pointer-events: none;
+  transform-origin: 20% 100%;
+}
+.stapler::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  right: -7px;
+  bottom: -3px;
+  height: 4px;
+  border-radius: 0 0 3px 3px;
+  background: #9fb0cc;
+}
+[data-phase="4"] .stapler {
+  animation: arm var(--stroke) ease-in-out both;
+}
+[data-phase="4"] .staple {
+  animation: stapleMark var(--stroke) both;
+}
+[data-phase="4"][data-finish="staple"] .sheetInner {
+  animation: jolt var(--stroke) both;
+}
+@keyframes arm {
+  0% {
+    opacity: 0;
+    transform: translate(-8px, -30px) rotate(-10deg);
+  }
+  14% {
+    opacity: 1;
+  }
+  40% {
+    opacity: 1;
+    transform: translate(0, 3px) rotate(0deg);
+  }
+  48% {
+    transform: translate(0, 3px) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-8px, -30px) rotate(-10deg);
+  }
+}
+@keyframes stapleMark {
+  0%,
+  39% {
+    opacity: 0;
+    transform: rotate(-35deg) scale(1.7);
+  }
+  40% {
+    opacity: 1;
+    transform: rotate(-35deg) scale(1.3);
+  }
+  52%,
+  100% {
+    opacity: 1;
+    transform: rotate(-35deg) scale(1);
+  }
+}
+@keyframes jolt {
+  0%,
+  38% {
+    transform: none;
+  }
+  40% {
+    transform: translateY(2px) scale(0.99);
+  }
+  54%,
+  100% {
+    transform: none;
+  }
+}
+
+/* Booklet: the sheet comes out flat (last page left, cover right), the left half folds BEHIND the cover, the booklet
+   slides to the middle, then two stitches go in along the spine. */
+.sheet[data-finish="booklet"] .sheetInner {
+  perspective: 700px;
+}
+.fsheet {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  transform-style: preserve-3d;
+}
+/* The sheet's own outline is dropped for a booklet: each half carries its own, so once the left half has folded behind,
+   what is left is a closed booklet and not a wide empty sheet. */
+.sheet[data-finish="booklet"] {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+.fHalf {
+  position: relative;
+  width: 50%;
+  height: 100%;
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 14px -8px rgb(15 31 56 / 0.5);
+  backface-visibility: hidden;
+}
+.fRight .stamp {
+  bottom: auto;
+  top: 0.3rem;
+}
+.fLeft {
+  transform-origin: right center;
+  border-right-style: dashed;
+}
+.fNum {
+  position: absolute;
+  bottom: 0.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--ink-2);
+}
+.stitch {
+  position: absolute;
+  left: 2px;
+  width: 3px;
+  height: 14%;
+  border-radius: 2px;
+  background: #4b5568;
+  opacity: 0;
+}
+.stitchA {
+  top: 22%;
+}
+.stitchB {
+  top: 62%;
+}
+[data-phase="4"] .fLeft {
+  animation: foldBehind var(--fold) cubic-bezier(0.45, 0.05, 0.25, 1) both;
+}
+[data-phase="4"] .fsheet {
+  animation: centerBook var(--fold) cubic-bezier(0.45, 0.05, 0.25, 1) both;
+}
+[data-phase="4"] .stitchA {
+  animation: stitchPop var(--pop) ease-out var(--stitch1) both;
+}
+[data-phase="4"] .stitchB {
+  animation: stitchPop var(--pop) ease-out var(--stitch2) both;
+}
+[data-phase="5"] .fLeft {
+  transform: rotateY(-180deg);
+}
+[data-phase="5"] .fsheet {
+  transform: translateX(-25%);
+}
+[data-phase="5"] .stitch {
+  opacity: 1;
+}
+@keyframes foldBehind {
+  from {
+    transform: rotateY(0deg);
+  }
+  to {
+    transform: rotateY(-180deg);
+  }
+}
+@keyframes centerBook {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-25%);
+  }
+}
+@keyframes stitchPop {
+  0% {
+    opacity: 0;
+    transform: scaleY(2);
+  }
+  55% {
+    opacity: 1;
+    transform: scaleY(0.85);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Phone: a stepper for the journey, and ONE stage at a time (all three share the same spot) so the whole demo fits
+   on screen. Wider screens show all three stages side by side and hide the stepper. */
+.steps {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.9rem;
+}
+.step {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #7c8aa3;
+  flex: 1;
+}
+.step:not(:last-child)::after {
+  content: "";
+  flex: 1;
+  height: 2px;
+  margin-left: 0.2rem;
+  background: var(--line);
+  border-radius: 2px;
+}
+.step[data-state="active"] {
+  color: var(--ink);
+}
+.step[data-state="done"] {
+  color: var(--ink-2);
+}
+.step[data-state="done"]::after {
+  background: var(--blue);
+}
+.stepDot {
+  display: inline-grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  background: #fff;
+  color: #fff;
+}
+.step[data-state="active"] .stepDot {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 4px rgb(10 100 216 / 0.14);
+}
+.step[data-state="done"] .stepDot {
+  border-color: var(--blue);
+  background: var(--blue);
+}
+.replay {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.5rem;
+  padding: 0 1rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--ink);
+  cursor: pointer;
+}
+.replay:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+@media (min-width: 900px) {
+  .steps,
+  .mobileOnly {
+    display: none;
+  }
+}
+@media (max-width: 899px) {
+  .flow {
+    align-items: stretch;
+  }
+  .device,
+  .node,
+  .printer {
+    grid-area: 1 / 1;
+    transition: opacity 0.4s, transform 0.4s, visibility 0.4s;
+  }
+  .node,
+  .printer {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(10px);
+  }
+  [data-phase="2"] .device,
+  [data-phase="3"] .device,
+  [data-phase="4"] .device,
+  [data-phase="5"] .device {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(-10px);
+  }
+  [data-phase="2"] .node {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: none;
+  }
+  [data-phase="3"] .printer,
+  [data-phase="4"] .printer,
+  [data-phase="5"] .printer {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: none;
+  }
+  .printer {
+    display: flex;
+    flex-direction: column;
+  }
+  /* The output tray the page lands in, anchored to the bottom of the printer */
+  .printer::after {
+    content: "";
+    position: absolute;
+    left: 8%;
+    right: 8%;
+    bottom: 0.9rem;
+    height: 0.7rem;
+    border-radius: 0.35rem;
+    background: #e8eef9;
+    border: 1px solid var(--line);
+  }
+  .slot {
+    margin-top: 1rem;
+  }
+  .sheet {
+    width: 66%;
+  }
+  [data-phase="4"] .sheet,
+  [data-phase="5"] .sheet {
+    transform: translateY(0.35rem); /* rests above the tray, so the sender's stamp stays in view */
+  }
+  [data-phase="3"] .sheet {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stapler,
+  .staple,
+  .sheetInner,
+  .fsheet,
+  .fLeft,
+  .stitch {
+    animation: none !important;
+  }
+  [data-phase="3"] .led,
+  [data-phase="1"] .flyer {
+    animation: none;
+  }
+  .check,
+  .sheet,
+  .flyer,
+  .node {
+    transition: none;
+  }
+  .leaf {
+    animation-duration: 0.01s;
+  }
+  .panelIn {
+    animation: none;
+  }
+}

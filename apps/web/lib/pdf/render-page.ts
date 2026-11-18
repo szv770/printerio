@@ -15,6 +15,8 @@
  * validation is always the server's own preflight (lib/pdf/preflight.ts).
  */
 
+import { pdfjsAssetOptions } from "./pdfjs-options";
+
 export interface RenderPdfPageOptions {
   /** Longest the rendered page may be across, in CSS pixels. */
   maxWidthPx: number;
@@ -31,7 +33,7 @@ export async function renderPdfPageToCanvas(
     const pdfjs = await import("pdfjs-dist");
     pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
 
-    const pdf = await pdfjs.getDocument({ data }).promise;
+    const pdf = await pdfjs.getDocument({ data, ...pdfjsAssetOptions() }).promise;
     const pageNumber = Math.min(Math.max(1, options.pageNumber ?? 1), pdf.numPages);
     const page = await pdf.getPage(pageNumber);
     const unscaledViewport = page.getViewport({ scale: 1 });

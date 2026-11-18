@@ -9,6 +9,8 @@ import { describeDatabaseError } from "@/lib/action-errors";
 import { routes } from "@/lib/routes";
 import { normalizeUserCode } from "@/lib/jobs/user-code";
 import { assertCanDemoteMember, assertCanDisableMember, assertCanDisableSelf, assertCanRemoveMember } from "@/lib/member-safety";
+import { cancelMemberQueue } from "@/lib/jobs/lifecycle";
+import { logger } from "@/lib/logger";
 import type { OrgRole } from "@printio/shared";
 
 export interface InviteState {
@@ -231,6 +233,7 @@ export async function toggleMemberStatusAction(_prev: StatusChangeState, formDat
     .eq("organization_id", session.membership.organization_id)
     .eq("user_id", userId);
   if (error) return { error: describeDatabaseError(error, "Couldn't change that member's status.") };
+  if (status === "disabled") await stopTheirQueue(session.membership.organization_id, session.userId, userId);
 
   await supabase.from("audit_logs").insert({
     organization_id: session.membership.organization_id,
@@ -244,6 +247,88 @@ export async function toggleMemberStatusAction(_prev: StatusChangeState, formDat
   revalidatePath(routes.adminUsers);
   revalidatePath(routes.adminUserDetail(userId));
   return {};
+}
+
+export interface EarlyToolsState {
+  error?: string;
+}
+
+/** Switches "early tools" (print from a link, the booklet builder) on or off for one member. Admins always have them.
+ *  Only an org admin can run this, and RLS only lets admins update membership rows, so nobody can switch it on for
+ *  themselves. Scoped to the admin's own organization. */
+export async function setMemberEarlyToolsAction(_prev: EarlyToolsState, formData: FormData): Promise<EarlyToolsState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const userId = String(formData.get("userId") ?? "");
+  const enabledText = String(formData.get("enabled") ?? "");
+  if (!userId) return { error: "Choose a person." };
+  if (enabledText !== "true" && enabledText !== "false") return { error: "Invalid choice." };
+  const enabled = enabledText === "true";
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("organization_members")
+    .update({ early_tools: enabled })
+    .eq("organization_id", session.membership.organization_id)
+    .eq("user_id", userId);
+  if (error) return { error: describeDatabaseError(error, "Couldn't change early tools for that person.") };
+
+  await supabase.from("audit_logs").insert({
+    organization_id: session.membership.organization_id,
+    actor_id: session.userId,
+    action: "member.early_tools_changed",
+    target_type: "organization_members",
+    target_id: userId,
+    metadata: { early_tools: enabled },
+  });
+
+  revalidatePath(routes.adminUsers);
+  revalidatePath(routes.adminUserDetail(userId));
+  return {};
+}
+
+export interface CancelQueueState {
+  error?: string;
+  message?: string;
+}
+
+/** Stops one person's whole line: cancels every job of theirs that has not started printing (even already-approved ones).
+ *  The answer to a flood. Admin only, scoped to the admin's own organization, logged. A batch at a time; press again if more. */
+export async function cancelMemberQueueAction(_prev: CancelQueueState, formData: FormData): Promise<CancelQueueState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const userId = String(formData.get("userId") ?? "");
+  if (!userId) return { error: "Choose a person." };
+
+  let result;
+  try {
+    result = await cancelMemberQueue(createServiceRoleClient(), { organizationId: session.membership.organization_id, adminId: session.userId, userId });
+  } catch (err) {
+    logger.error("cancel member queue failed", { userId, error: err instanceof Error ? err.message : String(err) });
+    return { error: "Could not cancel their jobs right now. Try again in a moment." };
+  }
+
+  const supabase = await createClient();
+  await supabase.from("audit_logs").insert({
+    organization_id: session.membership.organization_id,
+    actor_id: session.userId,
+    action: "member.queue_cancelled",
+    target_type: "organization_members",
+    target_id: userId,
+    metadata: { cancelled: result.cancelled, skipped: result.skipped },
+  });
+
+  revalidatePath(routes.adminUserDetail(userId));
+  const base = `Cancelled ${result.cancelled} ${result.cancelled === 1 ? "job" : "jobs"}.`;
+  const rest = result.skipped > 0 ? ` ${result.skipped} could not be cancelled (already at the printer).` : "";
+  return { message: result.more ? `${base}${rest} There are more: press the button again.` : `${base}${rest}` };
+}
+
+/** Best effort: used when a person is disabled or removed, so their waiting jobs do not keep printing after them. */
+async function stopTheirQueue(organizationId: string, adminId: string, userId: string): Promise<void> {
+  try {
+    await cancelMemberQueue(createServiceRoleClient(), { organizationId, adminId, userId });
+  } catch (err) {
+    logger.error("could not stop a removed member's waiting jobs", { userId, error: err instanceof Error ? err.message : String(err) });
+  }
 }
 
 export interface RemoveMemberState {
@@ -288,6 +373,7 @@ export async function removeMemberAction(_prev: RemoveMemberState, formData: For
     .eq("organization_id", session.membership.organization_id)
     .eq("user_id", userId);
   if (error) return { error: describeDatabaseError(error, "Couldn't remove that member.") };
+  await stopTheirQueue(session.membership.organization_id, session.userId, userId);
 
   await supabase.from("audit_logs").insert({
     organization_id: session.membership.organization_id,

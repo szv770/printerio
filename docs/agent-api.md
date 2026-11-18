@@ -5,8 +5,9 @@ This is the canonical contract between `apps/web`'s agent-facing Route Handlers 
 this file first. See `docs/architecture.md` sec 4 (agent auth), sec 13 (leasing), sec 12
 (remote commands).
 
-Polling, not a persistent connection: the Agent polls `heartbeat` and `jobs/claimable` on a
-short interval (default 15s, configurable). This is deliberately simpler and more robust
+Polling, not a persistent connection: the Agent polls `jobs/claimable` (which also carries its
+remote commands, see below) on a short interval (default 3s, configurable) and sends `heartbeat`
+on its own slower timer (default every 30s). This is deliberately simpler and more robust
 than a WebSocket for V1 - it survives reconnects trivially and needs no server-side
 connection state. Supabase Realtime may be layered in later purely as a latency
 optimization (the Agent could also subscribe to a realtime "job approved" ping to poll
@@ -81,6 +82,18 @@ Agent build simply reports nothing and nothing is lost. **These values are displ
 they are never used to authenticate, authorize, or route anything (`docs/architecture.md`
 sec 3.2), which is what makes accepting a self-report safe here at all.
 
+**Cadence (phase B, 2026-11).** A current Agent sends the heartbeat once at start-up and then at most
+every `PRINTIO_HEARTBEAT_SECONDS` (default 30, clamped to 10-120; `0` or `cycle` = every poll cycle, the
+old behaviour and the rollback switch). While it believes it is paused it heartbeats every cycle, so a
+resume is noticed as fast as before; after a failed heartbeat it retries after 10 s. The heartbeat runs
+beside the job poll and never delays it. Consequences, all deliberate: `agents.last_seen_at` is up to
+~33 s old when everything is fine, so every "print server online" rule on the website uses a window of at
+least 5 minutes (at most two or more of the slowest allowed heartbeats); an admin-set poll speed
+(`pollIntervalSeconds`) and the direct-port printer targets (`rawPrinters`) reach the Agent with its next
+heartbeat (up to ~30 s later, not within 3 s); printer status reports and the printer probe reach the
+website at that cadence too. The pause itself does not depend on the heartbeat: the claimable and claim
+routes refuse a paused Agent on every request.
+
 Response: `{ "ok": true, "serverTime": "<ISO>", "paused": boolean }`. `paused` mirrors
 `agents.paused`; the Agent honors it by not polling for claimable jobs while set. That is
 **defense in depth only** - the pause is enforced by the two job-handing routes below, so
@@ -96,6 +109,16 @@ time, so a school of teachers sending at once is served in the order they sent. 
 While `agents.paused` is set, this returns `{ "jobs": [] }` unconditionally - being paused
 is a normal administrative state, not a fault, so it is an empty list rather than an error
 the Agent would back off from.
+
+**Opt-in `?commands=1`** (phase B): the answer also carries `"commands": [...]`, exactly what
+`GET /api/agents/commands` returns (same rows, same marking as picked up), so a current Agent makes
+one call per cycle instead of two. Rules: without the flag (or with any value other than `1`) the
+answer is unchanged, so older Agents are unaffected; an empty list is sent as `[]` (the field's
+presence tells the Agent the website supports it); a paused Agent still gets its `commands` (as on the
+commands route) but no jobs; the commands are looked up only after the job list succeeded (a 500 hands
+out no command), and if that lookup itself fails the field is left out. A current Agent that finds the
+field missing (older website, or a failed lookup) makes the separate `GET /api/agents/commands` call
+that cycle, exactly as before.
 
 ### `POST /api/agents/jobs/:jobId/claim`
 Atomic claim (see `docs/architecture.md` sec 13): only succeeds if the job is still
@@ -176,6 +199,9 @@ available right now (off, offline or network). It will print when it is back." o
 Display code treats a job as *waiting* only when `status` is `approved` (or briefly `claimed` while being retried) AND the marker
 is present (`apps/web/lib/job-waiting.ts`); it is a queued job, never counted as failed. One `RETRY_SCHEDULED` event (metadata
 `{ waiting: true, kind, retryAt }`) is recorded when the job first starts waiting.
+The Agent also releases (`kind: "unavailable"`) when it will not send into a printer that reads unhealthy after an unconfirmed
+job (`apps/agent/src/printer-health-gate.ts`, docs/kyocera-raw-print.md): `detail` then holds "The printer reported a problem and
+Printio is waiting for it to be fixed (turn the printer off and on at the main switch). Jobs will print when it is ready." and the reason.
 
 When `since + window` has passed (default **2 hours**, `PRINTIO_WAITING_WINDOW_MINUTES` on the web app, 1 min - 7 days) the same call
 fails the job instead: `claimed -> failed` with `error_message = "[printio:gave-up] The printer was not available for 2 hours ..."`,
@@ -191,13 +217,38 @@ jobs alone for 30 s and then probes with the oldest one only.
 job cannot be built, the document is missing or not a PDF) are still reported with `status: failed` at once.
 
 ### `GET /api/agents/commands`
-Returns this agent's `pending` `remote_commands` rows: `{ "commands": [{ "id", "command",
+Still served for older Agents and as the fallback when `jobs/claimable?commands=1` has no `commands` field. Returns this agent's `pending` `remote_commands` rows: `{ "commands": [{ "id", "command",
 "payload" }] }`. `command` is always one of the fixed allow-listed values (sec 12) - the
 Agent's handler is a `switch` over this exact set, never a raw string executor.
 
 ### `POST /api/agents/commands/:commandId/ack`
 Body: `{ "status": "completed" | "failed", "result"?: object }`. Updates `remote_commands`
 and mirrors into `audit_logs`.
+
+### Library server jobs (print servers registered as library fetchers only)
+Used by the optional library worker (`docs/PHASE-C-PLAN.md`, C1). All three need the normal bearer credential AND the calling agent
+must be listed in `library_fetchers` (registered by the owner in SQL): any other valid agent gets `403 not_a_library_fetcher`.
+No request or response ever carries a web address: a job holds structured `params`, and the Agent builds the address itself with the
+shared allow-list (`libraryPageUrl` in `packages/shared/src/library/mafteiach-fetch.ts`). Not rate limited, like the other poll routes.
+
+- `POST /api/agents/server-jobs/claim` (no body). First marks `queued` jobs older than 10 minutes as `failed` with error `expired` (so an unserved queue cannot pile up; the website's "failed in the last 5 minutes" rule then applies). Then atomically claims the oldest `queued` job (or one `claimed` whose lease expired) and
+  leases it for **120 seconds**. `200 { "jobId", "kind": "library_fetch", "params" }` where `params` is one of
+  `{ "kind": "likkutei", "volume": 12 }`, `{ "kind": "list", "section": "maamorim" | "all", "year"?: "5710" }`,
+  `{ "kind": "entry", "path": "/maamorim/123" }`; or `204` (empty body) when there is nothing to do.
+- `POST /api/agents/server-jobs/:jobId/complete`. Body is exactly `{ "payload": <parsed page> }` (a `LikkutPage`, `ListPage` or
+  `EntrySection[]` from `mafteiach-parse.ts`, matching the job's page kind; at most about 1.3 MB; only https Google Drive/Docs links;
+  an empty Likkutei volume or list is refused, report `fail` instead). Any other field (a key, a URL) is a `400`. The website rebuilds
+  the cache key and source address from the job's own params, writes `library_pages` (expires after 24 h for lists and volumes, 7 days
+  for entries) and marks the job done: `200 { "ok": true }`. Errors: `400` invalid body or payload, `403 no_lease` (not your job, or your
+  lease expired), `404`, `409 wrong_state` (already finished) or `409 bad_job`, `413` too large.
+- `POST /api/agents/server-jobs/:jobId/fail`. Body `{ "error"?: string }` (kept to 300 characters, shown to people, so write it plainly).
+  Marks the job failed; the website will not queue the same page again for 5 minutes. Same lease rules as `complete`.
+
+### Library daily text (print servers registered as library fetchers only)
+Used by the library worker's nightly week-ahead fetch of the daily study text (`docs/PHASE-C-PLAN.md`, C1d). Same guards as the server-jobs routes: normal bearer credential AND the agent must be in `library_fetchers`, else `403 not_a_library_fetcher`. No request ever carries a web address: the website builds `source_url` itself from the date with `shiurUrl`, and any `url` or `source_url` in a body is ignored. Not rate limited.
+
+- `GET /api/agents/library/daily-missing?from=YYYY-MM-DD&days=N`. `from` must be a real date within 2 days of today (UTC) and `days` a whole number from 1 to 8, else `400 invalid_date` / `400 invalid_days`. `200 { "missing": ["2026-11-16", ...] }`: the dates from `from` (N days) that have NO row at all in `library_daily_texts`, in order. One saved study is enough to count a day as present. Read only.
+- `POST /api/agents/library/daily`. Body `{ "date": "2026-11-16", "day": <ShiurDay> }` where `day` is exactly what `parseShiurPage` returns (`{ date, studies: [{ study, portion, sections: [{ heading, blocks: [{ kind: "verse"|"rashi"|"note", num?, he, en, leadHe?, leadEn? }] }] }] }`; study one of `chumash tanya hayomyom rambam3 rambam1`, each at most once; portion 1 to 300 characters; string and list sizes capped; unknown fields are dropped). `date` must be a real date within 10 days of today (`400 invalid_date`), equal to `day.date` (`400 date_mismatch`); the day's JSON may not exceed 1.5 MB (`413 too_large`; the request body is capped at 1.6 MB); anything else wrong is `400 invalid_day` or `400 invalid_json`. Each study is INSERTED only where `(study, study_date)` does not exist yet (`ON CONFLICT DO NOTHING`: first writer wins, nothing already saved is ever changed); `added_by` is null. `200 { "ok": true, "inserted": 5, "existing": 0 }`.
 
 ## Error format
 

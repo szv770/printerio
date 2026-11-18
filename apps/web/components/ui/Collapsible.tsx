@@ -130,12 +130,13 @@ export function Collapsible({
             </span>
           )}
           <span className="min-w-0 flex-1">
-            <span className="block text-base font-semibold leading-6 text-[var(--color-text)]">{title}</span>
+            <span className="block text-base font-semibold leading-6 text-[var(--color-text)] [overflow-wrap:anywhere]">{title}</span>
             {!open && summary && (
               <span className="mt-0.5 block text-[13px] leading-5 text-[var(--color-muted)]">{summary}</span>
             )}
+            {badge && <span className="mt-1 block sm:hidden">{badge}</span>}
           </span>
-          {badge && <span className="shrink-0">{badge}</span>}
+          {badge && <span className="hidden shrink-0 sm:block">{badge}</span>}
           <ChevronDown
             aria-hidden="true"
             className={`h-5 w-5 shrink-0 text-[var(--color-muted)] transition-transform duration-200 motion-reduce:transition-none ${

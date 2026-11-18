@@ -1,8 +1,10 @@
 import "server-only";
+import { checkPdfInflation } from "./inflate-guard";
 import { PDFDocument } from "pdf-lib";
 import { containsPjlEscape, PJL_ESCAPE_MESSAGE } from "@printio/shared";
 import { findActiveContent } from "./active-content";
 import { isEncryptedError, sanitizePdf } from "./sanitize";
+import { hasType3Fonts } from "./type3-fonts";
 
 /**
  * Server-side PDF preflight (docs/architecture.md sec 5). Never trust a
@@ -21,6 +23,8 @@ export type PreflightResult =
        * this instead of the uploaded bytes.
        */
       sanitizedBytes?: Uint8Array;
+      /** The file stores text as Type 3 fonts (see type3-fonts.ts): the printer's own PDF reader can crash on these. */
+      hasType3Fonts?: boolean;
     }
   | { ok: false; reason: string };
 
@@ -48,12 +52,17 @@ export async function preflightPdf(bytes: Uint8Array, opts: { maxSizeBytes: numb
   // printer's raw port (security review F1). There is no legitimate reason for one to be in a document.
   if (containsPjlEscape(bytes)) return { ok: false, reason: PJL_ESCAPE_MESSAGE };
 
+  // A file that is tiny but expands enormously when opened would crash the server: refuse it before it is opened.
+  const inflation = checkPdfInflation(bytes);
+  if (!inflation.ok) return { ok: false, reason: inflation.reason };
+
   try {
     const doc = await PDFDocument.load(bytes, { updateMetadata: false });
     const pageCount = doc.getPageCount();
     if (pageCount === 0) {
       return { ok: false, reason: "This PDF has no pages." };
     }
+    const type3 = hasType3Fonts(doc);
     const maxPages = opts.maxPages ?? DEFAULT_MAX_PDF_PAGES;
     if (pageCount > maxPages) {
       return {
@@ -73,10 +82,10 @@ export async function preflightPdf(bytes: Uint8Array, opts: { maxSizeBytes: numb
       }
       // The sanitizer re-saves the file; make sure what comes out is clean too, since that copy is what prints.
       if (containsPjlEscape(clean.bytes)) return { ok: false, reason: PJL_ESCAPE_MESSAGE };
-      return { ok: true, pageCount, fileSizeBytes: bytes.byteLength, sanitizedBytes: clean.bytes };
+      return { ok: true, pageCount, fileSizeBytes: bytes.byteLength, sanitizedBytes: clean.bytes, ...(type3 ? { hasType3Fonts: true } : {}) };
     }
 
-    return { ok: true, pageCount, fileSizeBytes: bytes.byteLength };
+    return { ok: true, pageCount, fileSizeBytes: bytes.byteLength, ...(type3 ? { hasType3Fonts: true } : {}) };
   } catch (err) {
     if (isEncryptedError(err)) {
       return { ok: false, reason: "This PDF is password-protected. Remove the password, or print it to a new PDF, and try again." };

@@ -1,18 +1,29 @@
 "use server";
 
+import { withSizeAliases } from "@/lib/paper-sizes";
+import { randomUUID } from "node:crypto";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { parseChoices, mapRawChoices, mapQueueChoices, type BindingSide } from "@/lib/print-choices";
 import { buildBookletPreviewPdf } from "@/lib/jobs/booklet-preview";
+import { bookletSheetChoice } from "@/lib/pdf/booklet-build";
 import { buildStampText, normalizeStampSettings } from "@/lib/jobs/user-code";
 import { logger } from "@/lib/logger";
+import { PRINT_JOBS_BUCKET } from "@/lib/storage";
+import { readFormPdf } from "./form-pdf";
+
+const SIGNED_URL_SECONDS = 300;
 
 export type BookletPreviewState =
   | {
       ok: true;
-      /** The imposed booklet PDF (what would be sent to the printer), base64. Nothing is stored. */
-      pdfBase64: string;
+      /**
+       * Short-lived signed address of the imposed booklet PDF (what would be sent to the printer). The PDF is held
+       * briefly under gateway-intake/ (the cleanup sweeps it) and NOT in the response: serverless responses are
+       * limited to about 4.5 MB, which a base64 preview could exceed. No job or quota is involved.
+       */
+      pdfUrl: string;
       bindingSide: BindingSide;
       sourcePages: number;
       paddedPages: number;
@@ -25,15 +36,12 @@ export type BookletPreviewState =
  * "Preview booklet": runs the booklet part of the print pipeline on the picked file (page range, blank-page
  * padding, imposition with the chosen fit and binding side, the page-1 stamp) and returns the imposed PDF without
  * creating a job, reserving quota or storing anything. Same session check and per-user rate limit style as
- * submitting; the file is size-limited by the organization's upload limit (and a smaller preview ceiling).
+ * submitting; the file is size-limited by the organization's upload limit (and a smaller preview ceiling). Large files arrive as a staged path (see form-pdf.ts)..
  */
 export async function previewBookletAction(formData: FormData): Promise<BookletPreviewState> {
   const session = await requireSessionOrRedirect();
   if (!session.membership) return { ok: false, error: "You are not a member of any organization yet." };
   const organizationId = session.membership.organization_id;
-
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Choose a PDF first." };
 
   const parsed = parseChoices((name) => formData.get(name));
   if (!parsed.ok) return { ok: false, error: parsed.reason };
@@ -69,12 +77,12 @@ export async function previewBookletAction(formData: FormData): Promise<BookletP
   let bindingSide: BindingSide | null;
   let paperSize: string;
   if (printerProfile.output_mode === "raw") {
-    const caps = printerProfile.declared_capabilities as { duplex?: boolean; staple?: boolean; booklet?: boolean } | null;
+    const caps = printerProfile.declared_capabilities as { duplex?: boolean; staple?: boolean; booklet?: boolean; punch?: boolean } | null;
     const mapped = mapRawChoices(choices, {
-      capabilities: { duplex: !!caps?.duplex, staple: !!caps?.staple, booklet: !!caps?.booklet },
+      capabilities: { duplex: !!caps?.duplex, staple: !!caps?.staple, booklet: !!caps?.booklet, punch: !!caps?.punch },
       bookletBindingSide: profileBindingSide,
       stapleDefault: printerProfile.raw_staple_position === "top-right" ? "top-right" : "top-left",
-      declaredPaperSizes: printerProfile.declared_paper_sizes,
+      declaredPaperSizes: withSizeAliases(printerProfile.declared_paper_sizes),
     });
     ({ bindingSide, paperSize } = mapped);
   } else {
@@ -82,12 +90,9 @@ export async function previewBookletAction(formData: FormData): Promise<BookletP
     paperSize = String(formData.get("paperSize") ?? "letter");
   }
 
-  let bytes: Uint8Array;
-  try {
-    bytes = new Uint8Array(await file.arrayBuffer());
-  } catch {
-    return { ok: false, error: "Your file didn't finish uploading. Check your connection and try again." };
-  }
+  const pdf = await readFormPdf(formData, { userId: session.userId, membership: { organization_id: organizationId } });
+  if (!pdf.ok) return { ok: false, error: pdf.error === "Choose a PDF to upload." ? "Choose a PDF first." : pdf.error };
+  const bytes = pdf.bytes;
 
   // The stamp only uses a user code that already exists: a preview never creates or saves anything.
   const stampSettings = normalizeStampSettings(settings as Record<string, unknown> | null);
@@ -101,12 +106,24 @@ export async function previewBookletAction(formData: FormData): Promise<BookletP
     paperSize,
     bindingSide: side,
     fit: formData.get("bookletFit") === "keep" ? "keep" : "fill",
+    sheet: bookletSheetChoice(formData.get("bookletSheet")),
     stamp,
   });
   if (!result.ok) return result;
+
+  const db = createServiceRoleClient();
+  const path = `gateway-intake/preview-${session.userId}/${randomUUID()}.pdf`;
+  const { error: uploadError } = await db.storage.from(PRINT_JOBS_BUCKET).upload(path, result.bytes, { contentType: "application/pdf", upsert: false });
+  if (uploadError) {
+    logger.error("booklet preview: could not store the preview", { error: uploadError.message });
+    return { ok: false, error: "The preview was built but could not be shown. Printing is not affected. Try again." };
+  }
+  const { data: signed, error: signError } = await db.storage.from(PRINT_JOBS_BUCKET).createSignedUrl(path, SIGNED_URL_SECONDS);
+  if (signError || !signed) return { ok: false, error: "The preview was built but could not be shown. Printing is not affected. Try again." };
+
   return {
     ok: true,
-    pdfBase64: Buffer.from(result.bytes).toString("base64"),
+    pdfUrl: signed.signedUrl,
     bindingSide: side,
     sourcePages: result.sourcePages,
     paddedPages: result.paddedPages,

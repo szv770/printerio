@@ -32,12 +32,14 @@ export interface GatewayDeps {
   storage: IntakeStorage;
   logger: Logger;
   printerName: string;
+  /** Finishings advertised to clients; default all (see ipp/printer-attributes.ts). */
+  finishings?: readonly number[];
   registry: JobRegistry;
   startedAt: number;
   now?: () => number;
   /** Awaited-by-nobody background work (events); tests can drain it. */
   background?: Set<Promise<unknown>>;
-  /** Phone-retry protection (same device + same document within ~3 minutes). Created on first use when absent. */
+  /** Phone-retry protection (same device + same document within ~30 seconds). Created on first use when absent. */
   dedupe?: DedupeCache<FinalizedJob>;
   /** ~3 s per-job web status cache. Created on first use when absent. */
   statusCache?: StatusCache;
@@ -484,9 +486,11 @@ async function dispatch(deps: GatewayDeps, ctx: RequestContext, msg: IppMessage)
       }
       const attrs = buildPrinterAttributes({
         baseUrl: ctx.baseUrl,
-        printerName: deps.printerName,
+        printerName: device.printerLabel ?? deps.printerName,
         uuidSeed: ctx.token,
         startedAt: deps.startedAt,
+        finishings: deps.finishings,
+        airprint: device.deviceType === "iphone" || device.deviceType === "mac",
       });
       return buildReply(msg, {
         status: STATUS.ok,

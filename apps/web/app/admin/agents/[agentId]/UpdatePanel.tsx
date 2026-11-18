@@ -5,6 +5,7 @@ import type { Tables } from "@/lib/database.types";
 import { agentSupportsCheckOnly, deriveUpdateView, shouldAutoCheck, type UpdateCommandRow } from "@/lib/update-progress";
 import { checkAgentForUpdateAction, checkAgentUpdateAvailableAction, restartAgentServiceAction, type AgentActionState } from "../actions";
 import { UpdateBanner } from "./UpdateBanner";
+import { UpdateToast } from "./UpdateToast";
 
 const initial: AgentActionState = {};
 
@@ -29,7 +30,7 @@ export function UpdatePanel({
 
   const view = deriveUpdateView({ commands, lastSeenAt: agent.last_seen_at, nowMs, agentVersion: agent.version });
   const canSelfUpdate = agent.is_git_checkout === true;
-  const online = agent.last_seen_at ? nowMs - Date.parse(agent.last_seen_at) < 2 * 60_000 : false;
+  const online = agent.last_seen_at ? nowMs - Date.parse(agent.last_seen_at) < 5 * 60_000 : false;
   const autoCheck = canSelfUpdate && shouldAutoCheck({ commands, lastSeenAt: agent.last_seen_at, nowMs, agentVersion: agent.version });
 
   const form = (): FormData => {
@@ -53,6 +54,8 @@ export function UpdatePanel({
   const shown = updating ? deriveUpdateView({ commands: [{ id: "local", command: "CHECK_FOR_UPDATE", status: "pending", createdAt: new Date(nowMs).toISOString(), completedAt: null, result: null, checkOnly: false }], lastSeenAt: null, nowMs }) : view;
 
   return (
+    <>
+    <UpdateToast view={shown} />
     <UpdateBanner
       view={shown}
       situation={situation}
@@ -63,5 +66,6 @@ export function UpdatePanel({
       onRestart={() => startTransition(() => restartAction(form()))}
       onCheckAgain={() => startTransition(() => checkAction(form()))}
     />
+    </>
   );
 }

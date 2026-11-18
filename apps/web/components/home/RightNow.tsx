@@ -14,7 +14,7 @@ export function RightNow({ rows }: { rows: RightNowRow[] }) {
           {rows.map((l) => (
             <li
               key={`${l.kind}-${l.key}`}
-              className="flex min-h-14 items-center justify-between gap-3 rounded-[var(--radius-control)] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2.5 shadow-[var(--shadow-xs)]"
+              className="flex min-h-14 min-w-0 items-center justify-between gap-3 rounded-[var(--radius-control)] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2.5 shadow-[var(--shadow-xs)]"
             >
               <span className="min-w-0">
                 <span className="block truncate text-sm font-medium">{l.name}</span>

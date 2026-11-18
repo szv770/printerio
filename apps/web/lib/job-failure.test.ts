@@ -26,3 +26,12 @@ describe("friendlyFailureMessage", () => {
     expect(friendlyFailureMessage("some_new_code_42")).toMatch(/did not print/i);
   });
 });
+
+describe("printer-attention marker", () => {
+  it("shows the printer's own words and that the job may still print, never the marker itself", () => {
+    const out = friendlyFailureMessage("[printio:printer-error v1 code=40022] Paper jam");
+    expect(out).toMatch(/^The printer needs attention: Paper jam\. /);
+    expect(out).toMatch(/may still print/);
+    expect(out).not.toMatch(/printio:|code=|\[/);
+  });
+});

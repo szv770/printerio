@@ -34,6 +34,8 @@ export interface LocalJobRecord {
    */
   sentUnreported?: string[];
   bytesSent?: number;
+  /** Raw path with printer feedback: the words to send with the final `completed` report (e.g. 'Printer confirmed 4 of 4 pages'). */
+  reportNote?: string;
   attemptCount: number;
   lastError?: string;
   updatedAt: string;

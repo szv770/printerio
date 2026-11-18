@@ -17,7 +17,8 @@ export default async function UsersPage() {
     .from("organization_members")
     .select("user_id, role, status, department, created_at, user_code, profiles(email, display_name)")
     .eq("organization_id", session.membership.organization_id)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true })
+    .limit(1000);
 
   // Everyone who prints gets a persistent, org-unique code. Give the ones without one theirs now (service role, after
   // the requireOrgRole check above) so this page shows exactly what is stamped. A failure here is not fatal: that
@@ -28,22 +29,24 @@ export default async function UsersPage() {
   const missing = memberRows.filter((m) => !m.user_code);
   if (missing.length > 0) {
     const writer = createServiceRoleClient();
-    for (const m of missing) {
-      try {
-        codes.set(
-          m.user_id,
-          await ensureMemberUserCode(writer, {
-            organizationId: session.membership.organization_id,
-            userId: m.user_id,
-            displayName: m.profiles?.display_name ?? null,
-            email: m.profiles?.email ?? null,
-            stored: null,
-          }),
-        );
-      } catch (err) {
-        logger.error("could not assign a user code", { userId: m.user_id, error: err instanceof Error ? err.message : String(err) });
-      }
-    }
+    await Promise.all(
+      missing.map(async (m) => {
+        try {
+          codes.set(
+            m.user_id,
+            await ensureMemberUserCode(writer, {
+              organizationId: session.membership.organization_id,
+              userId: m.user_id,
+              displayName: m.profiles?.display_name ?? null,
+              email: m.profiles?.email ?? null,
+              stored: null,
+            }),
+          );
+        } catch (err) {
+          logger.error("could not assign a user code", { userId: m.user_id, error: err instanceof Error ? err.message : String(err) });
+        }
+      }),
+    );
   }
 
   const isOrgAdmin = session.membership.role === "org_admin";

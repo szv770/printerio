@@ -93,14 +93,14 @@ export function ResponsiveTable<T>({
             key={rowKey(row)}
             className={`rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-card)] ${rowClassName?.(row) ?? ""}`}
           >
-            <div className="text-[15px] font-medium leading-6">{primary.cell(row)}</div>
-            <dl className="mt-2 grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2 text-[13px]">
+            <div className="min-w-0 text-[15px] font-medium leading-6 [overflow-wrap:anywhere]">{primary.cell(row)}</div>
+            <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-2 text-[13px]">
               {columns
                 .filter((c) => c !== primary && !c.hideOnPhone)
                 .map((c) => (
                   <div key={c.header} className="contents">
                     <dt className="text-[var(--color-muted)]">{c.header}</dt>
-                    <dd className="min-w-0 text-right text-[var(--color-text-2)]">{c.cell(row)}</dd>
+                    <dd className="min-w-0 text-right text-[var(--color-text-2)] [overflow-wrap:anywhere]">{c.cell(row)}</dd>
                   </div>
                 ))}
             </dl>

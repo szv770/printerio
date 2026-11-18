@@ -1,5 +1,5 @@
 // The printer description advertised to the OS. Ported from tools/ipp-spike/server.mjs `printerAttrs`
-// (accepted by Windows 11 and Android). Contract changes vs the spike: Letter is the default size,
+// (accepted by Windows 11 and Android). Contract changes vs the spike: Letter is the default size (Ledger 11x17 also offered),
 // `finishings` is "none" only, and the setup page / profile URLs are gone.
 import { createHash } from "node:crypto";
 import { attr, OP, TAG, type IppAttr } from "./codec.js";
@@ -7,14 +7,14 @@ import { attr, OP, TAG, type IppAttr } from "./codec.js";
 /** Same list the spike advertised by default. Only PDF is actually accepted (see handlers). */
 export const DOCUMENT_FORMATS = ["application/pdf", "image/pwg-raster", "image/jpeg", "application/octet-stream"];
 
+/** Letter and Ledger (11x17) only: the sizes this print room uses. No A4/A3 or other sizes, so the dialog cannot pick them. */
 export const MEDIA_SIZES = [
   { key: "na_letter_8.5x11in", x: 21590, y: 27940 },
-  { key: "iso_a4_210x297mm", x: 21000, y: 29700 },
-  { key: "iso_a3_297x420mm", x: 29700, y: 42000 },
+  { key: "na_ledger_11x17in", x: 27940, y: 43180 },
 ] as const;
 
-/** none, staple, staple-top-left, staple-top-right, saddle-stitch, booklet-maker. */
-export const FINISHINGS_SUPPORTED = [3, 4, 20, 22, 8, 13] as const;
+/** none, staple, staple-top-left, staple-top-right, saddle-stitch, booklet-maker, punch (5 = 3 holes left), staple-dual-left (28). */
+export const FINISHINGS_SUPPORTED = [3, 4, 20, 22, 8, 13, 5, 28] as const;
 
 type MediaSize = (typeof MEDIA_SIZES)[number];
 
@@ -41,6 +41,11 @@ export interface PrinterAttrsInput {
   uuidSeed: string;
   startedAt: number;
   now?: Date;
+  /** Finishing values to advertise (default: all of FINISHINGS_SUPPORTED). */
+  finishings?: readonly number[];
+  /** Apple devices (iPhone/iPad/Mac): also advertise the AirPrint raster format and its keyword. PDF stays first, so Apple
+   *  still sends PDF. UNVERIFIED on a real iPhone: this is the first hypothesis for "profile installs, printer never shows". */
+  airprint?: boolean;
 }
 
 export function uuidFromSeed(seed: string): string {
@@ -59,7 +64,7 @@ export function buildPrinterAttributes(input: PrinterAttrsInput): IppAttr[] {
     attr(TAG.keyword, "uri-security-supported", secure ? "tls" : "none"),
     attr(TAG.keyword, "uri-authentication-supported", "none"),
     attr(TAG.name, "printer-name", input.printerName),
-    attr(TAG.text, "printer-info", "Printio cloud print"),
+    attr(TAG.text, "printer-info", input.printerName),
     attr(TAG.text, "printer-location", ""),
     attr(TAG.text, "printer-make-and-model", "Printio Cloud Print"),
     attr(TAG.text, "printer-device-id", "MFG:Printio;MDL:Cloud Print;CMD:PDF;"),
@@ -78,7 +83,7 @@ export function buildPrinterAttributes(input: PrinterAttrsInput): IppAttr[] {
     attr(TAG.language, "natural-language-configured", "en"),
     attr(TAG.language, "generated-natural-language-supported", "en"),
     attr(TAG.mime, "document-format-default", DOCUMENT_FORMATS[0] as string),
-    attr(TAG.mime, "document-format-supported", ...DOCUMENT_FORMATS),
+    attr(TAG.mime, "document-format-supported", ...(input.airprint ? [DOCUMENT_FORMATS[0] as string, "image/urf", ...DOCUMENT_FORMATS.slice(1)] : DOCUMENT_FORMATS)),
     attr(TAG.keyword, "pdl-override-supported", "attempted"),
     attr(TAG.keyword, "compression-supported", "none"),
     attr(TAG.boolean, "multiple-document-jobs-supported", false),
@@ -99,19 +104,20 @@ export function buildPrinterAttributes(input: PrinterAttrsInput): IppAttr[] {
     attr(TAG.integer, "number-up-supported", 1),
     // Only finishings the website maps AND the printer is proven to deliver (apps/web/lib/gateway/ipp-choices.ts,
     // docs/kyocera-raw-print.md). RFC 8011 / PWG 5100.1 values: 3 none, 4 staple, 20 staple-top-left,
-    // 22 staple-top-right, 8 saddle-stitch, 13 booklet-maker. NOT advertised on purpose: 21 bottom-left (no
-    // storage for it yet), 28-31 dual staples, punch, fold - the dialog must not offer what cannot be delivered.
+    // 22 staple-top-right, 8 saddle-stitch, 13 booklet-maker, 5 punch (3 holes, left, proven 2026-11-01), 28
+    // staple-dual-left (proven 2026-11-01). NOT advertised on purpose: 21 bottom-left (no storage for it yet),
+    // 29-31 other dual staples, 70+ other punch layouts, fold - the dialog must not offer what cannot be delivered.
     // UNVERIFIED: which of these Windows 11 / Android actually draw in their dialog (nothing is captured yet; the
     // OS may show only some, or only the generic "staple"). Whatever arrives that is not listed is held, never guessed.
     attr(TAG.enum, "finishings-default", 3),
-    attr(TAG.enum, "finishings-supported", ...FINISHINGS_SUPPORTED),
+    attr(TAG.enum, "finishings-supported", ...(input.finishings ?? FINISHINGS_SUPPORTED)),
     attr(TAG.resolution, "printer-resolution-default", dpi600),
     attr(TAG.resolution, "printer-resolution-supported", dpi600),
     attr(TAG.keyword, "media-default", letter.key),
     attr(TAG.keyword, "media-supported", ...MEDIA_SIZES.map((s) => s.key)),
-    attr(TAG.keyword, "media-ready", letter.key),
+    attr(TAG.keyword, "media-ready", ...MEDIA_SIZES.map((s) => s.key)),
     attr(TAG.begCollection, "media-col-default", mediaCol(letter)),
-    attr(TAG.begCollection, "media-col-ready", mediaCol(letter)),
+    attr(TAG.begCollection, "media-col-ready", ...MEDIA_SIZES.map(mediaCol)),
     attr(TAG.begCollection, "media-col-database", ...MEDIA_SIZES.map(mediaCol)),
     attr(TAG.keyword, "media-col-supported", "media-size"),
     attr(
@@ -132,6 +138,7 @@ export function buildPrinterAttributes(input: PrinterAttrsInput): IppAttr[] {
     attr(TAG.resolution, "pwg-raster-document-resolution-supported", { x: 300, y: 300, units: 3 }, dpi600),
     attr(TAG.keyword, "pwg-raster-document-type-supported", "sgray_8"),
     attr(TAG.keyword, "pwg-raster-document-sheet-back", "normal"),
+    ...(input.airprint ? [attr(TAG.keyword, "urf-supported", "V1.4", "CP1", "W8", "RS300", "DM1")] : []),
   ];
 }
 

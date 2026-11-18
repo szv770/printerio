@@ -1,5 +1,5 @@
 import "server-only";
-import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 /**
@@ -15,13 +15,31 @@ export function generateDeviceSecret(): string {
   return randomBytes(32).toString("base64url");
 }
 
+/**
+ * The device secret is 32 random bytes, so a slow KDF adds nothing: a plain SHA-256 is enough and costs
+ * microseconds instead of tens of ms of CPU per request. New and rotated secrets are stored as
+ * `sha256:<hex>`. Legacy `salt:hash` (scrypt) rows still verify, and are upgraded on first use.
+ */
+const FAST_PREFIX = "sha256:";
+
+function sha256Hex(secret: string): string {
+  return createHash("sha256").update(secret).digest("hex");
+}
+
 export function hashDeviceSecret(secret: string): string {
-  const salt = randomBytes(16);
-  const hash = scryptSync(secret, salt, 64);
-  return `${salt.toString("hex")}:${hash.toString("hex")}`;
+  return `${FAST_PREFIX}${sha256Hex(secret)}`;
+}
+
+export function isLegacyDeviceSecretHash(stored: string): boolean {
+  return !stored.startsWith(FAST_PREFIX);
 }
 
 export function verifyDeviceSecret(secret: string, stored: string): boolean {
+  if (stored.startsWith(FAST_PREFIX)) {
+    const expected = Buffer.from(stored.slice(FAST_PREFIX.length), "hex");
+    const candidate = Buffer.from(sha256Hex(secret), "hex");
+    return candidate.length === expected.length && timingSafeEqual(candidate, expected);
+  }
   const [saltHex, hashHex] = stored.split(":");
   if (!saltHex || !hashHex) return false;
   const salt = Buffer.from(saltHex, "hex");
@@ -45,7 +63,22 @@ export interface AuthenticatedAgent {
    * learns it is paused) - only job claiming is refused.
    */
   paused: boolean;
+  /** `agents.poll_interval_seconds`: an admin-chosen poll speed handed back in the heartbeat; null = the PC's own setting. */
+  pollIntervalSeconds?: number | null;
+  /** What this agent last reported (already loaded by auth), so the heartbeat can skip rewriting identical values. Absent in test doubles. */
+  reported?: {
+    version: string | null;
+    discovered_queues: unknown;
+    hostname: string | null;
+    os_version: string | null;
+    ip_addresses: string[] | null;
+    is_git_checkout: boolean | null;
+  };
 }
+
+/** Only the columns authentication and the heartbeat's change-detection use. */
+const AGENT_AUTH_COLUMNS =
+  "id, organization_id, status, paused, device_secret_hash, version, discovered_queues, hostname, os_version, ip_addresses, is_git_checkout, poll_interval_seconds";
 
 /** Parses and verifies the `Authorization: Bearer <agentId>.<deviceSecret>` header. */
 export async function authenticateAgentRequest(request: Request): Promise<AuthenticatedAgent | null> {
@@ -60,9 +93,36 @@ export async function authenticateAgentRequest(request: Request): Promise<Authen
   if (!agentId || !secret) return null;
 
   const supabase = createServiceRoleClient();
-  const { data: agent } = await supabase.from("agents").select("*").eq("id", agentId).maybeSingle();
+  const { data: agent } = await supabase.from("agents").select(AGENT_AUTH_COLUMNS).eq("id", agentId).maybeSingle();
   if (!agent || agent.status !== "active" || !agent.device_secret_hash) return null;
   if (!verifyDeviceSecret(secret, agent.device_secret_hash)) return null;
 
-  return { id: agent.id, organizationId: agent.organization_id, paused: agent.paused };
+  if (isLegacyDeviceSecretHash(agent.device_secret_hash)) {
+    // Best effort: move this agent to the fast format. Guarded by the old value so a concurrent rotate wins,
+    // and never allowed to fail the request.
+    try {
+      await supabase
+        .from("agents")
+        .update({ device_secret_hash: hashDeviceSecret(secret) })
+        .eq("id", agent.id)
+        .eq("device_secret_hash", agent.device_secret_hash);
+    } catch {
+      // ignore - the next request retries
+    }
+  }
+
+  return {
+    id: agent.id,
+    organizationId: agent.organization_id,
+    paused: agent.paused,
+    pollIntervalSeconds: agent.poll_interval_seconds ?? null,
+    reported: {
+      version: agent.version,
+      discovered_queues: agent.discovered_queues,
+      hostname: agent.hostname,
+      os_version: agent.os_version,
+      ip_addresses: agent.ip_addresses,
+      is_git_checkout: agent.is_git_checkout,
+    },
+  };
 }

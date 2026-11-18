@@ -70,6 +70,8 @@ create table organization_members (
     check (role in ('org_admin', 'approver', 'staff', 'student')),
   department text,
   status text not null default 'active' check (status in ('active', 'disabled')),
+  -- 0044: an org admin switched the early tools (print from a link, booklet builder) on for this person.
+  early_tools boolean not null default false,
   created_at timestamptz not null default now(),
   primary key (user_id, organization_id)
 );
@@ -157,6 +159,9 @@ create table printers (
   location text,
   status text not null default 'unknown' check (status in ('unknown', 'online', 'offline', 'error')),
   last_status_at timestamptz,
+  -- 0047: the printer's own last status message and PJL code, as reported by the print agent (display only).
+  status_detail text check (status_detail is null or char_length(status_detail) <= 200),
+  status_code integer check (status_code is null or status_code between 0 and 99999),
   -- Model-specific SNMP OID overrides (never hardcoded across models - see
   -- docs/architecture.md sec 9 / known-limitations.md). Null/empty = SNMP telemetry
   -- disabled for this printer; printing is unaffected either way.
@@ -630,6 +635,25 @@ $$;
 create trigger profiles_prevent_privilege_escalation
   before update on profiles
   for each row execute function private.prevent_platform_role_escalation();
+
+-- 0045: a member cannot change profiles.email (it mirrors the sign-in address); one profile per address.
+create or replace function private.prevent_profile_email_change()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.email is distinct from old.email
+     and coalesce(auth.role(), 'anon') <> 'service_role' then
+    raise exception 'email can only be changed by a service-role operation';
+  end if;
+  return new;
+end;
+$$;
+create trigger profiles_prevent_email_change
+  before update on public.profiles
+  for each row execute function private.prevent_profile_email_change();
+create unique index profiles_email_lower_key on public.profiles (lower(email));
 
 create policy "users can view own profile or org_admins can view their org's members"
 on profiles for select
@@ -3168,3 +3192,431 @@ drop trigger if exists organization_invitations_group_same_org on public.organiz
 create trigger organization_invitations_group_same_org
   before insert or update of group_id, organization_id on public.organization_invitations
   for each row execute function public.check_invitation_group_same_org();
+
+-- ===================================================================
+-- Source: migrations/0042_setup_feedback.sql
+-- ===================================================================
+-- Printio: "Did it come out OK?" loop for newly added devices.
+--
+--   device_setup_feedback  one answer per device from the member (Yes / Something was wrong + note).
+--                          The setup method (windows_manual_wizard, android_bare_host, mac_lpadmin, ...) is NOT
+--                          sent by the browser: a trigger copies organization, user and method from the member's
+--                          own device row, so answers cannot be spoofed or mis-filed.
+--   setup_confirmations    an org admin marks one exact setup method "Confirmed working" for the organization.
+--
+-- Not a source of truth for printing: nothing in the print path reads these tables.
+-- RLS: members see their own answers, org admins see the whole org's; only org admins write confirmations.
+-- Grants are explicit (never anon). Re-runnable.
+
+-- p_variant only matters for the Mac, which has two documented routes: 'terminal' (default) or 'ip_tab'.
+create or replace function private.setup_key_for(p_device_type text, p_variant text default null)
+returns text language sql immutable set search_path = '' as $$
+  select case p_device_type
+    when 'windows' then 'windows_manual_wizard'
+    when 'android' then 'android_bare_host'
+    when 'mac' then case when p_variant = 'ip_tab' then 'mac_ip_tab' else 'mac_lpadmin' end
+    else 'other_' || coalesce(p_device_type, 'unknown')
+  end
+$$;
+
+create table if not exists public.device_setup_feedback (
+  id uuid primary key default gen_random_uuid(),
+  device_id uuid not null unique references public.member_devices (id) on delete cascade,
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  setup_key text not null,
+  outcome text not null check (outcome in ('ok', 'problem')),
+  note text not null default '' check (char_length(note) <= 1000),
+  -- Which documented route the member used (Mac only: 'terminal' or 'ip_tab'); null = the default route.
+  setup_variant text check (setup_variant is null or setup_variant in ('terminal', 'ip_tab')),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists device_setup_feedback_org_key_idx on public.device_setup_feedback (organization_id, setup_key);
+create index if not exists device_setup_feedback_user_idx on public.device_setup_feedback (user_id);
+
+-- Fills organization / user / method from the device. SECURITY DEFINER so it can read the device row whatever the
+-- caller's grants are; the insert policy below still requires the device to be the caller's own.
+create or replace function private.fill_setup_feedback()
+returns trigger language plpgsql security definer set search_path = '' as $$
+declare d record;
+begin
+  select organization_id, user_id, device_type into d from public.member_devices where id = new.device_id;
+  if not found then
+    raise exception 'device not found';
+  end if;
+  new.organization_id := d.organization_id;
+  new.user_id := d.user_id;
+  new.setup_key := private.setup_key_for(d.device_type, new.setup_variant);
+  return new;
+end $$;
+
+drop trigger if exists device_setup_feedback_fill on public.device_setup_feedback;
+create trigger device_setup_feedback_fill
+  before insert on public.device_setup_feedback
+  for each row execute function private.fill_setup_feedback();
+
+alter table public.device_setup_feedback enable row level security;
+
+drop policy if exists "members see own answers; org admins see their org's" on public.device_setup_feedback;
+create policy "members see own answers; org admins see their org's"
+on public.device_setup_feedback for select to authenticated
+using (user_id = (select auth.uid()) or private.is_org_admin(organization_id));
+
+drop policy if exists "members answer for their own devices" on public.device_setup_feedback;
+create policy "members answer for their own devices"
+on public.device_setup_feedback for insert to authenticated
+with check (
+  exists (
+    select 1 from public.member_devices d
+    where d.id = device_setup_feedback.device_id and d.user_id = (select auth.uid())
+  )
+);
+
+revoke all on table public.device_setup_feedback from anon;
+revoke all on table public.device_setup_feedback from authenticated;
+grant select, insert, update, delete on public.device_setup_feedback to service_role;
+grant select on public.device_setup_feedback to authenticated;
+grant insert (device_id, outcome, note, setup_variant) on public.device_setup_feedback to authenticated;
+
+create table if not exists public.setup_confirmations (
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  setup_key text not null check (char_length(setup_key) between 1 and 80),
+  confirmed_by uuid not null references public.profiles (id),
+  confirmed_at timestamptz not null default now(),
+  primary key (organization_id, setup_key)
+);
+
+create index if not exists setup_confirmations_confirmed_by_idx on public.setup_confirmations (confirmed_by);
+
+alter table public.setup_confirmations enable row level security;
+
+drop policy if exists "members read their org's confirmations" on public.setup_confirmations;
+create policy "members read their org's confirmations"
+on public.setup_confirmations for select to authenticated
+using (organization_id in (select private.user_org_ids()));
+
+drop policy if exists "org admins confirm setups" on public.setup_confirmations;
+create policy "org admins confirm setups"
+on public.setup_confirmations for insert to authenticated
+with check (private.is_org_admin(organization_id) and confirmed_by = (select auth.uid()));
+
+drop policy if exists "org admins remove confirmations" on public.setup_confirmations;
+create policy "org admins remove confirmations"
+on public.setup_confirmations for delete to authenticated
+using (private.is_org_admin(organization_id));
+
+revoke all on table public.setup_confirmations from anon;
+revoke all on table public.setup_confirmations from authenticated;
+grant select, insert, update, delete on public.setup_confirmations to service_role;
+grant select, delete on public.setup_confirmations to authenticated;
+grant insert (organization_id, setup_key, confirmed_by) on public.setup_confirmations to authenticated;
+
+-- 0043_device_connection_tests.sql
+-- Printio: "Test my connection" results from the add-device flow.
+--
+-- The browser on the device being set up tries our own site, a short token-free probe address and the person's real
+-- print address, and reports yes/no + milliseconds for each. The server (never the browser) validates the report,
+-- adds the User-Agent from the request, and writes one row. So the table never holds an address or token, and a
+-- member cannot forge a row for someone else's device (the server checks the device is theirs).
+-- RLS: members see their own results, org admins see the whole org's. Only service_role writes. Re-runnable.
+
+create table if not exists public.device_connection_tests (
+  id uuid primary key default gen_random_uuid(),
+  device_id uuid not null references public.member_devices (id) on delete cascade,
+  organization_id uuid not null references public.organizations (id) on delete cascade,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  control_ok boolean not null,
+  control_ms integer not null check (control_ms between 0 and 60000),
+  probe_ok boolean not null,
+  probe_ms integer not null check (probe_ms between 0 and 60000),
+  real_ok boolean not null,
+  real_ms integer not null check (real_ms between 0 and 60000),
+  verdict text not null check (verdict in ('reachable', 'offline', 'address_blocked', 'domain_blocked', 'mixed')),
+  user_agent text check (user_agent is null or char_length(user_agent) <= 300),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists device_connection_tests_device_idx on public.device_connection_tests (device_id, created_at desc);
+create index if not exists device_connection_tests_org_idx on public.device_connection_tests (organization_id, created_at desc);
+create index if not exists device_connection_tests_user_idx on public.device_connection_tests (user_id);
+
+alter table public.device_connection_tests enable row level security;
+
+drop policy if exists "members see own connection tests; org admins see their org's" on public.device_connection_tests;
+create policy "members see own connection tests; org admins see their org's"
+on public.device_connection_tests for select to authenticated
+using (user_id = (select auth.uid()) or private.is_org_admin(organization_id));
+
+revoke all on table public.device_connection_tests from anon;
+revoke all on table public.device_connection_tests from authenticated;
+grant select, insert, update, delete on public.device_connection_tests to service_role;
+grant select on public.device_connection_tests to authenticated;
+
+-- 0046: weeks of Sichos In English added after the saved copy in the code (an admin's "Check for new weeks").
+create table library_sie_entries (
+  url text primary key check (url ~ '^https://drive[.]google[.]com/file/d/[A-Za-z0-9_-]{20,}/view$'),
+  chelek text not null check (char_length(chelek) between 1 and 20),
+  sefer text not null check (char_length(sefer) between 1 and 30),
+  title text not null check (char_length(title) between 1 and 120),
+  volume int check (volume is null or volume between 1 and 99),
+  page int check (page is null or page between 1 and 5000),
+  from_page int not null default 1 check (from_page between 1 and 50),
+  to_page int check (to_page is null or to_page between 1 and 1000),
+  page_count int check (page_count is null or page_count between 1 and 1000),
+  added_at timestamptz not null default now(),
+  added_by uuid references profiles (id) on delete set null
+);
+alter table library_sie_entries enable row level security;
+create policy "members can read the SIE list" on library_sie_entries for select to authenticated using (true);
+-- The default privileges (0031) also hand new tables to signed-in members; take the writes back so only the service role writes.
+revoke insert, update, delete, truncate, references, trigger on public.library_sie_entries from authenticated;
+revoke all on public.library_sie_entries from anon;
+grant select on public.library_sie_entries to authenticated;
+grant select, insert, update, delete on public.library_sie_entries to service_role;
+
+-- 0050: the text of Chabad.org's daily study (Chumash with Rashi, Tanya, Rambam), saved once per day and study.
+create table library_daily_texts (
+  study text not null check (study in ('chumash', 'tehillim', 'tanya', 'hayomyom', 'mitzvah', 'rambam1', 'rambam3')),
+  study_date date not null,
+  portion text not null check (char_length(portion) between 1 and 300),
+  sections jsonb not null check (jsonb_typeof(sections) = 'array' and octet_length(sections::text) <= 1500000),
+  source_url text not null check (source_url ~ '^https://(www[.]chabad[.]org/dailystudy|chitas-site[.]vercel[.]app/shiur)[A-Za-z0-9_./?=&%-]{0,250}$'), -- 0051 added the second source
+  fetched_at timestamptz not null default now(),
+  added_by uuid references profiles (id) on delete set null,
+  primary key (study, study_date)
+);
+alter table library_daily_texts enable row level security;
+create policy "members can read the daily study" on library_daily_texts for select to authenticated using (true);
+revoke insert, update, delete, truncate, references, trigger on public.library_daily_texts from authenticated;
+revoke all on public.library_daily_texts from anon;
+grant select on public.library_daily_texts to authenticated;
+grant select, insert, update, delete on public.library_daily_texts to service_role;
+
+-- ===================================================================
+-- Source: migrations/0048_hot_query_indexes.sql
+-- ===================================================================
+-- Printio: indexes for the hot queries (Agent polling, lease recovery, the member's own job list, the org job list)
+-- and a prune function for the rate-limit table. Re-runnable. Nothing here changes behaviour; it only changes how
+-- fast the same queries run. Plain CREATE INDEX takes a short write lock on print_jobs, which is a small table here.
+
+-- /api/agents/jobs/claimable: approved jobs for this agent's printer profiles, oldest first (created_at, id).
+create index if not exists print_jobs_claimable_idx
+  on public.print_jobs (printer_profile_id, created_at, id)
+  where status = 'approved';
+
+-- Lease recovery (the claimable poll and the daily sweep): jobs an Agent holds (claimed, or any mid-flight state)
+-- whose lease has expired. States match MID_FLIGHT_STATUSES in apps/web/lib/lease-recovery.ts plus 'claimed'.
+create index if not exists print_jobs_expired_lease_idx
+  on public.print_jobs (lease_expires_at)
+  where status in ('claimed', 'downloading', 'downloaded', 'printing', 'submitted_to_spooler');
+
+-- "My jobs": a member's own jobs, newest first.
+create index if not exists print_jobs_created_by_created_at_idx
+  on public.print_jobs (created_by, created_at desc);
+
+-- Organization-wide job lists and reports, newest first.
+create index if not exists print_jobs_org_created_at_idx
+  on public.print_jobs (organization_id, created_at desc);
+
+-- private.rate_limit_buckets only prunes the calling key's own old windows (0012), so keys that are never used again
+-- stay forever. The daily cleanup cron (apps/web/app/api/cron/cleanup/route.ts) calls this through the service role.
+-- Returns how many rows it deleted. A window older than a day can no longer affect any limit in use.
+create or replace function public.prune_rate_limit_buckets(p_older_than interval default interval '1 day')
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_deleted integer;
+begin
+  delete from private.rate_limit_buckets where window_start < now() - p_older_than;
+  get diagnostics v_deleted = row_count;
+  return v_deleted;
+end;
+$$;
+
+comment on function public.prune_rate_limit_buckets is 'Deletes rate_limit_buckets windows older than p_older_than (default 1 day). Service role only; called by the daily cleanup cron.';
+
+revoke execute on function public.prune_rate_limit_buckets(interval) from public, anon, authenticated;
+grant execute on function public.prune_rate_limit_buckets(interval) to service_role;
+
+
+-- 0049_agent_poll_interval: an admin can set how often a print server polls the website (null = the PC's own setting).
+alter table agents
+  add column if not exists poll_interval_seconds integer
+  check (poll_interval_seconds is null or (poll_interval_seconds between 2 and 300));
+comment on column agents.poll_interval_seconds is 'Admin-chosen seconds between Agent polls (2-300), or null to use the Agent''s own setting.';
+
+-- 0052: Hebrew fonts an org admin uploads for daily-study booklets (bytes in the private org-fonts bucket, service role only).
+create table org_fonts (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations (id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 80),
+  file_name text,
+  storage_path text,
+  size_bytes integer,
+  has_vowels boolean not null default false,
+  has_cantillation boolean not null default false,
+  has_hebrew boolean not null default true,
+  has_latin boolean not null default false,
+  created_by uuid references profiles (id) on delete set null,
+  created_at timestamptz not null default now(),
+  unique (organization_id, name)
+);
+create index org_fonts_organization_id_idx on org_fonts (organization_id);
+alter table org_fonts enable row level security;
+create policy "members can read their org's fonts" on org_fonts for select to authenticated using (organization_id in (select private.user_org_ids()));
+revoke insert, update, delete, truncate, references, trigger on public.org_fonts from authenticated;
+revoke all on public.org_fonts from anon;
+grant select on public.org_fonts to authenticated;
+grant select, insert, update, delete on public.org_fonts to service_role;
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('org-fonts', 'org-fonts', false, 8388608)
+on conflict (id) do update set public = false, file_size_limit = 8388608;
+
+-- ===================================================================
+-- Source: migrations/0054_tenant_isolation_fixes.sql
+-- ===================================================================
+-- Printio: close the cross-school gaps found by the two-school isolation tests (docs/TENANT-ISOLATION-TESTS.md).
+--
+-- Each of these let an admin of School A, acting with their own school's id, point a row at a School B object:
+--   1. remote_commands (HIGH): an admin could insert or re-point a command at another school's print server (agent_id), and the
+--      agent poll filters by agent_id only, so that server would run it (restart, get-logs, check-for-update) and write the result
+--      into a row the issuing school can read. Also printer_id was unchecked.
+--   2. printer_profiles (MEDIUM): a profile could be bound to another school's agent.
+--   3. organization_members (MEDIUM): an admin could enrol ANY existing user id (including a user of another school), then read
+--      that person's name and email through the roster policy.
+--
+-- Tightening only: the website already checks (in app code) that the agent and printer belong to the school before it writes
+-- (lib/remote-commands.ts, app/admin/printers/actions.ts), and both places that enrol members use the service role
+-- (lib/auth/invitations.ts, app/platform/actions.ts), which bypasses these rules, so no existing flow changes. Re-runnable.
+
+-- 1. remote_commands -------------------------------------------------------------------------------------------------------
+drop policy if exists "org_admins can issue remote commands" on public.remote_commands;
+create policy "org_admins can issue remote commands"
+  on public.remote_commands for insert
+  to authenticated
+  with check (
+    private.is_org_admin(organization_id)
+    and issued_by = (select auth.uid())
+    and exists (select 1 from public.agents a where a.id = remote_commands.agent_id and a.organization_id = remote_commands.organization_id)
+    and (remote_commands.printer_id is null or exists (select 1 from public.printers p where p.id = remote_commands.printer_id and p.organization_id = remote_commands.organization_id))
+  );
+
+drop policy if exists "org_admins can cancel pending commands they issued" on public.remote_commands;
+create policy "org_admins can cancel pending commands they issued"
+  on public.remote_commands for update
+  to authenticated
+  using (private.is_org_admin(organization_id))
+  with check (
+    private.is_org_admin(organization_id)
+    and exists (select 1 from public.agents a where a.id = remote_commands.agent_id and a.organization_id = remote_commands.organization_id)
+    and (remote_commands.printer_id is null or exists (select 1 from public.printers p where p.id = remote_commands.printer_id and p.organization_id = remote_commands.organization_id))
+  );
+
+-- 2. printer_profiles: the profile's agent must belong to the same school as its printer ------------------------------------
+-- (0009 had split the original "for all" policy into insert / update / delete; replace the insert and update ones.)
+drop policy if exists "org_admins can insert printer profiles" on public.printer_profiles;
+create policy "org_admins can insert printer profiles"
+  on public.printer_profiles for insert
+  to authenticated
+  with check (
+    exists (
+      select 1
+      from public.printers p
+      join public.agents a on a.organization_id = p.organization_id
+      where p.id = printer_profiles.printer_id
+        and a.id = printer_profiles.agent_id
+        and private.is_org_admin(p.organization_id)
+    )
+  );
+
+drop policy if exists "org_admins can update printer profiles" on public.printer_profiles;
+create policy "org_admins can update printer profiles"
+  on public.printer_profiles for update
+  to authenticated
+  using (exists (select 1 from public.printers p where p.id = printer_profiles.printer_id and private.is_org_admin(p.organization_id)))
+  with check (
+    exists (
+      select 1
+      from public.printers p
+      join public.agents a on a.organization_id = p.organization_id
+      where p.id = printer_profiles.printer_id
+        and a.id = printer_profiles.agent_id
+        and private.is_org_admin(p.organization_id)
+    )
+  );
+
+-- 3. organization_members: nobody signed in enrols members directly; only server code (service role) does -------------------
+-- Admins still read, update and remove their school's members; they just cannot insert arbitrary user ids themselves.
+drop policy if exists "org_admins can manage members" on public.organization_members;
+revoke insert on public.organization_members from authenticated;
+
+-- 0055: the library's shared page cache, the server job queue (C1b), and the print servers allowed to fill the cache.
+create table library_pages (
+  key text primary key check (char_length(key) between 1 and 200),
+  kind text not null check (char_length(kind) between 1 and 40),
+  payload jsonb not null check (jsonb_typeof(payload) in ('object', 'array') and octet_length(payload::text) <= 1500000),
+  source_url text check (source_url is null or char_length(source_url) <= 500),
+  fetched_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  fetched_by uuid references agents (id) on delete set null
+);
+alter table library_pages enable row level security;
+create policy "members can read the library pages" on library_pages for select to authenticated using (true);
+revoke insert, update, delete, truncate, references, trigger on public.library_pages from authenticated;
+revoke all on public.library_pages from anon;
+grant select on public.library_pages to authenticated;
+grant select, insert, update, delete on public.library_pages to service_role;
+
+create table server_jobs (
+  id uuid primary key default gen_random_uuid(),
+  kind text not null check (kind in ('library_fetch')),
+  organization_id uuid not null references organizations (id) on delete cascade,
+  requested_by uuid references profiles (id) on delete set null,
+  params jsonb not null check (jsonb_typeof(params) = 'object' and octet_length(params::text) <= 2000),
+  dedupe_key text not null check (char_length(dedupe_key) between 1 and 200),
+  status text not null default 'queued' check (status in ('queued', 'claimed', 'done', 'failed')),
+  claimed_by uuid references agents (id) on delete set null,
+  lease_until timestamptz,
+  result_key text check (result_key is null or char_length(result_key) <= 200),
+  error text check (error is null or char_length(error) <= 500),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create unique index server_jobs_one_active_per_key on server_jobs (dedupe_key) where status in ('queued', 'claimed');
+create index server_jobs_claim_idx on server_jobs (status, created_at);
+create index server_jobs_org_idx on server_jobs (organization_id);
+create trigger server_jobs_set_updated_at before update on server_jobs for each row execute function private.set_updated_at();
+alter table server_jobs enable row level security;
+create policy "members can read their school's server jobs" on server_jobs for select to authenticated using (organization_id in (select private.user_org_ids()));
+revoke insert, update, delete, truncate, references, trigger on public.server_jobs from authenticated;
+revoke all on public.server_jobs from anon;
+grant select on public.server_jobs to authenticated;
+grant select, insert, update, delete on public.server_jobs to service_role;
+
+create table library_fetchers (
+  agent_id uuid primary key references agents (id) on delete cascade,
+  added_at timestamptz not null default now()
+);
+alter table library_fetchers enable row level security; -- no policy on purpose: nobody signed in can touch it
+revoke all on public.library_fetchers from authenticated;
+revoke all on public.library_fetchers from anon;
+grant select, insert, update, delete on public.library_fetchers to service_role;
+
+-- 0056: per-user print page preferences ("Remember my last print choices"). Own row only; the app works without this table.
+create table user_print_preferences (
+  user_id uuid primary key references profiles (id) on delete cascade,
+  remember_last boolean not null default false,
+  last_choices jsonb check (last_choices is null or (jsonb_typeof(last_choices) = 'object' and octet_length(last_choices::text) <= 2000)),
+  updated_at timestamptz not null default now()
+);
+alter table user_print_preferences enable row level security;
+create policy "users read their own print preferences" on user_print_preferences for select to authenticated using (user_id = (select auth.uid()));
+create policy "users add their own print preferences" on user_print_preferences for insert to authenticated with check (user_id = (select auth.uid()));
+create policy "users change their own print preferences" on user_print_preferences for update to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+revoke delete, truncate, references, trigger on public.user_print_preferences from authenticated;
+revoke all on public.user_print_preferences from anon;
+grant select, insert, update on public.user_print_preferences to authenticated, service_role;

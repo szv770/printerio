@@ -7,6 +7,10 @@ import { ButtonLink, PageHeader, Tabs } from "@/components/ui";
 import { routes } from "@/lib/routes";
 import { printerTabs } from "@/lib/admin/tabs";
 import { DevicesAdmin, type AdminDevice } from "./DevicesAdmin";
+import { ConfirmedBanner } from "@/components/devices/ConfirmedBanner";
+import { SetupStatusPanel } from "./SetupStatusPanel";
+import { latestConnectionTests } from "@/lib/devices/connection-test-server";
+import { loadSetupSummaries } from "@/lib/devices/setup-feedback-server";
 
 export default async function AdminDevicesPage() {
   const session = await requireOrgRole(["org_admin"]);
@@ -29,6 +33,9 @@ export default async function AdminDevicesPage() {
   const openCounts: Record<string, number> = {};
   for (const i of issues) if (i.status === "open") openCounts[i.device_id] = (openCounts[i.device_id] ?? 0) + 1;
 
+  const connection = await latestConnectionTests(supabase, devices.map((d) => d.id));
+  const setups = await loadSetupSummaries(supabase, orgId).catch(() => []);
+
   const now = new Date();
   const sorted = sortStuckFirst(devices, openCounts, now);
   const items: AdminDevice[] = sorted.map((d) => ({
@@ -43,6 +50,7 @@ export default async function AdminDevicesPage() {
     first_printed_at: d.first_printed_at,
     last_user_agent: d.last_user_agent,
     stuck: stuckReason(d, openCounts[d.id] ?? 0, now),
+    connection: connection.get(d.id) ? { verdict: connection.get(d.id)!.verdict, createdAt: connection.get(d.id)!.createdAt } : null,
     issues: issues
       .filter((i) => i.device_id === d.id)
       .map((i) => ({
@@ -69,6 +77,8 @@ export default async function AdminDevicesPage() {
         }
       />
       <Tabs label="Printers and devices" items={printerTabs("devices", true)} />
+      <ConfirmedBanner />
+      <SetupStatusPanel setups={setups} canConfirm />
       <DevicesAdmin devices={items} />
     </div>
   );

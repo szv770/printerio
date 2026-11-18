@@ -62,7 +62,7 @@ export function MemberHeader({
                       href={item.href}
                       data-tour={wide ? item.tourAnchor : undefined}
                       aria-current={active ? "page" : undefined}
-                      className={`flex min-h-9 items-center rounded-[var(--radius-control)] px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:shadow-[var(--ring)] ${
+                      className={`flex min-h-11 items-center rounded-[var(--radius-control)] px-3 [@media(pointer:fine)]:min-h-9 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:shadow-[var(--ring)] ${
                         active
                           ? "bg-[var(--color-primary-soft)] text-[var(--color-primary)]"
                           : primary
@@ -79,7 +79,7 @@ export function MemberHeader({
                 <li>
                   <Link
                     href={routes.platform}
-                    className="flex min-h-9 items-center gap-1.5 rounded-[var(--radius-control)] px-3 text-sm font-medium text-[var(--color-text-2)] hover:bg-[var(--color-surface-2)]"
+                    className="flex min-h-11 items-center gap-1.5 rounded-[var(--radius-control)] px-3 [@media(pointer:fine)]:min-h-9 text-sm font-medium text-[var(--color-text-2)] hover:bg-[var(--color-surface-2)]"
                   >
                     <Server className="h-4 w-4 text-[var(--color-muted)]" aria-hidden="true" />
                     Platform
@@ -90,7 +90,7 @@ export function MemberHeader({
           </nav>
 
           <div className="flex items-center gap-1">
-            <div className="flex min-h-11 items-center text-sm font-medium [&_button]:min-h-11 [&_button]:px-2 [&_button]:text-sm sm:min-h-9 sm:[&_button]:min-h-9">
+            <div className="flex min-h-11 items-center text-sm font-medium [&_button]:min-h-11 [&_button]:px-2 [&_button]:text-sm sm:[@media(pointer:fine)]:min-h-9 sm:[@media(pointer:fine)]:[&_button]:min-h-9">
               <HelpMenu userId={userId} variant="student" />
             </div>
             {/* Avatar + sign out only (the phone has the Me sheet instead). */}

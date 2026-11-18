@@ -24,7 +24,7 @@ describe("deviceStatus", () => {
   });
   it("uses plain wording", () => {
     expect(deviceStatus({ ...base, revoked_at: "r" }).label).toBe("Turned off");
-    expect(deviceStatus(base).label).toBe("Address created, not connected yet");
+    expect(deviceStatus(base).label).toBe("Device link created, not connected yet");
   });
 });
 
@@ -35,7 +35,8 @@ describe("setupSteps", () => {
     expect(s.needs).toBe("url");
     const text = s.steps.join("\n");
     expect(text).toContain("Add manually");
-    expect(text).toContain("Select a shared printer by name");
+    expect(text).toContain("Add a printer using an IP address or hostname");
+    expect(text).toContain("IPP Device");
     expect(text).toContain("https://u-abc.szvtech.org/ipp/print");
   });
   it("android uses the bare hostname and says so", () => {
@@ -49,12 +50,14 @@ describe("setupSteps", () => {
   });
   it("mac has Terminal and Settings steps, an ipps command, and is honestly labelled untested", () => {
     const s = setupSteps("mac", addr)!;
-    expect(s.needs).toBe("url");
+    expect(s.needs).toBe("hostname");
     expect(s.command).toBe("lpadmin -p Printio -E -v ipps://u-abc.szvtech.org/ipp/print -m everywhere");
     const text = s.steps.join(" ");
     expect(text).toContain("Terminal");
     expect(text).toContain("Add Printer");
     expect(text).toContain("IP tab");
+    expect(text).toContain("u-abc.szvtech.org:443");
+    expect(text).toContain("Recommended");
     expect(s.testStatus).toMatch(/Not tested yet - being worked on/);
     expect(s.testStatus).not.toMatch(/works/i);
   });
@@ -63,7 +66,36 @@ describe("setupSteps", () => {
     expect(setupSteps("android", addr)!.testStatus).toBeUndefined();
   });
   it("other types have no steps yet", () => {
-    for (const t of ["chromebook", "iphone", "other"] as const) expect(setupSteps(t, addr)).toBeNull();
+    for (const t of ["other"] as const) expect(setupSteps(t, addr)).toBeNull();
+  });
+  it("iPhone gets the profile route (proven), and no Terminal command", () => {
+    const s = setupSteps("iphone", addr)!;
+    expect(s.needs).toBe("hostname");
+    expect(s.profileDownload).toBe(true);
+    expect(s.testStatus).toBeUndefined(); // proven on a real iPhone 2026-10-25
+    expect(s.command).toBeUndefined();
+    const text = s.steps.join(" ");
+    expect(text).toContain("Safari");
+    expect(text).toContain("Profile Downloaded");
+    expect(text).toMatch(/Unsigned/i);
+    expect(text).toContain("Print");
+  });
+  it("Chromebook uses the manual Add printer form: hostname with port 443, IPPS, queue ipp/print; labelled not tested", () => {
+    const s = setupSteps("chromebook", addr)!;
+    expect(s.needs).toBe("hostname");
+    expect(s.testStatus).toMatch(/not tested/i);
+    expect(s.command).toBeUndefined();
+    expect(s.profileDownload).toBeUndefined();
+    const text = s.steps.join(" ");
+    expect(text).toContain("Add printer");
+    expect(text).toContain("u-abc.szvtech.org:443");
+    expect(text).toMatch(/IPPS/);
+    expect(text).toContain("ipp/print");
+    expect(text).not.toContain("https://");
+    expect(s.note).toMatch(/school|administrator|managed/i);
+  });
+  it("no other type offers the profile", () => {
+    for (const t of ["windows", "android", "mac"] as const) expect(setupSteps(t, addr)!.profileDownload).toBeUndefined();
   });
 });
 
@@ -105,9 +137,8 @@ describe("detectDeviceType", () => {
 });
 
 describe("noStepsMessage", () => {
-  it("is honest about iPhone", () => {
-    expect(noStepsMessage("iphone")).toMatch(/coming later/i);
-    expect(noStepsMessage("iphone")).toMatch(/upload from the website/i);
+  it("has no iPhone special case any more (iPhone now has steps)", () => {
+    expect(noStepsMessage("iphone")).toMatch(/don't have steps/i);
   });
   it("says plainly that Other has no steps and may not work", () => {
     expect(noStepsMessage("other")).toBe("We don't have steps for this kind of device yet. It may not work.");

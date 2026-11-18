@@ -72,6 +72,17 @@
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  /* Android Chrome paints a grey/blue flash on every tap unless told not to; iPhone never does. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Installed app (Android "Install app", iPhone "Add to Home Screen"): no pull-down-to-reload and no rubber-band at the
+ * page edges, which is what makes an Android web page feel like a web page instead of an app. */
+@media (display-mode: standalone) {
+  html,
+  body {
+    overscroll-behavior-y: none;
+  }
 }
 
 body {
@@ -83,6 +94,9 @@ body {
   font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
   overflow-wrap: break-word;
+  /* The page runs edge to edge (viewport-fit=cover); in landscape the notch and rounded corners sit on the sides, so keep the content clear of them. */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 /*

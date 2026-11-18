@@ -25,11 +25,11 @@ describe("printer attributes", () => {
     expect(p["page-ranges-supported"]).toBe(true);
   });
 
-  it("advertises exactly the finishings the website can deliver: none, staple, top-left, top-right, saddle-stitch, booklet-maker", () => {
+  it("advertises exactly the finishings the website can deliver: none, staple, top-left, top-right, saddle-stitch, booklet-maker, punch, dual-left", () => {
     const p = flatten({ tag: TAG.printer, attrs: build() });
-    expect(p["finishings-supported"]).toEqual([3, 4, 20, 22, 8, 13]);
+    expect(p["finishings-supported"]).toEqual([3, 4, 20, 22, 8, 13, 5, 28]);
     // Never advertise what cannot be delivered (bottom-left 21, dual staples 28-31, punch 5/70+, fold 10).
-    for (const v of [5, 10, 21, 23, 28, 29, 30, 31, 70]) expect(p["finishings-supported"]).not.toContain(v);
+    for (const v of [10, 21, 23, 29, 30, 31, 70, 78]) expect(p["finishings-supported"]).not.toContain(v);
   });
 
   it("keeps the sides and orientation options the dialog needs", () => {
@@ -52,5 +52,71 @@ describe("printer attributes", () => {
     expect(names(["printer-description"]).length).toBe(build().length);
     expect(names(undefined).length).toBe(build().length);
     expect(names(["no-such-attribute"])).toEqual([]);
+  });
+});
+
+describe("advertised paper sizes", () => {
+  const p = () => flatten({ tag: TAG.printer, attrs: build() });
+  it("offers Letter (default) and Ledger 11x17 only: no A4/A3 or other sizes", () => {
+    expect(p()["media-supported"]).toEqual(["na_letter_8.5x11in", "na_ledger_11x17in"]);
+    expect(p()["media-ready"]).toEqual(["na_letter_8.5x11in", "na_ledger_11x17in"]);
+    expect(p()["media-default"]).toBe("na_letter_8.5x11in");
+    expect(p()["media-col-database"]).toEqual([
+      { "media-size": { "x-dimension": 21590, "y-dimension": 27940 } },
+      { "media-size": { "x-dimension": 27940, "y-dimension": 43180 } },
+    ]);
+    expect(p()["media-col-ready"]).toEqual([
+      { "media-size": { "x-dimension": 21590, "y-dimension": 27940 } },
+      { "media-size": { "x-dimension": 27940, "y-dimension": 43180 } },
+    ]);
+  });
+});
+
+describe("advertised finishings", () => {
+  const finishingsOf = (finishings?: readonly number[]) => {
+    const attrs = buildPrinterAttributes({
+      baseUrl: "https://u-x.example.test",
+      printerName: "Printio",
+      uuidSeed: "seed",
+      startedAt: Date.now(),
+      finishings,
+    });
+    const m = decodeIpp(encodeIpp({ code: 0, requestId: 1, groups: [{ tag: TAG.printer, attrs }] }));
+    return flatten(m.groups[0])["finishings-supported"];
+  };
+
+  it("advertises the full list by default", () => {
+    expect(finishingsOf()).toEqual([3, 4, 20, 22, 8, 13, 5, 28]);
+  });
+  it("can advertise 'none' only, exactly what the spike sent when Windows 11 accepted the printer", () => {
+    expect(finishingsOf([3])).toBe(3);
+  });
+});
+
+describe("AirPrint extras (only for iPhone/Mac devices)", () => {
+  const p = (airprint?: boolean) => {
+    const attrs = buildPrinterAttributes({ baseUrl: "https://u-x.example.test", printerName: "Printio", uuidSeed: "seed", startedAt: Date.now(), airprint });
+    return flatten(decodeIpp(encodeIpp({ code: 0, requestId: 1, groups: [{ tag: TAG.printer, attrs }] })).groups[0]);
+  };
+  it("adds image/urf and urf-supported when asked, keeping PDF first", () => {
+    const withAp = p(true);
+    expect((withAp["document-format-supported"] as string[])[0]).toBe("application/pdf");
+    expect(withAp["document-format-supported"]).toContain("image/urf");
+    expect(withAp["urf-supported"]).toBeDefined();
+  });
+  it("leaves Windows/Android attributes exactly as they were", () => {
+    const without = p(false);
+    expect(without["document-format-supported"]).toEqual(DOCUMENT_FORMATS);
+    expect(without["urf-supported"]).toBeUndefined();
+    expect(p()["document-format-supported"]).toEqual(DOCUMENT_FORMATS);
+  });
+});
+
+describe("printer name and description follow the device's label (every device type)", () => {
+  it("printer-info (the description many clients show) carries the same Printio-<printer>-<code> label", () => {
+    const attrs = buildPrinterAttributes({ baseUrl: "https://u-x.example.test", printerName: "Printio-MLMI-SZV", uuidSeed: "s", startedAt: Date.now() });
+    const p = flatten(decodeIpp(encodeIpp({ code: 0, requestId: 1, groups: [{ tag: TAG.printer, attrs }] })).groups[0]);
+    expect(p["printer-name"]).toBe("Printio-MLMI-SZV");
+    expect(p["printer-info"]).toBe("Printio-MLMI-SZV");
   });
 });

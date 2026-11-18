@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, type KeyboardEvent, type ReactNode } from "react";
+import { useId, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 
 export interface SegmentedOption<V extends string> {
   value: V;
@@ -41,6 +41,7 @@ export function Segmented<V extends string>({
   const labelId = useId();
   const hintId = useId();
   const enabled = options.filter((o) => !disabled && !o.disabledReason);
+  const many = options.length > 3;
 
   function onKeyDown(e: KeyboardEvent<HTMLButtonElement>, current: V) {
     const forward = e.key === "ArrowRight" || e.key === "ArrowDown";
@@ -62,8 +63,10 @@ export function Segmented<V extends string>({
         role="radiogroup"
         aria-labelledby={labelId}
         aria-describedby={hint || error ? hintId : undefined}
-        className="grid gap-1 rounded-xl bg-[var(--color-border)]/50 p-1"
-        style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
+        // Up to three options sit in one row. More would be squeezed to a sliver on a phone, so they wrap two to a row there
+        // (a last odd one takes the full row) and go to a single row from the sm breakpoint up.
+        className={`grid gap-1 rounded-xl bg-[var(--color-border)]/50 p-1 ${many ? "grid-cols-2 sm:[grid-template-columns:repeat(var(--cols),minmax(0,1fr))]" : ""}`}
+        style={many ? ({ "--cols": options.length } as CSSProperties) : { gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
       >
         {options.map((o) => {
           const selected = o.value === value;
@@ -81,7 +84,7 @@ export function Segmented<V extends string>({
                 if (!off) onChange(o.value);
               }}
               onKeyDown={(e) => onKeyDown(e, o.value)}
-              className={`min-h-11 rounded-lg px-2 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)] ${
+              className={`min-h-11 rounded-lg px-2 py-2 text-sm font-medium transition-colors ${many ? "[&:last-child:nth-child(odd)]:col-span-2 sm:[&:last-child:nth-child(odd)]:col-span-1" : ""} focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)] ${
                 selected
                   ? "bg-[var(--color-surface)] text-[var(--color-text)] shadow-sm ring-1 ring-[var(--color-border)]"
                   : "text-[var(--color-muted)] hover:text-[var(--color-text)]"

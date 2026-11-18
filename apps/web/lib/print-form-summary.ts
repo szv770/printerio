@@ -13,6 +13,13 @@ export function liveSummaryLine(c: {
   sides: SidesChoice;
   staple: StapleChoice;
   booklet: BookletChoice;
+  punch?: boolean;
+  /** Double-sided only; "short" is said out loud (long is the usual and stays unsaid). */
+  edge?: "long" | "short";
+  /** Tabloid is said out loud (Letter is the usual). */
+  size?: "letter" | "tabloid";
+  /** Cardstock is said out loud (plain is the usual). */
+  paper?: "plain" | "cardstock";
 }): string {
   const parts: string[] = [];
   if (c.pages && c.pages > 0) parts.push(plural(c.pages, "page", "pages"));
@@ -20,9 +27,13 @@ export function liveSummaryLine(c: {
   if (c.booklet !== "none") {
     parts.push("booklet");
   } else {
-    parts.push(c.sides === "two" ? "double-sided" : "single-sided");
-    if (c.staple !== "none") parts.push("stapled");
+    parts.push(c.sides === "two" ? (c.edge === "short" ? "double-sided, short edge" : "double-sided") : "single-sided");
+    if (c.staple === "dual-left") parts.push("two staples");
+    else if (c.staple !== "none") parts.push("stapled");
+    if (c.punch) parts.push("hole punch");
   }
+  if (c.size === "tabloid") parts.push("Tabloid (11x17)");
+  if (c.paper === "cardstock") parts.push("cardstock");
   return parts.join(" · ");
 }
 
@@ -34,19 +45,25 @@ export function summarizePages(rangeText: string, _total: number | null, selecte
 }
 
 /** Closed "Finishing" section. */
-export function summarizeFinishing(c: { staple: StapleChoice; booklet: BookletChoice }): string {
+export function summarizeFinishing(c: { staple: StapleChoice; booklet: BookletChoice; punch?: boolean }): string {
   if (c.booklet !== "none") {
     return c.booklet === "right" ? "Booklet, bound on the right" : c.booklet === "left" ? "Booklet, bound on the left" : "Booklet";
   }
-  if (c.staple === "top-left") return "Staple, top left";
-  if (c.staple === "top-right") return "Staple, top right";
-  if (c.staple === "profile") return "Staple";
+  const punch = c.punch ? "hole punch (3 holes, left)" : null;
+  const staple = c.staple === "top-left" ? "Staple, top left" : c.staple === "top-right" ? "Staple, top right" : c.staple === "dual-left" ? "Two staples, left" : c.staple === "profile" ? "Staple" : null;
+  if (staple) return punch ? `${staple}, ${punch}` : staple;
+  if (punch) return "Hole punch (3 holes, left)";
   return "No stapling or booklet";
 }
 
 /** Closed "Paper & color" section. */
 export function summarizePaperColor(c: { colorMode: "bw" | "color"; paperSize: string }): string {
   return `${c.colorMode === "color" ? "Colour" : "Black & white"}, ${c.paperSize}`;
+}
+
+/** Closed "Color" section (paper size and type moved to the quick controls on the main card). */
+export function summarizeColor(c: { colorMode: "bw" | "color" }): string {
+  return c.colorMode === "color" ? "Colour" : "Black & white";
 }
 
 /** Closed "Advanced" section. */

@@ -54,9 +54,23 @@ export interface HeartbeatMachineInfo {
   isGitCheckout: boolean;
 }
 
+/** What the printer itself said when asked (apps/agent/src/printer-probe.ts); display only. */
+export interface HeartbeatRawPrinter {
+  printerId: string;
+  reachable: boolean;
+  answered: boolean;
+  online?: boolean;
+  code?: number;
+  display?: string;
+}
+
 export interface HeartbeatResponse {
   ok: true;
   serverTime: string;
+  /** Seconds between polls chosen by an admin on the website (2-300), or null/absent to use this PC's own setting. */
+  pollIntervalSeconds?: number | null;
+  /** The direct-port printers this agent should ask about with its next heartbeat. Absent from an older cloud. */
+  rawPrinters?: Array<{ printerId: string; host: string; port: number }>;
   /**
    * True while an org_admin has this Agent paused (agents.paused). The Agent
    * honors it by not polling for claimable jobs at all
@@ -108,6 +122,8 @@ export interface DownloadUrlResponse {
     duplex: boolean;
     paperSize: string;
     finishing: { staple: boolean; booklet: boolean; punch: boolean };
+    /** Pages the printer should report finished (printer feedback); absent from older servers. */
+    expectedPages?: number;
     /** Per-job override of this Agent's own PRINTIO_PRINT_FIT_MODE default - set by the cloud only for a booklet job (always "noscale"), absent otherwise. See config.ts's PrintFitMode and orchestrator.ts's fallback. */
     fitMode?: "fit" | "shrink" | "noscale";
     /** Present only for output_mode='raw' profiles: send straight to host:port, no Windows queue (windowsQueueName is ""). */
@@ -123,6 +139,13 @@ export interface RemoteCommandEnvelope {
   id: string;
   command: string;
   payload: Record<string, unknown>;
+}
+
+/** What `server-jobs/claim` hands out: structured params only, never an address (docs/agent-api.md). */
+export interface LibraryJobEnvelope {
+  jobId: string;
+  kind: string;
+  params: unknown;
 }
 
 export interface CloudClientOptions {
@@ -155,6 +178,26 @@ export class CloudClient {
     this.deviceSecret = options.deviceSecret;
     this.logger = options.logger;
     this.fetchImpl = options.fetchImpl ?? fetch;
+  }
+
+  /** Consecutive 401/403 answers to the polls (heartbeat, commands, claimable); 0 after any other answer. The orchestrator backs off when this stays high. */
+  consecutiveAuthFailures = 0;
+
+  /**
+   * One of the three idempotent polls. NOT retried inside the request: the next cycle (60 s or more away) is the
+   * retry, and an in-request retry loop against a struggling server multiplies the invocations it is already failing
+   * to serve. Also tracks consecutive 401/403 so a revoked agent can slow itself down.
+   */
+  private async poll<T>(method: string, urlPath: string, body?: unknown): Promise<T> {
+    try {
+      const res = await this.request<T>(method, urlPath, body, { auth: true, retry: false });
+      this.consecutiveAuthFailures = 0;
+      return res;
+    } catch (err) {
+      if (err instanceof CloudApiError && (err.status === 401 || err.status === 403)) this.consecutiveAuthFailures += 1;
+      else if (err instanceof CloudApiError) this.consecutiveAuthFailures = 0;
+      throw err;
+    }
   }
 
   /** Called after a successful `register()` so subsequent calls are authenticated. */
@@ -291,22 +334,31 @@ export class CloudClient {
     version: string,
     queues: HeartbeatQueue[],
     machine?: HeartbeatMachineInfo,
+    rawPrinters?: HeartbeatRawPrinter[],
   ): Promise<HeartbeatResponse> {
-    return this.request<HeartbeatResponse>(
-      "POST",
-      "/api/agents/heartbeat",
-      machine ? { version, queues, machine } : { version, queues },
-      { auth: true, retry: true },
-    );
+    return this.poll<HeartbeatResponse>("POST", "/api/agents/heartbeat", {
+      version,
+      queues,
+      ...(machine ? { machine } : {}),
+      ...(rawPrinters && rawPrinters.length > 0 ? { rawPrinters } : {}),
+    });
   }
 
   /** GET /api/agents/jobs/claimable */
   async getClaimableJobs(): Promise<ClaimableJob[]> {
-    const res = await this.request<{ jobs: ClaimableJob[] }>("GET", "/api/agents/jobs/claimable", undefined, {
-      auth: true,
-      retry: true,
-    });
+    const res = await this.poll<{ jobs: ClaimableJob[] }>("GET", "/api/agents/jobs/claimable");
     return res.jobs;
+  }
+
+  /**
+   * GET /api/agents/jobs/claimable?commands=1: the claimable jobs AND the pending remote commands in one call (what
+   * `getClaimableJobs()` plus `getCommands()` return separately). `commands` is `undefined` when the website did not
+   * include the field (an older website ignores the flag, or its commands lookup failed): the caller then asks
+   * `getCommands()` itself, exactly as before.
+   */
+  async getClaimableAndCommands(): Promise<{ jobs: ClaimableJob[]; commands: RemoteCommandEnvelope[] | undefined }> {
+    const res = await this.poll<{ jobs: ClaimableJob[]; commands?: unknown }>("GET", "/api/agents/jobs/claimable?commands=1");
+    return { jobs: res.jobs, commands: Array.isArray(res.commands) ? (res.commands as RemoteCommandEnvelope[]) : undefined };
   }
 
   /**
@@ -378,12 +430,54 @@ export class CloudClient {
     );
   }
 
+  /**
+   * POST /api/agents/server-jobs/claim - the optional library worker's poll. `null` = 204, nothing to do.
+   * Deliberately NOT routed through `poll()`: a 403 here only means "this server is not a library fetcher" and must never
+   * count toward `consecutiveAuthFailures`, which slows the print loop down. Never retried inside the request; the worker
+   * has its own backoff. Throws CloudApiError (4xx/5xx) or CloudNetworkError.
+   */
+  async claimLibraryJob(): Promise<LibraryJobEnvelope | null> {
+    const { status, json } = await this.sendWithRetry("POST", "/api/agents/server-jobs/claim", undefined, { auth: true, retry: false });
+    if (status === 204) return null;
+    if (status === 200) {
+      const body = (json ?? {}) as Partial<LibraryJobEnvelope>;
+      if (typeof body.jobId === "string" && typeof body.kind === "string") return { jobId: body.jobId, kind: body.kind, params: body.params };
+      throw new CloudApiError("server-jobs/claim answered 200 without a job", "BAD_RESPONSE", 200);
+    }
+    const errBody = (json ?? {}) as ApiErrorBody;
+    throw new CloudApiError(errBody.error?.message ?? `claim failed with status ${status}`, errBody.error?.code ?? `HTTP_${status}`, status);
+  }
+
+  /** POST /api/agents/server-jobs/:jobId/complete with exactly `{ payload }`. Not retried here (a 4xx is a decision; the lease is 120 s). */
+  async completeLibraryJob(jobId: string, payload: unknown): Promise<void> {
+    await this.request<{ ok: true }>("POST", `/api/agents/server-jobs/${encodeURIComponent(jobId)}/complete`, { payload }, { auth: true, retry: false, timeoutMs: 30_000 });
+  }
+
+  /** POST /api/agents/server-jobs/:jobId/fail with `{ error }` (a short plain-English reason; the website shows it to people). */
+  async failLibraryJob(jobId: string, error: string): Promise<void> {
+    await this.request<{ ok: true }>("POST", `/api/agents/server-jobs/${encodeURIComponent(jobId)}/fail`, { error }, { auth: true, retry: false });
+  }
+
+  /**
+   * GET /api/agents/library/daily-missing?from=YYYY-MM-DD&days=N - which of those days have no saved daily study text yet
+   * (the library worker's nightly week-ahead fetch). Like the other library calls it is not routed through `poll()`, so a 403
+   * (not a library fetcher) never counts toward `consecutiveAuthFailures`, and it is not retried here. Only strings are returned.
+   */
+  async getMissingDailyDates(from: string, days: number): Promise<string[]> {
+    const q = new URLSearchParams({ from, days: String(days) });
+    const body = await this.request<{ missing?: unknown }>("GET", `/api/agents/library/daily-missing?${q.toString()}`, undefined, { auth: true, retry: false });
+    if (!body || !Array.isArray(body.missing)) throw new CloudApiError("daily-missing answered without a list", "BAD_RESPONSE", 200);
+    return body.missing.filter((d): d is string => typeof d === "string");
+  }
+
+  /** POST /api/agents/library/daily with exactly `{ date, day }`: one parsed day of daily study text. The website builds the source address itself. */
+  async postDailyText(date: string, day: unknown): Promise<void> {
+    await this.request<{ ok: true }>("POST", "/api/agents/library/daily", { date, day }, { auth: true, retry: false, timeoutMs: 30_000 });
+  }
+
   /** GET /api/agents/commands */
   async getCommands(): Promise<RemoteCommandEnvelope[]> {
-    const res = await this.request<{ commands: RemoteCommandEnvelope[] }>("GET", "/api/agents/commands", undefined, {
-      auth: true,
-      retry: true,
-    });
+    const res = await this.poll<{ commands: RemoteCommandEnvelope[] }>("GET", "/api/agents/commands");
     return res.commands;
   }
 

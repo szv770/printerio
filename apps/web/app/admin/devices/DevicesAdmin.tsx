@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useState, useTransition } from "react";
 import { ChevronDown, Smartphone } from "lucide-react";
 import { Badge, Button, EmptyState, FieldLabel, FormError, ResponsiveTable, StatusDot, Textarea, type TableColumn } from "@/components/ui";
+import { connectionVerdictBadge, type ConnectionVerdict } from "@/lib/devices/connection-test";
 import { deviceTone } from "@/lib/admin/summaries";
 import { deviceStatus, deviceTypeLabel } from "@/lib/devices/present";
 import { issueKindLabel, MAX_ISSUE_NOTE, STUCK_LABELS, type StuckReason } from "@/lib/devices/admin";
@@ -31,6 +32,8 @@ export interface AdminDevice {
   first_printed_at: string | null;
   last_user_agent: string | null;
   stuck: StuckReason | null;
+  /** The newest "Test my connection" result from this device, if it ran one. */
+  connection: { verdict: ConnectionVerdict; createdAt: string } | null;
   issues: AdminIssue[];
 }
 
@@ -87,6 +90,7 @@ export function DevicesAdmin({ devices }: { devices: AdminDevice[] }) {
             <StatusDot tone={deviceTone({ statusKey: status.key, openIssues, stuck: d.stuck })}>{status.label}</StatusDot>
             {openIssues > 0 && <Badge tone="danger">{openIssues === 1 ? "1 problem to look at" : `${openIssues} problems to look at`}</Badge>}
             {d.stuck && <Badge tone="warning">{STUCK_LABELS[d.stuck]}</Badge>}
+            {d.connection && <Badge tone={connectionVerdictBadge(d.connection.verdict).tone}>{connectionVerdictBadge(d.connection.verdict).label}</Badge>}
           </span>
         );
       },

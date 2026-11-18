@@ -44,6 +44,9 @@ export type CreateDeviceResult =
     }
   | { ok: false; error: string };
 
+/** How many working (not revoked) devices one member may have. Generous for real use, and stops one account minting thousands. */
+export const MAX_ACTIVE_DEVICES_PER_MEMBER = 15;
+
 export async function createDevice(
   supabase: Client,
   input: { organizationId: string; userId: string; name: string; deviceType: string; baseDomain: string | null | undefined },
@@ -53,6 +56,16 @@ export async function createDevice(
   if (name.length > MAX_NAME_LENGTH) return { ok: false, error: `Use a shorter name (up to ${MAX_NAME_LENGTH} characters).` };
   if (!(DEVICE_TYPES as readonly string[]).includes(input.deviceType)) return { ok: false, error: "Choose what kind of device this is." };
   if (!input.baseDomain) return { ok: false, error: "Printing from the print dialog is not set up yet. Ask your administrator." };
+
+  const { count } = await supabase
+    .from("member_devices")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", input.userId)
+    .eq("organization_id", input.organizationId)
+    .is("revoked_at", null);
+  if ((count ?? 0) >= MAX_ACTIVE_DEVICES_PER_MEMBER) {
+    return { ok: false, error: `You already have ${MAX_ACTIVE_DEVICES_PER_MEMBER} devices. Remove one you no longer use, then add this one.` };
+  }
 
   const token = generateDeviceToken();
   const { data, error } = await supabase

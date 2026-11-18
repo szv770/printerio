@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Home, ListChecks, LogOut, PieChart, Printer, Smartphone, UserRound, X, type LucideIcon } from "lucide-react";
+import { Home, Info, ListChecks, LogOut, PieChart, Printer, Smartphone, UserRound, X, type LucideIcon } from "lucide-react";
 import { signOutAction } from "@/lib/auth/actions";
 import { routes } from "@/lib/routes";
 import { isActiveHref, TOUR_ANCHORS } from "@/lib/nav";
@@ -26,6 +26,7 @@ const ME_LINKS: Tab[] = [
   { href: routes.profile, label: "Profile", Icon: UserRound },
   { href: routes.usage, label: "My usage", Icon: PieChart },
   { href: routes.devices, label: "My devices", Icon: Smartphone },
+  { href: routes.home, label: "About Printio", Icon: Info },
 ];
 
 /**
@@ -125,7 +126,7 @@ export function MemberTabBar({
 
       <nav
         aria-label="Main menu"
-        className="fixed inset-x-0 bottom-0 z-[60] flex border-t border-[var(--color-border)] bg-[var(--color-surface)]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur"
+        className="fixed inset-x-0 bottom-0 z-[60] flex border-t border-[var(--color-border)] bg-[var(--color-surface)]/95 pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] backdrop-blur"
       >
         {TABS.map(({ href, label, Icon, tour }) => {
           const active = isActiveHref(href, pathname);

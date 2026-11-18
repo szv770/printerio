@@ -62,6 +62,16 @@ export function safeJobName(title: string | null | undefined): string {
   return cleaned || "Printio job";
 }
 
+/** The name the PRINTER shows for the job. With the sender's code it reads "Printio-SZV <file name>", so whoever collects
+ *  the pages (or looks at the printer's job list) can tell whose job it is. 60 characters at most (the PJL limit used
+ *  by sanitizePjlText); the file name is shortened, never the code. */
+export function printerJobName(title: string | null | undefined, senderCode?: string | null): string {
+  const code = (senderCode ?? "").replace(/[^A-Za-z0-9]/g, "").slice(0, 12);
+  if (!code) return safeJobName(title);
+  const prefix = `Printio-${code} `;
+  return `${prefix}${safeJobName(title).slice(0, 60 - prefix.length).trim()}`;
+}
+
 interface RawProfileFields {
   output_mode: string;
   raw_host: string | null;
@@ -79,6 +89,18 @@ export function rawTargetFromProfile(
     bindingSide?: "left" | "right" | null;
     /** The job's own staple corner (print_jobs.staple_position); null/absent = the printer's default. */
     staplePosition?: StaplePosition | null;
+    /** Double-sided jobs: "short" flips on the short edge. Null/absent = the usual long edge (nothing is sent). */
+    duplexEdge?: "short" | null;
+    /** "ledger" for an 11x17 job (the row's paper size is tabloid); null/absent = the printer's default paper. */
+    paper?: "ledger" | null;
+    /** "cardstock" (the job's finishing.paperType): the printer is asked for the bypass tray's paper type. Null/absent = plain, nothing is sent. */
+    mediaType?: "cardstock" | null;
+    /** Two staples on the left edge (the job's finishing.stapleStyle); absent = a corner staple or none. */
+    stapleStyle?: "dual-left" | null;
+    /** The job's finishing.punch. */
+    punch?: boolean;
+    /** The sender's user code (organization_members.user_code); shown in the printer's job name when present. */
+    senderCode?: string | null;
   },
 ): RawTarget | undefined {
   if (profile.output_mode !== "raw" || !profile.raw_host) return undefined;
@@ -88,6 +110,11 @@ export function rawTargetFromProfile(
     port: profile.raw_port,
     staplePosition: opts.staplePosition ?? (profile.raw_staple_position === "top-right" ? "top-right" : "top-left"),
     bindingSide: side,
-    jobName: safeJobName(opts.jobTitle),
+    ...(opts.duplexEdge === "short" ? { duplexEdge: "short" as const } : {}),
+    ...(opts.paper === "ledger" ? { paper: "ledger" as const } : {}),
+    ...(opts.mediaType === "cardstock" ? { mediaType: "cardstock" as const } : {}),
+    ...(opts.stapleStyle === "dual-left" ? { stapleStyle: "dual-left" as const } : {}),
+    ...(opts.punch ? { punch: true } : {}),
+    jobName: printerJobName(opts.jobTitle, opts.senderCode),
   };
 }

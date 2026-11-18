@@ -3,9 +3,13 @@ import { authenticateAgentRequest } from "@/lib/agent-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { rawTargetFromProfile } from "@/lib/printers/raw-target";
-import type { ResolvedPrintRequest } from "@printio/shared";
+import { CARDSTOCK_MIN_AGENT_VERSION, compareAgentVersions, expectedRawPages, FINISHING_MIN_AGENT_VERSION, type ResolvedPrintRequest } from "@printio/shared";
 
 const SIGNED_URL_TTL_SECONDS = 300;
+
+const JOB_COLUMNS =
+  "id, organization_id, created_by, status, lease_owner_agent_id, lease_expires_at, printer_profile_id, derived_file_path, original_file_path, original_file_name, finishing, source_pdf_pages, booklet_padding_added, booklet_binding_side, staple_position, copies, color_mode, duplex, paper_size";
+const PROFILE_COLUMNS = "id, windows_queue_name, output_mode, raw_host, raw_port, raw_staple_position, booklet_binding_side";
 
 /**
  * See docs/agent-api.md. Requires an active lease held by this agent.
@@ -19,7 +23,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
   const { jobId } = await params;
 
   const supabase = createServiceRoleClient();
-  const { data: job } = await supabase.from("print_jobs").select("*").eq("id", jobId).maybeSingle();
+  const { data: job } = await supabase.from("print_jobs").select(JOB_COLUMNS).eq("id", jobId).maybeSingle();
   if (!job || job.organization_id !== agent.organizationId) return apiError(404, "not_found", "Job not found.");
   if (job.lease_owner_agent_id !== agent.id || !job.lease_expires_at || new Date(job.lease_expires_at) < new Date()) {
     return apiError(403, "no_lease", "You do not hold an active lease on this job.");
@@ -31,10 +35,28 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
 
   const { data: profile } = await supabase
     .from("printer_profiles")
-    .select("*")
+    .select(PROFILE_COLUMNS)
     .eq("id", job.printer_profile_id)
     .maybeSingle();
   if (!profile) return apiError(500, "internal_error", "Printer profile missing.");
+
+  const jobFinishing = job.finishing as { punch?: boolean; stapleStyle?: string } | null;
+  const needsNewFinishing = !!jobFinishing?.punch || !!jobFinishing?.stapleStyle;
+  if (needsNewFinishing && profile.output_mode === "raw") {
+    // An older Agent would ignore punch / two staples and print the pages without them: refuse, never print unfinished.
+    const state = compareAgentVersions(agent.reported?.version, FINISHING_MIN_AGENT_VERSION);
+    if (state === "unknown" || state === "outdated") {
+      return apiError(409, "agent_outdated", "This job needs hole punch or two staples, which this print server's software is too old to do. Update the Printio agent, then try again.");
+    }
+  }
+
+  if ((job.finishing as { paperType?: string } | null)?.paperType === "cardstock" && profile.output_mode === "raw") {
+    // An older Agent would ignore the paper type and print on plain paper from the normal trays: refuse, never print the wrong paper.
+    const state = compareAgentVersions(agent.reported?.version, CARDSTOCK_MIN_AGENT_VERSION);
+    if (state === "unknown" || state === "outdated") {
+      return apiError(409, "agent_outdated", "This job asks for cardstock, which this print server's software is too old to do. Update the Printio agent, then try again.");
+    }
+  }
 
   const path = job.derived_file_path ?? job.original_file_path;
   const { data: signed, error: signError } = await supabase.storage
@@ -75,10 +97,26 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
   // Raw (direct-to-printer) profiles carry no Windows queue; the Agent sends
   // the job straight to host:port instead.
   // The job's own choices win; null (older jobs, or nothing chosen) falls back to the printer's defaults.
+  // The sender's code goes into the job name the printer shows. Best effort: no code (or a failed lookup) just means
+  // the old name; it must never hold up a print.
+  const { data: sender } = await supabase
+    .from("organization_members")
+    .select("user_code")
+    .eq("organization_id", job.organization_id)
+    .eq("user_id", job.created_by)
+    .maybeSingle();
+
   const raw = rawTargetFromProfile(profile, {
     jobTitle: job.original_file_name,
+    senderCode: sender?.user_code ?? null,
     bindingSide: job.booklet_binding_side === "left" || job.booklet_binding_side === "right" ? job.booklet_binding_side : null,
     staplePosition: job.staple_position === "top-left" || job.staple_position === "top-right" ? job.staple_position : null,
+    stapleStyle: jobFinishing?.stapleStyle === "dual-left" ? "dual-left" : null,
+    punch: !!jobFinishing?.punch,
+    duplexEdge: (job.finishing as { duplexEdge?: string } | null)?.duplexEdge === "short" ? "short" : null,
+    // An 11x17 booklet is stored with paper_size "tabloid": tell the printer to use 11x17 sheets (otherwise it shrinks onto letter).
+    paper: job.paper_size === "tabloid" ? "ledger" : null,
+    mediaType: (job.finishing as { paperType?: string } | null)?.paperType === "cardstock" ? "cardstock" : null,
   });
 
   const printRequest: ResolvedPrintRequest = {
@@ -92,6 +130,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
     duplex: job.duplex,
     paperSize: job.paper_size,
     finishing,
+    // PAGE messages the printer should report (they count printed sides; printer feedback on a raw port); older Agents ignore it.
+    expectedPages: expectedRawPages({ sourcePages: job.source_pdf_pages, bookletPaddingAdded: job.booklet_padding_added, copies: job.copies, booklet: !!finishing.booklet }),
     // Printio has already imposed and independently scaled a booklet job's
     // pages to the exact target sheet size - request the driver print it at
     // 100%, never fit/shrink (which would re-scale an already-correct page

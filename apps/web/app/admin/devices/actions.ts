@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { deleteDevice, resolveIssue, revokeDevice } from "@/lib/devices/devices";
+import { setSetupConfirmed } from "@/lib/devices/setup-feedback-server";
 import { routes } from "@/lib/routes";
 
 export interface AdminRevokeState {
@@ -65,4 +66,25 @@ export async function resolveIssueAction(_prev: ResolveIssueState, formData: For
   if (!res.ok) return { error: res.error };
   revalidatePath(routes.adminDevices);
   return { resolvedId: issueId };
+}
+
+export interface SetupConfirmState {
+  error?: string;
+  savedKey?: string;
+}
+
+/** Mark one exact setup "Confirmed working" for the organization, or take the mark off. Admin only. */
+export async function setSetupConfirmedAction(_prev: SetupConfirmState, formData: FormData): Promise<SetupConfirmState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const setupKey = String(formData.get("setupKey") ?? "");
+  const supabase = await createClient();
+  const res = await setSetupConfirmed(supabase, {
+    organizationId: session.membership.organization_id,
+    adminId: session.userId,
+    setupKey,
+    confirmed: formData.get("confirmed") === "1",
+  });
+  if (!res.ok) return { error: res.error };
+  revalidatePath(routes.adminDevices);
+  return { savedKey: setupKey };
 }

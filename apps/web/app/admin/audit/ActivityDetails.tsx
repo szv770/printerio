@@ -9,10 +9,10 @@ export function ActivityDetails({ items }: { items: { label: string; value: stri
   if (items.length === 0) return <span className="text-[var(--color-faint)]">None</span>;
   return (
     <details open={open} onToggle={(e) => setOpen(e.currentTarget.open)} className="group">
-      <summary className="inline-flex min-h-11 cursor-pointer items-center text-[13px] font-medium text-[var(--color-primary)] hover:underline md:min-h-0">
+      <summary className="inline-flex min-h-11 cursor-pointer items-center text-[13px] font-medium text-[var(--color-primary)] hover:underline md:[@media(pointer:fine)]:min-h-0">
         {detailsToggleLabel(open)}
       </summary>
-      <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-left text-[13px]">
+      <dl className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-left text-[13px] [overflow-wrap:anywhere]">
         {items.map((d) => (
           <div key={d.label} className="contents">
             <dt className="text-[var(--color-muted)]">{d.label}</dt>

@@ -37,6 +37,8 @@ const AUDIT_LABELS: Record<string, string> = {
   "invitation.revoked": "Turned off an invite code",
   "invitation.redeemed": "Someone joined with an invite code",
   "storage.cleanup_run": "Cleaned up stored files",
+  "font.uploaded": "Added a font",
+  "font.deleted": "Removed a font",
   "agent.registered": "Connected a print server",
   "agent.disabled": "Paused a print server",
   "agent.deleted": "Removed a print server",

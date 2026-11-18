@@ -1,5 +1,5 @@
 // Idempotency for phone retries (owner decision 2026-10-23): the same device sending the same document (same
-// options) again within a few minutes gets the PREVIOUS result back instead of creating another print job.
+// options) again within ~30 seconds gets the PREVIOUS result back instead of creating another print job.
 //  - Keyed BEFORE the web call, so a retry that arrives while the first request is still being processed (the
 //    phone gave up waiting) joins the same in-flight promise rather than starting a second finalize.
 //  - Only results the caller marks cacheable are remembered (a refusal or a failure is retried for real), and a
@@ -8,7 +8,9 @@
 //    evicted: dropping one would allow exactly the duplicate this exists to prevent.
 //  - The cache stores only the small result (job ids/state), never the document bytes.
 
-export const DEDUPE_TTL_MS = 3 * 60 * 1000;
+// Phone retries come within seconds. A longer window silently swallowed a real reprint (owner test 2026-10-25:
+// several test prints of one document gave one job while Windows reported success).
+export const DEDUPE_TTL_MS = 30 * 1000;
 export const DEDUPE_MAX_ENTRIES = 500;
 
 interface Entry<T> {

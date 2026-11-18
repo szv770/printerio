@@ -332,7 +332,7 @@ export function SpotlightTour({
               <button
                 type="button"
                 onClick={onExit}
-                className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-[var(--color-primary-fg)] hover:opacity-90"
+                className="min-h-11 rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-[var(--color-primary-fg)] hover:opacity-90"
               >
                 Done
               </button>
@@ -340,7 +340,7 @@ export function SpotlightTour({
               <button
                 type="button"
                 onClick={advance}
-                className="flex items-center gap-1 rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-[var(--color-primary-fg)] hover:opacity-90"
+                className="flex min-h-11 items-center gap-1 rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-[var(--color-primary-fg)] hover:opacity-90"
               >
                 Next <ChevronRight className="h-4 w-4" />
               </button>

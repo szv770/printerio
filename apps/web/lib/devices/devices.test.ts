@@ -4,6 +4,7 @@ import { fakeSupabase, failure, ok } from "@/test/fake-supabase";
 import {
   createDevice,
   deleteDevice,
+  MAX_ACTIVE_DEVICES_PER_MEMBER,
   DEVICE_COLUMNS,
   listDevicesForAdmin,
   listDevicesForMember,
@@ -26,6 +27,25 @@ const deviceRow = {
   first_job_at: null,
   first_printed_at: null,
 };
+
+describe("createDevice: a member cannot make unlimited devices", () => {
+  const input = { organizationId: "org1", userId: "u1", name: "Pixel 8", deviceType: "android", baseDomain: "szvtech.org" };
+
+  it("refuses at the limit, saying what to do, and inserts nothing", async () => {
+    const fake = fakeSupabase((c) => (c.op === "select" ? { data: null, error: null, count: MAX_ACTIVE_DEVICES_PER_MEMBER } : ok(deviceRow)));
+    const res = await createDevice(fake.client as never, input);
+    expect(res).toMatchObject({ ok: false });
+    expect(res.ok ? "" : res.error).toMatch(/remove one/i);
+    expect(fake.calls.some((c) => c.op === "insert")).toBe(false);
+    const count = fake.calls.find((c) => c.op === "select")!;
+    expect(count.filters).toEqual(expect.arrayContaining([["eq", "user_id", "u1"], ["eq", "organization_id", "org1"], ["is", "revoked_at", null]]));
+  });
+
+  it("allows one below the limit", async () => {
+    const fake = fakeSupabase((c) => (c.op === "select" ? { data: null, error: null, count: MAX_ACTIVE_DEVICES_PER_MEMBER - 1 } : ok(deviceRow)));
+    expect((await createDevice(fake.client as never, input)).ok).toBe(true);
+  });
+});
 
 describe("createDevice", () => {
   it("stores only the hash, returns the raw token once and an address that round-trips", async () => {

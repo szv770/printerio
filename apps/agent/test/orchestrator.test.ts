@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyCycleOutcome, computeNextPollDelayMs, nextConsecutiveFailures } from "../src/orchestrator.js";
+import { AUTH_FAILURE_BACKOFF_MS, AUTH_FAILURE_THRESHOLD, applyCycleJitter, classifyCycleOutcome, computeNextPollDelayMs, nextConsecutiveFailures, nextSleepMs } from "../src/orchestrator.js";
 
 describe("classifyCycleOutcome", () => {
   it("is 'success' when all three sub-polls reached the cloud", () => {
@@ -68,5 +68,23 @@ describe("computeNextPollDelayMs", () => {
     expect(computeNextPollDelayMs(0, 30, 600)).toBe(30_000);
     expect(computeNextPollDelayMs(1, 30, 600)).toBe(60_000);
     expect(computeNextPollDelayMs(10, 30, 600)).toBe(600_000);
+  });
+});
+
+describe("cycle jitter and auth-failure backoff", () => {
+  it("applyCycleJitter adds a continuous 0-10% on top, never shortens the sleep", () => {
+    expect(applyCycleJitter(60_000, () => 0)).toBe(60_000);
+    expect(applyCycleJitter(60_000, () => 0.5)).toBe(63_000);
+    expect(applyCycleJitter(60_000, () => 0.999999)).toBeLessThanOrEqual(66_000);
+    expect(applyCycleJitter(60_000, () => 0.999999)).toBeGreaterThan(65_900);
+  });
+
+  it("backs off to ~10 minutes after 5 consecutive auth failures, otherwise leaves the delay alone", () => {
+    expect(AUTH_FAILURE_THRESHOLD).toBe(5);
+    expect(AUTH_FAILURE_BACKOFF_MS).toBe(10 * 60_000);
+    expect(nextSleepMs(60_000, 4, () => 0)).toBe(60_000);
+    expect(nextSleepMs(60_000, 5, () => 0)).toBe(AUTH_FAILURE_BACKOFF_MS);
+    expect(nextSleepMs(20 * 60_000, 9, () => 0)).toBe(20 * 60_000); // never shortens a longer outage backoff
+    expect(nextSleepMs(60_000, 5, () => 0.5)).toBe(AUTH_FAILURE_BACKOFF_MS * 1.05);
   });
 });

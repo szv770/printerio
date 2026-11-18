@@ -101,7 +101,7 @@ describe("a signed-up outsider has an auth account but zero org access", () => {
   it("cannot insert themselves into an org (RLS), nor read org data", async () => {
     await expect(
       db.as("authenticated", STRANGER, `insert into organization_members (user_id, organization_id, role) values ($1,$2,'org_admin')`, [STRANGER, ORG]),
-    ).rejects.toThrow(/row-level security/i);
+    ).rejects.toThrow(/row-level security|permission denied for table organization_members/i);
     const tables = [
       "organizations", "organization_members", "organization_settings", "organization_invitations", "print_jobs",
       "printers", "printer_profiles", "agents", "audit_logs", "groups", "group_members", "quotas", "monthly_usage",

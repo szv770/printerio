@@ -21,6 +21,8 @@ const schema = z.object({
   RATE_LIMIT_UNKNOWN_TOKENS_PER_IP_PER_MIN: z.coerce.number().int().min(1).default(60),
   /** Comma-separated peers trusted to supply CF-Connecting-IP (the local cloudflared). */
   TRUSTED_PROXIES: z.string().default("127.0.0.1,::1"),
+  /** "basic" advertises only "no finishing" (what the spike sent). A diagnostic switch for clients that refuse the full list. */
+  ADVERTISE_FINISHINGS: z.enum(["full", "basic"]).default("full"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 });
 
@@ -37,6 +39,7 @@ export interface GatewayConfig {
   maxUploadsPerDevice: number;
   limits: { maxConnections: number; perIpRequestsPerMin: number; globalRequestsPerMin: number; unknownTokensPerIpPerMin: number };
   trustedProxies: string[];
+  advertiseFinishings: "full" | "basic";
   logLevel: "debug" | "info" | "warn" | "error";
 }
 
@@ -69,6 +72,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
       unknownTokensPerIpPerMin: e.RATE_LIMIT_UNKNOWN_TOKENS_PER_IP_PER_MIN,
     },
     trustedProxies: e.TRUSTED_PROXIES.split(",").map((x) => x.trim()).filter(Boolean),
+    advertiseFinishings: e.ADVERTISE_FINISHINGS,
     logLevel: e.LOG_LEVEL,
   };
 }

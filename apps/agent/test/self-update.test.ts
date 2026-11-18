@@ -23,6 +23,8 @@ function ok(stdout = ""): CommandOutcome {
   return { exitCode: 0, stdout, stderr: "" };
 }
 
+const WEB_ARGS = ["/Run", "/TN", "Printio Web Update"];
+const WEB_STARTED = "The website is being rebuilt; it can take a few minutes and may reload once.";
 const GATEWAY_ARGS = [
   "-NoProfile",
   "-NonInteractive",
@@ -35,6 +37,7 @@ function scripted(opts: {
   pull?: CommandOutcome;
   install?: CommandOutcome;
   gateway?: CommandOutcome | Error;
+  web?: CommandOutcome | Error;
 }) {
   const hashes = ["3f2a1b9", "8c4d0e2"];
   return vi.fn<SelfUpdateDeps["run"]>(async (command: string, args: readonly string[]) => {
@@ -44,6 +47,11 @@ function scripted(opts: {
       const g = opts.gateway ?? ok();
       if (g instanceof Error) throw g;
       return g;
+    }
+    if (command === "schtasks.exe") {
+      const w = opts.web ?? ok('SUCCESS: Attempted to run the scheduled task "Printio Web Update".');
+      if (w instanceof Error) throw w;
+      return w;
     }
     return opts.install ?? ok("Done");
   });
@@ -119,10 +127,10 @@ describe("performSelfUpdate", () => {
     expect(result.reason).toBe("updated");
     expect(result.gatewayRestarted).toBe(true);
     expect(result.message).toBe(
-      "Updated 3f2a1b9 -> 8c4d0e2. Restarted the gateway. The print server is restarting and will be back in about a minute.",
+      `Updated 3f2a1b9 -> 8c4d0e2. Restarted the gateway. ${WEB_STARTED} The print server is restarting and will be back in about a minute.`,
     );
     const order = run.mock.calls.map((c) => (c[0] === "git" ? `git ${c[1][0]}` : c[0]));
-    expect(order).toEqual(["git rev-parse", "git pull", "git rev-parse", NODE_EXE, "powershell.exe"]);
+    expect(order).toEqual(["git rev-parse", "git pull", "git rev-parse", NODE_EXE, "powershell.exe", "schtasks.exe"]);
     expect(callsOf(run, NODE_EXE)[0]![1]).toEqual([PNPM_CJS_PF, ...INSTALL]);
   });
 
@@ -216,6 +224,115 @@ describe("performSelfUpdate", () => {
     const result = await performSelfUpdate(makeDeps({ run }));
     expect(result.updated).toBe(true);
     expect(result.message).toContain("Updated unknown -> unknown.");
+  });
+});
+
+// INTERIM (delete with the website rebuild when the site moves to Cloudflare, phase H/J in docs/TARGET-ARCHITECTURE.md)
+describe("performSelfUpdate: the website rebuild task", () => {
+  it("starts 'Printio Web Update' with one fixed argv, after the gateway step", async () => {
+    const run = scripted({});
+    const result = await performSelfUpdate(makeDeps({ repoRoot: "/evil; calc", run }));
+
+    const order = run.mock.calls.map((c) => c[0]);
+    expect(order.slice(-2)).toEqual(["powershell.exe", "schtasks.exe"]);
+    const web = callsOf(run, "schtasks.exe");
+    expect(web).toHaveLength(1);
+    expect(web[0]![1]).toEqual(WEB_ARGS);
+    expect(web[0]![3]).toBeGreaterThan(0);
+    expect(JSON.stringify(web[0]![1])).not.toContain("evil");
+    expect(result.webRebuildStarted).toBe(true);
+    expect(result.message).toContain(WEB_STARTED);
+  });
+
+  it("only adds a note when the task does not exist", async () => {
+    const run = scripted({ web: { exitCode: 1, stdout: "", stderr: "ERROR: The system cannot find the file specified." } });
+    const result = await performSelfUpdate(makeDeps({ run }));
+    expect(result.updated).toBe(true);
+    expect(result.webRebuildStarted).toBe(false);
+    expect(result.message).toContain("The website was not rebuilt (run setup-web.ps1 once to enable that).");
+  });
+
+  it("never fails the update when starting it fails, times out or throws", async () => {
+    for (const web of [
+      { exitCode: 1, stdout: "", stderr: "ERROR: Access is denied." } satisfies CommandOutcome,
+      { exitCode: null, stdout: "", stderr: "[timed out after 30000ms]" } satisfies CommandOutcome,
+      new Error("spawn schtasks.exe ENOENT"),
+    ]) {
+      const result = await performSelfUpdate(makeDeps({ run: scripted({ web }) }));
+      expect(result.updated).toBe(true);
+      expect(result.reason).toBe("updated");
+      expect(result.webRebuildStarted).toBe(false);
+      expect(result.message).toContain("The website was not rebuilt (could not start the rebuild:");
+    }
+  });
+
+  it("is not started when already up to date, when the install fails, or off Windows", async () => {
+    const upToDate = scripted({ pull: ok("Already up to date.\n") });
+    await performSelfUpdate(makeDeps({ run: upToDate }));
+    expect(callsOf(upToDate, "schtasks.exe")).toHaveLength(0);
+
+    const failed = scripted({ install: { exitCode: 1, stdout: "", stderr: "ERR_PNPM_LOCKFILE_MISMATCH" } });
+    await performSelfUpdate(makeDeps({ run: failed }));
+    expect(callsOf(failed, "schtasks.exe")).toHaveLength(0);
+
+    const linux = scripted({});
+    const result = await performSelfUpdate(
+      makeDeps({ run: linux, platform: "linux", execPath: "/usr/bin/node", env: { PATH: "/usr/bin" }, fs: fakeFs(["/usr/bin/pnpm"]) }),
+    );
+    expect(callsOf(linux, "schtasks.exe")).toHaveLength(0);
+    expect(result.webRebuildStarted).toBeUndefined();
+    expect(result.message).not.toContain("website");
+  });
+});
+
+describe("performSelfUpdate: an install that failed after the pull is finished by the next press (2026-11-15)", () => {
+  function memoryMarker(initial: string | null = null) {
+    let value = initial;
+    return { read: () => value, write: (v: string) => void (value = v), clear: () => void (value = null), peek: () => value };
+  }
+  const EPERM = "Error: EPERM: operation not permitted, lstat 'C:\\Users\\MLM Office\\AppData'";
+
+  it("a failed install leaves a marker, so the next press does NOT say 'already up to date'", async () => {
+    const pending = memoryMarker();
+    const failed = await performSelfUpdate(makeDeps({ pending, run: scripted({ install: { exitCode: 1, stdout: "", stderr: EPERM } }) }));
+    expect(failed.updated).toBe(false);
+    expect(failed.reason).toBe("install_failed");
+    expect(pending.peek()).toBe("3f2a1b9");
+
+    // The second press: git has nothing new ("Already up to date"), but the install never finished.
+    const run = scripted({ pull: ok("Already up to date.\n") });
+    const second = await performSelfUpdate(makeDeps({ pending, run }));
+    expect(second.updated).toBe(true);
+    expect(second.reason).toBe("updated");
+    expect(callsOf(run, NODE_EXE)).toHaveLength(1); // pnpm install ran again
+    expect(second.message).toMatch(/^Updated 3f2a1b9 -> /);
+    expect(pending.peek()).toBeNull(); // done: the next press may say up to date
+  });
+
+  it("after a finished update the marker is gone and 'already up to date' is true again", async () => {
+    const pending = memoryMarker();
+    await performSelfUpdate(makeDeps({ pending, run: scripted({}) }));
+    expect(pending.peek()).toBeNull();
+    const r = await performSelfUpdate(makeDeps({ pending, run: scripted({ pull: ok("Already up to date.\n") }) }));
+    expect(r.reason).toBe("already_up_to_date");
+  });
+
+  it("still failing keeps the marker, so it keeps being retried", async () => {
+    const pending = memoryMarker("3f2a1b9");
+    const r = await performSelfUpdate(makeDeps({ pending, run: scripted({ pull: ok("Already up to date.\n"), install: { exitCode: 1, stdout: "", stderr: EPERM } }) }));
+    expect(r.updated).toBe(false);
+    expect(pending.peek()).toBe("3f2a1b9");
+  });
+
+  it("the EPERM-in-a-user-profile failure says which script fixes it and that Update can be pressed again", async () => {
+    const r = await performSelfUpdate(makeDeps({ pending: memoryMarker(), run: scripted({ install: { exitCode: 1, stdout: "", stderr: EPERM } }) }));
+    expect(r.message).toMatch(/fix-update-permissions\.ps1/);
+    expect(r.message).toMatch(/press(ing)? Update again/i);
+  });
+
+  it("works without any marker (older callers): behaviour as before", async () => {
+    const r = await performSelfUpdate(makeDeps({ run: scripted({ pull: ok("Already up to date.\n") }) }));
+    expect(r.reason).toBe("already_up_to_date");
   });
 });
 

@@ -25,6 +25,8 @@ export interface AgentConfig {
   pollIntervalSeconds: number;
   /** Ceiling (seconds) the outer poll loop's cycle-failure backoff may grow to - see orchestrator.ts computeNextPollDelayMs(). Never shrinks the happy-path cadence; only bounds how far it escalates during a sustained cloud outage. */
   maxPollIntervalSeconds: number;
+  /** PRINTIO_HEARTBEAT_SECONDS: seconds between heartbeats (default 30, clamped to 10-120). 0 = send one every poll cycle, exactly as before (the rollback switch). See parseHeartbeatSeconds. */
+  heartbeatIntervalSeconds: number;
   sumatraPath: string;
   spoolerPollIntervalMs: number;
   spoolerTimeoutSeconds: number;
@@ -34,10 +36,47 @@ export interface AgentConfig {
   skipDependencyCheck: boolean;
   /** PRINTIO_RAW_ONLY: a missing SumatraPDF is only a startup warning (raw-port jobs do not need it). */
   rawOnly: boolean;
+  /** PRINTIO_PRINTER_FEEDBACK: for a raw-port job, after sending it as usual poll the printer (short PJL INFO STATUS connections) for the JOB END of this job's unique name, so the job can say 'Printer confirmed N of N pages'. On by default (the owner asked for it after the page-counter check was proven on the real printer); set PRINTIO_PRINTER_FEEDBACK=false and the Agent behaves exactly as before. */
+  printerFeedback: boolean;
+  /** PRINTIO_LIBRARY_WORKER: ONLY the exact values 1 or true switch on the optional library worker (library-worker.ts: fetches Mafteiach pages for the website's shared cache). OFF by default; meant for the owner's own server only; any other value (or none) means off, and a typo never stops the agent starting. */
+  libraryWorker: boolean;
   /** PRINTIO_RAW_ALLOWED_HOSTS: if set, raw print jobs are only ever sent to these hosts (lower-case, comma separated in the env). Always on top of the private-LAN-only rule. */
   rawAllowedHosts?: string[];
   /** PRINTIO_DOWNLOAD_ALLOWED_HOSTS: if set, job documents are only downloaded from these hosts (or their subdomains), e.g. supabase.co. */
   downloadAllowedHosts?: string[];
+}
+
+/** The fastest the agent polls the website (see loadConfig). */
+export const MIN_POLL_INTERVAL_SECONDS = 2;
+export const DEFAULT_POLL_INTERVAL_SECONDS = 3;
+/** The longest an admin can set the poll interval to from the website. */
+export const MAX_ADMIN_POLL_INTERVAL_SECONDS = 300;
+
+/** The heartbeat (the "I am alive" report) goes out at start-up and then at most this often; 0 means every poll cycle (the old behaviour). */
+export const DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 30;
+export const MIN_HEARTBEAT_INTERVAL_SECONDS = 10;
+/** Kept well under the website's shortest "print server is online" window (see docs/agent-api.md). */
+export const MAX_HEARTBEAT_INTERVAL_SECONDS = 120;
+
+/**
+ * PRINTIO_HEARTBEAT_SECONDS. Unset, empty or unreadable = the default (a typo must never stop the service starting);
+ * `0` or `cycle` = a heartbeat every poll cycle, exactly as before (the rollback switch); any other whole number is
+ * clamped to 10-120.
+ */
+export function parseHeartbeatSeconds(raw: string | undefined): number {
+  const value = raw?.trim().toLowerCase();
+  if (!value) return DEFAULT_HEARTBEAT_INTERVAL_SECONDS;
+  if (value === "cycle") return 0;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0) return DEFAULT_HEARTBEAT_INTERVAL_SECONDS;
+  if (n === 0) return 0;
+  return Math.min(MAX_HEARTBEAT_INTERVAL_SECONDS, Math.max(MIN_HEARTBEAT_INTERVAL_SECONDS, n));
+}
+
+/** The poll interval to use: the admin's website setting when it is valid, otherwise this PC's own setting. */
+export function effectivePollSeconds(configSeconds: number, adminSeconds: number | null): number {
+  if (adminSeconds !== null && Number.isInteger(adminSeconds) && adminSeconds >= MIN_POLL_INTERVAL_SECONDS && adminSeconds <= MAX_ADMIN_POLL_INTERVAL_SECONDS) return adminSeconds;
+  return configSeconds;
 }
 
 const LOG_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"];
@@ -70,10 +109,26 @@ function parseBool(name: string, raw: string | undefined, fallback: boolean): bo
   throw new ConfigError(`${name} must be "true" or "false", got ${JSON.stringify(raw)}`);
 }
 
+/** Lenient on purpose (never throws): only `1` or `true` (any case, spaces ignored) turns the library worker on. */
+export function parseLibraryWorkerFlag(raw: string | undefined): boolean {
+  const v = (raw ?? "").trim().toLowerCase();
+  return v === "1" || v === "true";
+}
+
 export interface LoadConfigOptions {
   /** Require PRINTIO_AGENT_ID/PRINTIO_AGENT_SECRET to already be present in env. Defaults to false - `start` loads credentials separately from secure storage and merges them in. */
   requireCredentialsInEnv?: boolean;
   env?: NodeJS.ProcessEnv;
+}
+
+/** True for http(s)://localhost, 127.x.x.x and [::1]: the website runs on this same machine. */
+export function isLoopbackUrl(url: string): boolean {
+  try {
+    const h = new URL(url).hostname.toLowerCase();
+    return h === "localhost" || h === "[::1]" || h === "::1" || /^127\.\d+\.\d+\.\d+$/.test(h);
+  } catch {
+    return false;
+  }
 }
 
 export function loadConfig(options: LoadConfigOptions = {}): AgentConfig {
@@ -116,15 +171,20 @@ export function loadConfig(options: LoadConfigOptions = {}): AgentConfig {
     );
   }
 
-  const pollIntervalSeconds = parsePositiveInt(
-    "PRINTIO_POLL_INTERVAL_SECONDS",
-    env.PRINTIO_POLL_INTERVAL_SECONDS,
-    15,
+  // Each cycle is 3 calls on the website. On Vercel's Hobby plan that cost Active CPU, so the floor was 60s; with the
+  // website on the owner's own PC there is no quota, so jobs are picked up within seconds (default 3s, floor 2s).
+  // If the website ever goes back to Vercel, raise DEFAULT/MIN here again.
+  const pollIntervalSeconds = Math.max(
+    MIN_POLL_INTERVAL_SECONDS,
+    parsePositiveInt("PRINTIO_POLL_INTERVAL_SECONDS", env.PRINTIO_POLL_INTERVAL_SECONDS, DEFAULT_POLL_INTERVAL_SECONDS),
   );
+  // After an outage the slow-down (6 s, 12 s, ... up to this cap) decides how long the Agent takes to notice the website is
+  // back. With the website on the SAME PC (a loopback address) nobody is protected by a long wait, and on 2026-11-16 a 10
+  // minute site restart left the Agent silent for 5 more minutes: cap that case at 30 s. A remote website keeps 300 s.
   const maxPollIntervalSeconds = parsePositiveInt(
     "PRINTIO_MAX_POLL_INTERVAL_SECONDS",
     env.PRINTIO_MAX_POLL_INTERVAL_SECONDS,
-    300,
+    isLoopbackUrl(apiUrl) ? Math.max(30, pollIntervalSeconds) : 300,
   );
   if (maxPollIntervalSeconds < pollIntervalSeconds) {
     throw new ConfigError(
@@ -141,6 +201,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AgentConfig {
     maxLocalStorageMb: parsePositiveInt("PRINTIO_MAX_LOCAL_STORAGE_MB", env.PRINTIO_MAX_LOCAL_STORAGE_MB, 2048),
     pollIntervalSeconds,
     maxPollIntervalSeconds,
+    heartbeatIntervalSeconds: parseHeartbeatSeconds(env.PRINTIO_HEARTBEAT_SECONDS),
     sumatraPath: env.PRINTIO_SUMATRA_PATH?.trim() || "SumatraPDF.exe",
     spoolerPollIntervalMs: parsePositiveInt(
       "PRINTIO_SPOOLER_POLL_INTERVAL_MS",
@@ -160,6 +221,8 @@ export function loadConfig(options: LoadConfigOptions = {}): AgentConfig {
       false,
     ),
     rawOnly: parseBool("PRINTIO_RAW_ONLY", env.PRINTIO_RAW_ONLY, false),
+    printerFeedback: parseBool("PRINTIO_PRINTER_FEEDBACK", env.PRINTIO_PRINTER_FEEDBACK, true),
+    libraryWorker: parseLibraryWorkerFlag(env.PRINTIO_LIBRARY_WORKER),
     rawAllowedHosts: parseRawAllowedHosts(env.PRINTIO_RAW_ALLOWED_HOSTS),
     downloadAllowedHosts: parseAllowedDownloadHosts(env.PRINTIO_DOWNLOAD_ALLOWED_HOSTS),
   };

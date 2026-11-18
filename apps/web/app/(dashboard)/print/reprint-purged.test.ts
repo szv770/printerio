@@ -86,4 +86,42 @@ describe("reprintJobAction on a purged job", () => {
     expect(serviceCalls).toEqual(["download:org/org1/jobs/j1/original.pdf"]);
     expect(createPrintJob.mock.calls[0]![4].writeClient).toBe(serviceClient);
   });
+
+  it("carries every finishing key into the new job: short-edge flip, staple corner, booklet side / fit / sheet, 11x17", async () => {
+    const base = {
+      id: "j1",
+      files_purged_at: null,
+      original_file_path: "org/org1/jobs/j1/original.pdf",
+      original_file_name: "a.pdf",
+      copies: 3,
+      page_range: "2-5",
+      color_mode: "bw",
+      printer_profile_id: "p1",
+    };
+    createPrintJob.mockResolvedValue({ ok: false, kind: "error", code: "quota_exceeded", error: "quota" });
+
+    // short-edge flip, stapled top-right, 11x17
+    jobRow = { ...base, duplex: true, paper_size: "tabloid", finishing: { staple: true, booklet: false, punch: false, duplexEdge: "short" }, staple_position: "top-right", booklet_binding_side: null };
+    await reprintJobAction({}, fd());
+    const flat = createPrintJob.mock.calls[0]![4];
+    expect(flat.choices).toEqual({ sides: "two", staple: "top-right", booklet: "none", copies: 3, flip: "short", pageRange: "2-5" });
+    expect(flat.paperSize).toBe("11x17");
+
+    // booklet bound right, keep margins
+    createPrintJob.mockClear();
+    jobRow = { ...base, duplex: true, paper_size: "letter", finishing: { staple: false, booklet: true, punch: false, bookletFit: "keep" }, staple_position: null, booklet_binding_side: "right" };
+    await reprintJobAction({}, fd());
+    const bk = createPrintJob.mock.calls[0]![4];
+    expect(bk.choices.booklet).toBe("right");
+    expect(bk.bookletFit).toBe("keep");
+    expect(bk.bookletSheet).toBe("letter");
+
+    // tabloid booklet sheet, two staples on the left
+    createPrintJob.mockClear();
+    jobRow = { ...base, duplex: false, paper_size: "tabloid", finishing: { staple: true, booklet: true, punch: false, stapleStyle: "dual-left", bookletFit: "fill", bookletSheet: "tabloid" }, staple_position: "top-left", booklet_binding_side: "left" };
+    await reprintJobAction({}, fd());
+    const tab = createPrintJob.mock.calls[0]![4];
+    expect(tab.bookletSheet).toBe("tabloid");
+    expect(tab.choices.staple).toBe("dual-left");
+  });
 });

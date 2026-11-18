@@ -1,11 +1,15 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { getGatewayEnv } from "@/lib/env";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { createDevice, deleteDevice, reportIssue, revokeDevice } from "@/lib/devices/devices";
+import { submitSetupFeedback } from "@/lib/devices/setup-feedback-server";
+import { saveConnectionTest } from "@/lib/devices/connection-test-server";
+import type { ConnectionVerdict } from "@/lib/devices/connection-test";
 import { deviceAddress } from "@/lib/devices/present";
 import { routes } from "@/lib/routes";
 
@@ -109,4 +113,53 @@ export async function reportIssueAction(_prev: ReportIssueState, formData: FormD
   if (!res.ok) return res.field ? { error: res.error, fieldErrors: { [res.field]: res.error } } : { error: res.error };
   revalidatePath(routes.devices);
   return { reportedId: deviceId };
+}
+
+export interface SetupFeedbackState {
+  error?: string;
+  answeredId?: string;
+  outcome?: "ok" | "problem";
+}
+
+/** "Did it come out OK?" - Yes, or "Something was wrong" with a short note. */
+export async function submitSetupFeedbackAction(_prev: SetupFeedbackState, formData: FormData): Promise<SetupFeedbackState> {
+  const session = await requireSessionOrRedirect();
+  if (!session.membership) return { error: "Your account is not part of an organization yet." };
+  const deviceId = String(formData.get("deviceId") ?? "");
+  if (!deviceId) return { error: "Device not found." };
+  const supabase = await createClient();
+  const res = await submitSetupFeedback(supabase, {
+    deviceId,
+    userId: session.userId,
+    organizationId: session.membership.organization_id,
+    outcome: String(formData.get("outcome") ?? ""),
+    note: String(formData.get("note") ?? ""),
+    variant: String(formData.get("variant") ?? ""),
+  });
+  if (!res.ok) return { error: res.error };
+  revalidatePath(routes.devices);
+  revalidatePath(routes.dashboard);
+  return { answeredId: deviceId, outcome: formData.get("outcome") === "ok" ? "ok" : "problem" };
+}
+
+export interface ConnectionTestState {
+  error?: string;
+  verdict?: ConnectionVerdict;
+}
+
+/** Saves what the browser on the device found out (yes/no + timings for three addresses). The browser's words are
+ *  validated and the verdict is worked out here; see lib/devices/connection-test-server.ts. */
+export async function saveConnectionTestAction(deviceId: string, report: unknown): Promise<ConnectionTestState> {
+  const session = await requireSessionOrRedirect();
+  if (!session.membership) return { error: "Your account is not part of an organization yet." };
+  const res = await saveConnectionTest(createServiceRoleClient(), {
+    deviceId: String(deviceId ?? ""),
+    userId: session.userId,
+    organizationId: session.membership.organization_id,
+    report,
+    userAgent: (await headers()).get("user-agent"),
+  });
+  if (!res.ok) return { error: res.error };
+  revalidatePath(routes.devices);
+  return { verdict: res.verdict };
 }

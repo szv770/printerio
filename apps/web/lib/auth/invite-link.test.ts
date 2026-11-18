@@ -39,3 +39,36 @@ describe("inviteStatus", () => {
     expect(inviteStatus({ usesCount: 1, maxUses: 1, expiresAt: "2026-10-22T00:00:00Z" }, now)).toBe("expired");
   });
 });
+
+import { extractInviteCode } from "./invite-link";
+
+describe("extractInviteCode", () => {
+  it("accepts a bare code, trimmed", () => {
+    expect(extractInviteCode("  a1b2c3d4e5f6 ")).toBe("a1b2c3d4e5f6");
+  });
+  it("pulls the code out of a pasted invite link, even inside a share message", () => {
+    expect(extractInviteCode("https://printio.szvtech.org/join?code=a1b2c3d4e5f6")).toBe("a1b2c3d4e5f6");
+    expect(extractInviteCode("You're invited to print with Printio: https://printio.szvtech.org/join?code=a1b2c3d4e5f6 ok")).toBe("a1b2c3d4e5f6");
+  });
+  it("rejects junk, empty input and non-join links", () => {
+    expect(extractInviteCode("")).toBeNull();
+    expect(extractInviteCode("bad code!")).toBeNull();
+    expect(extractInviteCode("https://evil.example/login?code=a1b2c3d4e5f6")).toBeNull();
+  });
+});
+
+import { inviteEntryTarget } from "./invite-link";
+
+describe("inviteEntryTarget (the box on /join when someone arrives without a code)", () => {
+  it("turns a pasted code or invite link into the join address", () => {
+    expect(inviteEntryTarget("a1b2c3d4e5f6")).toEqual({ ok: true, href: "/join?code=a1b2c3d4e5f6" });
+    expect(inviteEntryTarget(" https://printio.szvtech.org/join?code=a1b2c3d4e5f6 ")).toEqual({ ok: true, href: "/join?code=a1b2c3d4e5f6" });
+  });
+  it("says plainly what to do when the box is empty or the text is not an invite", () => {
+    const empty = inviteEntryTarget("   ");
+    expect(empty).toMatchObject({ ok: false });
+    expect(!empty.ok && empty.error).toMatch(/paste/i);
+    const junk = inviteEntryTarget("hello there");
+    expect(!junk.ok && junk.error).toMatch(/invite link or code/i);
+  });
+});

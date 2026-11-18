@@ -74,6 +74,18 @@ const androidPrint = (doc = "application/pdf") => ({
   ],
 });
 
+describe("per-device printer name", () => {
+  it("shows the web app's Printio-<printer>-<code> label as printer-name, falling back to the configured name", async () => {
+    const ask = (host: string) =>
+      h.ipp({ code: OP.getPrinterAttributes, groups: [operationGroup(printerUri(), attr(TAG.keyword, "requested-attributes", "printer-name"))] }, Buffer.alloc(0), { host });
+    const plain = await ask(h.host);
+    expect(flatGroup(plain.ipp, TAG.printer)["printer-name"]).toBe("Printio");
+    const other = h.addDevice("dev-2", "Printio-MLMI-SZV");
+    const labelled = await ask(other.host);
+    expect(flatGroup(labelled.ipp, TAG.printer)["printer-name"]).toBe("Printio-MLMI-SZV");
+  });
+});
+
 describe("Windows 11 flow", () => {
   it("Get-Printer-Attributes on an arbitrary path honours requested-attributes and records one event", async () => {
     const r = await h.ipp(
@@ -89,7 +101,7 @@ describe("Windows 11 flow", () => {
     expect(r.ipp.code).toBe(STATUS.ok);
     const p = flatGroup(r.ipp, TAG.printer);
     expect(Object.keys(p).sort()).toEqual(["document-format-supported", "finishings-supported", "printer-name"]);
-    expect(p["finishings-supported"]).toEqual([3, 4, 20, 22, 8, 13]);
+    expect(p["finishings-supported"]).toEqual([3, 4, 20, 22, 8, 13, 5, 28]);
     expect(flatGroup(r.ipp, TAG.operation)["attributes-charset"]).toBe("utf-8");
     // advertised URI follows Host (+ X-Forwarded-Proto, default http)
     const all = await h.ipp({ code: OP.getPrinterAttributes, groups: [operationGroup(printerUri())] }, Buffer.alloc(0), {
@@ -162,7 +174,7 @@ describe("Windows 11 flow", () => {
     const pj = flatGroup(polled.ipp, TAG.job);
     expect(pj["job-state"]).toBe(9);
     expect(pj["job-state-reasons"]).toBe("job-completed-successfully");
-    expect(pj["job-state-message"]).toBe("Printed");
+    expect(pj["job-state-message"]).toBe("Sent to the printer. It may take a few moments to start printing.");
 
     // ... and by job-uri
     const byUri = await h.ipp({
@@ -275,7 +287,7 @@ describe("phone-visible job status", () => {
     expect(sj["job-state-message"]).toBe("Waiting for the printer");
     expect(flatGroup(sent.ipp, TAG.operation)["status-message"]).toBe("Waiting for the printer");
     const id = sj["job-id"] as number;
-    for (const [status, msg] of [["printing", "Printing"], ["completed", "Printed"]] as const) {
+    for (const [status, msg] of [["printing", "Printing"], ["completed", "Sent to the printer. It may take a few moments to start printing."]] as const) {
       h.web.jobs.set("web-job-1", { jobId: "web-job-1", status });
       clock += PAST_STATUS_CACHE_MS;
       expect(flatGroup((await poll(id)).ipp, TAG.job)["job-state-message"]).toBe(msg);
@@ -286,7 +298,7 @@ describe("phone-visible job status", () => {
       return null;
     };
     const again = flatGroup((await poll(id)).ipp, TAG.job);
-    expect([again["job-state"], again["job-state-message"], lookups]).toEqual([9, "Printed", 0]);
+    expect([again["job-state"], again["job-state-message"], lookups]).toEqual([9, "Sent to the printer. It may take a few moments to start printing.", 0]);
   });
 
   it("a denied job reports the first policy reason and an aborted state", async () => {

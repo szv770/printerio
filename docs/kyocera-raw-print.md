@@ -159,3 +159,166 @@ arbitrary PDFs we need either (a) PDF direct (try below), or (b) PDF -> PCL XL c
 4. Only if 1-3 work: design the Agent change (send raw, lose Windows spooler status, so keep SNMP /
    other status in mind). Risks: no spooler job status, driver-specific bytes, cannot be validated
    without the physical printer.
+
+## 11x17 (ledger) paper: proven 2026-10-26
+
+Three numbered test prints of the same 11x17-imposed 4-page booklet (labelled sheets, sent with tools/raw-print/send-labelled.mjs):
+1. `DUPLEX=ON BINDING=SHORTEDGE OUTBIN=KBOOKLET FINISH=KFOLD` only: printed on LETTER, shrunk (the printer's default paper; this is the old behaviour).
+2. The same plus **`PAPER=LEDGER`**: a proper ledger booklet. **This is the setting.**
+3. `DUPLEX=ON BINDING=SHORTEDGE PAPER=LEDGER` (no fold/booklet tray): plain ledger, short-edge duplex.
+So an 11x17 booklet (print_jobs.paper_size = "tabloid") now sends `PAPER=LEDGER` right after the booklet settings (packages/shared/src/pjl.ts, `paper: "ledger"`).
+
+
+## What the printer says it supports (asked over port 9100, 2026-11-01)
+
+A read-only query (`@PJL INFO CONFIG`, `@PJL INFO VARIABLES`, sent with no job, nothing printed) returned the printer's own description. This is what it reports; **nothing below counts as proven until a labelled print shows it works.**
+
+- **Paper input trays** (PJL INFO CONFIG): BYPASS (Letter, CARDSTOCK default, 250 sheets), TRAY1 (Letter, plain, 550), TRAY2 (Ledger, plain, 550), TRAY3 (Letter, plain, 1500), TRAY4 (Letter, plain, 1500). The only tray-related settable variables are read-only (`INTRAYnSIZE`); there is no `MEDIASOURCE` variable in the list, so tray choice is probably made by the printer from `PAPER` + `MEDIATYPE` (to confirm).
+- **`PAPER=`** accepts (39): MONARCH, COM10, DL, C5, EXECUTIVE, LETTER, LEGAL, A4, B5, A3, B4, LEDGER, A5, A6, B6, COM9, COM6, ISOB5, CUSTOM, C4, JPOST, JPOSTD, OFICIO2, FB12X18, ROC8K, ROC16K, MO216X340, P13X19, SRA3, KAKUGATA2, NAGAGATA3, YOUNAGA3, NAGAGATA4, P13X19.2, STATEMENT, FOLIO, YOUKEI2, YOUKEI4, LSIZE. (Only LEDGER is proven.)
+- **`MEDIATYPE=`** accepts (28): AUTO, PLAIN, TRANSPARENCY, PREPRINTED, LABELS, BOND, RECYCLED, VELLUM, ROUGH, LETTERHEAD, COLOR, PREPUNCHED, ENVELOPE, CARDSTOCK, COATED, THICK, FINE, INDEXTABS, CUSTOM1..CUSTOM8, THINPAPER, NONE.
+- **`OUTBIN=`** accepts (16): KJOBSEPARATOR2FACEDOWN, OPTIONFACEDOWN, KOPTIONSUBFACEDOWN, KTRAY1FACEDOWN/FACEUP ... KTRAY5FACEDOWN/FACEUP, KOPTIONSUB2FACEDOWN, KLEFTTRAYFACEUP, KBOOKLET. The out-tray list in INFO CONFIG also shows the finisher's BOOKLET tray. (OPTIONFACEDOWN and KBOOKLET are proven.)
+- **`FINISH=`** accepts: NONE, STAPLE, ON, **KPUNCH**, **KPNCHANDSTPL**, KFOLD, KREVERSEFOLD (do not use; it scrambles pages).
+- **`STAPLEOPTION=`** accepts: DEFAULT, ONE, **TWO** (dual staple), ONEOPPOSED.
+- **Punch unit exists**: MAIN 3 holes (US), SUB 2 holes (US).
+- Also settable: `DUPLEX`, `BINDING` (LONGEDGE/SHORTEDGE), `QTY` (1-9999), `ECOPRINT`, `JOBOFFSET`, `HOLD` (OFF/ON/STORE/PROOF/KUSERBOX), `HOLDTYPE`, `ORIENTATION`, `RESOLUTION`.
+- Job messages: `@PJL USTATUS` types DEVICE, JOB, PAGE, TIMED are supported (see docs/ROADMAP.md for what a probe showed).
+- The script that asked: send `<ESC>%-12345X@PJL` + `@PJL INFO VARIABLES` + `<ESC>%-12345X` to port 9100 and read for a few seconds (the printer may be asleep, status 35078 "Sleeping...", and answers anyway).
+
+Labelled tests sent 2026-11-01 (results to be recorded here): T1 `STAPLEOPTION=TWO FINISH=STAPLE` (dual staple), T2 `FINISH=KPUNCH` (punch), T3 `MEDIATYPE=PLAIN`.
+
+## Printer feedback in the Agent (polling design, built 2026-11-01, untested on the real agent)
+
+What the Agent does when `PRINTIO_PRINTER_FEEDBACK=true` (default **off**; with it off the bytes and behaviour are exactly as before).
+
+**Why not listen on the job's own connection (tried first, abandoned).** Measured on the real printer: while we stay connected the printer reports only the first pages of a multi-copy job (PAGE 1..4 of 8) and withholds the rest, and the messages it has queued **leak onto the next connection**: job B's connection received job A's PAGE 5..8 and the parser said "confirmed 6 of 5". Also the printer **remembers** `USTATUS` settings (PAGE=ON, TIMED, VERBOSE stay set), so every later connection got stray messages. So no PAGE/TIMED/VERBOSE setting is used any more and nothing is listened for on the job connection.
+
+**Measured, reliable behaviour.** Send the job exactly like the normal path (data, then FIN; the printer closes at once). Then open a fresh short connection every 3 s, write `<UEL>@PJL` + `@PJL INFO STATUS` + `<UEL>` and read about 1.5 s. Polls at +3..+15 s returned nothing. The first poll after the job finished (+18 s) returned, in one reply: `@PJL USTATUS PAGE` 7, `PAGE` 8, `@PJL USTATUS JOB / END / NAME="EXPC mvy3xdvv" / PAGES=8` and `@PJL USTATUS DEVICE / CODE=10001 / DISPLAY="Ready."`. The job NAME matched ours and **PAGES=8 = pages printed**. `JOB` and `DEVICE` messages are on by default on this printer, so no setting is needed.
+
+**PAGE counts pages (printed sides), not sheets.** 4-page duplex x 2 copies = 8; a 5-page duplex job reported PAGES=5 (the blank back is not counted). Expected pages come from the web app (`printRequest.expectedPages`: copies x pages, booklets count the imposed sides); an older server that sends none = feedback is skipped.
+
+**What the Agent does**
+- Header: `@PJL USTATUS JOB=ON` and `DEVICE=ON` (the printer's defaults) only (`packages/shared/src/pjl.ts`, `ustatus: true`).
+- Unique job name: the PJL job name is `<title> <token>` (token = first 8 letters/digits of the job id; `uniquePjlJobName`, 60 chars max, the token survives a long title), so the same title printed twice is never confusable.
+- Polling (`pollPrinterVerdict`, `apps/agent/src/raw-print-executor.ts`): every ~3 s a short connection, query above, read ~1.5 s, destroy. Everything received goes to the parser (`UstatusFeedback` in named mode, `packages/shared/src/pjl-ustatus.ts`), which keeps unfinished messages between polls and understands several messages per read and the `INFO STATUS` answer. A refused or failed poll is just skipped.
+- Only the `JOB END` with **our unique name** counts (other names, and all PAGE messages, are leftovers and ignored). PAGES >= expected: completed with "Printer confirmed N of N pages". END with fewer pages: not confirmed, reported `failed` (needs a person, never re-sent) with "The printer finished the job but reported only X of Y pages" (it may have been cancelled at the panel).
+- A DEVICE message or INFO STATUS code outside 10xxx and other than 35078 "Sleeping..." is attention: logged, polling continues to the cap, then the job is reported `failed` with the printer's own words (`[printio:printer-error v1 ...]`). 10023 "Processing..." is also the normal PJL state for a long time after a job: never a problem and never "done". Only our JOB END is done.
+- Cap: 60 s + 1.5 s per page (never more than 30 minutes, and never past the job's lease minus 60 s; under 30 s of lease to spare = no feedback). After the cap with nothing seen: completed as before with "Sent to the printer; it did not confirm each page" (counts as sent, not a failure).
+- The Agent's own status probe (health monitor, `isSending` guard) stays off the printer from the moment the job is sent until the verdict (`holdSending` in `send-activity.ts`): it would swallow our JOB END. The same printer's next job is not claimed while a job is being confirmed.
+- Tests: fake printer implementing the measured behaviour (`apps/agent/test/raw-print-feedback.test.ts`), orchestrator wiring (`orchestrator-release.test.ts`), probe guard (`health-monitor-printers.test.ts`).
+- Not done: live per-sheet job events (event types are a database check constraint), the gateway wording for the attention failure. Not yet run end to end through the real Agent.
+
+### Correction after more live tests (2026-11-01): the page counter is the dependable signal
+
+Checking every 10 s for the job's `JOB END` message usually MISSES it: the printer pushes that message only to a connection that is open at that moment (it is not queued for the next connection), and holding a connection open for the whole job would stall other people's jobs on this shared printer. What works at any time on a short connection is `@PJL INFO PAGECOUNT` (the printer's total pages printed). The agent now reads it once before sending (`countBaseline`), then checks `INFO STATUS` + `INFO PAGECOUNT` on one short connection (first check about 10 s + 0.5 s per page after sending, then every 10 s, easing to 20 s) and confirms when the counter has risen by at least the expected pages ("the printer's page counter rose by N"). Measured: a 4-page duplex job with 2 copies (8 pages) confirmed in about 30 s with 3 short connections; a 1-page job showed +1 after 13 s. Limits: someone else printing at the same moment can inflate the counter (it can only look further along; it still needs the expected number), and a booklet's expected count (imposed pages x copies) is not yet measured. If the JOB END message for our unique job name happens to be caught it still counts. Each short connection may show as an entry in the printer's own job log, which is why checks are few.
+
+### Safety net: do not send into a printer that has an error after an unconfirmed job (built 2026-11-15, tested against fake printers only)
+
+**Why.** Incident 2026-11-15: a job the printer never confirmed was followed by "System error. Turn the main power switch off and on." on the panel, and the next teachers' jobs were sent straight into the dead printer and silently wasted (reported "sent").
+
+**What the agent does** (`apps/agent/src/printer-health-gate.ts`, wired in `orchestrator.ts`):
+- When a raw job's verdict is not `confirmed` (`unconfirmed` or `attention`), that printer (`host:port`) is marked **suspect**. A confirmed job clears the mark. Nothing changes for a confirmed job: **zero extra network calls**. With printer feedback off, or no page count / too little lease (no verdict at all), nothing is ever marked, as before.
+- Before the NEXT raw job is sent to a suspect printer, the agent reads `@PJL INFO STATUS` once (the same short, read-only question and parser the status monitor uses: `printer-probe.ts`, `parsePjlInfoStatus`; 4 s limit, one retry after 1 s when nothing came back).
+- **Healthy** = it answered, `ONLINE` is not FALSE, and `CODE` is 10xxx (10001 Ready, 10023 Processing) or 35078 Sleeping (`isAttentionCode`). The mark is cleared by that one healthy read and the job is sent. The code of "System error" has never been seen, so **any other code** (15141, 4xxxx, 5xxxx, 6xxxx, ...), `ONLINE=FALSE`, silence after the retry, or an unreachable port counts as a problem.
+- On a problem the job is **not sent**: it is released back to the queue exactly like "printer not available" (`releaseJobToQueue`, kind `unavailable`, same cooldown of 30 s per printer profile and the web app's backoff 30 s / 1 / 2 / 5 min and 2 h give-up window), never failed, never sent twice. The release detail carries the sentence "The printer reported a problem and Printio is waiting for it to be fixed (turn the printer off and on at the main switch). Jobs will print when it is ready." plus the technical reason; the job's text on the website is still the web app's standard "The printer is not available right now ... It will print when it is back." (a separate wording needs a new waiting kind in `packages/shared/src/waiting.ts`, the release route and the gateway: not done).
+- Log lines: one warning when a suspect printer first reads bad ("printer looks unhealthy after an unconfirmed job - holding raw jobs for it until it reads ready"), one info when it reads healthy again ("printer reads healthy again - raw printing resumes"), and one warning if the 10-minute cap drops the mark.
+- **Never blocks for good**: the mark is dropped after 10 minutes whatever the printer says (so a truly dead printer can still take one job per 10 minutes), and a status read that throws fails open (the job is sent, logged).
+- Only a job that is still `claimed` (current web app) can wait; against an older web app that already moved the job on, the check is skipped.
+- Limits: a printer that is mid-job on a connection from another computer may not answer the status question (counts as silent, so a job waits at most until the next healthy read or the 10-minute cap); a warning-range code (2xxxx/3xxxx other than 35078) also holds jobs until it clears or the cap passes.
+- **Not proven on the real printer**: that a printer showing "System error" answers `INFO STATUS` with a non-10xxx code (if it answers nothing at all, the silence rule catches it; if it answers 10001 while dead, the net does not help), and the exact code. To learn it, run `tools/raw-print/pjl-inquire.mjs` the next time it happens (before the power cycle) and note the answer here.
+
+## Labelled tests 2026-11-01 (results)
+
+| Test | Settings sent | What came out |
+|---|---|---|
+| T1B | `DUPLEX=OFF OUTBIN=OPTIONFACEDOWN STAPLEOPTION=TWO FINISH=STAPLE` (2 single-sided sheets) | **Two staples on the left edge. Proven (portrait).** (T1, the same with `DUPLEX=ON` and only 2 pages = one sheet, was not stapled: a printer cannot staple one sheet.) |
+| T2 | `DUPLEX=OFF OUTBIN=OPTIONFACEDOWN FINISH=KPUNCH` | **3 holes punched on both pages. Proven** (main punch unit, US 3-hole). |
+| T3 | `DUPLEX=OFF MEDIATYPE=PLAIN` | Printed normally, single sided. **Proven** (paper type is accepted; which tray it picks was not tested). |
+
+**Used by Printio (2026-11-01):** T1B (two staples, left) and T2 (3-hole punch) are wired into `packages/shared/src/pjl.ts` as `staple: "dual-left"` and `punch: true`, delivered only for the combinations listed in `PROVEN_FINISHING_COMBOS` (single-sided portrait are `proven: true`; double-sided long-edge punch (P1) and punch + top-left staple single-sided (`KPNCHANDSTPL`, P2) were proven by labelled prints on 2026-11-01 and are `proven: true`; double-sided two staples (P3) did NOT work, the printer made one top-left staple instead of two on the left, so it stays `proven: false` and is held with "not tested on this printer yet"). Stored on the job as `finishing.stapleStyle = "dual-left"` / `finishing.punch = true`; Agent 0.2.1 or newer is required (older Agents are refused for such jobs). Print dialog: finishings 28 and 5/78 (advertised). Not yet run through the real dialog/agent.
+
+## What the printer sends back on port 9100 (measured 2026-11-01)
+
+Setting `@PJL USTATUS DEVICE=VERBOSE`, `JOB=ON`, `PAGE=ON` (and optionally `TIMED=5`) before the job, and keeping our side of the connection OPEN:
+- `@PJL USTATUS JOB / START / NAME="<job name>"` right after the job starts. **There is no END message.**
+- `@PJL USTATUS PAGE / <n>` once per finished **sheet** (a 4-page double-sided job with 2 copies sent 1,2,3,4: it counts sheets, not sides). They can arrive several in one TCP chunk.
+- `@PJL USTATUS DEVICE / CODE=10001 DISPLAY="Ready." ONLINE=TRUE` and `CODE=10023 DISPLAY="Processing..."` on state changes; `TIMED` repeats the device state every N seconds. Error codes (jam, paper out, etc.) have not been seen yet.
+- `@PJL INFO STATUS`, `@PJL INFO PAGECOUNT` (total pages the machine has ever printed) answer on a fresh connection when no job connection is open. **While a job connection is open, a second connection gets no answer.** `INFO JOBS`, `INFO LOG`, `INFO PRODINFO` and `INQUIRE PAGECOUNT` are not supported.
+- If our side closes (FIN) right after sending, as the agent did, the printer closes at once and sends **no** messages. So that close means "all data received", not "printed".
+- After the pages were reported the printer stayed at "Processing..." for minutes with the page counter static while the job connection had been closed by us; it later went back to Ready. Cause not understood (possibly the printer's own job timeout).
+- The printer's IPP interface (https port 443, `/ipp/print`) answers `Get-Jobs` with name and state, but only lists jobs submitted over IPP, not raw-port jobs.
+
+
+## Paper trays as loaded (owner, 2026-11-01)
+
+| Tray (printer name) | Holds | Notes |
+|---|---|---|
+| TRAY1 (INTRAY2) | Letter, loaded long-edge for **booklets** (the printer calls it LETTER-R) | Booklets need this orientation; Letter booklets already print from it |
+| TRAY2 (INTRAY3) | **Ledger** (11x17) | `PAPER=LEDGER` finds it by itself (proven 2026-10-26) |
+| TRAY3, TRAY4 (INTRAY5, INTRAY6) | regular Letter, portrait, 1500 sheets each | cannot make booklets (wrong orientation), fine for everything else |
+| BYPASS (INTRAY1) | **cardstock** is the tray's configured type (Letter) | the likely route for hardstock/labels; needs the right paper loaded or the printer waits |
+
+**Cardstock (UNPROVEN, wired 2026-11-16):** the Print page's Paper type "Cardstock" sends `MEDIATYPE=CARDSTOCK` (the constant `MEDIATYPE_CARDSTOCK_UNPROVEN` in `packages/shared/src/pjl.ts`) and nothing else about the tray, so the printer should pick the BYPASS tray. An earlier bare `MEDIATYPE=CARDSTOCK` job never came out (no error on the display; it may simply have waited for paper). Test with ONE job: load one sheet of Letter cardstock in the bypass tray, then `node tools/raw-print/run-cardstock-round.mjs <ip> --bypass-is-loaded`. Record the result here.
+
+Rule that follows: the printer chooses the tray from `PAPER` (+ `MEDIATYPE`), so a job should ask for a size and type and not name a tray. **Never send a size or type nothing is loaded for** (Legal, A4, A3, Statement and so on are not loaded anywhere): the printer stops and asks for paper, and every later job waits behind it until someone cancels at the panel. Printio therefore advertises and accepts only Letter and Ledger for now.
+
+## Hebrew and fonts (2026-11-01)
+
+Trigger: a 2-page Hebrew study calendar (probably made by an AI/HTML tool, sent twice from the print dialog, 140 KB then
+1.3 MB) came out badly garbled. The stored files could not be inspected, so the question was whether Printio can corrupt
+Hebrew, and if the printer might.
+
+**Verified by tests (no real printer involved)**
+- `apps/web/lib/pdf/hebrew-fidelity.test.ts`: Hebrew PDFs (David Libre as subset, full font, mixed Hebrew/Latin/digits/nikud,
+  multi-page, with an attachment + JavaScript so the sanitizer rewrites the file, landscape and odd sizes, `/Rotate` 90/270,
+  object streams, Resources/MediaBox/Rotate inherited from the page tree) go through every stage in the order
+  `create-print-job.ts` uses: preflight + sanitize, page subset, booklet padding + imposition (left and right binding, fill and
+  keep), the stamp. For each, the text pdfjs extracts per page, the set of fonts per page and the ToUnicode maps are unchanged
+  (booklet sheet sides hold exactly their two source pages' characters). **No Printio step changed Hebrew text or dropped a
+  font in any of these.** pdf-lib copies font and CIDToGIDMap streams byte for byte; none of our steps re-encodes text.
+- Safeguard in the pipeline (`lib/pdf/text-fidelity.ts`): if the non-Latin text of the derived file differs from the upload
+  (per page, through the page-range and booklet page mapping), the job is held with "Printio could not prepare this file without
+  changing its text. Nothing was printed..." and nothing is sent. Fails open on errors or timeout.
+
+**Not verified**
+- Anything about the printer's own PDF interpreter. The check above proves Printio's file says the same as the upload, not
+  that the Kyocera draws it correctly.
+- Suspects on the printer side (not guessed at, not tested): Type 3 fonts (what some HTML-to-PDF tools emit for Hebrew web
+  fonts), CID TrueType fonts with unusual cmaps or a missing/odd CIDToGIDMap, fonts with an invalid or absent ToUnicode, very
+  large embedded fonts (the 1.3 MB version probably had the whole font), fonts with restricted embedding flags, and Hebrew text
+  that depends on OpenType shaping/positioning (nikud placement) instead of precomposed glyphs.
+- The two sends of the real file were not compared with a viewer first. The cheapest first step is: open the same PDF in
+  Chrome/Acrobat. If it is garbled there too, the PDF itself is broken (regenerate it); if fine there, test the printer below.
+
+**Real-printer check (owner)**
+```
+node tools/raw-print/make-hebrew-tests.mjs            # makes tools/raw-print/hebrew-out/A-subset.pdf, B-full.pdf, C-mixed.pdf
+node tools/raw-print/send-labelled.mjs tools/raw-print/hebrew-out/A-subset.pdf <printer-ip> "HEB A SUBSET"
+node tools/raw-print/send-labelled.mjs tools/raw-print/hebrew-out/B-full.pdf   <printer-ip> "HEB B FULL"
+node tools/raw-print/send-labelled.mjs tools/raw-print/hebrew-out/C-mixed.pdf  <printer-ip> "HEB C MIXED"
+```
+Each page says which file it is in large Latin letters and what to expect. Record here which of A, B, C printed correctly.
+If all print fine, the printer handles ordinary TrueType Hebrew and the culprit is the source file's font type; then ask
+whoever regenerates the PDF to export from a tool that embeds TrueType (not Type 3) fonts, or print it via Chrome's Save as PDF.
+
+### Labelled tests, finishing combinations (2026-11-01, second round)
+
+| Test | Settings sent | What came out |
+|---|---|---|
+| P1 | `DUPLEX=ON BINDING=LONGEDGE OUTBIN=OPTIONFACEDOWN FINISH=KPUNCH` (4 pages, 2 sheets) | **Double-sided, 3 holes on the left side. Proven.** |
+| P2 | `DUPLEX=OFF OUTBIN=OPTIONFACEDOWN STAPLEOPTION=ONE FINISH=KPNCHANDSTPL` (4 single-sided sheets) | **A staple at the top left and 3 holes on the left. Proven.** |
+| P3 | `DUPLEX=ON BINDING=LONGEDGE OUTBIN=OPTIONFACEDOWN STAPLEOPTION=TWO FINISH=STAPLE` (4 pages, 2 sheets) | Double-sided, but **one staple at the top left**, not two on the left. **Not as asked: held.** (Single-sided `STAPLEOPTION=TWO` does give two left staples, T1B.) |
+
+## Incident 2026-11-15: a Type 3 font PDF and "System error. Turn the main power switch off and on."
+A teacher's one-page quiz (Chrome "Save as PDF": 19 Type 3 `Inter` font dictionaries, nothing else unusual: no images, shading or transparency) was sent raw
+(about 79.6 KB) and the printer did not confirm it. Job 304 then showed "Canceling" in Command Center RX and the panel showed "System error. Turn the
+main power switch off and on." (Printer and Scanner both "Error has occurred"). The next job (an IPP one from a phone) then met a dead printer ("printer
+blocked" on that teacher's device). The same file prints from the owner's PC through the Windows driver.
+**Confirmed (2026-11-15, owner)**: the same page saved as a picture (no fonts) printed normally through Printio; the original failed 4 of 4 times
+(three silent drops, then the system error). poppler reports "Bad bounding box in Type 3 glyph" for the original: its font boxes have the top and bottom
+swapped (`/FontBBox [49 416 2076 -1856]`), which is what Chrome writes when it turns a variable font (here Inter) into Type 3. Nothing else in the file was unusual.
+**What Printio does now** (`apps/web/lib/pdf/type3-fonts.ts`, `type3-rasterize.ts`, `create-print-job.ts`, `PrintForm.tsx`): a PDF with Type 3 fonts is drawn page by
+page on the website server (pdf.js + the same canvas the content analysis uses) into a grey 300 dpi picture copy (colour jobs: 200 dpi RGB), up to 30 pages and 90 s;
+that copy is the derived file that prints, the upload stays as the stored original, the text-fidelity check is skipped (a picture has no text), and the job's
+`PDF_UPLOADED` event says `printedAsPictures`. The upload form tells the person when a picked file will be printed as a picture copy. Over 30 pages, or if drawing
+fails, the job is held with a plain message that includes a note to copy to whatever made the PDF. `PRINTIO_ALLOW_TYPE3_FONTS=1` on the website turns all of this off.
+**Not tested on the printer**: the automatic copy (the hand-made copy is what printed). Check one real Type 3 upload prints. A later phase moves the drawing to the school server.

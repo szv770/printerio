@@ -1,5 +1,6 @@
 # Handoff: IPP gateway (print from the OS print dialog)
 
+> **Newest overview: `docs/STATE-2026-11-01.md`** (hosting moved off Vercel to the owner's PC, printer facts, features added since, next steps).
 > **Current status lives in `docs/BACKLOG.md`** (updated 2026-10-23). This hand-off was written before the first real device test; many "never run" statements below are out of date.
 
 Written 2026-10-22 at the end of a cloud session, for whoever continues (the owner in a terminal CLI, or another Claude session).

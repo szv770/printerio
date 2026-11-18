@@ -78,7 +78,7 @@ export default async function AdminOverviewPage() {
         .order("created_at", { ascending: false })
         .limit(RECENT_LIMIT),
       supabase.from("agents").select("id, name, last_seen_at").eq("organization_id", orgId).order("name").limit(LIST_CAP),
-      supabase.from("printers").select("id, name, status").eq("organization_id", orgId).order("name").limit(LIST_CAP),
+      supabase.from("printers").select("id, name, status, status_detail").eq("organization_id", orgId).order("name").limit(LIST_CAP),
       // Devices and setup counts are org-admin pages/data; approvers skip them.
       isOrgAdmin
         ? supabase
@@ -112,7 +112,7 @@ export default async function AdminOverviewPage() {
             agents.map((a) => a.id),
           )
       : null;
-  const printers = (printersRes.data ?? []).map((p) => ({ id: p.id, name: p.name, status: p.status }));
+  const printers = (printersRes.data ?? []).map((p) => ({ id: p.id, name: p.name, status: p.status, statusDetail: p.status_detail }));
 
   // Devices that need a look (admins only): open help requests, or connected
   // but nothing printed for a while.

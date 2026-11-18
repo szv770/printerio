@@ -7,6 +7,14 @@
  * reasonably want to tweak later.
  */
 
+/**
+ * The guided spotlight tour is switched OFF (owner decision 2026-10-25): its layout was hard to follow after the UI
+ * redesign and it started by itself for every new member. The code and slides are kept; set this to true only after
+ * the tour has been rebuilt and checked on real pages (every anchor, phone width included). While false, Help opens
+ * the glossary directly and nothing starts, resumes or replays a tour.
+ */
+export const TOUR_ENABLED = false;
+
 export interface TourSlide {
   title: string;
   body: string;

@@ -37,8 +37,8 @@ export function deviceStatus(d: {
   if (d.revoked_at) return { key: "revoked", label: "Turned off", tone: "neutral" };
   if (d.first_printed_at) return { key: "printed", label: "Printed", tone: "success" };
   if (d.first_job_at) return { key: "job_received", label: "First print received", tone: "warning" };
-  if (d.last_seen_at) return { key: "connected", label: "Connected", tone: "warning" };
-  return { key: "created", label: "Address created, not connected yet", tone: "neutral" };
+  if (d.last_seen_at) return { key: "connected", label: "Device link created, not printed yet", tone: "warning" };
+  return { key: "created", label: "Device link created, not connected yet", tone: "neutral" };
 }
 
 export interface SetupSteps {
@@ -50,6 +50,8 @@ export interface SetupSteps {
   command?: string;
   /** Honest label when this way of setting up has not been proven on a real device yet. */
   testStatus?: string;
+  /** Offer the "Download iPhone setup profile" button (an AirPrint configuration profile for this address). */
+  profileDownload?: true;
 }
 
 export function setupSteps(type: string, addr: DeviceAddress): SetupSteps | null {
@@ -59,10 +61,12 @@ export function setupSteps(type: string, addr: DeviceAddress): SetupSteps | null
       steps: [
         "Open Settings > Bluetooth & devices > Printers & scanners.",
         "Click Add device, then choose \"Add manually\".",
-        "Choose \"Select a shared printer by name\".",
-        `Paste the full address: ${addr.url}`,
-        "Click Next and follow the prompts.",
+        "Choose \"Add a printer using an IP address or hostname\" and click Next.",
+        "If it asks for a device type, pick \"IPP Device\" (not Autodetect or TCP/IP).",
+        `Paste the full address, starting with https://: ${addr.url}`,
+        "Click Next. It says \"Contacting printer\" for about 30 seconds, then \"You've successfully added Printio\".",
       ],
+      note: "Proven on a Windows 11 laptop (the full address pasted into the hostname box). The \"shared printer by name\" route has not worked.",
     };
   }
   if (type === "android") {
@@ -79,18 +83,48 @@ export function setupSteps(type: string, addr: DeviceAddress): SetupSteps | null
       note: "Android needs the bare hostname: no \"https://\" and nothing after it.",
     };
   }
+  if (type === "chromebook") {
+    return {
+      needs: "hostname",
+      testStatus: "Not tested yet - being worked on",
+      note: "We have not tried this on a real Chromebook yet, so it may not work. A school-managed Chromebook may not allow adding printers at all (ask your administrator). If it does not work, use Print a document on the website.",
+      steps: [
+        "Open Settings > Advanced > Printing > Printers (on newer versions: Settings > Connected devices > Printers). Choose Add printer, then Add manually.",
+        "Name: type anything you like, for example Printio.",
+        `Address: paste ${addr.hostname}:443`,
+        "Protocol: choose Internet Printing Protocol (IPPS). Not plain IPP.",
+        "Queue: type ipp/print",
+        "Click Add. If it asks for a printer model or driver, choose Generic / IPP Everywhere if offered.",
+        "To print: open a page or document, press Ctrl + P, tap Destination, and choose your Printio printer.",
+      ],
+    };
+  }
+  if (type === "iphone") {
+    return {
+      needs: "hostname",
+      profileDownload: true,
+      note: "Proven on a real iPhone. Menu names can differ a little between iOS versions.",
+      steps: [
+        "Open this page in Safari on your iPhone or iPad (other browsers cannot install profiles). Not in Safari? Tap Share, then Open in Safari.",
+        "Tap Download iPhone setup profile. When it asks, tap Allow, then Close.",
+        "Open Settings and tap Profile Downloaded near the top. Tap Install (top right), enter your passcode.",
+        "A warning says Unsigned Profile. That is normal. Tap Install again, then Install, then Done.",
+        "To print: open a document or photo, tap Share, then Print, tap Printer, and choose your Printio printer. If it is not listed, wait 10 seconds and tap Printer again.",
+      ],
+    };
+  }
   if (type === "mac") {
     const ipps = `ipps://${addr.hostname}/ipp/print`;
     return {
-      needs: "url",
+      needs: "hostname",
       testStatus: "Not tested yet - being worked on",
       note: "We have not tried this on a real Mac yet. Earlier tests with other printers suggest it can work, but we cannot promise it. If it does not work, use Print a document on the website.",
       command: `lpadmin -p Printio -E -v ${ipps} -m everywhere`,
       steps: [
-        "Easiest: open Terminal (press Command + Space, type Terminal, press Return).",
+        "Recommended: open Terminal (press Command + Space, type Terminal, press Return).",
         "Paste the line below and press Return. If nothing is printed back, it was added.",
         "Or, without Terminal: open System Settings > Printers & Scanners > Add Printer, then the IP tab.",
-        `On the IP tab choose the IPP protocol, set Address to ${addr.hostname} and Queue to ipp/print.`,
+        `On the IP tab set Address to ${addr.hostname}:443, Protocol to IPPS (secure IPP), and Queue to ipp/print.`,
       ],
     };
   }
@@ -111,9 +145,6 @@ export function detectDeviceType(userAgent: string | undefined | null, maxTouchP
 
 /** What to tell someone when we have no step-by-step help for their device type. */
 export function noStepsMessage(type: string): string {
-  if (type === "iphone") {
-    return "iPhone and iPad: coming later. We do not expect printing from the Print button to work yet. For now, upload from the website (Print a document).";
-  }
   if (type === "other") return "We don't have steps for this kind of device yet. It may not work.";
   return `We don't have steps for ${deviceTypeLabel(type)} yet. It may not work, so ask your administrator if you get stuck.`;
 }

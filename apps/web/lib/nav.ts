@@ -32,6 +32,7 @@ export type NavIcon =
   | "reports"
   | "audit"
   | "storage"
+  | "fonts"
   | "settings"
   | "print"
   | "jobs"
@@ -126,6 +127,7 @@ export function adminMenu(isOrgAdmin: boolean): NavGroup[] {
       items: [
         { href: routes.adminSettings, label: "General", icon: "settings" },
         ...(isOrgAdmin ? [{ href: routes.adminStorage, label: "Files & storage", icon: "storage" as const }] : []),
+        ...(isOrgAdmin ? [{ href: routes.adminFonts, label: "Fonts", icon: "fonts" as const }] : []),
       ],
     },
     {
@@ -196,4 +198,18 @@ export function roleLabel(role: string | null | undefined): string {
 export function avatarInitial(name: string | null | undefined, email?: string | null): string {
   const src = (name ?? "").trim() || (email ?? "").trim();
   return src ? src.charAt(0).toUpperCase() : "?";
+}
+
+/** Admin pages that run heavy queries; the nav must not prefetch them on hover/viewport (each prefetch is an invocation). */
+const NO_PREFETCH_HREFS: readonly string[] = [
+  routes.adminReports,
+  routes.adminAudit,
+  routes.adminStorage,
+  routes.adminUsers,
+  routes.adminAgents,
+  routes.adminApprovals,
+];
+
+export function shouldPrefetchNavHref(href: string): boolean {
+  return !NO_PREFETCH_HREFS.includes(href);
 }

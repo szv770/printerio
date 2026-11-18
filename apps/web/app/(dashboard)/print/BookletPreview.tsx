@@ -3,12 +3,25 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Spinner } from "@/components/ui";
+import { pdfjsAssetOptions } from "@/lib/pdf/pdfjs-options";
 
 export interface BookletPreviewData {
-  pdfBase64: string;
+  /** Where to fetch the imposed PDF (a short-lived signed URL from the preview action). */
+  pdfUrl?: string;
+  /** Inline alternative used by the dev preview page. */
+  pdfBase64?: string;
   bindingSide: "left" | "right";
   sheets: number;
   blankPagesAdded: number;
+}
+
+async function loadBytes(data: BookletPreviewData): Promise<Uint8Array> {
+  if (data.pdfUrl) {
+    const res = await fetch(data.pdfUrl);
+    if (!res.ok) throw new Error(`preview download failed (${res.status})`);
+    return new Uint8Array(await res.arrayBuffer());
+  }
+  return base64ToBytes(data.pdfBase64 ?? "");
 }
 
 const RENDER_WIDTH_CSS_PX = 560;
@@ -32,6 +45,9 @@ export function BookletPreview({ data }: { data: BookletPreviewData }) {
   const [sides, setSides] = useState(data.sheets * 2);
   const [rendered, setRendered] = useState(0);
   const [failed, setFailed] = useState(false);
+  const [someBlank, setSomeBlank] = useState(false);
+  // The real sheet shape (Letter landscape for a regular booklet, 11x17 landscape for the large one), known after page 1.
+  const [ratio, setRatio] = useState(792 / 612);
   const [current, setCurrent] = useState(0);
 
   useEffect(() => {
@@ -40,23 +56,31 @@ export function BookletPreview({ data }: { data: BookletPreviewData }) {
       try {
         const pdfjs = await import("pdfjs-dist");
         pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
-        const pdf = await pdfjs.getDocument({ data: base64ToBytes(data.pdfBase64) }).promise;
+        const pdf = await pdfjs.getDocument({ data: await loadBytes(data), ...pdfjsAssetOptions() }).promise;
         if (cancelled) return;
         setSides(pdf.numPages);
         // Wait a frame so the canvases for the real page count exist.
         await new Promise((r) => requestAnimationFrame(() => r(null)));
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
         for (let n = 1; n <= pdf.numPages; n++) {
+          if (cancelled) return;
           const canvas = canvases.current[n - 1];
-          if (cancelled || !canvas) return;
-          const page = await pdf.getPage(n);
-          const base = page.getViewport({ scale: 1 });
-          const viewport = page.getViewport({ scale: (RENDER_WIDTH_CSS_PX / base.width) * dpr });
-          canvas.width = Math.floor(viewport.width);
-          canvas.height = Math.floor(viewport.height);
-          const ctx = canvas.getContext("2d");
-          if (!ctx) throw new Error("no 2d context");
-          await page.render({ canvas, canvasContext: ctx, viewport }).promise;
+          // A missing canvas used to end the loop silently and leave the spinner covering the page (it looked white).
+          if (!canvas) throw new Error("preview canvas missing");
+          // One page that cannot be drawn (an image format this browser lacks) must not blank the others.
+          try {
+            const page = await pdf.getPage(n);
+            const base = page.getViewport({ scale: 1 });
+            if (n === 1) setRatio(base.width / base.height);
+            const viewport = page.getViewport({ scale: (RENDER_WIDTH_CSS_PX / base.width) * dpr });
+            canvas.width = Math.floor(viewport.width);
+            canvas.height = Math.floor(viewport.height);
+            const ctx = canvas.getContext("2d");
+            if (!ctx) throw new Error("no 2d context");
+            await page.render({ canvas, canvasContext: ctx, viewport }).promise;
+          } catch {
+            if (!cancelled) setSomeBlank(true);
+          }
           if (!cancelled) setRendered(n);
         }
       } catch {
@@ -66,7 +90,7 @@ export function BookletPreview({ data }: { data: BookletPreviewData }) {
     return () => {
       cancelled = true;
     };
-  }, [data.pdfBase64]);
+  }, [data.pdfUrl, data.pdfBase64]);
 
   function go(delta: number) {
     const el = scroller.current;
@@ -96,7 +120,7 @@ export function BookletPreview({ data }: { data: BookletPreviewData }) {
             type="button"
             aria-label="Previous sheet side"
             onClick={() => go(-1)}
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]"
+            className="flex h-11 w-11 items-center justify-center rounded-lg border [@media(pointer:fine)]:h-9 [@media(pointer:fine)]:w-9 border-[var(--color-border-strong)] bg-[var(--color-surface)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]"
           >
             <ChevronLeft className="h-4 w-4" aria-hidden="true" />
           </button>
@@ -104,7 +128,7 @@ export function BookletPreview({ data }: { data: BookletPreviewData }) {
             type="button"
             aria-label="Next sheet side"
             onClick={() => go(1)}
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]"
+            className="flex h-11 w-11 items-center justify-center rounded-lg border [@media(pointer:fine)]:h-9 [@media(pointer:fine)]:w-9 border-[var(--color-border-strong)] bg-[var(--color-surface)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]"
           >
             <ChevronRight className="h-4 w-4" aria-hidden="true" />
           </button>
@@ -131,7 +155,7 @@ export function BookletPreview({ data }: { data: BookletPreviewData }) {
                   canvases.current[i] = el;
                 }}
                 className="block h-auto w-full"
-                style={{ aspectRatio: "792 / 612" }}
+                style={{ aspectRatio: String(ratio) }}
               />
               <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-1/2 border-l border-dashed border-black/40" />
               {rendered <= i && !failed && (
@@ -147,6 +171,9 @@ export function BookletPreview({ data }: { data: BookletPreviewData }) {
         ))}
       </div>
       {failed && <p className="mt-2 text-sm text-[var(--color-danger)]">The preview could not be drawn in this browser. Printing is not affected.</p>}
+      {!failed && someBlank && (
+        <p className="mt-2 text-sm text-[var(--color-warning-ink)]">Some pages could not be drawn here, so they may look blank. The booklet itself is still built and will print normally.</p>
+      )}
     </div>
   );
 }

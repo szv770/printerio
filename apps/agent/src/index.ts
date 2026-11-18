@@ -20,8 +20,10 @@ import { saveCredentials, loadCredentials } from "./secure-storage.js";
 import { createJobQueue } from "./job-queue.js";
 import { createPrinterManager } from "./printer-manager.js";
 import { createSpoolerMonitor } from "./spooler-monitor.js";
+import { checkRawTarget } from "./raw-host-policy.js";
 import { createHealthMonitor } from "./health-monitor.js";
 import { createOrchestrator } from "./orchestrator.js";
+import { startLibraryWorker } from "./library-worker.js";
 import { installService, uninstallService } from "./windows-service.js";
 import { verifyStartupDependencies } from "./dependency-check.js";
 import { ConfigError } from "./errors.js";
@@ -143,7 +145,9 @@ async function runStart(): Promise<void> {
   const jobQueue = createJobQueue(config.localStoragePath, logger);
   const printerManager = createPrinterManager(config.localStoragePath, logger);
   const spoolerMonitor = createSpoolerMonitor(config.localStoragePath, logger);
-  const healthMonitor = createHealthMonitor(cloudClient, printerManager, logger);
+  const healthMonitor = createHealthMonitor(cloudClient, printerManager, logger, {
+    checkTarget: (target) => checkRawTarget(target, { allowedHosts: config.rawAllowedHosts }),
+  });
 
   const orchestrator = createOrchestrator({
     config,
@@ -155,9 +159,18 @@ async function runStart(): Promise<void> {
     logger,
   });
 
+  // The optional library worker (PRINTIO_LIBRARY_WORKER=1; the owner's own server only). Off by default: then nothing is
+  // created. It runs on its own timer, is never awaited here and cannot throw into the loops below; see library-worker.ts.
+  const libraryWorker = startLibraryWorker({ enabled: config.libraryWorker, cloud: cloudClient, logger });
+
   const shutdown = (signal: string) => {
     logger.info(`received ${signal} - shutting down`);
     orchestrator.stop();
+    try {
+      libraryWorker?.stop();
+    } catch {
+      /* never let the optional worker get in the way of shutting down */
+    }
     process.exit(0);
   };
   process.on("SIGINT", () => shutdown("SIGINT"));

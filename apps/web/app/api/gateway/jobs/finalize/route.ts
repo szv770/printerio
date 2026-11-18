@@ -81,7 +81,7 @@ export async function POST(request: Request) {
     if (downloadError || !file) return gatewayError(404, "intake_not_found", "The uploaded document could not be found.");
     const bytes = new Uint8Array(await file.arrayBuffer());
 
-    const { choices, heldReason } = mapIppChoices(ipp.attributes);
+    const { choices, heldReason, paperSize } = mapIppChoices(ipp.attributes);
     const name = ippFileName(ipp.jobName ?? fileName);
     const session = { userId: member.userId, membership: { organization_id: member.organizationId, role: member.role, department: member.department } };
     const run = (forcedHeldReason: string | undefined): Promise<CreatePrintJobResult> =>
@@ -89,7 +89,7 @@ export async function POST(request: Request) {
         printerProfileId: profile.id,
         choices,
         colorMode: "bw",
-        paperSize: "letter",
+        paperSize,
         punch: false,
         confirmBookletPadding: true,
         forcedHeldReason,

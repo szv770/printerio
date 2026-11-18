@@ -20,7 +20,8 @@ Next steps are listed at the bottom of `docs/ipp-printing.md` (Apple tests, Chro
 replay, then Phase 1 gateway).
 
 ## Where things stand (gateway build)
-Read `docs/HANDOFF.md` first: what is built, what is untested, the follow-ups, and the owner's remaining steps.
+Read `docs/STATE-2026-11-01.md` first (newest: where it runs now - the owner's own PC, not Vercel -, printer facts, what is built, what is next,
+how the owner likes to work, practical gotchas). Then `docs/HANDOFF.md` (older: the gateway build) for what was built, what is untested and the follow-ups.
 
 ## Gotchas
 - Supabase Data API grants (Supabase's Oct 30, 2026 change): new tables in `public` no longer get
@@ -35,6 +36,12 @@ Read `docs/HANDOFF.md` first: what is built, what is untested, the follow-ups, a
   (see the "byte-identical" test in `apps/web/lib/pdf/imposition.test.ts`).
 - Vercel bot comments on PRs are noise. Docs/tools-only PRs do not affect the web build.
 - Never commit secrets, tunnel tokens, or the spike's `spike-data/` (gitignored).
+
+## Keep the features doc true
+`docs/FEATURES.md` is the living list of features (Proven / Built, testing / Planned), the pitch, and the WhatsApp share text.
+Update it in the same PR as any feature, proof or removal. The public home page (`apps/web/lib/landing-content.ts`) and the
+in-app confirmed-devices banner (`apps/web/lib/devices/confirmed.ts`) repeat those claims: change them together, never claim
+more than has printed on a real device. `docs/ROADMAP.md` holds what is not built yet.
 
 ## How the owner likes to work
 - Ask clarifying questions before building, especially on detailed behavior; give a recommendation,

@@ -9,10 +9,13 @@ export default async function ApprovalsPage() {
 
   const { data: jobs } = await supabase
     .from("print_jobs")
-    .select("*")
+    .select(
+      "id, job_number, original_file_name, created_at, created_by, printer_profile_id, color_mode, duplex, copies, paper_size, finishing, source_pdf_pages, estimated_physical_sheets, file_size_bytes, policy_reasons, status",
+    )
     .eq("organization_id", session.membership.organization_id)
     .eq("status", "pending_approval")
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true })
+    .limit(200);
   const pendingJobs = jobs ?? [];
 
   // Who submitted each job, and to which printer profile - an approver

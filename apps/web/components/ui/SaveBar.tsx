@@ -56,7 +56,7 @@ export function SaveBar({
     <div
       role="region"
       aria-label="Unsaved changes"
-      className="printio-rise fixed inset-x-0 bottom-0 z-40 border-t border-[var(--color-border)] bg-[var(--color-surface)] px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[var(--shadow-pop)] md:inset-x-auto md:bottom-6 md:left-1/2 md:w-[min(34rem,calc(100vw-2rem))] md:-translate-x-1/2 md:rounded-full md:border md:py-2.5 md:pr-2.5 md:pl-5"
+      className="printio-rise fixed inset-x-0 bottom-0 z-40 border-t border-[var(--color-border)] bg-[var(--color-surface)] pt-3 pr-[max(1rem,env(safe-area-inset-right))] pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] shadow-[var(--shadow-pop)] md:inset-x-auto md:bottom-6 md:left-1/2 md:w-[min(34rem,calc(100vw-2rem))] md:-translate-x-1/2 md:rounded-full md:border md:py-2.5 md:pr-2.5 md:pl-5"
     >
       <div className="mx-auto flex max-w-xl flex-col gap-3 md:max-w-none md:flex-row md:items-center md:justify-between">
         <div aria-live="polite" className="min-w-0 text-sm">

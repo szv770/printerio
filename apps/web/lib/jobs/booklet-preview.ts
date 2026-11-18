@@ -2,13 +2,13 @@ import "server-only";
 import { preflightPdf } from "@/lib/pdf/preflight";
 import { createPageSubsetPdf } from "@/lib/pdf/page-subset";
 import { stampFirstPage } from "@/lib/pdf/stamp";
-import { padAndImposeBooklet } from "@/lib/pdf/booklet-build";
+import { padAndImposeBooklet, type BookletSheet } from "@/lib/pdf/booklet-build";
 import type { BindingSide, BookletFit } from "@/lib/pdf/imposition";
 import { planPageSubset } from "@/lib/print-choices";
 import type { StampStrength } from "@/lib/jobs/user-code";
 
-/** The imposed preview is sent back in one response (serverless response bodies are limited to about 4.5 MB). */
-export const MAX_PREVIEW_PDF_BYTES = 3_300_000;
+/** The imposed preview is handed over as a signed storage URL (not in the response body), so only the browser's render time bounds it. */
+export const MAX_PREVIEW_PDF_BYTES = 15_000_000;
 /** Source files above this are not previewed (the print itself is unaffected). */
 export const MAX_PREVIEW_SOURCE_BYTES = 20 * 1024 * 1024;
 
@@ -30,6 +30,8 @@ export async function buildBookletPreviewPdf(
     paperSize: string;
     bindingSide: BindingSide;
     fit: BookletFit;
+    /** "tabloid" = Letter pages at full size on an 11x17 sheet (see lib/pdf/booklet-build.ts). Default regular. */
+    sheet?: BookletSheet;
     stamp?: { text: string; strength: StampStrength } | null;
   },
 ): Promise<BookletPreviewResult> {
@@ -45,7 +47,7 @@ export async function buildBookletPreviewPdf(
 
   try {
     const working = plan.subsetPages ? await createPageSubsetPdf(source, plan.subsetPages) : source;
-    const built = await padAndImposeBooklet(working, { paperSize: o.paperSize, bindingSide: o.bindingSide, fit: o.fit });
+    const built = await padAndImposeBooklet(working, { paperSize: o.paperSize, bindingSide: o.bindingSide, fit: o.fit, sheet: o.sheet });
     let bytes = built.bytes;
     if (o.stamp) {
       try {

@@ -7,6 +7,9 @@ import { createClient } from "@/lib/supabase/client";
 import { routes } from "@/lib/routes";
 import { ButtonLink, EmptyState } from "@/components/ui";
 import { jobListBucket } from "@/lib/job-progress";
+import { debounce } from "@/lib/ui/debounce";
+import { startVisibleInterval } from "@/lib/ui/visible-interval";
+import { ACTIVE_JOB_REFRESH_MS } from "@/lib/ui/refresh-intervals";
 import { JobListItem } from "./JobListItem";
 
 export interface JobRow {
@@ -92,6 +95,8 @@ export function JobsList({
    */
   useEffect(() => {
     const supabase = createClient();
+    // Realtime bursts (a job moving through several statuses) collapse into one server re-render.
+    const refreshSoon = debounce(() => router.refresh(), 2_000);
     const channel = supabase
       .channel(`jobs-own-${userId}`)
       .on(
@@ -108,7 +113,7 @@ export function JobsList({
             const row = payload.new as JobRow;
             setLiveRows((prev) => ({ ...prev, [row.id]: row }));
           }
-          router.refresh();
+          refreshSoon();
         },
       )
       .subscribe((status) => {
@@ -116,6 +121,7 @@ export function JobsList({
       });
 
     return () => {
+      refreshSoon.cancel();
       supabase.removeChannel(channel);
     };
   }, [userId, router]);
@@ -127,8 +133,7 @@ export function JobsList({
   const anyActive = useMemo(() => jobs.some((j) => jobListBucket(j.status) === "active"), [jobs]);
   useEffect(() => {
     if (!anyActive) return;
-    const interval = setInterval(() => router.refresh(), 4000);
-    return () => clearInterval(interval);
+    return startVisibleInterval(() => router.refresh(), ACTIVE_JOB_REFRESH_MS, document);
   }, [anyActive, router]);
 
   const counts = useMemo(() => {
@@ -180,7 +185,7 @@ export function JobsList({
             type="button"
             onClick={() => setFilter(f.id)}
             aria-pressed={filter === f.id}
-            className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full border px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:shadow-[var(--ring)] sm:min-h-9 sm:px-3.5 ${
+            className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full border px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:shadow-[var(--ring)] sm:[@media(pointer:fine)]:min-h-9 sm:px-3.5 ${
               filter === f.id
                 ? "border-[var(--color-text)] bg-[var(--color-text)] text-white"
                 : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-2)] hover:border-[var(--color-border-strong)]"

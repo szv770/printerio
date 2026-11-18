@@ -47,6 +47,12 @@
  *   The Agent's own restart is scheduled by the caller only after this
  *   function returns, so it always happens last (it is the process that
  *   reports the result).
+ * - **INTERIM, delete when the website moves to Cloudflare (phase H/J in docs/TARGET-ARCHITECTURE.md): the website
+ *   rebuild is one more fixed command.** The website runs on this same PC (scheduled task "Printio Web") and needs a
+ *   rebuild after every update. After the gateway step, on win32 only, this runs exactly
+ *   `schtasks.exe /Run /TN "Printio Web Update"` (hardcoded argv, `shell: false`, a timeout, nothing from the payload).
+ *   That task runs tools/self-host/update-web.ps1, which takes no input at all. A missing task, an access error or a
+ *   failure to start it never fails the update; it becomes one plain sentence in the message.
  * - **pnpm is found on the local disk, never from the cloud.** The Agent runs
  *   as a Windows service (LocalSystem): no user npm folder on PATH, and Node
  *   >= 20 cannot spawn a `.cmd` shim with shell:false. `resolvePnpmLauncher`
@@ -60,7 +66,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Logger } from "./logger.js";
@@ -68,6 +74,10 @@ import type { Logger } from "./logger.js";
 const GIT_TIMEOUT_MS = 120_000;
 const INSTALL_TIMEOUT_MS = 600_000;
 const GATEWAY_RESTART_TIMEOUT_MS = 60_000;
+const WEB_UPDATE_TIMEOUT_MS = 30_000;
+
+/** INTERIM (see the module header): the one fixed way to start the on-demand website rebuild created by setup-web.ps1. */
+const WEB_UPDATE_TASK_ARGS: readonly string[] = ["/Run", "/TN", "Printio Web Update"];
 
 /** Display name of the gateway service (apps/gateway/src/windows-service.ts); proven on the real server with `Start-Service -DisplayName`. */
 const GATEWAY_SERVICE_DISPLAY_NAME = "Printio IPP Gateway";
@@ -102,6 +112,8 @@ export interface SelfUpdateResult {
   repoRoot: string;
   /** Only set when `updated`: whether the gateway service was restarted (false = a note explains why is in `message`). */
   gatewayRestarted?: boolean;
+  /** Only set when `updated`: whether the website rebuild task was started (INTERIM; undefined off Windows). */
+  webRebuildStarted?: boolean;
   /** Short commit before / after, when known (set when `updated`). */
   from?: string;
   to?: string;
@@ -161,6 +173,47 @@ export interface SelfUpdateDeps {
   platform?: NodeJS.Platform;
   /** Told which visible step the update is in (the orchestrator forwards it to the cloud). Failures here are swallowed. */
   onProgress?: (progress: UpdateProgress) => void | Promise<void>;
+  /**
+   * Remembers "the new code was pulled but the install/restart did not finish", so the next press finishes it instead of
+   * answering "already up to date" while the Agent is still running the old build (seen 2026-11-15: an EPERM during pnpm
+   * install, then the next press said up to date and nothing restarted). Production keeps it in `.git`; tests inject one.
+   */
+  pending?: PendingUpdateMarker;
+}
+
+export interface PendingUpdateMarker {
+  /** The commit the Agent was running before the unfinished update, or null when nothing is pending. */
+  read: () => string | null;
+  write: (before: string) => void;
+  clear: () => void;
+}
+
+/** The real marker: a small file inside `.git` (never tracked, always writable by whoever runs git pull). */
+export function createPendingMarker(repoRoot: string): PendingUpdateMarker {
+  const file = path.join(repoRoot, ".git", "printio-update-pending");
+  return {
+    read: () => {
+      try {
+        return readFileSync(file, "utf8").trim() || "unknown";
+      } catch {
+        return null;
+      }
+    },
+    write: (before) => {
+      try {
+        writeFileSync(file, before, "utf8");
+      } catch {
+        /* best effort: without the marker the old behaviour applies */
+      }
+    },
+    clear: () => {
+      try {
+        rmSync(file, { force: true });
+      } catch {
+        /* best effort */
+      }
+    },
+  };
 }
 
 const PROGRESS_REPORT_TIMEOUT_MS = 5_000;
@@ -417,7 +470,8 @@ export function runCommand(
 
 /** Production dependency set - the one place the real spawn/filesystem implementations are wired in. */
 export function createSelfUpdateDeps(logger: Logger): SelfUpdateDeps {
-  return { repoRoot: resolveRepoRoot(), logger, run: runCommand, hasGitCheckout: isGitCheckout };
+  const repoRoot = resolveRepoRoot();
+  return { repoRoot, logger, run: runCommand, hasGitCheckout: isGitCheckout, pending: createPendingMarker(repoRoot) };
 }
 
 /** Short commit hash of HEAD via a fixed argv, or "unknown" - purely informational, never fails the update. */
@@ -447,6 +501,26 @@ async function restartGateway(deps: SelfUpdateDeps): Promise<string | null> {
     return `${detail.replace(/\s+/g, " ").slice(0, 200) || `exit code ${out.exitCode}`}.`;
   } catch (err) {
     return `${(err instanceof Error ? err.message : String(err)).slice(0, 200)}.`;
+  }
+}
+
+/**
+ * INTERIM (delete when the website moves to Cloudflare): starts the on-demand website rebuild task. Never throws.
+ * Returns null off Windows (nothing to say), otherwise whether it started plus the plain sentence for the message.
+ */
+async function startWebRebuild(deps: SelfUpdateDeps): Promise<{ started: boolean; note: string } | null> {
+  if ((deps.platform ?? process.platform) !== "win32") return null;
+  const notRebuilt = (why: string) => ({ started: false, note: `The website was not rebuilt (${why}).` });
+  try {
+    const out = await deps.run("schtasks.exe", WEB_UPDATE_TASK_ARGS, deps.repoRoot, WEB_UPDATE_TIMEOUT_MS);
+    if (out.exitCode === 0) {
+      return { started: true, note: "The website is being rebuilt; it can take a few minutes and may reload once." };
+    }
+    const detail = (out.stderr || out.stdout).trim().replace(/\s+/g, " ");
+    if (/cannot find|does not exist/i.test(detail)) return notRebuilt("run setup-web.ps1 once to enable that");
+    return notRebuilt(`could not start the rebuild: ${out.exitCode === null ? "it timed out" : detail.slice(0, 160) || `exit code ${out.exitCode}`}`);
+  } catch (err) {
+    return notRebuilt(`could not start the rebuild: ${(err instanceof Error ? err.message : String(err)).slice(0, 160)}`);
   }
 }
 
@@ -533,7 +607,9 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
   }
 
   const combined = `${pull.stdout}\n${pull.stderr}`;
-  if (/already up[ -]to[ -]date/i.test(combined)) {
+  // An earlier press pulled new code but never finished installing/restarting: finish it now, whatever git says.
+  const unfinishedFrom = deps.pending?.read() ?? null;
+  if (/already up[ -]to[ -]date/i.test(combined) && unfinishedFrom === null) {
     logger.info("CHECK_FOR_UPDATE: already up to date - nothing to do");
     return {
       updated: false,
@@ -541,6 +617,11 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
       message: "Already up to date - this Agent is running the latest code in its checkout.",
       repoRoot,
     };
+  }
+  if (unfinishedFrom !== null) {
+    logger.warn("CHECK_FOR_UPDATE: an earlier update pulled new code but did not finish - finishing it now", { from: unfinishedFrom });
+  } else {
+    deps.pending?.write(before);
   }
 
   const after = await currentVersion(deps);
@@ -579,7 +660,10 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
       failedStep: "installing",
       message:
         `New code was pulled, but "pnpm install" failed, so the Agent was NOT restarted (it is still running the previous build). ` +
-        `Run setup-agent.ps1 on that machine to finish the update. Details: ${detail || "(no output)"}`,
+        (/EPERM[^\n]*\\Users\\[^\n]*AppData/i.test(`${install.stderr}\n${install.stdout}`)
+          ? `The service account cannot reach pnpm's package folder in a user profile: run docs\\hardening\\fix-update-permissions.ps1 once on that machine (preview first, then -Apply). Pressing Update again will finish this update. `
+          : `Pressing Update again will retry the install; if it keeps failing, run setup-agent.ps1 on that machine. `) +
+        `Details: ${detail || "(no output)"}`,
       repoRoot,
     };
   }
@@ -590,19 +674,24 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
   if (gatewayProblem) {
     logger.warn("CHECK_FOR_UPDATE: gateway service not restarted", { reason: gatewayProblem });
   }
+  const web = await startWebRebuild(deps);
+  if (web && !web.started) logger.warn("CHECK_FOR_UPDATE: website rebuild not started", { note: web.note });
+  deps.pending?.clear();
   logger.warn("CHECK_FOR_UPDATE: updated and dependencies re-installed - a restart will follow");
   return {
     updated: true,
     reason: "updated",
     message:
-      `Updated ${before} -> ${after}. ` +
+      `Updated ${unfinishedFrom ?? before} -> ${after}. ` +
       (gatewayProblem
         ? `The phone/print-dialog gateway was not restarted: ${gatewayProblem} `
         : "Restarted the gateway. ") +
+      (web ? `${web.note} ` : "") +
       "The print server is restarting and will be back in about a minute.",
     repoRoot,
     gatewayRestarted: gatewayProblem === null,
-    from: before,
+    ...(web ? { webRebuildStarted: web.started } : {}),
+    from: unfinishedFrom ?? before,
     to: after,
   };
 }

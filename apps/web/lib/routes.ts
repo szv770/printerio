@@ -8,15 +8,24 @@
  * has no built-in typed-route export we can generate this from yet.
  */
 export const routes = {
+  /** The public home page: shown to everyone, signed in or not. */
   home: "/",
+  /** "Take me to my own home": signs-in people go to their dashboard or admin, others to login. Use this for every internal redirect that used to mean "home". */
+  start: "/go",
   login: "/login",
   authCallback: "/auth/callback",
   noAccess: "/no-access",
+  privacy: "/privacy",
+  terms: "/terms",
 
   dashboard: "/home",
   print: "/print",
   jobs: "/jobs",
   job: (jobId: string) => `/jobs/${jobId}`,
+  /** The print page filled in from an earlier job (its file and every choice). */
+  printAgain: (jobId: string) => `/print?again=${encodeURIComponent(jobId)}`,
+  /** Opens a job's stored PDF (sender and same-organization admins/approvers): which = the original, or "sent" (what went to the printer). */
+  jobFile: (jobId: string, which: "original" | "sent") => `/jobs/${jobId}/file?which=${which}`,
   profile: "/profile",
   devices: "/devices",
   usage: "/usage",
@@ -31,6 +40,7 @@ export const routes = {
   adminQuotas: "/admin/quotas",
   adminSettings: "/admin/settings",
   adminStorage: "/admin/storage",
+  adminFonts: "/admin/fonts",
   adminPolicies: "/admin/policies",
   adminPrinters: "/admin/printers",
   adminPrintersSetup: "/admin/printers/setup",

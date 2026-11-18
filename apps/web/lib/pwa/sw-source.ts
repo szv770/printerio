@@ -73,6 +73,13 @@ self.addEventListener("fetch", function (event) {
   if (request.method !== "POST") return;
   var url = new URL(request.url);
   if (url.origin !== self.location.origin || url.pathname !== ${JSON.stringify(SHARE_TARGET_PATH)}) return;
+  // A real share comes from the phone's share sheet (Sec-Fetch-Site "none"). A POST sent by another website is turned
+  // away without reading or storing anything, so a web page cannot drop a file into someone's share inbox.
+  var site = request.headers.get("sec-fetch-site");
+  if (site === "cross-site" || site === "same-site") {
+    event.respondWith(new Response(null, { status: 303, headers: { Location: "/print" } }));
+    return;
+  }
   event.respondWith(handleShare(request, {
     put: putEntry,
     now: function () { return Date.now(); },

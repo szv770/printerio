@@ -48,6 +48,8 @@ export interface ResolvedPrintRequest {
   duplex: boolean;
   paperSize: string;
   finishing: FinishingOptions;
+  /** Sheets the printer should report finished for this job (copies x sheets; a booklet counts imposed sheets). Optional: older servers omit it, older Agents ignore it. Used only by printer feedback. */
+  expectedPages?: number;
   /**
    * Optional per-job override of the Agent's own configured
    * `PRINTIO_PRINT_FIT_MODE` default. Absent for the vast majority of jobs,
@@ -74,6 +76,16 @@ export interface RawTarget {
   staplePosition: "top-left" | "top-right";
   /** Only meaningful for booklet jobs. */
   bindingSide: "left" | "right";
+  /** Double-sided jobs only: "short" flips on the short edge; absent = the usual long edge. */
+  duplexEdge?: "long" | "short";
+  /** "ledger" for an 11x17 job (PAPER=LEDGER); absent = the printer's default paper. */
+  paper?: "ledger";
+  /** "cardstock" = MEDIATYPE for the bypass tray (UNPROVEN, see MEDIATYPE_CARDSTOCK_UNPROVEN in pjl.ts); absent = plain, nothing sent. Older Agents ignore it, see CARDSTOCK_MIN_AGENT_VERSION. */
+  mediaType?: "cardstock";
+  /** "dual-left" = two staples on the left edge (request.finishing.staple is then true; staplePosition is ignored). Older Agents ignore it, see FINISHING_MIN_AGENT_VERSION. */
+  stapleStyle?: "dual-left";
+  /** 3-hole punch on the left edge. Older Agents ignore it, see FINISHING_MIN_AGENT_VERSION. */
+  punch?: boolean;
   jobName: string;
 }
 
@@ -120,7 +132,7 @@ export interface RemoteCommandPayload {
  * apps/agent/test/version.test.ts fails the build if the two ever drift, so
  * this cannot silently go stale.
  */
-export const LATEST_AGENT_VERSION = "0.2.0";
+export const LATEST_AGENT_VERSION = "0.2.2";
 
 /**
  * First Agent version that understands CHECK_FOR_UPDATE with payload { mode: "check_only" }. Older Agents ignore
@@ -128,6 +140,20 @@ export const LATEST_AGENT_VERSION = "0.2.0";
  * to an Agent that has not reported at least this version.
  */
 export const CHECK_ONLY_MIN_AGENT_VERSION = "0.2.0";
+
+/**
+ * First Agent version that sends hole punch (raw.punch) and two staples on the left (raw.stapleStyle) to the printer.
+ * An older Agent ignores those fields and would print WITHOUT the finishing, so the download-url route refuses to
+ * hand such a job to an Agent that has not reported at least this version.
+ */
+export const FINISHING_MIN_AGENT_VERSION = "0.2.1";
+
+/**
+ * First Agent version that sends the paper type (raw.mediaType = cardstock). An older Agent would ignore it and print the
+ * job on plain paper from the normal trays, so the download-url route refuses to hand a cardstock job to an older Agent.
+ * The Agent's own package.json version must be raised to this when the change ships.
+ */
+export const CARDSTOCK_MIN_AGENT_VERSION = "0.2.2";
 
 /**
  * Compares two dot-separated version strings numerically (not

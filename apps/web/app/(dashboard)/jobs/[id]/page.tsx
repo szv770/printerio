@@ -1,15 +1,17 @@
+import { printerSaysLine } from "@/lib/printers/status-label";
+import { finishingLabel } from "@/lib/jobs/finishing-label";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, FileText, History } from "lucide-react";
 import { routes } from "@/lib/routes";
 import { createClient } from "@/lib/supabase/server";
 import { requireSessionOrRedirect } from "@/lib/auth/session";
-import { Collapsible } from "@/components/ui";
+import { buttonClass, Collapsible } from "@/components/ui";
 import { jobEventDisplay } from "@/lib/job-event-labels";
 import { formatFileSize } from "@/lib/pdf/client-precheck";
 import { canOwnerPurgeFiles } from "@/lib/retention";
 import { JobStatusLive } from "./JobStatusLive";
-import { ReprintButton } from "./ReprintButton";
+import { PrintAgainLink, ReprintButton } from "./ReprintButton";
 import { DeleteFileButton } from "./DeleteFileButton";
 import { CancelJobButton } from "./CancelJobButton";
 import { RetryJobButton } from "./RetryJobButton";
@@ -30,14 +32,15 @@ function rejectionReasonFrom(events: { event_type: string; metadata: unknown }[]
   return null;
 }
 
-/** Plain words for what was asked for, from the per-job fields (older jobs have no corner / side stored). */
-function finishingLabel(job: { finishing: unknown; staple_position: string | null; booklet_binding_side: string | null }): string {
-  const f = job.finishing as { staple?: boolean; booklet?: boolean; punch?: boolean } | null;
-  const parts: string[] = [];
-  if (f?.booklet) parts.push(job.booklet_binding_side ? `Booklet, bound on the ${job.booklet_binding_side}` : "Booklet");
-  if (f?.staple) parts.push(job.staple_position ? `Stapled ${job.staple_position}` : "Stapled");
-  if (f?.punch) parts.push("Hole punch");
-  return parts.length > 0 ? parts.join(", ") : "None";
+/** The words the Agent sent with the completed report when the printer confirmed the pages (printer feedback). Only that exact wording is passed on. */
+function printerConfirmationFrom(events: { event_type: string; metadata: unknown }[]): string | null {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    if (!event || event.event_type !== "JOB_COMPLETED") continue;
+    const message = (event.metadata as { message?: unknown } | null)?.message;
+    return typeof message === "string" && /^Printer confirmed [0-9]+ of [0-9]+ pages?$/.test(message.trim()) ? message.trim() : null;
+  }
+  return null;
 }
 
 export default async function JobDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -58,6 +61,13 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
     .eq("job_id", id)
     .order("created_at", { ascending: true });
   const eventRows = events ?? [];
+
+  // While a job is waiting to be sent or just sent, say what the printer itself reports (paper out, a jam...). Display only.
+  let printerNote: string | null = null;
+  if (job.printer_id && ["approved", "claimed", "downloading", "downloaded", "printing", "submitted_to_spooler", "completed"].includes(job.status)) {
+    const { data: printer } = await supabase.from("printers").select("status, status_detail").eq("id", job.printer_id).maybeSingle();
+    if (printer) printerNote = printerSaysLine(printer.status, printer.status_detail);
+  }
 
 
   const plan = jobActionPlan({
@@ -80,7 +90,10 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
     plan.retry || plan.cancel || plan.reprint || plan.atPrinter ? (
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
         {plan.retry && <RetryJobButton jobId={job.id} big />}
-        {plan.reprint && <ReprintButton jobId={job.id} big primary={plan.reprintPrimary} />}
+        {/* "Print again" opens the print page filled in (file + every choice, changeable); the small one-click button
+         *  next to it re-sends exactly the same job without opening anything. */}
+        {plan.reprint && <PrintAgainLink jobId={job.id} big primary={plan.reprintPrimary} />}
+        {plan.reprint && <ReprintButton jobId={job.id} big label="Same settings, print now" />}
         {plan.cancel && <CancelJobButton jobId={job.id} big />}
         {plan.atPrinter && (
           <p className="text-sm text-[var(--color-muted)]">This job has already gone to the printer. Clear it at the printer.</p>
@@ -119,6 +132,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         job={job}
         eventTypes={eventRows.map((e) => e.event_type)}
         rejectionReason={rejectionReasonFrom(eventRows)}
+        printerConfirmation={printerConfirmationFrom(eventRows)}
+        printerNote={printerNote}
         actions={actions}
       />
 
@@ -150,6 +165,37 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               ),
             )}
           </dl>
+
+          {/* Open the stored PDF: the person who sent the job and this organization's admins/approvers (the file route
+           *  re-checks that, lib/jobs/file-access.ts). "As sent" is the PDF Printio built for the printer, so a bad printout
+           *  can be told apart: wrong in your file, or changed on the way. Only while the file still exists. */}
+          {!job.files_purged_at && job.original_file_path && (
+            <div className="mt-5 border-t border-[var(--color-border)] pt-4">
+              <p className="mb-3 text-[13px] text-[var(--color-muted)]">
+                Open the document while it is still stored. &quot;As sent to the printer&quot; is exactly what Printio sent, which helps when a printout looks wrong.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <a
+                  className={buttonClass("secondary", "sm")}
+                  href={routes.jobFile(job.id, "original")}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  View original file
+                </a>
+                {job.derived_file_path && (
+                  <a
+                    className={buttonClass("secondary", "sm")}
+                    href={routes.jobFile(job.id, "sent")}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    View as sent to the printer
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Only the submitter, only once the job has genuinely finished, and only while a file is actually there
            *  - the action re-checks all three server-side (lib/retention.ts canOwnerPurgeFiles); this just keeps

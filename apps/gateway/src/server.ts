@@ -27,6 +27,11 @@ export interface GatewayServerOptions {
   trustedProxies?: readonly string[];
 }
 
+/** IPP operation id (bytes 2-3 of a request) as hex, e.g. "0x000b" = Get-Printer-Attributes; for the log only. */
+function ippOpHex(body: Buffer): string | undefined {
+  return body.length >= 4 ? `0x${body.readUInt16BE(2).toString(16).padStart(4, "0")}` : undefined;
+}
+
 function forwardedProto(req: http.IncomingMessage): "http" | "https" {
   const raw = req.headers["x-forwarded-proto"];
   const v = (Array.isArray(raw) ? raw[0] : raw)?.split(",")[0]?.trim().toLowerCase();
@@ -80,7 +85,9 @@ export function createGatewayServer(opts: GatewayServerOptions): http.Server {
         return sendText(res, 200, "ok");
       }
       const ip = clientIpFor(req.socket.remoteAddress, req.headers, trusted);
-      if (!global.take("g") || !perIp.take(ip)) {
+      // The sender's own limit is checked FIRST, and the shared allowance is charged only for a request that passed it.
+      // The other way round, one address flooding junk used up the shared allowance and every real print was refused.
+      if (!perIp.take(ip) || !global.take("g")) {
         log.warn("rate limited", { ip });
         if (req.method === "POST" && tokenFromHost(req.headers.host, baseDomain)) return refuse(req, res, busyBody(), busyHeaders);
         req.destroy();
@@ -245,6 +252,7 @@ export function createGatewayServer(opts: GatewayServerOptions): http.Server {
                 "retry-after": String(BUSY_RETRY_AFTER_SECONDS),
               });
             }
+            const requestBody = Buffer.concat(chunks);
             const out = await handleIppRequest(
               deps,
               {
@@ -252,14 +260,14 @@ export function createGatewayServer(opts: GatewayServerOptions): http.Server {
                 baseUrl: `${forwardedProto(req)}://${req.headers.host}`,
                 userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : undefined,
               },
-              Buffer.concat(chunks),
+              requestBody,
             );
             if (out === null) {
-              log.info("reply", { http: 404, note: "device not registered" });
+              log.info("reply", { http: 404, op: ippOpHex(requestBody), note: "device not registered" });
               return sendText(res, 404, "not found");
             }
             // Bytes 2-3 of an IPP response are its status code (0 = ok).
-            log.info("reply", { http: 200, ippStatus: out.length >= 4 ? out.readUInt16BE(2) : undefined });
+            log.info("reply", { http: 200, op: ippOpHex(requestBody), ippStatus: out.length >= 4 ? out.readUInt16BE(2) : undefined });
             sendIpp(res, out);
           } catch (err) {
             log.error("unhandled error serving request", { error: err instanceof Error ? (err.stack ?? err.message) : String(err) });

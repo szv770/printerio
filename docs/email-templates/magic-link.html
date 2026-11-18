@@ -1,0 +1,36 @@
+<!-- Supabase > Authentication > Emails > Templates > Magic Link. Paste this whole file as the message body.
+     Subject suggestion: Your Printio sign-in code {{ .Token }}
+     Uses ONLY {{ .Token }}, {{ .TokenHash }} and {{ .SiteURL }} (Site URL must be https://printio.szvtech.org).
+     Never put {{ .ConfirmationURL }} in it. Inline styles + tables on purpose: email apps ignore <style> and flexbox. -->
+<div style="margin:0;padding:0;background:#f3f6fb;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f6fb;padding:32px 12px;">
+  <tr><td align="center">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:460px;background:#ffffff;border-radius:20px;border:1px solid #e2e8f2;">
+      <tr><td style="padding:32px 32px 8px 32px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+        <div style="font-size:22px;font-weight:700;letter-spacing:-0.3px;color:#0a64d8;">Printio</div>
+      </td></tr>
+      <tr><td style="padding:8px 32px 0 32px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#17202e;">
+        <h1 style="margin:0 0 8px 0;font-size:24px;line-height:1.25;font-weight:700;">Tap to sign in</h1>
+        <p style="margin:0 0 24px 0;font-size:15px;line-height:1.55;color:#4a5568;">One tap and you're in. This link works once and expires soon.</p>
+      </td></tr>
+      <tr><td align="center" style="padding:0 32px 8px 32px;">
+        <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email"
+           style="display:block;background:#0a64d8;color:#ffffff;text-decoration:none;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:1;padding:16px 24px;border-radius:14px;text-align:center;">
+          Sign in to Printio
+        </a>
+      </td></tr>
+      <tr><td style="padding:24px 32px 0 32px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+        <p style="margin:0 0 10px 0;font-size:13px;line-height:1.5;color:#6b7686;">Opened this on a different browser or computer? Type this code on the sign-in page instead:</p>
+        <div style="background:#f3f6fb;border-radius:14px;padding:16px;text-align:center;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:30px;font-weight:700;letter-spacing:8px;color:#17202e;">{{ .Token }}</div>
+      </td></tr>
+      <tr><td style="padding:24px 32px 32px 32px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+        <p style="margin:0 0 20px 0;font-size:12px;line-height:1.5;color:#8a94a3;">Didn't ask for this? You can ignore this email. Nobody can sign in without the link or code above.</p>
+        <div style="border-top:1px solid #e2e8f2;padding-top:16px;font-size:12px;line-height:1.5;color:#8a94a3;">
+          Print from anywhere, pick it up at the printer.<br>
+          <strong style="color:#4a5568;">TachTach Screens</strong>
+        </div>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</div>

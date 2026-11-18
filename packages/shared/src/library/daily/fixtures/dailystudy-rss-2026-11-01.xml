@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8" ?>
+	<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+		<channel>
+
+
+	<title>Chabad.org Daily Study - November 1, 2026 - Cheshvan 21, 5787</title>
+	<link>https://www.chabad.org/dailystudy/default.asp</link>
+	<description>Chabad.org Daily Study offers daily Torah lessons in Chumash with Rashi, Psalms, Tanya - the central text of Chabad Chassidus, Rambam - Miamonides' magnum opus, a work spanning hundreds of chapters describing all of the laws mentioned in the Torah. In addition, Hayom Yom, a collection of concise thoughts, often relevant to the season or day on which it appears which was compiled by the Lubavitcher Rebbe, Rabbi Menachem M. Schneerson</description>
+	<copyright>Copyright 2005, Chabad.org - Chabad-Lubavitch Media Center, all rights reserved.</copyright>
+	<image>
+		<url>https://www.chabad.org/media/images/50/CtRx507451.gif</url>
+		<width>130</width> 
+		<height>52</height> 
+		<title>Chabad.org - Your source for Torah, Judaism and Jewish Information on the Web</title>
+		<link>https://www.chabad.org</link>
+	</image>
+	<lastBuildDate>Sun, 01 Nov 2026 12:00:00 EST</lastBuildDate> 
+	<pubDate>Sun, 01 Nov 2026 12:00:00 EST</pubDate>
+	<item>
+		<title>Daily Chumash with Rashi</title>
+		<guid isPermaLink="true">https://www.chabad.org/dailystudy/torahreading.asp?tdate=11/1/2026</guid>
+		<link>https://www.chabad.org/dailystudy/torahreading.asp?tdate=11/1/2026</link>
+		<description>Parshat Chayei Sarah, 1st Portion (Bereshit (Genesis) 23:1-23:16) with Rashi</description>
+		<pubDate>Sun, 01 Nov 2026 12:00:00 EST</pubDate>
+	</item>	
+	<item>
+		<guid isPermaLink="true">https://www.chabad.org/dailystudy/tehillim.asp?tdate=11/1/2026</guid>
+		<title>Daily Tehilim - Psalms</title>
+		<link>https://www.chabad.org/dailystudy/tehillim.asp?tdate=11/1/2026</link>
+		<description>Today&apos;s Psalms: Chapters 104-105</description>
+		<pubDate>Sun, 01 Nov 2026 12:00:00 EST</pubDate>
+	</item>      
+	<item>
+		<guid isPermaLink="true">https://www.chabad.org/dailystudy/tehillim.asp?tdate=11/1/2026&amp;Lang=Heb</guid>
+		<title>Daily Tehilim - Psalms (Hebrew)</title>
+		<link>https://www.chabad.org/dailystudy/tehillim.asp?tdate=11/1/2026&amp;Lang=Heb</link>
+		<description>Today&apos;s Tehillim: Chapters 104-105</description>
+		<pubDate>Sun, 01 Nov 2026 12:00:00 EST</pubDate>
+	</item>
+	<item>
+		<guid isPermaLink="true">https://www.chabad.org/dailystudy/tanya.asp?tdate=11/1/2026</guid>
+		<title>Daily Tanya</title>
+		<link>https://www.chabad.org/dailystudy/tanya.asp?tdate=11/1/2026</link>
+		<description>Today&apos;s Lessons: Iggeret HaKodesh, middle of Epistle 29</description>
+		<pubDate>Sun, 01 Nov 2026 12:00:00 EST</pubDate>
+	</item> 
+	<item>
+		<guid isPermaLink="true">https://www.chabad.org/dailystudy/hayomyom.asp?tdate=11/1/2026</guid>
+		<title>Hayom Yom</title>
+		<link>https://www.chabad.org/dailystudy/hayomyom.asp?tdate=11/1/2026</link>
+		<description>Hayom Yom, an expression which translates as &apos;Day by Day,&apos; is a collection of concise thoughts, often relevant to the season or portion of 
+			study when it appears, which gives the reader food to sustain the soul each day 
+			of the year.</description>
+		<pubDate>Sun, 01 Nov 2026 12:00:00 EST</pubDate>
+	</item>  
+	<item>
+		<guid isPermaLink="true">https://www.chabad.org/dailystudy/seferHamitzvos.asp?tdate=11/1/2026</guid>
+		<title>Daily Mitzvah - Sefer Hamitzvot</title>
+		<link>https://www.chabad.org/dailystudy/seferHamitzvos.asp?tdate=11/1/2026</link>
+		<description>Today&apos;s Lesson: Negative Commandment 252</description>
+		<pubDate>Sun, 01 Nov 2026 12:00:00 EST</pubDate>
+	</item>    
+	<item>
+		<guid isPermaLink="true">https://www.chabad.org/dailystudy/rambam.asp?tdate=11/1/2026&amp;rambamChapters=1</guid>
+		<title>Daily Rambam - 1 Chapter Per Day (Hebrew)</title>
+		<link>https://www.chabad.org/dailystudy/rambam.asp?tdate=11/1/2026&amp;rambamChapters=1</link>
+		<description>Today&apos;s Lesson: Issurei Biah - Chapter 13</description>
+		<pubDate>Sun, 01 Nov 2026 12:00:00 EST</pubDate>
+	</item>
+	<item>
+		<guid isPermaLink="true">https://www.chabad.org/dailystudy/rambam.asp?tdate=11/1/2026&amp;rambamChapters=3</guid>
+		<title>Daily Rambam - 3 Chapter Per Day (Hebrew)</title>
+		<link>https://www.chabad.org/dailystudy/rambam.asp?tdate=11/1/2026&amp;rambamChapters=3</link>
+		<description>Today&apos;s Lesson: Mechirah - Chapter 28, Mechirah - Chapter 29, Mechirah - Chapter 30</description>
+		<pubDate>Sun, 01 Nov 2026 12:00:00 EST</pubDate>
+	</item>
+
+
+		</channel>
+	</rss>

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The server actions are thin: parse the form, call the shared pipeline, redirect on success. These tests pin
 // that wrapper (the pipeline itself is covered in lib/jobs/create-print-job.test.ts).
@@ -20,7 +20,7 @@ const session = { userId: "u1", membership: { organization_id: "org1", role: "st
 vi.mock("@/lib/auth/session", () => ({ requireSessionOrRedirect: async () => session }));
 const supabase = { marker: "user-client" };
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => supabase }));
-const serviceClient = { marker: "service-role-client" };
+const serviceClient: Record<string, unknown> = { marker: "service-role-client" };
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: () => serviceClient }));
 
 import { submitPrintJobAction } from "./actions";
@@ -52,6 +52,7 @@ describe("submitPrintJobAction", () => {
       punch: false,
       confirmBookletPadding: false,
       bookletFit: "fill",
+      bookletSheet: "letter",
       writeClient: serviceClient,
     });
   });
@@ -69,7 +70,7 @@ describe("submitPrintJobAction", () => {
     await expect(submitPrintJobAction({}, fd)).rejects.toBeInstanceOf(RedirectSignal);
     const [, sess, , , opts] = createPrintJob.mock.calls[0]!;
     expect(sess).toBe(session); // identity and organization come from the session only
-    expect(Object.keys(opts).sort()).toEqual(["bookletFit", "choices", "colorMode", "confirmBookletPadding", "paperSize", "printerProfileId", "punch", "writeClient"]);
+    expect(Object.keys(opts).sort()).toEqual(["bookletFit", "bookletSheet", "choices", "colorMode", "confirmBookletPadding", "paperSize", "printerProfileId", "punch", "writeClient"]);
   });
 
   it("returns an error as form state, with its field error", async () => {
@@ -108,6 +109,111 @@ describe("submitPrintJobAction", () => {
       expect(createPrintJob.mock.calls[1]![4]).toMatchObject({ confirmBookletPadding: true, writeClient: serviceClient });
     } finally {
       vi.useRealTimers();
+    }
+  });
+});
+
+describe("submitPrintJobAction with a staged (direct-uploaded) file", () => {
+  const UID = "u1";
+  const path = `gateway-intake/${UID}/0b3c1f7e-1111-4222-8333-444455556666.pdf`;
+  function stageStorage(blob: Blob | null, limit = 1000) {
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    const bucket = {
+      list: async () => ({ data: [{ name, metadata: { size: blob?.size ?? 0 } }], error: null }),
+      download: async () => (blob ? { data: blob, error: null } : { data: null, error: { message: "x" } }),
+      remove: async () => ({ error: null }),
+    };
+    serviceClient.storage = { from: () => bucket };
+    serviceClient.from = () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { max_upload_size_bytes: limit } }) }) }) });
+  }
+
+  it("downloads the staged object with the service role and runs the pipeline on its bytes and the posted file name", async () => {
+    stageStorage(new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46, 1])]));
+    createPrintJob.mockResolvedValue({ ok: true, jobId: "job-9", jobNumber: "JOB-1", status: "approved", heldReason: null, policyReasons: [] });
+    await expect(submitPrintJobAction({}, form({ stagedPath: path, fileName: "big.pdf" }, null))).rejects.toMatchObject({ to: "/jobs/job-9" });
+    const [, , bytes, name] = createPrintJob.mock.calls[0]!;
+    expect(Array.from(bytes as Uint8Array)).toEqual([0x25, 0x50, 0x44, 0x46, 1]);
+    expect(name).toBe("big.pdf");
+  });
+
+  it("refuses a staged object over the organization's size limit, before any job exists", async () => {
+    stageStorage(new Blob([new Uint8Array(50)]), 10);
+    const res = await submitPrintJobAction({}, form({ stagedPath: path, fileName: "big.pdf" }, null));
+    expect(res.error).toMatch(/larger than/i);
+    expect(createPrintJob).not.toHaveBeenCalled();
+  });
+
+  it("refuses somebody else's staged path", async () => {
+    stageStorage(new Blob([new Uint8Array(5)]));
+    const res = await submitPrintJobAction({}, form({ stagedPath: "gateway-intake/other-user/0b3c1f7e-1111-4222-8333-444455556666.pdf", fileName: "x.pdf" }, null));
+    expect(res.error).toMatch(/didn't finish uploading/i);
+    expect(createPrintJob).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("submitPrintJobAction and 'Remember my last print choices'", () => {
+  type Row = { user_id: string; remember_last: boolean; last_choices: unknown };
+  /** One table, filters applied like the database would: update() only touches rows matching every eq(). */
+  function prefsTable(rows: Row[], fail?: "throw" | "error") {
+    (supabase as Record<string, unknown>).from = (table: string) => {
+      expect(table).toBe("user_print_preferences");
+      if (fail === "throw") throw new Error("boom");
+      return {
+        update: (values: Record<string, unknown>) => {
+          const filters: [string, unknown][] = [];
+          const b = {
+            eq(k: string, v: unknown) {
+              filters.push([k, v]);
+              return b;
+            },
+            then(resolve: (v: unknown) => void) {
+              if (fail === "error") return resolve({ error: { code: "42P01", message: "missing" } });
+              for (const r of rows) if (filters.every(([k, v]) => (r as Record<string, unknown>)[k] === v)) Object.assign(r, values);
+              resolve({ error: null });
+            },
+          };
+          return b;
+        },
+      };
+    };
+  }
+  afterEach(() => {
+    delete (supabase as Record<string, unknown>).from;
+  });
+  const ok = { ok: true, jobId: "job-9", jobNumber: "JOB-1", status: "approved", heldReason: null, policyReasons: [] };
+
+  it("stores the submitted choices when the setting is on", async () => {
+    const row: Row = { user_id: "u1", remember_last: true, last_choices: null };
+    prefsTable([row]);
+    createPrintJob.mockResolvedValue(ok);
+    await expect(submitPrintJobAction({}, form({ sides: "one", staple: "top-left", copies: "3", colorMode: "color", paperSize: "legal", punch: "on", booklet: "none" }))).rejects.toMatchObject({ to: "/jobs/job-9" });
+    expect(row.last_choices).toEqual({ profileId: "p1", sides: "one", staple: "top-left", booklet: "none", copies: 3, colorMode: "color", paperSize: "legal", punch: true, bookletFit: "fill", bookletSheet: "letter" });
+  });
+
+  it("writes nothing when the setting is off", async () => {
+    const row: Row = { user_id: "u1", remember_last: false, last_choices: null };
+    prefsTable([row]);
+    createPrintJob.mockResolvedValue(ok);
+    await expect(submitPrintJobAction({}, form())).rejects.toMatchObject({ to: "/jobs/job-9" });
+    expect(row.last_choices).toBeNull();
+  });
+
+  it("writes nothing when the job was not created (an error or the booklet question)", async () => {
+    const row: Row = { user_id: "u1", remember_last: true, last_choices: null };
+    prefsTable([row]);
+    createPrintJob.mockResolvedValue({ ok: false, kind: "error", code: "quota_exceeded", error: "quota" });
+    await submitPrintJobAction({}, form());
+    createPrintJob.mockResolvedValue({ ok: false, kind: "needs_booklet_confirm", needsBookletConfirm: { sourcePages: 3, paddedPages: 4, blankPagesAdded: 1 } });
+    await submitPrintJobAction({}, form({ booklet: "left" }));
+    expect(row.last_choices).toBeNull();
+  });
+
+  it("still creates the job and redirects when the table is missing or the write throws", async () => {
+    for (const fail of ["error", "throw"] as const) {
+      prefsTable([], fail);
+      createPrintJob.mockResolvedValue(ok);
+      await expect(submitPrintJobAction({}, form())).rejects.toMatchObject({ to: "/jobs/job-9" });
     }
   });
 });

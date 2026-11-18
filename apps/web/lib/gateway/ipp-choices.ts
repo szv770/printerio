@@ -4,7 +4,7 @@
  *
  * Pure and total: it never throws, whatever the print dialog sent. Anything it cannot honour is not guessed at;
  * it comes back as `heldReason`, a plain sentence the member can act on, and the caller creates the job as held.
- * Staple (top-left / top-right) and booklet come from the `finishings` enum, see mapFinishings. A staple with a
+ * Staple (top-left / top-right / two staples left = 28), hole punch (5, 78) and booklet come from the `finishings` enum, see mapFinishings. A staple with a
  * short-edge flip or a non-portrait page, several staples, or an unlisted finishing is held, and then carries
  * staple "none" / booklet "none" so a held request never promises finishing it did not check. The one exception
  * is a plain booklet request (8 / 13): it is held only to ask left or right binding and keeps booklet set.
@@ -19,15 +19,21 @@ export type IppAttributes = Record<string, unknown>;
 
 export interface IppChoicesResult {
   choices: PrintChoices;
+  /** The paper the dialog asked for: Letter (the default) or 11x17 (Ledger). Same keys as printer_profiles.declared_paper_sizes. */
+  paperSize: "letter" | "11x17";
   /** Plain-language reason the job must be held instead of printed, or null. */
   heldReason: string | null;
 }
 
 const LETTER_KEYWORD = "na_letter_8.5x11in";
+const LEDGER_KEYWORD = "na_ledger_11x17in";
 /** Letter in hundredths of a millimetre (21590 x 27940), with the tolerance the contract allows. */
 const LETTER_X = 21590;
 const LETTER_Y = 27940;
 const LETTER_TOLERANCE = 100;
+/** Ledger (11x17) in hundredths of a millimetre; a dialog may send the sides either way round. */
+const LEDGER_X = 27940;
+const LEDGER_Y = 43180;
 /** Some clients send "to the end of the document" as an enormous upper bound. */
 const OPEN_ENDED_HI = 2147483647;
 const MAX_RANGES = 100;
@@ -58,19 +64,16 @@ function mapCopies(raw: unknown, reasons: string[]): number {
   return 1;
 }
 
-function mapSides(raw: unknown, reasons: string[], booklet: boolean): "one" | "two" {
-  if (raw === undefined) return "one";
+function mapSides(raw: unknown, reasons: string[]): { sides: "one" | "two"; flip?: "short" } {
+  if (raw === undefined) return { sides: "one" };
   const v = asList(raw)[0];
-  if (v === "one-sided") return "one";
-  if (v === "two-sided-long-edge") return "two";
-  if (v === "two-sided-short-edge") {
-    // A booklet is always printed short-edge (part of the proven booklet settings), so asking for it is fine.
-    if (booklet) return "two";
-    reasons.push("Flip on the short edge is not available from the print dialog yet; choose double-sided or use the website.");
-    return "two";
-  }
+  if (v === "one-sided") return { sides: "one" };
+  if (v === "two-sided-long-edge") return { sides: "two" };
+  // Flip on the short edge is delivered with the printer's own BINDING=SHORTEDGE (the setting every booklet already
+  // uses). A booklet drops the flip later (it is always short-edge); a corner staple with it is held in mapFinishings.
+  if (v === "two-sided-short-edge") return { sides: "two", flip: "short" };
   reasons.push(`Printio does not recognise the sides setting "${describe(v)}", so nothing was printed. Choose single-sided or double-sided on the website.`);
-  return "one";
+  return { sides: "one" };
 }
 
 /** `[lo, hi]` pairs (one pair, or a list of pairs) -> "1-5, 8". Null = invalid. */
@@ -103,36 +106,54 @@ function mapPageRanges(raw: unknown, reasons: string[]): string {
     .join(", ");
 }
 
-function isLetterSize(x: unknown, y: unknown): boolean {
+type Paper = "letter" | "11x17";
+
+function sizeFromDims(x: unknown, y: unknown): Paper | null {
   const xi = toInt(x);
   const yi = toInt(y);
-  return xi !== null && yi !== null && Math.abs(xi - LETTER_X) <= LETTER_TOLERANCE && Math.abs(yi - LETTER_Y) <= LETTER_TOLERANCE;
+  if (xi === null || yi === null) return null;
+  const near = (a: number, b: number) => Math.abs(a - b) <= LETTER_TOLERANCE;
+  if (near(xi, LETTER_X) && near(yi, LETTER_Y)) return "letter";
+  if ((near(xi, LEDGER_X) && near(yi, LEDGER_Y)) || (near(xi, LEDGER_Y) && near(yi, LEDGER_X))) return "11x17";
+  return null;
 }
 
-function mapMedia(attrs: IppAttributes, reasons: string[]): void {
+function mapMedia(attrs: IppAttributes, reasons: string[]): Paper {
   const notAvailable = (what: string) =>
-    reasons.push(`Paper size ${what} is not available yet; only Letter can be printed from the print dialog. Use the website for other sizes.`);
+    reasons.push(`Paper size ${what} is not available yet; only Letter or Ledger (11x17) can be printed from the print dialog. Use the website for other sizes.`);
 
+  let fromKeyword: Paper | null = null;
   if (attrs["media"] !== undefined) {
     const v = asList(attrs["media"])[0];
-    if (typeof v !== "string" || v.trim().toLowerCase() !== LETTER_KEYWORD) {
+    const k = typeof v === "string" ? v.trim().toLowerCase() : "";
+    if (k === LETTER_KEYWORD) fromKeyword = "letter";
+    else if (k === LEDGER_KEYWORD) fromKeyword = "11x17";
+    else {
       notAvailable(describe(v));
-      return;
+      return "letter";
     }
   }
+  let fromCol: Paper | null = null;
   if (attrs["media-col"] !== undefined) {
     const col = asList(attrs["media-col"])[0];
     const size = col && typeof col === "object" ? (col as Record<string, unknown>)["media-size"] : undefined;
     const dims = size && typeof size === "object" ? (size as Record<string, unknown>) : null;
     // A media-col without a media-size (only a tray or type) does not change the paper size: ignore it.
     if (dims && (dims["x-dimension"] !== undefined || dims["y-dimension"] !== undefined)) {
-      if (!isLetterSize(dims["x-dimension"], dims["y-dimension"])) {
+      fromCol = sizeFromDims(dims["x-dimension"], dims["y-dimension"]);
+      if (!fromCol) {
         const x = toInt(dims["x-dimension"]);
         const y = toInt(dims["y-dimension"]);
         notAvailable(x !== null && y !== null ? `${(x / 100).toFixed(0)} x ${(y / 100).toFixed(0)} mm` : "from the print dialog");
+        return "letter";
       }
     }
   }
+  if (fromKeyword && fromCol && fromKeyword !== fromCol) {
+    notAvailable("from the print dialog");
+    return "letter";
+  }
+  return fromKeyword ?? fromCol ?? "letter";
 }
 
 /**
@@ -149,57 +170,83 @@ function mapMedia(attrs: IppAttributes, reasons: string[]): void {
 /** Shown to the member as the held reason; the job page recognises a held booklet by its finishing, not this text. */
 export const BOOKLET_BINDING_REASON = "Booklet: choose left or right binding.";
 const FIN_NONE = 3;
+const FIN_PUNCH = 5;
 const FIN_STAPLE = 4;
 const FIN_SADDLE_STITCH = 8;
 const FIN_BOOKLET_MAKER = 13;
 const FIN_STAPLE_TOP_LEFT = 20;
 const FIN_STAPLE_TOP_RIGHT = 22;
+const FIN_STAPLE_DUAL_LEFT = 28;
+const FIN_PUNCH_TRIPLE_LEFT = 78;
 /** orientation-requested: 3 portrait, 4 landscape, 5 reverse-landscape, 6 reverse-portrait. */
 const NON_PORTRAIT = new Set([4, 5, 6]);
 
 interface Finishing {
-  staple: "none" | "top-left" | "top-right";
+  staple: "none" | "top-left" | "top-right" | "dual-left";
   booklet: boolean;
+  punch: boolean;
 }
 
 function mapFinishings(raw: unknown, orientation: unknown, sidesRaw: unknown, reasons: string[]): Finishing {
-  const none: Finishing = { staple: "none", booklet: false };
+  const none: Finishing = { staple: "none", booklet: false, punch: false };
   if (raw === undefined) return none;
   const values = asList(raw).map(toInt);
-  const unknown = values.filter((v) => v === null || ![FIN_NONE, FIN_STAPLE, FIN_STAPLE_TOP_LEFT, FIN_STAPLE_TOP_RIGHT, FIN_SADDLE_STITCH, FIN_BOOKLET_MAKER].includes(v));
+  const unknown = values.filter((v) => v === null || ![FIN_NONE, FIN_STAPLE, FIN_STAPLE_TOP_LEFT, FIN_STAPLE_TOP_RIGHT, FIN_STAPLE_DUAL_LEFT, FIN_PUNCH, FIN_PUNCH_TRIPLE_LEFT, FIN_SADDLE_STITCH, FIN_BOOKLET_MAKER].includes(v));
   if (unknown.length > 0) {
     const first = unknown[0];
     reasons.push(
-      `The finishing option (${first === null || first === undefined ? "unknown" : describe(first)}) from the print dialog is not available yet, so nothing was printed. Only staple and booklet can be chosen; choose it on the website.`,
+      `The finishing option (${first === null || first === undefined ? "unknown" : describe(first)}) from the print dialog is not available yet, so nothing was printed. Only staple (top-left, top-right or two staples on the left), hole punch (3 holes, left) and booklet can be chosen; choose it on the website.`,
     );
     return none;
   }
-  const staples = new Set<"top-left" | "top-right">();
+  const staples = new Set<"top-left" | "top-right" | "dual-left">();
   let booklet = false;
+  let punch = false;
   for (const v of values) {
     if (v === FIN_STAPLE || v === FIN_STAPLE_TOP_LEFT) staples.add("top-left");
     else if (v === FIN_STAPLE_TOP_RIGHT) staples.add("top-right");
+    else if (v === FIN_STAPLE_DUAL_LEFT) staples.add("dual-left");
+    else if (v === FIN_PUNCH || v === FIN_PUNCH_TRIPLE_LEFT) punch = true;
     else if (v === FIN_SADDLE_STITCH || v === FIN_BOOKLET_MAKER) booklet = true;
   }
   if (staples.size > 1) {
     reasons.push("The print dialog asked for more than one staple position, so nothing was printed. Choose one corner on the website.");
     return none;
   }
-  const staple = staples.size === 1 ? ([...staples][0] as "top-left" | "top-right") : "none";
+  const staple = staples.size === 1 ? ([...staples][0] as "top-left" | "top-right" | "dual-left") : "none";
+  if (punch && staple === "dual-left") {
+    reasons.push("Hole punch cannot be combined with two staples yet, so nothing was printed. Choose one of them, or use the website.");
+    return none;
+  }
+  if (booklet && punch) {
+    reasons.push("A booklet cannot also have hole punch, so nothing was printed. Choose either a booklet or hole punch.");
+    return none;
+  }
   if (booklet && staple !== "none") {
     reasons.push("A booklet is stapled for you, so it cannot also be stapled in a corner. Choose either a booklet or a staple.");
     return none;
   }
   if (booklet) reasons.push(BOOKLET_BINDING_REASON);
-  if (staple !== "none") {
-    if (asList(sidesRaw)[0] === "two-sided-short-edge") return none; // the short-edge reason is already given by mapSides
+  if (staple !== "none" || punch) {
+    if (asList(sidesRaw)[0] === "two-sided-short-edge") {
+      reasons.push(
+        staple === "top-left" || staple === "top-right"
+          ? "A corner staple cannot be combined with a flip on the short edge yet, so nothing was printed. Choose double-sided (long edge) with the staple, or use the website."
+          : "Hole punch or two staples cannot be combined with a flip on the short edge yet, so nothing was printed. Choose double-sided (long edge), or use the website.",
+      );
+      return none;
+    }
     const o = toInt(asList(orientation)[0]);
     if (o !== null && NON_PORTRAIT.has(o)) {
-      reasons.push("The staple corner is only checked on portrait pages, so nothing was printed. Choose the staple on the website.");
+      reasons.push(
+        staple === "top-left" || staple === "top-right"
+          ? "The staple corner is only checked on portrait pages, so nothing was printed. Choose the staple on the website."
+          : "Hole punch and two staples are only checked on portrait pages, so nothing was printed. Choose it on the website.",
+      );
       return none;
     }
   }
-  return { staple, booklet };
+  return { staple, booklet, punch };
 }
 
 /** "Quarterly report.docx" style job names -> a safe `<name>.pdf`: letters, digits, space and . _ - only, max 60. */
@@ -223,17 +270,20 @@ export function mapIppChoices(attributes: IppAttributes | null | undefined): Ipp
 
   const copies = mapCopies(attrs["copies"], reasons);
   const pageRange = mapPageRanges(attrs["page-ranges"], reasons);
-  mapMedia(attrs, reasons);
+  const paperSize = mapMedia(attrs, reasons);
   const fin = mapFinishings(attrs["finishings"], attrs["orientation-requested"], attrs["sides"], reasons);
-  const sides = mapSides(attrs["sides"], reasons, fin.booklet);
+  const mappedSides = mapSides(attrs["sides"], reasons);
   // orientation-requested, print-quality, print-color-mode, printer-resolution, print-scaling, document-format,
   // job-name and everything else: deliberately ignored here (printer defaults; the PDF carries its orientation).
 
   return {
+    paperSize,
     choices: {
       // A booklet is always double-sided whatever flip the dialog asked for (the short-edge flip is part of it).
-      sides: fin.booklet ? "two" : sides,
+      sides: fin.booklet ? "two" : mappedSides.sides,
+      ...(!fin.booklet && mappedSides.flip ? { flip: mappedSides.flip } : {}),
       staple: fin.staple,
+      ...(fin.punch ? { punch: true } : {}),
       booklet: fin.booklet ? "profile" : "none",
       copies,
       pageRange,

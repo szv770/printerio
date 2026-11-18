@@ -5,6 +5,7 @@ vi.setConfig({ testTimeout: 60_000, hookTimeout: 120_000 });
 import { PDFDocument, StandardFonts, PDFArray, PDFRawStream, decodePDFRawStream, type PDFPage } from "pdf-lib";
 import { imposeBookletPdf, IMPOSITION_GUTTER_PT, IMPOSITION_MARGIN_PT } from "./imposition";
 import { analyzePdfContent } from "./content-analysis";
+import { scanPdf } from "./test-scan";
 
 const LETTER = { width: 612, height: 792 };
 
@@ -131,5 +132,60 @@ describe("imposeBookletPdf fit: fill", () => {
     expect((await PDFDocument.load(imposed)).getPageCount()).toBe(4 / 2);
     const scales = await scalesOf(imposed);
     for (const s of scales) expect(s).toBeCloseTo(scales[0]!, 9);
+  });
+
+  it("mixed sizes: every page gets the biggest scale that fits, and an edge-to-edge scan of another size does not shrink the normal pages", async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const wordPage = (n: number) => {
+      const page = doc.addPage([612, 792]);
+      for (let line = 0; line < 40; line++) page.drawText(`Line ${line + 1} of page ${n}, body text in twelve point.`, { x: 72, y: 720 - line * 16, size: 12, font });
+    };
+    wordPage(1);
+    wordPage(2);
+    wordPage(3);
+    const scan = doc.addPage([842, 595]); // an A4-landscape scan: ink to every edge
+    scan.drawRectangle({ x: 0, y: 0, width: 842, height: 595 });
+    const mixed = await doc.save();
+
+    const keep = await scalesOf(await imposeBookletPdf(mixed, LETTER, "left", { fit: "keep" }));
+    const fill = await scalesOf(await imposeBookletPdf(mixed, LETTER, "left", { fit: "fill" }));
+    // draw order of the 4 slots: sheet 0 front = [page 4 (scan), page 1], back = [page 2, page 3]
+    const [scanFill, p1Fill, p2Fill, p3Fill] = fill as [number, number, number, number];
+    const scanFits = Math.min(CELL_W / 842, CELL_H / 595);
+    expect(scanFill).toBeCloseTo(scanFits, 9); // as big as the cell allows, whole page, nothing cut
+    expect(p2Fill).toBeCloseTo(p1Fill, 9); // normal pages keep one text size
+    expect(p3Fill).toBeCloseTo(p1Fill, 9);
+    expect(p1Fill).toBeGreaterThan(keep[1]! * 1.15); // and they were still enlarged by the crop
+    for (const [i, s] of fill.entries()) expect(s).toBeGreaterThanOrEqual(keep[i]! - 1e-9); // no page ever gets smaller
+  });
+
+  it("scans: each page's ink fills its cell as far as it can, whatever corner it sits in, and nothing is cut", async () => {
+    const scans = await scanPdf([
+      { width: 612, height: 792, ink: { x0: 0.5, y0: 0.08, x1: 0.92, y1: 0.45 } }, // ink in the top-right
+      { width: 612, height: 792, ink: { x0: 0.08, y0: 0.55, x1: 0.5, y1: 0.92 } }, // ink in the bottom-left
+      { width: 612, height: 792, ink: { x0: 0.1, y0: 0.1, x1: 0.9, y1: 0.9 } }, // ordinary full page
+      { width: 612, height: 792, ink: null }, // a blank scan
+    ]);
+    const keep = await scalesOf(await imposeBookletPdf(scans, LETTER, "left", { fit: "keep" }));
+    const fill = await scalesOf(await imposeBookletPdf(scans, LETTER, "left", { fit: "fill" }));
+    // draw order of the slots: sheet 0 front = [page 4, page 1], back = [page 2, page 3]
+    const byPage = { p4: fill[0]!, p1: fill[1]!, p2: fill[2]!, p3: fill[3]! };
+    const keepScale = keep[1]!;
+    expect(byPage.p1).toBeGreaterThan(keepScale * 1.3); // a small ink area is enlarged a lot
+    expect(byPage.p2).toBeGreaterThan(keepScale * 1.3);
+    expect(byPage.p3).toBeGreaterThan(keepScale * 1.1); // an ordinary page still gains a little
+    expect(byPage.p1).toBeLessThanOrEqual(CELL_H / (792 * 0.6) + 1e-9); // the 40% crop cap still holds
+
+    // Nothing cut: every ink pixel of the output lies inside the sheet's printable area.
+    const imposed = await imposeBookletPdf(scans, LETTER, "left", { fit: "fill" });
+    const res = (await analyzePdfContent(imposed))!;
+    for (const c of res) {
+      if (c.kind !== "content") continue;
+      expect(c.box.x0).toBeGreaterThanOrEqual(IMPOSITION_MARGIN_PT - 1);
+      expect(c.box.x1).toBeLessThanOrEqual(LETTER.height - IMPOSITION_MARGIN_PT + 1);
+      expect(c.box.y0).toBeGreaterThanOrEqual(IMPOSITION_MARGIN_PT - 1);
+      expect(c.box.y1).toBeLessThanOrEqual(LETTER.width - IMPOSITION_MARGIN_PT + 1);
+    }
   });
 });

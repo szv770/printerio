@@ -1,7 +1,11 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+// The first job in this file loads pdfjs (the text safeguard), which takes seconds on a loaded machine.
+vi.setConfig({ testTimeout: 30_000 });
 import { PDFDocument } from "pdf-lib";
 import { readStamp } from "@/test/read-stamp";
 import { findActiveContent } from "@/lib/pdf/active-content";
+import { makeHebrewPdf } from "@/test/hebrew-fixtures";
 import { fakeSupabase, failure, ok, type FakeCall, type FakeResult } from "@/test/fake-supabase";
 
 const evaluateJobPolicy = vi.fn();
@@ -17,7 +21,9 @@ vi.mock("@/lib/pdf/stamp", async (importOriginal) => {
 // The pipeline's own tests do not need pdfjs (content analysis has its own tests): no analysis = pages stay whole.
 vi.mock("@/lib/pdf/content-analysis", () => ({ analyzePdfContent: async () => null }));
 
+import { TEXT_CHANGED_MESSAGE } from "@/lib/pdf/text-fidelity";
 import { createPrintJob, type JobOptions, type JobSession } from "./create-print-job";
+import { pipelineSettingsFromJob } from "./print-again";
 
 const ORG = "org-1";
 const USER = "user-1";
@@ -147,6 +153,43 @@ describe("createPrintJob: success", () => {
     expect(rpcs("adjust_monthly_usage")).toHaveLength(0); // a denied job reserves nothing
   });
 
+  it("an approver's own job skips the approval step, but a denial still blocks it", async () => {
+    const approver: JobSession = { userId: USER, membership: { organization_id: ORG, role: "approver", department: null } };
+    const runAs = () => createPrintJob(fake.client as never, approver, pdf3, "report.pdf", baseOpts());
+    evaluateJobPolicy.mockResolvedValue({ result: { action: "require_approval", reasons: ["Needs a teacher"] }, quotaLimit: null, adminsBypassRestrictions: false, quotaBasis: "physical_sheets", groupIds: [] });
+    let res = await runAs();
+    expect(res).toMatchObject({ ok: true, status: "approved" });
+    expect(insertedJob().policy_bypassed_for_admin).toBe(true); // disclosed, like the admin bypass
+
+    use();
+    evaluateJobPolicy.mockResolvedValue({ result: { action: "deny", reasons: ["No color"] }, quotaLimit: null, adminsBypassRestrictions: false, quotaBasis: "physical_sheets", groupIds: [] });
+    res = await runAs();
+    expect(res).toMatchObject({ ok: true, status: "denied" });
+  });
+
+  it("refuses a job that would use an absurd amount of paper, before uploading or reserving anything", async () => {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 10; i++) doc.addPage([612, 792]);
+    const pdf10 = await doc.save();
+    const res = await run(pdf10, baseOpts({ choices: { sides: "one", staple: "none", booklet: "none", copies: 99, pageRange: "" } }));
+    expect(res).toMatchObject({ ok: false, code: "too_large" });
+    expect(!res.ok && res.kind === "error" && res.error).toMatch(/sheets/i);
+    expect(fake.calls.some((c) => c.op === "upload")).toBe(false);
+    expect(rpcs("adjust_monthly_usage")).toHaveLength(0);
+    // a sensible job is unaffected
+    use();
+    expect((await run(pdf10, baseOpts({ choices: { sides: "one", staple: "none", booklet: "none", copies: 5, pageRange: "" } }))).ok).toBe(true);
+  });
+
+  it("refuses another job when the person already has too many waiting or printing", async () => {
+    respond = (c) => (c.table === "print_jobs" && c.op === "select" ? { data: null, error: null, count: 10 } : defaults()(c));
+    fake = fakeSupabase((c) => respond(c));
+    const res = await run();
+    expect(res).toMatchObject({ ok: false, code: "rate_limited" });
+    expect(!res.ok && res.kind === "error" && res.error).toMatch(/waiting or printing/i);
+    expect(fake.calls.some((c) => c.op === "upload" || c.op === "insert")).toBe(false);
+  });
+
   it("records an IPP job's origin on the row and in its first event", async () => {
     const res = await run(pdf3, baseOpts({ source: "ipp", deviceId: "device-1", ippUserAgent: "Windows IPP" }));
     expect(res.ok).toBe(true);
@@ -257,7 +300,7 @@ describe("createPrintJob: error path", () => {
     use({ upload: failure("bucket down") });
     expect(await run()).toMatchObject({ ok: false, code: "storage_failed" });
     expect(rpcs("adjust_monthly_usage").map((c) => (c.values as { p_mode: string }).p_mode)).toEqual(["reserve", "release"]);
-    expect(fake.calls.some((c) => c.table === "print_jobs")).toBe(false);
+    expect(fake.calls.some((c) => c.table === "print_jobs" && c.op === "insert")).toBe(false);
   });
 
   it("a booklet of a document that needs padding asks to confirm (and creates nothing)", async () => {
@@ -280,6 +323,29 @@ describe("createPrintJob: error path", () => {
     expect(insertedJob().finishing).toMatchObject({ booklet: true, bookletFit: "keep" });
     use();
     await run(pdf3, baseOpts());
+    expect(insertedJob().finishing).toEqual({ staple: false, booklet: false, punch: false });
+  });
+
+  it("a double-sided short-edge job records the flip (so the Agent sends BINDING=SHORTEDGE) and is not held; long edge records nothing", async () => {
+    const res = await run(pdf3, baseOpts({ choices: { sides: "two", staple: "none", booklet: "none", copies: 1, pageRange: "", flip: "short" } }));
+    expect(res).toMatchObject({ ok: true, status: "approved" });
+    expect(insertedJob()).toMatchObject({ duplex: true, held_reason: null, finishing: { staple: false, booklet: false, punch: false, duplexEdge: "short" } });
+    use();
+    await run(pdf3, baseOpts({ choices: { sides: "two", staple: "none", booklet: "none", copies: 1, pageRange: "" } }));
+    expect(insertedJob().finishing).toEqual({ staple: false, booklet: false, punch: false });
+  });
+
+  it("an 11x17 booklet is recorded on the job (finishing + paper size) so a re-print repeats it; a regular one records nothing extra", async () => {
+    await run(pdf3, baseOpts({ choices: { sides: "two", staple: "none", booklet: "right", copies: 1, pageRange: "" }, confirmBookletPadding: true, bookletSheet: "tabloid" }));
+    expect(insertedJob()).toMatchObject({ paper_size: "tabloid", booklet_binding_side: "right", finishing: { booklet: true, bookletSheet: "tabloid" } });
+    use();
+    await run(pdf3, baseOpts({ choices: { sides: "two", staple: "none", booklet: "left", copies: 1, pageRange: "" }, confirmBookletPadding: true }));
+    expect(insertedJob().finishing).not.toHaveProperty("bookletSheet");
+    expect(insertedJob().paper_size).not.toBe("tabloid");
+    use();
+    // the sheet only means something for a booklet
+    await run(pdf3, baseOpts({ bookletSheet: "tabloid" }));
+    expect(insertedJob().paper_size).not.toBe("tabloid");
     expect(insertedJob().finishing).toEqual({ staple: false, booklet: false, punch: false });
   });
 });
@@ -409,6 +475,54 @@ describe("createPrintJob: user code stamp", () => {
     withStamp({});
     expect((await run(pdf3, baseOpts({ forcedHeldReason: "Pick options" }))).ok).toBe(true);
     expect(Object.keys(uploadsByName())).toEqual(["original"]);
+  });
+});
+
+describe("createPrintJob: text safeguard (Hebrew must reach the printer unchanged)", () => {
+  const SETTINGS = { max_upload_size_bytes: 52428800, quota_basis: "physical_sheets", job_approval_expiry_hours: 72 };
+  const member = { user_code: "SV42", profiles: { display_name: "Sam Vogel", email: "sam@x.org" } };
+  const useStamp = () => {
+    respond = (c) => {
+      if (c.table === "organization_settings") return ok(SETTINGS);
+      if (c.table === "organization_members") return c.op === "update" ? ok([{ user_code: "SV42" }]) : c.single ? ok(member) : ok([]);
+      return defaults()(c);
+    };
+    fake = fakeSupabase((c) => respond(c));
+  };
+  const derivedUpload = () => fake.calls.find((c) => c.op === "upload" && (c.values as { path: string }).path.endsWith("derived.pdf"));
+  let hebrew: Uint8Array;
+  let garbled: Uint8Array;
+  beforeAll(async () => {
+    hebrew = await makeHebrewPdf({ pages: [["שלום עולם"], ["ברוכים הבאים"]] });
+    garbled = await makeHebrewPdf({ pages: [["שלום עולן"], ["ברוכים הבאים"]] });
+  });
+  afterEach(() => {
+    stampOverride = null;
+  });
+
+  it("a Hebrew job whose derived text is intact goes through as before (stamped, derived stored)", async () => {
+    useStamp();
+    const res = await run(hebrew);
+    expect(res).toMatchObject({ ok: true, status: "approved", heldReason: null });
+    expect(derivedUpload()).toBeDefined();
+  });
+
+  it("holds the job with a plain reason, stores no derived file and reserves no quota when the text changed", async () => {
+    useStamp();
+    stampOverride = () => garbled;
+    const res = await run(hebrew);
+    expect(res).toMatchObject({ ok: true, status: "held", heldReason: TEXT_CHANGED_MESSAGE });
+    expect(derivedUpload()).toBeUndefined();
+    expect(insertedJob()).toMatchObject({ status: "held", derived_file_path: null, held_reason: TEXT_CHANGED_MESSAGE });
+    expect(rpcs("adjust_monthly_usage")).toHaveLength(0);
+    expect(evaluateJobPolicy).not.toHaveBeenCalled();
+  });
+
+  it("an ASCII-only job is not checked at all (a poisoned stamp result still goes through)", async () => {
+    useStamp();
+    stampOverride = () => garbled;
+    const res = await run(pdf3);
+    expect(res).toMatchObject({ ok: true, status: "approved" });
   });
 });
 
@@ -552,5 +666,176 @@ describe("printer escape sequences never reach the derived file (security review
   it("refuses an upload that carries a UEL as bad_pdf", async () => {
     const poisoned = new Uint8Array([...pdf3, ...new TextEncoder().encode("\x1b%-12345X@PJL INFO ID")]);
     expect(await run(poisoned)).toMatchObject({ ok: false, code: "bad_pdf", error: expect.stringMatching(/printer control codes/) });
+  });
+});
+
+describe("createPrintJob: 11x17 (ledger) jobs from the print dialog", () => {
+  const ledgerProfile = () => profileRow({ declared_paper_sizes: ["letter", "11x17"] });
+  it("a plain 11x17 job is stored as tabloid (so the agent sends PAPER=LEDGER) and is priced and checked as 11x17", async () => {
+    use({ profile: ledgerProfile() });
+    const res = await run(pdf3, baseOpts({ paperSize: "11x17" }));
+    expect(res.ok).toBe(true);
+    expect(insertedJob()).toMatchObject({ paper_size: "tabloid", status: "approved", held_reason: null });
+    expect(evaluateJobPolicy.mock.calls[0]![1]).toMatchObject({ paperSize: "11x17" });
+  });
+  it("a printer that does not declare 11x17 holds the job with a plain reason instead of printing on Letter", async () => {
+    const res = await run(pdf3, baseOpts({ paperSize: "11x17" }));
+    expect(res.ok).toBe(true);
+    expect(insertedJob()).toMatchObject({ status: "held", paper_size: "letter" });
+    expect(String(insertedJob().held_reason)).toMatch(/11x17/);
+  });
+  it("a Letter job is unchanged", async () => {
+    use({ profile: ledgerProfile() });
+    await run(pdf3, baseOpts({ paperSize: "letter" }));
+    expect(insertedJob()).toMatchObject({ paper_size: "letter" });
+  });
+});
+
+
+describe("createPrintJob: cardstock (finishing.paperType, no migration)", () => {
+  const caps = { duplex: true, staple: true, booklet: true, punch: true };
+  const choicesOf = (over: Record<string, unknown>) => ({ sides: "one" as const, staple: "none" as const, booklet: "none" as const, copies: 1, pageRange: "", ...over });
+
+  it("stores finishing.paperType = cardstock, carried into the job and not held", async () => {
+    use({ profile: profileRow({ declared_capabilities: caps, declared_paper_sizes: ["letter", "11x17"] }) });
+    const res = await run(pdf3, baseOpts({ choices: choicesOf({ paper: "cardstock" }) }));
+    expect(res).toMatchObject({ ok: true, status: "approved", heldReason: null });
+    expect(insertedJob()).toMatchObject({ paper_size: "letter", finishing: { staple: false, booklet: false, punch: false, paperType: "cardstock" } });
+  });
+
+  it("a plain job stores exactly the finishing it always did (no paperType key)", async () => {
+    use({ profile: profileRow({ declared_capabilities: caps }) });
+    await run(pdf3, baseOpts());
+    expect(insertedJob().finishing).toEqual({ staple: false, booklet: false, punch: false });
+  });
+
+  it("cardstock together with 11x17 is held with a plain reason (cardstock is only loaded in Letter)", async () => {
+    use({ profile: profileRow({ declared_capabilities: caps, declared_paper_sizes: ["letter", "11x17"] }) });
+    const res = await run(pdf3, baseOpts({ paperSize: "11x17", choices: choicesOf({ paper: "cardstock" }) }));
+    expect(res).toMatchObject({ ok: true, status: "held", heldReason: expect.stringMatching(/only loaded in Letter/) });
+  });
+
+  it("cardstock together with a booklet is held, never printed as a booklet on the wrong paper", async () => {
+    use({ profile: profileRow({ declared_capabilities: caps }) });
+    const res = await run(pdf3, baseOpts({ confirmBookletPadding: true, choices: choicesOf({ sides: "two", booklet: "left", paper: "cardstock" }) }));
+    expect(res).toMatchObject({ ok: true, status: "held", heldReason: expect.stringMatching(/booklet cannot be printed on cardstock/i) });
+  });
+
+  it("a Windows-queue printer holds a cardstock job (it cannot be told the paper type)", async () => {
+    use({ profile: profileRow({ output_mode: "queue", windows_queue_name: "Q", declared_capabilities: caps }) });
+    const res = await run(pdf3, baseOpts({ choices: choicesOf({ paper: "cardstock" }) }));
+    expect(res).toMatchObject({ ok: true, status: "held", heldReason: expect.stringMatching(/cardstock/) });
+  });
+
+  it("Print again: a stored cardstock job re-created from its row stores cardstock again", async () => {
+    use({ profile: profileRow({ declared_capabilities: caps }) });
+    await run(pdf3, baseOpts({ choices: choicesOf({ paper: "cardstock" }) }));
+    const stored = insertedJob();
+    const again = pipelineSettingsFromJob({
+      id: "j",
+      organization_id: ORG,
+      created_by: USER,
+      original_file_name: "a.pdf",
+      original_file_path: "p",
+      files_purged_at: null,
+      source_pdf_pages: 3,
+      copies: stored.copies as number,
+      duplex: stored.duplex as boolean,
+      color_mode: stored.color_mode as string,
+      paper_size: stored.paper_size as string,
+      finishing: stored.finishing,
+      staple_position: null,
+      booklet_binding_side: null,
+      page_range: null,
+      printer_profile_id: "profile-1",
+    });
+    use({ profile: profileRow({ declared_capabilities: caps }) });
+    await run(pdf3, baseOpts({ choices: again.choices }));
+    expect(insertedJob().finishing).toMatchObject({ paperType: "cardstock" });
+  });
+});
+
+describe("createPrintJob: two staples (left) and hole punch on a raw printer", () => {
+  const caps = { duplex: true, staple: true, booklet: true, punch: true };
+  const choicesOf = (over: Record<string, unknown>) => ({ sides: "one" as const, staple: "none" as const, booklet: "none" as const, copies: 1, pageRange: "", ...over });
+
+  it("two staples (left): finishing carries the style, no corner is stored", async () => {
+    use({ profile: profileRow({ declared_capabilities: caps }) });
+    const res = await run(pdf3, baseOpts({ choices: choicesOf({ staple: "dual-left" }) }));
+    expect(res).toMatchObject({ ok: true, status: "approved", heldReason: null });
+    expect(insertedJob()).toMatchObject({ finishing: { staple: true, stapleStyle: "dual-left", punch: false }, staple_position: null });
+  });
+
+  it("hole punch: finishing.punch is stored when the profile declares punch", async () => {
+    use({ profile: profileRow({ declared_capabilities: caps }) });
+    const res = await run(pdf3, baseOpts({ choices: choicesOf({ punch: true }) }));
+    expect(res).toMatchObject({ ok: true, status: "approved", heldReason: null });
+    expect(insertedJob()).toMatchObject({ finishing: { staple: false, punch: true }, staple_position: null });
+  });
+
+  it("hole punch is held with the capability message while the profile does not declare punch", async () => {
+    use({ profile: profileRow() });
+    const res = await run(pdf3, baseOpts({ choices: choicesOf({ punch: true }) }));
+    expect(res).toMatchObject({ ok: true, status: "held", heldReason: expect.stringMatching(/Hole punch/) });
+  });
+
+  it("double-sided punch is allowed (proven by labelled print P1)", async () => {
+    use({ profile: profileRow({ declared_capabilities: caps }) });
+    const res = await run(pdf3, baseOpts({ choices: choicesOf({ sides: "two", punch: true }) }));
+    expect(res).toMatchObject({ ok: true, status: "approved", heldReason: null });
+  });
+
+  it("combinations the printer did not do correctly are held (double-sided dual staple gave one corner staple)", async () => {
+    use({ profile: profileRow({ declared_capabilities: caps }) });
+    const res = await run(pdf3, baseOpts({ choices: choicesOf({ sides: "two", staple: "dual-left" }) }));
+    expect(res).toMatchObject({ ok: true, status: "held", heldReason: expect.stringMatching(/not tested on this printer yet/) });
+  });
+
+  it("a Windows-queue printer refuses two staples (left) instead of stapling a corner", async () => {
+    use({ profile: profileRow({ output_mode: "queue", windows_queue_name: "Q", declared_capabilities: { ...caps } }) });
+    const res = await run(pdf3, baseOpts({ choices: choicesOf({ staple: "dual-left" }) }));
+    expect(res).toMatchObject({ ok: false, error: expect.stringMatching(/Two staples \(left\)/) });
+  });
+});
+
+describe("createPrintJob: PDFs with Type 3 fonts are printed as a picture copy (printer system error 2026-11-15)", () => {
+  let type3: Uint8Array;
+  beforeAll(async () => {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 2; i++) doc.addPage([612, 792]);
+    doc.context.register(doc.context.obj({ Type: "Font", Subtype: "Type3", FontBBox: [0, 0, 1, 1], FontMatrix: [0.001, 0, 0, 0.001, 0, 0], CharProcs: {}, Encoding: {}, FirstChar: 0, LastChar: 0, Widths: [0] }));
+    type3 = await doc.save();
+  });
+  const uploads = () => {
+    const out: Record<string, Uint8Array> = {};
+    for (const c of fake.calls.filter((c) => c.op === "upload")) {
+      const v = c.values as { path: string; bytes: Uint8Array };
+      out[v.path.endsWith("derived.pdf") ? "derived" : "original"] = v.bytes;
+    }
+    return out;
+  };
+
+  afterEach(() => {
+    delete process.env.PRINTIO_ALLOW_TYPE3_FONTS;
+  });
+
+  it("keeps the upload as the original and prints a font-free picture copy", async () => {
+    const res = await run(type3);
+    expect(res).toMatchObject({ ok: true, status: "approved" });
+    const up = uploads();
+    expect(Buffer.from(up.original!).equals(Buffer.from(type3))).toBe(true);
+    const derived = await PDFDocument.load(up.derived!);
+    expect(derived.getPageCount()).toBe(2);
+    expect(Buffer.from(up.derived!).toString("latin1")).not.toContain("/Type3");
+    expect(insertedJob().derived_file_path).toEqual(expect.stringMatching(/derived\.pdf$/));
+    const uploaded = fake.calls.find((c) => c.table === "print_job_events" && c.op === "insert");
+    expect(JSON.stringify(uploaded?.values)).toContain("printedAsPictures");
+  });
+
+  it("with PRINTIO_ALLOW_TYPE3_FONTS=1 it is sent as it is (no picture copy)", async () => {
+    process.env.PRINTIO_ALLOW_TYPE3_FONTS = "1";
+    const res = await run(type3);
+    expect(res).toMatchObject({ ok: true });
+    expect(Buffer.from(uploads().derived ?? new Uint8Array()).toString("latin1")).not.toContain("DeviceGray");
   });
 });

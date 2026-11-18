@@ -66,7 +66,6 @@ describe("mapIppChoices: what is held, with a reason", () => {
     ["copies 100", { copies: 100 }, /copies must be 1 to 99/i],
     ["copies negative", { copies: -3 }, /copies must be 1 to 99/i],
     ["copies not a number", { copies: "many" }, /copies must be 1 to 99/i],
-    ["short edge", { sides: "two-sided-short-edge" }, /short edge is not available from the print dialog yet; choose double-sided or use the website/i],
     ["unknown sides", { sides: "tumble" }, /does not recognise the sides setting "tumble"/i],
     ["backwards range", { "page-ranges": [5, 1] }, /page range .* could not be read/i],
     ["zero page", { "page-ranges": [0, 3] }, /page range .* could not be read/i],
@@ -79,8 +78,19 @@ describe("mapIppChoices: what is held, with a reason", () => {
     ["media of the wrong type", { media: 7 }, /not available yet/i],
     ["unknown finishing 100", { finishings: 100 }, /finishing option \(100\) .* choose it on the website/i],
     ["staple bottom-left (21)", { finishings: 21 }, /finishing option \(21\)/i],
-    ["dual staple left (28)", { finishings: 28 }, /finishing option \(28\)/i],
-    ["punch (5)", { finishings: 5 }, /finishing option \(5\)/i],
+    ["dual staple top (29)", { finishings: 29 }, /finishing option \(29\)/i],
+    ["dual staple bottom (30)", { finishings: 30 }, /finishing option \(30\)/i],
+    ["dual staple right (31)", { finishings: 31 }, /finishing option \(31\)/i],
+    ["punch top-left (70)", { finishings: 70 }, /finishing option \(70\)/i],
+    ["punch dual-left (74)", { finishings: 74 }, /finishing option \(74\)/i],
+    ["punch triple-top (79)", { finishings: 79 }, /finishing option \(79\)/i],
+    ["punch multiple-left (91)", { finishings: 91 }, /finishing option \(91\)/i],
+    ["punch and dual staple together", { finishings: [78, 28] }, /hole punch .* two staples/i],
+    ["punch and booklet", { finishings: [78, 13] }, /booklet cannot also have hole punch/i],
+    ["punch on a short-edge flip", { finishings: 78, sides: "two-sided-short-edge" }, /short edge/i],
+    ["dual staple on a short-edge flip", { finishings: 28, sides: "two-sided-short-edge" }, /short edge/i],
+    ["punch on a landscape page", { finishings: 5, "orientation-requested": 4 }, /only checked on portrait/i],
+    ["dual staple on a landscape page", { finishings: 28, "orientation-requested": 5 }, /only checked on portrait/i],
     ["fold (10)", { finishings: 10 }, /finishing option \(10\)/i],
     ["finishings of the wrong type", { finishings: "staple" }, /finishing option/i],
     ["two different staples", { finishings: [20, 22] }, /more than one staple/i],
@@ -102,8 +112,8 @@ describe("mapIppChoices: what is held, with a reason", () => {
 
   it("keeps the valid parts of a held request and joins every reason", () => {
     const { choices, heldReason } = mapIppChoices({ copies: 4, sides: "two-sided-short-edge", media: "iso_a4_210x297mm", "page-ranges": [2, 3] });
-    expect(choices).toEqual({ sides: "two", staple: "none", booklet: "none", copies: 4, pageRange: "2-3" });
-    expect(heldReason).toMatch(/short edge/);
+    expect(choices).toEqual({ sides: "two", flip: "short", staple: "none", booklet: "none", copies: 4, pageRange: "2-3" });
+    expect(heldReason).not.toMatch(/short edge/);
     expect(heldReason).toMatch(/iso_a4_210x297mm/);
   });
 
@@ -131,8 +141,26 @@ describe("mapIppChoices: finishings from the print dialog", () => {
     expect(choices).toMatchObject(want);
   });
 
-  it("short edge on its own is still held (not deliverable yet)", () => {
-    const { heldReason } = mapIppChoices({ sides: "two-sided-short-edge" });
+  it("short edge on its own is accepted: double-sided, flip on the short edge, nothing held", () => {
+    const { choices, heldReason } = mapIppChoices({ sides: "two-sided-short-edge" });
+    expect(heldReason).toBeNull();
+    expect(choices).toMatchObject({ sides: "two", flip: "short" });
+  });
+
+  it("long edge and one-sided carry no flip choice", () => {
+    expect(mapIppChoices({ sides: "two-sided-long-edge" }).choices).not.toHaveProperty("flip");
+    expect(mapIppChoices({ sides: "one-sided" }).choices).not.toHaveProperty("flip");
+  });
+
+  it("a booklet ignores the flip (short edge is part of every booklet)", () => {
+    const { choices, heldReason } = mapIppChoices({ finishings: 13, sides: "two-sided-short-edge" });
+    expect(choices).not.toHaveProperty("flip");
+    expect(heldReason).not.toMatch(/short edge/);
+  });
+
+  it("a corner staple on a short-edge flip is held with a plain reason (the corner is not known)", () => {
+    const { heldReason } = mapIppChoices({ finishings: 20, sides: "two-sided-short-edge" });
+    expect(heldReason).toMatch(/staple/i);
     expect(heldReason).toMatch(/short edge/i);
   });
 });
@@ -206,5 +234,69 @@ describe("mapIppChoices: booklet from the print dialog is held for a binding cho
     const { choices, heldReason } = mapIppChoices({ finishings: [22, 13] });
     expect(heldReason).toMatch(/cannot also be stapled/i);
     expect(choices.booklet).toBe("none");
+  });
+});
+
+describe("mapIppChoices: Ledger (11x17) is a second supported paper size", () => {
+  const LEDGER_COL = { "media-size": { "x-dimension": 27940, "y-dimension": 43180 } };
+  it("defaults to Letter", () => {
+    expect(mapIppChoices({}).paperSize).toBe("letter");
+    expect(mapIppChoices({ media: "na_letter_8.5x11in" }).paperSize).toBe("letter");
+    expect(mapIppChoices({ "media-col": LETTER_COL }).paperSize).toBe("letter");
+  });
+  it.each([
+    ["ledger keyword", { media: "na_ledger_11x17in" }],
+    ["ledger keyword, any case", { media: "NA_LEDGER_11X17IN" }],
+    ["ledger media-col", { "media-col": LEDGER_COL }],
+    ["ledger media-col within tolerance", { "media-col": { "media-size": { "x-dimension": 27900, "y-dimension": 43200 } } }],
+    ["ledger media-col with the sides swapped (landscape)", { "media-col": { "media-size": { "x-dimension": 43180, "y-dimension": 27940 } } }],
+    ["ledger keyword and matching media-col", { media: "na_ledger_11x17in", "media-col": LEDGER_COL }],
+  ])("accepts %s and asks for 11x17 without holding the job", (_n, attrs) => {
+    const r = mapIppChoices(attrs);
+    expect(r.paperSize).toBe("11x17");
+    expect(r.heldReason).toBeNull();
+  });
+  it("holds a conflicting keyword and media-col, never guessing", () => {
+    expect(mapIppChoices({ media: "na_letter_8.5x11in", "media-col": LEDGER_COL }).heldReason).toMatch(/not available yet/i);
+    expect(mapIppChoices({ media: "na_ledger_11x17in", "media-col": { "media-size": { "x-dimension": 21590, "y-dimension": 27940 } } }).heldReason).toMatch(/not available yet/i);
+  });
+  it.each([
+    ["A3", { media: "iso_a3_297x420mm" }],
+    ["A4", { media: "iso_a4_210x297mm" }],
+    ["legal", { media: "na_legal_8.5x14in" }],
+    ["A3 media-col", { "media-col": { "media-size": { "x-dimension": 29700, "y-dimension": 42000 } } }],
+  ])("still holds %s, and says only Letter and Ledger work", (_n, attrs) => {
+    const r = mapIppChoices(attrs);
+    expect(r.heldReason).toMatch(/Letter or Ledger/i);
+    expect(r.paperSize).toBe("letter");
+  });
+});
+
+describe("mapIppChoices: dual staple left and hole punch", () => {
+  it("28 = two staples on the left edge", () => {
+    const r = mapIppChoices({ finishings: 28 });
+    expect(r.heldReason).toBeNull();
+    expect(r.choices).toMatchObject({ staple: "dual-left", booklet: "none" });
+    expect(r.choices.punch).toBeFalsy();
+  });
+
+  it.each([5, 78])("%i = hole punch", (v) => {
+    const r = mapIppChoices({ finishings: v });
+    expect(r.heldReason).toBeNull();
+    expect(r.choices).toMatchObject({ staple: "none", punch: true });
+  });
+
+  it("works with a long-edge flip and portrait", () => {
+    const r = mapIppChoices({ finishings: 28, sides: "two-sided-long-edge", "orientation-requested": 3 });
+    expect(r.heldReason).toBeNull();
+    expect(r.choices).toMatchObject({ sides: "two", staple: "dual-left" });
+  });
+
+  it("a held request never promises punch", () => {
+    expect(mapIppChoices({ finishings: [78, 28] }).choices.punch).toBeFalsy();
+  });
+
+  it("the held message lists what is available", () => {
+    expect(mapIppChoices({ finishings: 100 }).heldReason).toMatch(/hole punch/i);
   });
 });

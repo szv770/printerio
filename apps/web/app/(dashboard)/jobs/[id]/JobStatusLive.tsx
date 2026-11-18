@@ -16,6 +16,8 @@ import { JobProgressBar } from "../JobProgressBar";
 import { JobProgressStepper } from "./JobProgressStepper";
 import { HeldBookletCard } from "./HeldBookletCard";
 import { BOOKLET_BINDING_REASON } from "@/lib/gateway/ipp-choices";
+import { startVisibleInterval } from "@/lib/ui/visible-interval";
+import { ACTIVE_JOB_REFRESH_MS } from "@/lib/ui/refresh-intervals";
 
 type PrintJob = Tables<"print_jobs">;
 
@@ -51,6 +53,8 @@ export function JobStatusLive({
   job: serverJob,
   eventTypes,
   rejectionReason,
+  printerNote,
+  printerConfirmation,
   actions,
 }: {
   job: PrintJob;
@@ -58,6 +62,10 @@ export function JobStatusLive({
   eventTypes: string[];
   /** The approver's own words, from the REJECTED event's metadata (mirrors approval_actions.reason). */
   rejectionReason: string | null;
+  /** What the printer itself says (paper out, a jam), when the job is waiting on it. Null when the printer is fine or unknown. */
+  printerNote?: string | null;
+  /** The Agent's completed-report words when the printer confirmed every page ("Printer confirmed 4 of 4 pages"), from the JOB_COMPLETED event. */
+  printerConfirmation?: string | null;
   /** The primary buttons (Cancel / Try again / Print again), rendered by the server page so each keeps its own action wiring. */
   actions?: React.ReactNode;
 }) {
@@ -158,8 +166,7 @@ export function JobStatusLive({
   const stillMoving = !progress.halted || progress.retryable;
   useEffect(() => {
     if (!stillMoving) return;
-    const interval = setInterval(() => router.refresh(), 4000);
-    return () => clearInterval(interval);
+    return startVisibleInterval(() => router.refresh(), ACTIVE_JOB_REFRESH_MS, document);
   }, [stillMoving, router]);
 
   // Only ticks while the job is sitting in the claim queue - the one place
@@ -184,7 +191,7 @@ export function JobStatusLive({
   const stalledInQueue = waitingForAgent && !jobWaiting(job.status, job.error_message) && nowMs !== null && nowMs - Date.parse(job.updated_at) > STALLED_IN_QUEUE_MS;
   const policyReasons = job.policy_reasons ?? [];
   const explanation = progress.explanation;
-  const headline = jobHeadline(job.status, job.error_message);
+  const headline = jobHeadline(job.status, job.error_message, printerConfirmation);
   const stageLabel = JOB_STAGE_LABELS[progress.currentStageId];
 
   return (
@@ -200,6 +207,11 @@ export function JobStatusLive({
             </span>
             <h2 className="text-2xl font-semibold leading-8 tracking-[-0.01em] sm:text-[1.75rem] sm:leading-9">{headline.sentence}</h2>
           </div>
+          {(headline.detail || printerNote) && (
+            <p className="mt-1.5 pl-[1.625rem] text-[13px] leading-5 text-[var(--color-muted)]">
+              {[headline.detail, printerNote].filter(Boolean).join(" ")}
+            </p>
+          )}
           <p className="mt-1.5 pl-[1.625rem] text-[13px] leading-5 text-[var(--color-muted)]">
             {/* A step counter only means something while the job is still moving - on a stopped job it would read
              *  as progress that is not happening. */}

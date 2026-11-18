@@ -55,10 +55,10 @@ export class FakeWeb implements WebApi {
   failAfterCreating = false;
   private n = 0;
 
-  registerDevice(token: string, deviceId = "dev-1"): void {
+  registerDevice(token: string, deviceId = "dev-1", printerLabel?: string): void {
     this.devices.set(hashDeviceToken(token), {
       kind: "ok",
-      device: { deviceId, userId: "user-1", organizationId: "org-1", displayName: "Test device" },
+      device: { deviceId, userId: "user-1", organizationId: "org-1", displayName: "Test device", ...(printerLabel ? { printerLabel } : {}) },
     });
   }
 
@@ -125,7 +125,7 @@ export interface Harness {
   registry: JobRegistry;
   guard: UploadGuard;
   /** Registers another device (its own token/host/deviceId). */
-  addDevice(deviceId: string): { token: string; host: string; deviceId: string };
+  addDevice(deviceId: string, printerLabel?: string): { token: string; host: string; deviceId: string };
   close(): Promise<void>;
   post(body: Buffer, opts?: PostOpts): Promise<HttpResult>;
   ipp(msg: { code: number; requestId?: number; groups: IppGroup[] }, doc?: Buffer, opts?: PostOpts): Promise<{ http: HttpResult; ipp: IppMessage }>;
@@ -214,9 +214,9 @@ export async function startHarness(
     port,
     registry,
     guard,
-    addDevice(deviceId) {
+    addDevice(deviceId, printerLabel) {
       const t = generateDeviceToken();
-      web.registerDevice(t, deviceId);
+      web.registerDevice(t, deviceId, printerLabel);
       return { token: t, host: deviceHostname(t, BASE_DOMAIN), deviceId };
     },
     async close() {

@@ -10,9 +10,10 @@ export default async function InvitesPage() {
 
   const { data: invitations } = await supabase
     .from("organization_invitations")
-    .select("*")
+    .select("id, code, role, group_id, uses_count, max_uses, expires_at")
     .eq("organization_id", session.membership.organization_id)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(100);
 
   const { data: groups } = await supabase
     .from("groups")

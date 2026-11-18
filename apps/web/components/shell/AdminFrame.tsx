@@ -10,7 +10,7 @@ import { AdminNav } from "./AdminNav";
  */
 export function AdminFrame({ children, ...nav }: ComponentProps<typeof AdminNav> & { children: ReactNode }) {
   return (
-    <div className="min-h-screen md:flex">
+    <div className="min-h-dvh md:flex">
       <AdminNav {...nav} />
       <div className="min-w-0 flex-1">
         <div className="mx-auto w-full max-w-5xl px-4 py-6 md:px-10 md:py-10 [&>main]:mx-0 [&>main]:px-0 [&>main]:py-0">

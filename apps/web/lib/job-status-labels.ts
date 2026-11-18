@@ -31,12 +31,12 @@ export const JOB_STATUS_DISPLAY: Record<JobState, JobStatusDisplay> = {
   rejected: { Icon: Ban, label: "Rejected", tone: "danger" },
   expired: { Icon: Slash, label: "Expired", tone: "neutral" },
   cancelled: { Icon: Slash, label: "Cancelled", tone: "neutral" },
-  claimed: { Icon: Loader2, label: "Sent to printer", tone: "success", spinning: true },
+  claimed: { Icon: Loader2, label: "Sending to printer", tone: "success", spinning: true },
   downloading: { Icon: Loader2, label: "Preparing", tone: "success", spinning: true },
   downloaded: { Icon: Loader2, label: "Preparing", tone: "success", spinning: true },
   printing: { Icon: Printer, label: "Printing…", tone: "success", spinning: true },
   submitted_to_spooler: { Icon: Printer, label: "Printing…", tone: "success", spinning: true },
-  completed: { Icon: CheckCircle, label: "Completed", tone: "success" },
+  completed: { Icon: CheckCircle, label: "Sent to printer", tone: "success" },
   // denied/rejected are dead-end states (packages/shared TERMINAL_STATES);
   // failed is retryable (can transition back to claimed/cancelled) but still
   // reads as a problem, so it gets its own icon rather than sharing Ban.

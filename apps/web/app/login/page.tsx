@@ -1,5 +1,6 @@
 import { Card } from "@/components/ui";
-import { GoogleComingSoon } from "./GoogleComingSoon";
+import { routes } from "@/lib/routes";
+import { GoogleSignInButton } from "./GoogleSignInButton";
 import { PendingShareBanner } from "@/components/pwa/PendingShareBanner";
 import { MagicLinkForm } from "./MagicLinkForm";
 
@@ -11,7 +12,7 @@ export default async function LoginPage({
   const { reason } = await searchParams;
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-0 px-4">
+    <main className="flex min-h-dvh flex-col items-center justify-center gap-0 px-4">
       <div className="w-full max-w-sm">
         <PendingShareBanner where="login" />
       </div>
@@ -28,13 +29,16 @@ export default async function LoginPage({
             That sign-in link did not work or has expired. Request a new one.
           </p>
         )}
-        <GoogleComingSoon />
+        <GoogleSignInButton />
         <div className="my-4 flex items-center gap-3 text-xs text-[var(--color-muted)]">
           <div className="h-px flex-1 bg-[var(--color-border)]" />
           or
           <div className="h-px flex-1 bg-[var(--color-border)]" />
         </div>
         <MagicLinkForm />
+        <p className="mt-4 text-xs text-[var(--color-muted)]">
+          <a className="underline" href={routes.privacy}>Privacy</a> · <a className="underline" href={routes.terms}>Terms</a>
+        </p>
       </Card>
     </main>
   );

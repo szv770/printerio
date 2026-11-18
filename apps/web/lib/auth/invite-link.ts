@@ -24,3 +24,31 @@ export function inviteStatus(
   if (inv.maxUses !== null && inv.usesCount >= inv.maxUses) return "used";
   return "active";
 }
+
+/** The code from what a person pasted: a bare code, or an invite link (also inside a shared message).
+ *  Only the code is used (never the link's host), so a pasted link cannot send anyone elsewhere. */
+export function extractInviteCode(input: string): string | null {
+  const text = input.trim();
+  if (!text) return null;
+  const link = /https?:\/\/[^\s]+/i.exec(text)?.[0];
+  if (link) {
+    try {
+      const url = new URL(link);
+      if (!/\/join\/?$/.test(url.pathname)) return null;
+      const code = url.searchParams.get("code");
+      return isPlausibleInviteCode(code) ? code : null;
+    } catch {
+      return null;
+    }
+  }
+  return isPlausibleInviteCode(text) ? text : null;
+}
+
+/** The box on /join for someone who arrives without a code (for example from the home page's "I have an invite"):
+ *  they paste the invite link or the code, and this says where to go next, or what is wrong, in plain words. */
+export function inviteEntryTarget(input: string): { ok: true; href: string } | { ok: false; error: string } {
+  if (!input.trim()) return { ok: false, error: "Paste your invite link or code." };
+  const code = extractInviteCode(input);
+  if (!code) return { ok: false, error: "That doesn't look like an invite link or code. Paste the whole link, or just the code." };
+  return { ok: true, href: `/join?code=${encodeURIComponent(code)}` };
+}
