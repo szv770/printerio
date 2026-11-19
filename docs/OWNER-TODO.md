@@ -33,6 +33,9 @@ moves to "Done" below. Last updated 2026-11-19.
   5. Take **student accounts** in year one, or staff only?
   6. Who **owns the customer data** (school, dealer, you)?
 
+- **Support email address** for the new "Report a problem" button (it opens a ready-written email with the page, error code and version). Until you give one, the button shows "Copy details" instead.
+- **Look at the new screens when the screenshots arrive** (Help window, walkthrough, front page): say what you like or dislike. The guided walkthrough stays OFF at first login until you say yes.
+
 ## Later (not urgent, but do not forget)
 - **Real-device tests** (you test on real devices; Apple only by borrowing): Pi, Pixel 8, Windows 11, Chromebook, an iPhone/Mac. Checklist in `docs/ipp-printing.md`.
 - **Switch ONE school on for the print-server path** (only after #1 passes and Claude has compared the outputs on real files). Two things, both for that school only:
@@ -47,6 +50,11 @@ moves to "Done" below. Last updated 2026-11-19.
 - **Data agreement / lawyer review** before any student data from another school.
 - **Update button, one-time catch:** if "Update this server" ever says it could not install, run `docs/hardening/fix-update-permissions.ps1` once on that server.
 - **Pick a payment method for beta schools** (Zelle or check is fine; Stripe or Square later).
+
+- **Which settings does each device show? (needed for phone presets):** on each device (Pixel 8, Windows 11, iPhone, Chromebook, Mac): add the Printio printer, open any PDF, press Print, open the options. Take a screenshot of the whole options screen, and of the **Paper size** and **Paper type** lists if there are any. Send them. This tells Claude which devices can pick a booklet preset from inside the one printer (via the paper type list) and which need a fallback.
+- **Apply migration 0059** (running-commit column for the update button) after 0054-0058. Same "Allow" click.
+- **Google Drive (later):** create a Google Cloud project you own (Claude writes the exact steps when it is time). Decision 2026-11-19: paste-a-link polish comes first.
+- **Optional, when you are at the PC with the Claude desktop app open:** Claude can attach that folder (it asks you to approve) and run the real website to look at real screens instead of sample screens.
 
 ## Done
 - Migrations are written, tested in CI, and checked against the live database (nothing applied yet; see above).
