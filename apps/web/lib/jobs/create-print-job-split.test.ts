@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { fakeSupabase, failure, ok, type FakeCall, type FakeResult } from "@/test/fake-supabase";
 
@@ -260,6 +260,16 @@ describe("finishPrintJob with files already in storage (the print-server path)",
 });
 
 describe("the four parts together (limits, plan, PDF work, finish) are exactly createPrintJob", () => {
+  // pdf-lib writes the current time into every PDF it saves (CLAUDE.md gotcha), and that time string can differ in length between two runs:
+  // comparing PDF bytes across runs needs the clock frozen (only Date, so timers still work).
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-19T12:00:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   /** Everything that can legitimately differ run to run (generated ids and clock times) is blanked; the rest must be identical. */
   const normalize = (calls: FakeCall[]) =>
     JSON.parse(
