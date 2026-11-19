@@ -341,3 +341,29 @@ Design notes: add `external_id`, `source` (`manual|csv|sync`) on `organization_m
 
 Honesty notes: I did not run the app, did not measure query speed, did not read `domain-join.ts`, the Settings panel, the invite form internals, the quota editor or
 the print path's active-member check. Email sending capability was not checked. The numbers in the "at 50 / 500 / 5,000" table follow from the fixed limits in the code, not from a load test.
+
+---------------------------------------------------------------------------------------------------
+
+## 7. Phase 1 as built (2026-11-19) and extension points
+
+Built on branch `claude/members-onboarding`, no migration. Status: Built, testing (dev preview with 5 / 60 / 1,500 made-up people and unit tests; NOT run against the real database or a real phone).
+Owner decisions: start flat (one **section** per person = `organization_members.department`, any number of **groups**), admins only manage people, biggest customer unknown so 5,000 people must stay fast.
+
+What is where:
+- `lib/admin/people-query.ts`: the filter object (`PeopleFilter`), URL parsing and writing, the database filter strings, the in-memory twin used by the preview. `lib/admin/people-list.ts`: the page query (range + exact count), the two-step name/email search, the section pick-list (read in 1,000-row chunks, only when a list is opened).
+- `lib/admin/bulk-members.ts`: every bulk guard (cross-org ids, last admin, not yourself, confirm and cap for approver/admin rights, one audit row). `app/admin/users/bulk-actions.ts` applies it in chunks of 100, max 200 people per action.
+- Print codes are no longer written when the page opens. A person gets theirs on first print, or an admin presses "Give print codes now" (200 per press, guarded by `user_code IS NULL` and the unique index, safe if two admins press at once): `lib/jobs/ensure-user-codes.ts`.
+- `lib/admin/groups-list.ts`: group counts via `group_members(count)`, per-group paged and searchable members, type-ahead add (20 results). Removing someone from the organization now also takes them out of that organization's groups (no ghost members; older ghosts are still counted).
+- Audit rows added: section, print code, group create/delete/add/remove, invite creation, bulk actions, print codes handed out.
+
+Known limits: sort by name uses PostgREST related ordering and falls back to date joined if the database refuses (untested on the real DB). Name search looks at the first 200 matching names. Bulk applies to the ticked rows of the current page (max 100 per page, server cap 200). The section "affects N rules" warning is a general note, not a count. Selecting "all N matching" is not built.
+
+Extension points (do not hard-code around these):
+| Later feature | Where it plugs in |
+|---|---|
+| Nesting (Science > Year 9) | Keep `department` as the stored value. Add a `sections` table or `parent_id` on groups, and resolve a section to its ancestors inside `PeopleFilter` handling (`applyPeopleQuery`) and the policy facts builder only. The UI already says "section", never "department". |
+| Bulk add by API or CSV | New `BulkTarget` variants and a server resolver (`lib/admin/bulk-members.ts`); `MemberSource` (`manual` / `csv` / `sync`) is already on `PersonRow`. Import chunks go through `planBulkChange` so the same guards and one audit row apply. |
+| Google OU / directory sync | Add `external_id` and `source` columns (Phase 3 notes above); a sync only touches `source = 'sync'` rows. Add `source` to `PeopleFilter` (one field, one line in `applyPeopleQuery`) to filter and bulk-act on synced people. |
+| Per-department managers | Add `managedBy` (a section list) to `PeopleFilter`; the page passes the viewer's sections for approvers instead of "everyone". Reads already go through `fetchPeoplePage(db, orgId, query)`; writes through `planBulkChange` (add an "is this person in my sections" check there). Today only `org_admin` can write. |
+| Filters on group, last printed | One field each in `PeopleFilter` plus the `member_directory` view (Phase 2, section 4.2). |
+| Invites: link/code, domain join, email list | Unchanged tables; invite creation is now audited (`invitation.created`, the secret code is not logged). |

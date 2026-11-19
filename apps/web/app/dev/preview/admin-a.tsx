@@ -4,12 +4,11 @@ import type { Tables } from "@/lib/database.types";
 import { peopleTabs, printerTabs } from "@/lib/admin/tabs";
 import { describeAgentConnection, describeAgentVersion } from "@/lib/agent-detail";
 import { UnmatchedSignups } from "@/app/admin/users/UnmatchedSignups";
-import { MembersTable } from "@/app/admin/users/MembersTable";
 import { MemberAccessCard } from "@/app/admin/users/[userId]/MemberAccessCard";
 import { SetupStatusPanel } from "@/app/admin/devices/SetupStatusPanel";
 import { summarizeSetups } from "@/lib/devices/setup-feedback";
 import { InvitesPanel } from "@/app/admin/users/InvitesPanel";
-import { GroupsPanel } from "@/app/admin/groups/GroupsPanel";
+import { GroupsPanelPreview, PeopleBrowserPreview } from "./people";
 import { PrintersPanel } from "@/app/admin/printers/PrintersPanel";
 import { AgentsPanel } from "@/app/admin/agents/AgentsPanel";
 import { AgentDetail } from "@/app/admin/agents/[agentId]/AgentDetail";
@@ -31,20 +30,23 @@ function Frame({ path, children }: { path: string; children: React.ReactNode }) 
   );
 }
 
-const MEMBERS = [
-  { userId: "u1", displayName: "Dana Kaplan", email: "dana@lecfl.com", role: "org_admin", status: "active", department: "Office", userCode: "DK7", effectiveCode: "DK7" },
-  { userId: "u2", displayName: "Moshe Levi", email: "moshe.levi@lecfl.com", role: "staff", status: "active", department: "Math", userCode: "ML2", effectiveCode: "ML2" },
-  { userId: "u3", displayName: "Rivka Stein", email: "rivka@lecfl.com", role: "approver", status: "active", department: "Science", userCode: "RS9", effectiveCode: "RS9" },
-  { userId: "u4", displayName: null, email: "substitute.teacher@lecfl.com", role: "student", status: "disabled", department: null, userCode: "ST4", effectiveCode: "ST4" },
-  { userId: "u5", displayName: "Avi Goldman", email: "avi@lecfl.com", role: "staff", status: "active", department: "Art", userCode: "AG1", effectiveCode: "AG1" },
-];
+
+/** ?variant=5|60|1500 (people), empty, or filtered (shows the list with a search and filters on). */
+function sampleCount(variant?: string): number {
+  const n = Number.parseInt(variant ?? "", 10);
+  return n === 5 || n === 1500 ? n : 60;
+}
 
 export function UsersPreview({ variant }: { variant?: string }) {
   return (
     <Frame path="/admin/users">
-      <PageHeader title="Users" description="Everyone who can print here. Change a role, department or print code, then save." />
+      <PageHeader title="Users" description="Everyone who can print here. Open a person to change their role, section or print code, or tick several to change them together." />
       <Tabs label="People" items={peopleTabs("users", true)} />
-      <MembersTable members={variant === "empty" ? [] : MEMBERS} canEdit />
+      <PeopleBrowserPreview
+        key={variant ?? "60"}
+        count={variant === "empty" ? 0 : sampleCount(variant)}
+        initialQuery={variant === "filtered" ? { filter: { q: "", role: "staff", status: "active", section: "Science" } } : undefined}
+      />
       <UnmatchedSignups
         signups={[
           { userId: "s1", email: "someone.long.address.for.wrapping@gmail.com", signedUpAt: "2026-10-22T10:00:00Z", lastSignInAt: "2026-10-22T10:05:00Z" },
@@ -55,26 +57,12 @@ export function UsersPreview({ variant }: { variant?: string }) {
   );
 }
 
-export function GroupsPreview() {
-  const groups = [
-    { id: "g1", name: "Science department", kind: "department" },
-    { id: "g2", name: "Grade 7", kind: "class" },
-    { id: "g3", name: "Substitutes", kind: "custom" },
-  ] as unknown as Tables<"groups">[];
+export function GroupsPreview({ variant }: { variant?: string }) {
   return (
     <Frame path="/admin/groups">
       <PageHeader title="Groups" description="Put people into departments or classes, so print rules and monthly limits can apply to the whole group." />
       <Tabs label="People" items={peopleTabs("groups", true)} />
-      <GroupsPanel
-        groups={groups}
-        groupMembers={[
-          { group_id: "g1", user_id: "u3" },
-          { group_id: "g1", user_id: "u2" },
-          { group_id: "g2", user_id: "u5" },
-        ]}
-        roster={MEMBERS.map((m) => ({ userId: m.userId, label: m.displayName ?? m.email }))}
-        canManage
-      />
+      <GroupsPanelPreview key={variant ?? "60"} count={sampleCount(variant)} />
     </Frame>
   );
 }

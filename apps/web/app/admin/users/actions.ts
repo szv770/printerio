@@ -10,6 +10,7 @@ import { routes } from "@/lib/routes";
 import { normalizeUserCode } from "@/lib/jobs/user-code";
 import { assertCanDemoteMember, assertCanDisableMember, assertCanDisableSelf, assertCanRemoveMember } from "@/lib/member-safety";
 import { cancelMemberQueue } from "@/lib/jobs/lifecycle";
+import { removeFromOrgGroups } from "@/lib/admin/groups-list";
 import { logger } from "@/lib/logger";
 import type { OrgRole } from "@printio/shared";
 
@@ -47,16 +48,30 @@ export async function createInvitationAction(_prev: InviteState, formData: FormD
       .maybeSingle();
     if (!group) return { error: "That group was not found. Pick one from the list." };
   }
-  const { error } = await supabase.from("organization_invitations").insert({
-    organization_id: session.membership.organization_id,
-    code,
-    role,
-    group_id: groupId,
-    max_uses: maxUses,
-    expires_at: expiresInDays ? new Date(Date.now() + expiresInDays * 86_400_000).toISOString() : null,
-    created_by: session.userId,
-  });
+  const { data: created, error } = await supabase
+    .from("organization_invitations")
+    .insert({
+      organization_id: session.membership.organization_id,
+      code,
+      role,
+      group_id: groupId,
+      max_uses: maxUses,
+      expires_at: expiresInDays ? new Date(Date.now() + expiresInDays * 86_400_000).toISOString() : null,
+      created_by: session.userId,
+    })
+    .select("id")
+    .maybeSingle();
   if (error) return { error: describeDatabaseError(error, "Couldn't create that invitation code.") };
+
+  // The code itself is a secret that lets someone join, so it is not written to the log: only what the invite allows.
+  await supabase.from("audit_logs").insert({
+    organization_id: session.membership.organization_id,
+    actor_id: session.userId,
+    action: "invitation.created",
+    target_type: "organization_invitations",
+    target_id: created?.id ?? null,
+    metadata: { role, group_id: groupId, max_uses: maxUses, expires_in_days: expiresInDays },
+  });
 
   revalidatePath(routes.adminUsers);
   revalidatePath(routes.adminInvites);
@@ -149,6 +164,15 @@ export async function changeMemberDepartmentAction(
     .eq("user_id", userId);
   if (error) return { error: describeDatabaseError(error, "Couldn't change that member's department.") };
 
+  await supabase.from("audit_logs").insert({
+    organization_id: session.membership.organization_id,
+    actor_id: session.userId,
+    action: "member.section_changed",
+    target_type: "organization_members",
+    target_id: userId,
+    metadata: { section: department || null },
+  });
+
   revalidatePath(routes.adminUsers);
   revalidatePath(routes.adminUserDetail(userId));
   return {};
@@ -180,6 +204,15 @@ export async function changeMemberUserCodeAction(
     if ((error as { code?: string }).code === "23505") return { error: "Someone else already has that code." };
     return { error: describeDatabaseError(error, "Couldn't change that member's code.") };
   }
+
+  await supabase.from("audit_logs").insert({
+    organization_id: session.membership.organization_id,
+    actor_id: session.userId,
+    action: "member.print_code_changed",
+    target_type: "organization_members",
+    target_id: userId,
+    metadata: { print_code: code },
+  });
 
   revalidatePath(routes.adminUsers);
   revalidatePath(routes.adminUserDetail(userId));
@@ -373,6 +406,7 @@ export async function removeMemberAction(_prev: RemoveMemberState, formData: For
     .eq("organization_id", session.membership.organization_id)
     .eq("user_id", userId);
   if (error) return { error: describeDatabaseError(error, "Couldn't remove that member.") };
+  await removeFromOrgGroups(supabase, session.membership.organization_id, [userId]);
   await stopTheirQueue(session.membership.organization_id, session.userId, userId);
 
   await supabase.from("audit_logs").insert({

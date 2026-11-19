@@ -61,7 +61,7 @@ export default async function PreviewPage({
     case "users":
       return <UsersPreview variant={variant} />;
     case "groups":
-      return <GroupsPreview />;
+      return <GroupsPreview variant={variant} />;
     case "setupstatus":
       return <SetupStatusPreview />;
     case "memberaccess":
