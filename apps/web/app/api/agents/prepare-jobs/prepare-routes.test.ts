@@ -34,7 +34,7 @@ function matches(row: Row, call: FakeCall): boolean {
 function simulate(call: FakeCall): FakeResult {
   if (call.table === "storage:print-jobs") {
     if (call.op === "sign_download") return ok({ signedUrl: `https://signed.test/get/${(call.values as { path: string }).path}` });
-    if (call.op === "sign_upload") return ok({ token: "upload-token-1", signedUrl: "x" });
+    if (call.op === "sign_upload") return ok({ token: "upload-token-1", signedUrl: `https://signed.test/put/${call.values as string}?token=upload-token-1` });
     return ok();
   }
   if (call.table !== "server_jobs") return ok();
@@ -83,6 +83,8 @@ const claimed = (n: number, by: Agent = A1, over: Row = {}) => job(n, { status: 
 const rowOf = (n: number) => jobs.find((r) => r.id === id(n))!;
 
 beforeEach(() => {
+  process.env.NEXT_PUBLIC_SUPABASE_URL = "https://sb.test";
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "public-anon-key";
   agent = A1;
   jobs = [];
   fake = fakeSupabase(simulate);
@@ -188,6 +190,8 @@ describe("original / upload-slot (lease required, server chooses every path)", (
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.token).toBe("upload-token-1");
+    expect(body.apikey).toBe("public-anon-key");
+    expect(body.uploadUrl).toBe(`https://signed.test/put/${body.path}?token=upload-token-1`);
     expect(body.path).toMatch(new RegExp(`^prepared/${ORG1}/${id(1)}/[0-9a-f-]{36}\\.pdf$`));
   });
 });

@@ -40,6 +40,10 @@ export interface AgentConfig {
   printerFeedback: boolean;
   /** PRINTIO_LIBRARY_WORKER: ONLY the exact values 1 or true switch on the optional library worker (library-worker.ts: fetches Mafteiach pages for the website's shared cache). OFF by default; meant for the owner's own server only; any other value (or none) means off, and a typo never stops the agent starting. */
   libraryWorker: boolean;
+  /** PRINTIO_PREPARE_WORKER: ONLY the exact values 1 or true switch on the optional prepare worker (prepare-worker.ts: prepares this school's PDFs for the website). OFF by default; today it does nothing even when on, because this build has no PDF pipeline yet. Any other value means off. */
+  prepareWorker: boolean;
+  /** PRINTIO_PREPARE_TIMEOUT_SECONDS: hard limit for preparing one file (default 60, between 10 and 600). Seconds, not minutes, on purpose. */
+  prepareTimeoutSeconds: number;
   /** PRINTIO_RAW_ALLOWED_HOSTS: if set, raw print jobs are only ever sent to these hosts (lower-case, comma separated in the env). Always on top of the private-LAN-only rule. */
   rawAllowedHosts?: string[];
   /** PRINTIO_DOWNLOAD_ALLOWED_HOSTS: if set, job documents are only downloaded from these hosts (or their subdomains), e.g. supabase.co. */
@@ -113,6 +117,17 @@ function parseBool(name: string, raw: string | undefined, fallback: boolean): bo
 export function parseLibraryWorkerFlag(raw: string | undefined): boolean {
   const v = (raw ?? "").trim().toLowerCase();
   return v === "1" || v === "true";
+}
+
+/** Lenient like the library flag: only `1` or `true` turns the prepare worker on; never throws. */
+export function parsePrepareWorkerFlag(raw: string | undefined): boolean {
+  return parseLibraryWorkerFlag(raw);
+}
+
+/** 10..600 seconds, default 60; anything else (empty, text, out of range) falls back to 60 and never stops the agent starting. */
+export function parsePrepareTimeoutSeconds(raw: string | undefined): number {
+  const n = Number((raw ?? "").trim());
+  return Number.isInteger(n) && n >= 10 && n <= 600 ? n : 60;
 }
 
 export interface LoadConfigOptions {
@@ -223,6 +238,8 @@ export function loadConfig(options: LoadConfigOptions = {}): AgentConfig {
     rawOnly: parseBool("PRINTIO_RAW_ONLY", env.PRINTIO_RAW_ONLY, false),
     printerFeedback: parseBool("PRINTIO_PRINTER_FEEDBACK", env.PRINTIO_PRINTER_FEEDBACK, true),
     libraryWorker: parseLibraryWorkerFlag(env.PRINTIO_LIBRARY_WORKER),
+    prepareWorker: parsePrepareWorkerFlag(env.PRINTIO_PREPARE_WORKER),
+    prepareTimeoutSeconds: parsePrepareTimeoutSeconds(env.PRINTIO_PREPARE_TIMEOUT_SECONDS),
     rawAllowedHosts: parseRawAllowedHosts(env.PRINTIO_RAW_ALLOWED_HOSTS),
     downloadAllowedHosts: parseAllowedDownloadHosts(env.PRINTIO_DOWNLOAD_ALLOWED_HOSTS),
   };

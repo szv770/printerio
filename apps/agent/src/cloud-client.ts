@@ -459,6 +459,61 @@ export class CloudClient {
   }
 
   /**
+   * Prepare jobs (docs/PREPARE-JOBS-DESIGN.md): the optional prepare worker's calls. Like the library calls they are NOT routed through
+   * `poll()` (a refusal here must never count toward `consecutiveAuthFailures`, which slows printing down) and are not retried here: the
+   * worker has its own limits, and the website's 120 s lease is what protects a job. All of them only ever concern this print server's own school.
+   *
+   * POST /api/agents/prepare-jobs/claim. `null` = 204, nothing waiting.
+   */
+  async claimPrepareJob(): Promise<{ jobId: string; params: unknown; leaseSeconds: number } | null> {
+    const { status, json } = await this.sendWithRetry("POST", "/api/agents/prepare-jobs/claim", undefined, { auth: true, retry: false });
+    if (status === 204) return null;
+    if (status === 200) {
+      const body = (json ?? {}) as { jobId?: unknown; params?: unknown; leaseSeconds?: unknown };
+      if (typeof body.jobId === "string") return { jobId: body.jobId, params: body.params, leaseSeconds: typeof body.leaseSeconds === "number" ? body.leaseSeconds : 120 };
+      throw new CloudApiError("prepare-jobs/claim answered 200 without a job", "BAD_RESPONSE", 200);
+    }
+    const errBody = (json ?? {}) as ApiErrorBody;
+    throw new CloudApiError(errBody.error?.message ?? `prepare claim failed with status ${status}`, errBody.error?.code ?? `HTTP_${status}`, status);
+  }
+
+  /** POST .../prepare-jobs/:jobId/original: a short-lived signed download link for the job's own original file. */
+  async getPrepareOriginalUrl(jobId: string): Promise<string> {
+    const body = await this.request<{ url?: unknown }>("POST", `/api/agents/prepare-jobs/${encodeURIComponent(jobId)}/original`, undefined, { auth: true, retry: false });
+    if (typeof body?.url !== "string") throw new CloudApiError("prepare original answered without a link", "BAD_RESPONSE", 200);
+    return body.url;
+  }
+
+  /** POST .../prepare-jobs/:jobId/upload-slot: where to PUT the prepared file (the website chooses the path). */
+  async getPrepareUploadSlot(jobId: string): Promise<{ path: string; uploadUrl: string; apikey: string }> {
+    const body = await this.request<{ path?: unknown; uploadUrl?: unknown; apikey?: unknown }>(
+      "POST",
+      `/api/agents/prepare-jobs/${encodeURIComponent(jobId)}/upload-slot`,
+      undefined,
+      { auth: true, retry: false },
+    );
+    if (typeof body?.path !== "string" || typeof body.uploadUrl !== "string" || typeof body.apikey !== "string") {
+      throw new CloudApiError("prepare upload-slot answered without a slot", "BAD_RESPONSE", 200);
+    }
+    return { path: body.path, uploadUrl: body.uploadUrl, apikey: body.apikey };
+  }
+
+  /** POST .../prepare-jobs/:jobId/renew: another 120 s on the lease. */
+  async renewPrepareJob(jobId: string): Promise<void> {
+    await this.request<{ leaseUntil?: string }>("POST", `/api/agents/prepare-jobs/${encodeURIComponent(jobId)}/renew`, undefined, { auth: true, retry: false });
+  }
+
+  /** POST .../prepare-jobs/:jobId/complete with exactly `{ result }`. */
+  async completePrepareJob(jobId: string, result: unknown): Promise<void> {
+    await this.request<{ ok: true }>("POST", `/api/agents/prepare-jobs/${encodeURIComponent(jobId)}/complete`, { result }, { auth: true, retry: false, timeoutMs: 30_000 });
+  }
+
+  /** POST .../prepare-jobs/:jobId/fail with `{ reason }` (a short plain-English reason; the sender sees it). */
+  async failPrepareJob(jobId: string, reason: string): Promise<void> {
+    await this.request<{ ok: true }>("POST", `/api/agents/prepare-jobs/${encodeURIComponent(jobId)}/fail`, { reason }, { auth: true, retry: false });
+  }
+
+  /**
    * GET /api/agents/library/daily-missing?from=YYYY-MM-DD&days=N - which of those days have no saved daily study text yet
    * (the library worker's nightly week-ahead fetch). Like the other library calls it is not routed through `poll()`, so a 403
    * (not a library fetcher) never counts toward `consecutiveAuthFailures`, and it is not retried here. Only strings are returned.

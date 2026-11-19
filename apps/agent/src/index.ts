@@ -24,6 +24,7 @@ import { checkRawTarget } from "./raw-host-policy.js";
 import { createHealthMonitor } from "./health-monitor.js";
 import { createOrchestrator } from "./orchestrator.js";
 import { startLibraryWorker } from "./library-worker.js";
+import { startPrepareWorker } from "./prepare-worker.js";
 import { installService, uninstallService } from "./windows-service.js";
 import { verifyStartupDependencies } from "./dependency-check.js";
 import { ConfigError } from "./errors.js";
@@ -163,6 +164,10 @@ async function runStart(): Promise<void> {
   // created. It runs on its own timer, is never awaited here and cannot throw into the loops below; see library-worker.ts.
   const libraryWorker = startLibraryWorker({ enabled: config.libraryWorker, cloud: cloudClient, logger });
 
+  // The optional prepare worker (PRINTIO_PREPARE_WORKER=1). Inert until the PDF pipeline is plugged in (docs/PREPARE-JOBS-DESIGN.md, P2):
+  // with no pipeline it is never created. Own timer, never awaited here, cannot throw into the loops below; see prepare-worker.ts.
+  const prepareWorker = startPrepareWorker({ enabled: config.prepareWorker, cloud: cloudClient, logger, jobTimeoutMs: config.prepareTimeoutSeconds * 1000 });
+
   const shutdown = (signal: string) => {
     logger.info(`received ${signal} - shutting down`);
     orchestrator.stop();
@@ -170,6 +175,11 @@ async function runStart(): Promise<void> {
       libraryWorker?.stop();
     } catch {
       /* never let the optional worker get in the way of shutting down */
+    }
+    try {
+      prepareWorker?.stop();
+    } catch {
+      /* same for the prepare worker */
     }
     process.exit(0);
   };
