@@ -20,7 +20,7 @@ Next steps are listed at the bottom of `docs/ipp-printing.md` (Apple tests, Chro
 replay, then Phase 1 gateway).
 
 ## Where things stand (gateway build)
-Read `docs/STATE-2026-11-01.md` first (newest: where it runs now - the owner's own PC, not Vercel -, printer facts, what is built, what is next,
+Read `docs/STATE-2026-11-19.md` first (what is built vs LIVE: the big session's work is on branch `claude/members-onboarding`, draft PR #144, NOT live; how to go live safely). Then `docs/STATE-2026-11-01.md` (older: where it runs now - the owner's own PC, not Vercel -, printer facts, what is built, what is next,
 how the owner likes to work, practical gotchas). Then `docs/HANDOFF.md` (older: the gateway build) for what was built, what is untested and the follow-ups.
 
 ## Gotchas
