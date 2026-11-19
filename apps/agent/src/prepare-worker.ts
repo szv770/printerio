@@ -17,11 +17,16 @@
  *  - its timers are `unref`'d, so it can never keep the process alive;
  *  - it uses CloudClient methods that do NOT feed `consecutiveAuthFailures`, so a refusal here can never slow printing.
  */
+import type { PrepareWire } from "@printio/pdf/prepare-wire";
 import { CloudApiError } from "./errors.js";
 import type { Logger } from "./logger.js";
 
 /** Look for a job this often while idle (the website will later tell the print server when one is waiting, so this can go up). */
-export const IDLE_MS = 15_000;
+export const IDLE_MS = 10_000;
+/** After a job the worker looks this often for a while, because the same person (or school) is likely to send more. */
+export const HOT_MS = 3_000;
+/** How long after the last job it keeps looking fast. */
+export const HOT_WINDOW_MS = 2 * 60_000;
 /** First look after start (the print loop gets going first). */
 export const INITIAL_DELAY_MS = 5_000;
 /** After a finished job look again almost at once (more may be waiting: a burst of prints), but never in a tight loop. */
@@ -35,15 +40,8 @@ export const DEFAULT_MAX_ORIGINAL_BYTES = 120 * 1024 * 1024;
 /** Renew the lease at this interval (the website's lease is 120 s). */
 export const RENEW_EVERY_MS = 40_000;
 
-/** What the website needs back (mirrors `prepareResultSchema` in apps/web/lib/prepare/prepare-jobs.ts). */
-export interface PrepareResultPayload {
-  preparedPath: string | null;
-  sourcePages: number;
-  bookletPaddingAdded?: number;
-  flags?: string[];
-  fidelity?: "same" | "changed" | "skipped";
-  rejectedReason?: string;
-}
+/** What the website needs back: the wire result defined with the PDF steps (packages/pdf/src/prepare-wire.ts, checked by `prepareResultSchema` on the website). */
+export type PrepareResultPayload = PrepareWire;
 
 export interface PrepareJobEnvelope {
   jobId: string;
@@ -83,6 +81,8 @@ export interface PrepareWorkerDeps {
   jobTimeoutMs?: number;
   maxOriginalBytes?: number;
   idleMs?: number;
+  hotMs?: number;
+  hotWindowMs?: number;
   renewEveryMs?: number;
 }
 
@@ -119,6 +119,9 @@ export function createPrepareWorker(deps: PrepareWorkerDeps): PrepareWorker {
   const jobTimeoutMs = deps.jobTimeoutMs ?? DEFAULT_JOB_TIMEOUT_MS;
   const maxBytes = deps.maxOriginalBytes ?? DEFAULT_MAX_ORIGINAL_BYTES;
   const idleMs = deps.idleMs ?? IDLE_MS;
+  const clock = deps.now ?? Date.now;
+  const hotMs = deps.hotMs ?? HOT_MS;
+  const hotWindowMs = deps.hotWindowMs ?? HOT_WINDOW_MS;
   const renewEveryMs = deps.renewEveryMs ?? RENEW_EVERY_MS;
 
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -126,6 +129,9 @@ export function createPrepareWorker(deps: PrepareWorkerDeps): PrepareWorker {
   let stopped = false;
   let running = false;
   let backoffMs = idleMs;
+  /** Looks are fast (hotMs) until this time: set after every job, so a school that is printing gets quick pickup and an idle one costs almost no requests. */
+  let hotUntil = 0;
+  const restMs = () => (hotUntil > clock() ? hotMs : idleMs);
   const stopController = new AbortController();
 
   const log = (level: "debug" | "info" | "warn" | "error", msg: string, fields?: Record<string, unknown>) => {
@@ -273,7 +279,7 @@ export function createPrepareWorker(deps: PrepareWorkerDeps): PrepareWorker {
   }
 
   async function tick(): Promise<number> {
-    if (stopped || running) return idleMs;
+    if (stopped || running) return restMs();
     running = true;
     try {
       let job: PrepareJobEnvelope | null;
@@ -289,8 +295,9 @@ export function createPrepareWorker(deps: PrepareWorkerDeps): PrepareWorker {
         return backoffMs;
       }
       backoffMs = idleMs;
-      if (!job) return idleMs;
+      if (!job) return restMs();
       await handle(job);
+      hotUntil = clock() + hotWindowMs;
       return AFTER_JOB_MS;
     } catch (err) {
       log("error", "unexpected error in the prepare worker", { error: errText(err) });

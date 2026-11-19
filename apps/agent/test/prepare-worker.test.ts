@@ -4,6 +4,8 @@ import type { Logger } from "../src/logger.js";
 import {
   AFTER_JOB_MS,
   createPrepareWorker,
+  HOT_MS,
+  HOT_WINDOW_MS,
   IDLE_MS,
   MAX_BACKOFF_MS,
   startPrepareWorker,
@@ -54,7 +56,7 @@ const prepared = (over: Partial<Extract<PrepareOutcome, { kind: "prepared" }>> =
   ...over,
 });
 
-function worker(opts: { cloud?: ReturnType<typeof makeCloud>["cloud"]; pipeline?: PreparePipeline; fetch?: typeof fetch; timeoutMs?: number; renewEveryMs?: number; maxOriginalBytes?: number } = {}) {
+function worker(opts: { cloud?: ReturnType<typeof makeCloud>["cloud"]; pipeline?: PreparePipeline; fetch?: typeof fetch; timeoutMs?: number; renewEveryMs?: number; maxOriginalBytes?: number; now?: () => number } = {}) {
   const { logger, l } = makeLogger();
   const c = opts.cloud ?? makeCloud().cloud;
   const w = createPrepareWorker({
@@ -65,6 +67,7 @@ function worker(opts: { cloud?: ReturnType<typeof makeCloud>["cloud"]; pipeline?
     jobTimeoutMs: opts.timeoutMs ?? 5_000,
     renewEveryMs: opts.renewEveryMs ?? 60_000,
     maxOriginalBytes: opts.maxOriginalBytes,
+    ...(opts.now ? { now: opts.now } : {}),
   });
   return { w, c, l };
 }
@@ -312,5 +315,23 @@ describe("startPrepareWorker (the entry point the agent calls)", () => {
     const w = startPrepareWorker({ ...base(), enabled: true, pipeline: async () => prepared() });
     expect(w).not.toBeNull();
     w!.stop();
+  });
+});
+
+describe("adaptive pickup: fast after activity, slow when idle", () => {
+  it("looks every HOT_MS for a while after a job, then goes back to IDLE_MS", async () => {
+    let t = 1_000_000;
+    const claim = vi.fn().mockResolvedValueOnce(JOB).mockResolvedValue(null);
+    const { w } = worker({ cloud: makeCloud({ claimPrepareJob: claim }).cloud, now: () => t });
+    expect(await w.tick()).toBe(AFTER_JOB_MS); // handled a job
+    expect(await w.tick()).toBe(HOT_MS); // nothing new, but still hot
+    t += HOT_WINDOW_MS - 1;
+    expect(await w.tick()).toBe(HOT_MS);
+    t += 2;
+    expect(await w.tick()).toBe(IDLE_MS); // the window is over
+  });
+  it("an idle server that never had a job stays slow", async () => {
+    const { w } = worker({ cloud: makeCloud({ claimPrepareJob: vi.fn(async () => null) }).cloud });
+    expect(await w.tick()).toBe(IDLE_MS);
   });
 });

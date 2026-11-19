@@ -25,6 +25,7 @@ import { createHealthMonitor } from "./health-monitor.js";
 import { createOrchestrator } from "./orchestrator.js";
 import { startLibraryWorker } from "./library-worker.js";
 import { startPrepareWorker } from "./prepare-worker.js";
+import { createPdfPipeline, nodeCanPrepare } from "./prepare-pipeline.js";
 import { installService, uninstallService } from "./windows-service.js";
 import { verifyStartupDependencies } from "./dependency-check.js";
 import { ConfigError } from "./errors.js";
@@ -166,7 +167,15 @@ async function runStart(): Promise<void> {
 
   // The optional prepare worker (PRINTIO_PREPARE_WORKER=1). Inert until the PDF pipeline is plugged in (docs/PREPARE-JOBS-DESIGN.md, P2):
   // with no pipeline it is never created. Own timer, never awaited here, cannot throw into the loops below; see prepare-worker.ts.
-  const prepareWorker = startPrepareWorker({ enabled: config.prepareWorker, cloud: cloudClient, logger, jobTimeoutMs: config.prepareTimeoutSeconds * 1000 });
+  const canPrepare = nodeCanPrepare();
+  if (config.prepareWorker && !canPrepare) logger.warn(`PRINTIO_PREPARE_WORKER is on, but Node ${process.versions.node} is too old for the PDF tools (22.13 or newer is needed), so the prepare worker stays off`);
+  const prepareWorker = startPrepareWorker({
+    enabled: config.prepareWorker,
+    cloud: cloudClient,
+    logger,
+    jobTimeoutMs: config.prepareTimeoutSeconds * 1000,
+    ...(canPrepare ? { pipeline: createPdfPipeline(logger) } : {}),
+  });
 
   const shutdown = (signal: string) => {
     logger.info(`received ${signal} - shutting down`);

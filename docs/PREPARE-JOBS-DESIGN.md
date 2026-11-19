@@ -102,6 +102,8 @@ preparation. The phone's job number must stay stable, so the gateway keeps its o
 5. UI: preparing card, offline message, hold reasons.
 6. Parity test against real PDFs, then a week on the owner's server.
 
+**Step 5 built 2026-11-19:** the print server's worker now runs `preparePdf` (`apps/agent/src/prepare-pipeline.ts`, loaded on the first job so an idle or switched-off server pays nothing; needs Node 22.13+, otherwise the worker stays off with a warning). Pickup: the worker looks every 10 s when idle and every 3 s for 2 minutes after each job. Still open: a "prepare job waiting" hint on the existing `jobs/claimable` poll for instant first pickup, and real timings on the owner's server.
+
 ## Decisions (owner, 2026-11-19)
 1. **Expiry:** a prepare job that waits with no print server online expires after **24 hours** (built: `PREPARE_QUEUE_EXPIRY_MS`).
 2. **Cancel while preparing: yes.** Because preparation is fast, the cancel window is short, so cancel must be race-safe: it marks the job
