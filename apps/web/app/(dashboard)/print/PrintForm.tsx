@@ -2,16 +2,19 @@
 
 import { printerStatusLabel } from "@/lib/printers/status-label";
 import { useActionState, useEffect, useRef, useState, startTransition } from "react";
-import { AlertTriangle, BookOpen, FileText, FileUp, ListOrdered, Minus, Palette, Paperclip, Plus, Printer, SlidersHorizontal } from "lucide-react";
+import { AlertTriangle, BookOpen, ListOrdered, Minus, Palette, Paperclip, Plus, Printer, SlidersHorizontal } from "lucide-react";
 import { parsePageRange } from "@printio/shared";
 import { bookletBlankPagesNote } from "@/lib/booklet-note";
 import { PagePicker } from "@/components/print/PagePicker";
-import { Button, Card, Collapsible, FieldError, FieldLabel, FormError, Input, Segmented, Spinner, StatusDot, Switch } from "@/components/ui";
+import { Button, Card, FieldError, FieldLabel, FormError, Input, Segmented, StatusDot, Switch } from "@/components/ui";
 import { hasType3Fonts, PICTURE_COPY_MAX_PAGES, TYPE3_HELD_MESSAGE, TYPE3_PICTURE_NOTICE } from "@printio/pdf/type3-fonts";
 import { IMAGE_PAGE_COUNT, formatFileSize, isImageKind, precheckSelectedFile, precheckUploadHeader, shouldPreviewInBrowser } from "@/lib/pdf/client-precheck";
 import { PRINT_PRESETS, type PrintPreset } from "@printio/shared";
 import { NO_LAYOUT, layoutFields, layoutFromUi, layoutSides, presetFormState, type LayoutUi } from "@/lib/print-layout-form";
 import { LayoutOptions, QuickSettings } from "./layout-options";
+import { FileCard } from "./FileCard";
+import { PrintSummary } from "./PrintSummary";
+import { InlineNote, SettingsGroup } from "./SettingsGroup";
 import { renderPdfPageToCanvas } from "@/lib/pdf/render-page";
 import { MAX_COPIES, buildSummary } from "@/lib/print-choices";
 import {
@@ -31,7 +34,7 @@ import {
 } from "@/lib/print-choice-rules";
 import type { PrintAgainFormChoices } from "@/lib/jobs/print-again";
 import { CLEAN_START, resolveStartChoices, type RememberedChoices } from "@/lib/print-start-choices";
-import { liveSummaryLine, summarizeAdvanced, summarizeColor, summarizeFinishing, summarizePages } from "@/lib/print-form-summary";
+import { liveSummaryLine, summarizeAdvanced, summarizeFinishing, summarizePages } from "@/lib/print-form-summary";
 import dynamic from "next/dynamic";
 import { submitPrintJobAction, type SubmitJobState } from "./actions";
 import { previewBookletAction, type BookletPreviewState } from "./preview-action";
@@ -69,7 +72,8 @@ function statusFor(p: { printerOnline: boolean; printerStatus?: string; printerD
   return printerStatusLabel(p.printerStatus ?? (p.printerOnline ? "online" : "offline"), p.printerDetail);
 }
 
-const THUMBNAIL_MAX_WIDTH_PX = 200;
+// Drawn at twice the largest size it is shown at (the desktop preview), so it stays sharp on a high-density screen.
+const THUMBNAIL_MAX_WIDTH_PX = 448;
 /** The key the page used to remember choices under in the browser. It no longer remembers anything there; the key is just cleaned up. */
 const LEGACY_STORAGE_KEY = "printio.print-choices.v1";
 
@@ -134,6 +138,7 @@ export function PrintForm({
   /** Set when a file is too large to parse/render safely in the browser (see shouldPreviewInBrowser) - the upload itself is unaffected. */
   const [previewSkipped, setPreviewSkipped] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const bookletConfirmRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   /** True only while the member's explicit click on "Add blank pages & print" is submitting the form. */
@@ -302,6 +307,26 @@ export function PrintForm({
     setIsImage(false);
     setImageUrl(null);
     setFileError(reason);
+  }
+
+  /** "Remove" on the file card: back to the empty start for the file (the choices stay as they are). */
+  function clearFile() {
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    setFileVersion((v) => v + 1);
+    fileSnapshots.current.clear();
+    staged.current = null;
+    setFileName(null);
+    setFileSizeLabel(null);
+    setEstimatedPages(null);
+    setPickedBytes(null);
+    setFileError(null);
+    setFileNotice(null);
+    setThumbnailReady(false);
+    setPreviewSkipped(false);
+    setIsImage(false);
+    setImageUrl(null);
+    setPreview({ status: "idle" });
+    setClientError(null);
   }
 
   async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -565,8 +590,39 @@ export function PrintForm({
   const barSheets = layoutActive ? layoutSheets : (summary?.sheets ?? null);
   const barError = needsBookletConfirm ? null : (clientError ?? serverError);
 
+  // What each "More options" group is set to, in one line, and whether that differs from the usual (the dot).
+  const pagesChanged = !isImage && rangeText !== "";
+  const bookletSummary = effBooklet === "left" ? "Left binding" : effBooklet === "right" ? "Right binding" : "Off";
+  const finishingSummary =
+    effBooklet !== "none"
+      ? "Set by the booklet"
+      : summarizeFinishing({ staple: effStaple, booklet: "none", punch: showPunchFinishing && effPunch }).replace("No stapling or booklet", "No stapling");
+  const finishingChanged = effBooklet === "none" && (effStaple !== "none" || (showPunchFinishing && effPunch));
+  const showPaperGroup = offersTabloid || isRaw || showColor;
+  const effColor = caps.color ? colorMode : "bw";
+  const paperSummary = [
+    offersTabloid ? (eff.size === "tabloid" ? "Tabloid (11x17)" : "Letter") : null,
+    isRaw ? (eff.paper === "cardstock" ? "Cardstock" : "Plain paper") : null,
+    showColor ? (effColor === "color" ? "Colour" : "Black & white") : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const paperChanged = (offersTabloid && eff.size === "tabloid") || (isRaw && eff.paper === "cardstock") || (showColor && effColor === "color");
+  const showAdvanced = showPunch || remembered !== undefined;
+  const bookletBusy = effBooklet !== "none" && (autoPreview || preview.status !== "idle");
+  const copiesWellRing = copiesValid ? "" : "ring-2 ring-[var(--color-danger)]";
+
+  const fileMeta =
+    fileName && !fileError && estimatedPages !== null
+      ? `${isImage ? "Photo · " : ""}${estimatedPages} ${estimatedPages === 1 ? "page" : "pages"}${fileSizeLabel ? ` · ${fileSizeLabel}` : ""}`
+      : null;
+  const fileCardNote =
+    fileName && !fileError && previewSkipped
+      ? `${fileSizeLabel ? `${fileSizeLabel} · ` : ""}Too large to preview. It will still print${isImage ? "" : ", and the page count is confirmed after you press Print"}.`
+      : null;
+
   return (
-    <form ref={formRef} onSubmit={onSubmit} className="flex flex-col gap-4">
+    <form ref={formRef} onSubmit={onSubmit} className="mx-auto flex w-full max-w-2xl flex-col gap-5 lg:max-w-none">
       {needsBookletConfirm && (
         <div
           ref={bookletConfirmRef}
@@ -622,556 +678,527 @@ export function PrintForm({
         </div>
       )}
 
-      {/* 1. The file: the biggest thing on the page. The real input covers the whole card (invisible), so tapping,
-          keyboard and dragging a file onto it all work natively. */}
-      <div data-tour="print-file-picker">
-        <div
-          className={`relative flex items-center gap-4 rounded-[var(--radius-card)] border-2 border-dashed p-5 transition-colors focus-within:shadow-[var(--ring)] ${
-            fileError
-              ? "border-[var(--color-danger)] bg-[var(--color-danger-soft)]"
-              : fileName
-                ? "border-[var(--color-primary)]/40 bg-[var(--color-surface)]"
-                : "border-[var(--color-border-strong)] bg-[var(--color-surface)] hover:border-[var(--color-primary)] hover:bg-[var(--color-primary-soft)]/50"
-          } ${fileName ? "min-h-28 text-left" : "min-h-40 flex-col items-center justify-center text-center sm:min-h-44"}`}
-        >
-          <input
-            id="file"
-            type="file"
-            name="file"
-            accept="application/pdf,image/jpeg,image/png"
-            required
-            onChange={onFileChange}
-            aria-label="Choose a PDF or photo to print"
-            aria-describedby={fileError ? "file-error" : undefined}
-            aria-invalid={!!fileError || undefined}
-            className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+      {/* One column on a phone (file, settings, Print bar). From lg up: the document on the left with the Print summary
+          under it, the settings on the right. */}
+      <div className="flex flex-col gap-5 lg:grid lg:grid-cols-12 lg:grid-rows-[auto_1fr] lg:gap-x-8 lg:gap-y-5">
+        {/* 1. The file. The real input covers the whole card (invisible), so tapping, keyboard and dragging a file
+            onto it all work natively. */}
+        <div data-tour="print-file-picker" className="lg:col-span-5 lg:col-start-1 lg:row-start-1">
+          <FileCard
+            input={
+              <input
+                ref={fileInputRef}
+                id="file"
+                type="file"
+                name="file"
+                accept="application/pdf,image/jpeg,image/png"
+                required
+                onChange={onFileChange}
+                aria-label="Choose a PDF or photo to print"
+                aria-describedby={fileError ? "file-error" : undefined}
+                aria-invalid={!!fileError || undefined}
+                className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+              />
+            }
+            canvasRef={canvasRef}
+            fileName={fileName}
+            meta={fileMeta}
+            note={fileCardNote}
+            error={!!fileError}
+            loading={thumbnailLoading}
+            thumbnailReady={thumbnailReady}
+            imageUrl={imageUrl}
+            maxLabel={formatFileSize(maxUploadBytes)}
+            onRemove={clearFile}
           />
-          {/* Canvas always mounted (just hidden when empty) so its ref is available the moment a file is chosen - no
-           *  render-order race with the async thumbnail draw. */}
-          <div
-            className="flex h-24 w-[4.5rem] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] shadow-[var(--shadow-xs)]"
-            data-tour="print-preview"
-            hidden={!fileName}
-          >
-            {thumbnailLoading && <Spinner />}
-            <canvas ref={canvasRef} className="max-h-full max-w-full" hidden={!thumbnailReady} />
-            {imageUrl && (
-              // eslint-disable-next-line @next/next/no-img-element -- a local object URL of the picked photo; next/image cannot optimise it
-              <img src={imageUrl} alt="Preview of your photo" className="max-h-full max-w-full object-contain" />
-            )}
-            {!thumbnailLoading && !thumbnailReady && !imageUrl && fileName && (
-              <FileText className="h-6 w-6 text-[var(--color-faint)]" aria-hidden="true" />
-            )}
-          </div>
-          {fileName ? (
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-base font-semibold leading-6">{fileName}</p>
-              {!fileError && estimatedPages !== null && (
-                <p className="text-sm text-[var(--color-muted)]">
-                  {isImage ? "Photo · " : ""}
-                  {estimatedPages} {estimatedPages === 1 ? "page" : "pages"}
-                  {fileSizeLabel ? ` · ${fileSizeLabel}` : ""}
-                </p>
-              )}
-              {!fileError && previewSkipped && (
-                <p className="text-sm text-[var(--color-muted)]">
-                  {fileSizeLabel ? `${fileSizeLabel} · ` : ""}Too large to preview. It will still print{isImage ? "" : ", and the page count is confirmed after you press Print"}.
-                </p>
-              )}
-              <p className="mt-1 text-sm font-medium text-[var(--color-primary)]">Choose a different file</p>
-            </div>
-          ) : (
-            <>
-              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--color-primary-soft)] text-[var(--color-primary)]">
-                <FileUp className="h-7 w-7" aria-hidden="true" />
-              </span>
-              <div>
-                <p className="text-lg font-semibold leading-6">{fileError ? "Choose another file" : "Choose a PDF or photo"}</p>
-                <p className="mt-0.5 text-sm text-[var(--color-muted)]">Tap here, or drop a file. Up to {formatFileSize(maxUploadBytes)}.</p>
-              </div>
-            </>
+          {fileNotice && !fileError && (
+            <InlineNote className="mt-3" icon={<AlertTriangle className="h-4 w-4" aria-hidden="true" />}>
+              {fileNotice}
+            </InlineNote>
           )}
-        </div>
-        {fileNotice && !fileError && (
-          <p role="status" className="mt-2 flex items-start gap-1.5 text-sm text-[var(--color-muted)]">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            <span>{fileNotice}</span>
-          </p>
-        )}
-        {fileError && (
-          <p id="file-error" role="alert" className="mt-2 flex items-start gap-1.5 text-sm text-[var(--color-danger)]">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            <span>{fileError}</span>
-          </p>
-        )}
-      </div>
-
-      {Object.entries(layoutFieldValues).map(([k, v]) => (
-        <input key={k} type="hidden" name={k} value={v} />
-      ))}
-      <QuickSettings presets={quickPresets} booklet={effBooklet} layout={layoutUi} onPick={pickPreset} />
-
-      {/* 2. The basics: printer (only a choice when there is one), copies, sides. Everything else is one level down. */}
-      <Card className="flex flex-col gap-5" data-tour="print-options">
-        {/* Always rendered (the tour points at it), but it only asks for a choice when there is one to make. */}
-        <fieldset className="flex min-w-0 flex-col gap-2" data-tour="print-printer-fieldset">
-          <legend className="mb-1.5 text-sm font-medium">Printer</legend>
-          {!hasPrinters && (
-            <div className="flex items-start gap-2 rounded-xl bg-[var(--color-warning-soft)] p-3 text-sm text-[var(--color-warning-ink)]">
+          {fileError && (
+            <p id="file-error" role="alert" className="mt-3 flex items-start gap-1.5 text-[13px] leading-5 text-[var(--color-danger)]">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-              <span>
-                No printer is connected yet. You can still choose a file and set things up. Printing starts once an administrator adds a printer.
-              </span>
-            </div>
-          )}
-          {printerProfiles.length === 1 && profile && (
-            <>
-              <input type="hidden" name="printerProfileId" value={profile.id} />
-              <div className="flex items-center gap-3 rounded-xl bg-[var(--color-surface-2)] p-3 text-sm">
-                <Printer className="h-5 w-5 shrink-0 text-[var(--color-muted)]" aria-hidden="true" />
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate font-medium">{profile.label}</span>
-                  {profile.description && <span className="truncate text-xs text-[var(--color-muted)]">{profile.description}</span>}
-                </span>
-                <StatusDot tone={statusFor(profile).tone}>{statusFor(profile).label}</StatusDot>
-              </div>
-            </>
-          )}
-          {printerProfiles.length > 1 &&
-            printerProfiles.map((p) => (
-              <label
-                key={p.id}
-                className={`flex min-h-14 cursor-pointer items-center gap-3 rounded-xl border-2 p-3 text-sm transition-colors has-[:focus-visible]:shadow-[var(--ring)] ${
-                  profile?.id === p.id
-                    ? "border-[var(--color-primary)] bg-[var(--color-primary-soft)]/60"
-                    : "border-[var(--color-border)] hover:border-[var(--color-border-strong)]"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="printerProfileId"
-                  value={p.id}
-                  checked={profile?.id === p.id}
-                  onChange={() => setProfileId(p.id)}
-                  className="h-5 w-5 shrink-0 accent-[var(--color-primary)]"
-                />
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="font-medium">{p.label}</span>
-                  {p.description && <span className="text-xs text-[var(--color-muted)]">{p.description}</span>}
-                </span>
-                <StatusDot tone={statusFor(p).tone}>{statusFor(p).label}</StatusDot>
-              </label>
-            ))}
-        </fieldset>
-
-        <div>
-          <FieldLabel htmlFor="copies">Copies</FieldLabel>
-          <div className="flex items-stretch gap-2">
-            <button
-              type="button"
-              aria-label="Fewer copies"
-              disabled={!copiesValid || copies <= 1}
-              onClick={() => setCopiesText(String(clampCopies(copies - 1)))}
-              className={STEPPER_BUTTON}
-            >
-              <Minus className="h-5 w-5" aria-hidden="true" />
-            </button>
-            <Input
-              id="copies"
-              name="copies"
-              type="text"
-              inputMode="numeric"
-              autoComplete="off"
-              value={copiesText}
-              invalid={!copiesValid}
-              aria-describedby={copiesValid ? undefined : "copies-error"}
-              onChange={(e) => setCopiesText(e.target.value)}
-              onBlur={() => copiesValid && setCopiesText(String(copies))}
-              className="!min-h-12 text-center text-xl font-semibold tabular-nums"
-            />
-            <button
-              type="button"
-              aria-label="More copies"
-              disabled={copiesValid && copies >= MAX_COPIES}
-              onClick={() => setCopiesText(String(clampCopies(copies + 1)))}
-              className={STEPPER_BUTTON}
-            >
-              <Plus className="h-5 w-5" aria-hidden="true" />
-            </button>
-          </div>
-          {!copiesValid && (
-            <div id="copies-error">
-              <FieldError message={`Enter a number from 1 to ${MAX_COPIES}.`} />
-            </div>
-          )}
-        </div>
-
-        {/* Quick controls: one tap each. Nothing here is ever greyed out because of another choice: a tap switches what it
-            cannot live with and the live summary below says what it switched (lib/print-choice-rules.ts). */}
-        <Segmented<SidesValue>
-          name="sides"
-          label="Sides"
-          value={effBooklet !== "none" ? "two" : effSides}
-          onChange={(v) => tap({ kind: "sides", value: v })}
-          options={[
-            { value: "one", label: "Single-sided" },
-            { value: "two", label: "Double-sided", disabledReason: caps.duplex ? null : "This printer can't print double-sided." },
-          ]}
-          hint={!caps.duplex ? "This printer prints single-sided only." : undefined}
-        />
-        {isRaw && effSides === "two" && effBooklet === "none" && (
-          <Segmented<EdgeValue>
-            name="flip"
-            label="Flip on"
-            value={eff.edge}
-            onChange={(v) => tap({ kind: "edge", value: v })}
-            options={[
-              { value: "long", label: "Long edge (like a book)" },
-              { value: "short", label: "Short edge (like a notepad)" },
-            ]}
-          />
-        )}
-
-        {/* The hidden input carries the printer's own spelling of the size (a raw printer asks for "11x17"). */}
-        <input type="hidden" name="paperSize" value={eff.size === "tabloid" ? tabloidValue : letterValue} />
-        {offersTabloid && (
-          <Segmented<SizeValue>
-            label="Page size"
-            value={eff.size}
-            onChange={(v) => tap({ kind: "size", value: v })}
-            options={[
-              { value: "letter", label: "Letter" },
-              { value: "tabloid", label: "Tabloid (11x17)" },
-            ]}
-          />
-        )}
-
-        {isRaw && (
-          <div>
-            <Segmented<PaperValue>
-              name="paperType"
-              label="Paper type"
-              value={eff.paper}
-              onChange={(v) => tap({ kind: "paper", value: v })}
-              options={[
-                { value: "plain", label: "Plain" },
-                { value: "cardstock", label: "Cardstock" },
-              ]}
-            />
-            {eff.paper === "cardstock" && (
-              <p role="status" className="mt-2 flex items-start gap-1.5 rounded-xl bg-[var(--color-warning-soft)] px-3 py-2 text-sm text-[var(--color-warning-ink)]">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                <span>{CARDSTOCK_WARNING}</span>
-              </p>
-            )}
-          </div>
-        )}
-
-        {caps.booklet && caps.duplex && (
-          <div>
-            <Segmented<BookletValue>
-              name="booklet"
-              label="Booklet"
-              value={effBooklet}
-              onChange={(v) => tap({ kind: "booklet", value: v })}
-              options={[
-                { value: "none", label: "Off" },
-                { value: "left", label: "Left binding", disabledReason: layoutActive ? LAYOUT_BOOKLET_REASON : null },
-                { value: "right", label: "Right binding", disabledReason: layoutActive ? LAYOUT_BOOKLET_REASON : null },
-              ]}
-              hint={
-                layoutActive
-                  ? LAYOUT_BOOKLET_REASON
-                  : effBooklet === "none"
-                  ? "Folds and staples the pages into a booklet. Left binding reads left to right. Right binding is for right-to-left languages such as Hebrew."
-                  : effBooklet === "left"
-                    ? "Bound on the left edge, like an English book."
-                    : "Bound on the right edge, like a Hebrew book."
-              }
-            />
-            {effBooklet !== "none" && (
-              <div className="mt-4 flex flex-col gap-4">
-                {bookletNote && (
-                  <p role="status" className="rounded-xl bg-[var(--color-surface-2)] px-3 py-2 text-sm text-[var(--color-muted)]">
-                    {bookletNote}
-                  </p>
-                )}
-                <Segmented<SizeValue>
-                  name="bookletSheet"
-                  label="Booklet size"
-                  value={eff.size}
-                  onChange={(v) => tap({ kind: "size", value: v })}
-                  options={[
-                    { value: "letter", label: "Regular (Letter sheet)" },
-                    { value: "tabloid", label: "11x17 (full-size pages)" },
-                  ]}
-                  hint={
-                    eff.size === "letter"
-                      ? "Each page is scaled to fit a statement-size page (half a Letter sheet), as big as it can be without being cut off."
-                      : "Letter pages stay about full size on an 11x17 sheet, folded and stapled in the middle. Not tested yet - may not come out right. Put 11x17 paper in the printer first."
-                  }
-                />
-                {eff.size === "letter" && (
-                  <Segmented<"fill" | "keep">
-                    name="bookletFit"
-                    label="Booklet fit"
-                    value={bookletFit}
-                    onChange={setBookletFit}
-                    options={[
-                      { value: "fill", label: "Fill the page (recommended)" },
-                      { value: "keep", label: "Keep original margins" },
-                    ]}
-                    hint={
-                      bookletFit === "fill"
-                        ? "Trims your document's own blank margins so the text fills each booklet page. Pages of the same size are trimmed the same, so the text stays one size. Scans of other sizes are fitted on their own."
-                        : "Shrinks the whole page, margins included, to fit. Text comes out smaller."
-                    }
-                  />
-                )}
-                <div>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    disabled={!fileName || !!fileError || !hasPrinters || !!rangeError}
-                    pending={preview.status === "loading"}
-                    pendingLabel="Building preview..."
-                    onClick={onPreviewBooklet}
-                  >
-                    <BookOpen className="h-4 w-4" aria-hidden="true" />
-                    Preview booklet
-                  </Button>
-                  {!fileName && <p className="mt-1 text-xs text-[var(--color-muted)]">Choose a file to preview the booklet.</p>}
-                  {preview.status === "error" && preview.error && <FormError message={preview.error} />}
-                  {preview.status === "ready" && preview.data && preview.signature === previewSignature && <BookletPreview data={preview.data} />}
-                  {preview.status === "ready" && preview.signature !== previewSignature && (
-                    <p className="mt-2 text-xs text-[var(--color-muted)]">Your choices changed. Press Preview booklet to see the new layout.</p>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </Card>
-
-      <LayoutOptions value={layoutUi} onChange={setLayoutUi} bookletOn={effBooklet !== "none"} pages={selectedPages} duplex={effSides === "two"} />
-
-      {/* 3. One level down. Every section starts closed and says in one line what it is set to. */}
-      <div className="flex flex-col gap-3">
-        {isImage && <input type="hidden" name="pageRange" value="" />}
-        {!isImage && (
-        <Collapsible
-          id="print-pages"
-          title="Pages"
-          icon={<ListOrdered className="h-4 w-4" aria-hidden="true" />}
-          summary={rangeError ? <span className="text-[var(--color-danger)]">{rangeError}</span> : summarizePages(rangeText, estimatedPages, selectedPages)}
-          forceOpen={!!rangeError}
-        >
-          <div className="flex flex-col gap-4">
-            <Segmented<"all" | "range">
-              label="Which pages?"
-              value={pagesMode === "all" && !rangeText ? "all" : "range"}
-              onChange={(next) => {
-                setPagesMode(next);
-                if (next === "all") setPageRange("");
-              }}
-              options={[
-                { value: "all", label: "All pages" },
-                { value: "range", label: "Some pages" },
-              ]}
-            />
-            {!(pagesMode === "range" || rangeText) && <input type="hidden" name="pageRange" value="" />}
-            {(pagesMode === "range" || rangeText) && pickedBytes && estimatedPages && (
-              <Segmented<"tap" | "type">
-                label="How do you want to choose?"
-                value={pickMode}
-                onChange={setPickMode}
-                options={[
-                  { value: "tap", label: "Tap pages" },
-                  { value: "type", label: "Type pages" },
-                ]}
-              />
-            )}
-            {(pagesMode === "range" || rangeText) && pickedBytes && estimatedPages && pickMode === "tap" && (
-              <>
-                <input type="hidden" name="pageRange" value={pageRange} />
-                <PagePicker bytes={pickedBytes} totalPages={estimatedPages} value={pageRange} onChange={setPageRange} />
-                {rangeError && <FieldError message={rangeError} />}
-              </>
-            )}
-            {(pagesMode === "range" || rangeText) && !(pickedBytes && estimatedPages && pickMode === "tap") && (
-              <div>
-                <FieldLabel htmlFor="pageRange">Pages to print</FieldLabel>
-                <Input
-                  id="pageRange"
-                  name="pageRange"
-                  type="text"
-                  autoComplete="off"
-                  placeholder="For example 1-5, 8"
-                  value={pageRange}
-                  invalid={!!rangeError}
-                  aria-describedby={rangeError ? "pageRange-error" : "pageRange-help"}
-                  onChange={(e) => setPageRange(e.target.value)}
-                />
-                {rangeError ? (
-                  <div id="pageRange-error">
-                    <FieldError message={rangeError} />
-                  </div>
-                ) : (
-                  <p id="pageRange-help" className="mt-1.5 text-[13px] text-[var(--color-muted)]">
-                    Use commas and dashes. {estimatedPages ? `This file has ${estimatedPages} pages.` : ""}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        </Collapsible>
-        )}
-
-        <Collapsible
-          id="print-finishing"
-          title="Finishing"
-          icon={<Paperclip className="h-4 w-4" aria-hidden="true" />}
-          summary={summarizeFinishing({ staple: effStaple, booklet: effBooklet, punch: showPunchFinishing && effPunch })}
-        >
-          <div className="flex flex-col gap-5">
-            <Segmented<StapleValue>
-              name="staple"
-              label="Staple"
-              value={effStaple}
-              onChange={(v) => tap({ kind: "staple", value: v })}
-              disabled={!caps.staple}
-              options={
-                isRaw
-                  ? [
-                      { value: "none", label: "None" },
-                      { value: "top-left", label: "Top-left" },
-                      { value: "top-right", label: "Top-right" },
-                      ...(caps.staple ? [{ value: "dual-left" as const, label: "Two staples, left" }] : []),
-                    ]
-                  : [
-                      { value: "none", label: "None" },
-                      { value: "top-left", label: "Staple" },
-                    ]
-              }
-              hint={!caps.staple ? "This printer can't staple." : undefined}
-            />
-            {showPunchFinishing && (
-              <Switch
-                name="punch"
-                label="Hole punch (3 holes, left)"
-                description="Punches 3 holes along the left edge."
-                checked={effPunch}
-                onChange={(e) => tap({ kind: "punch", value: e.target.checked })}
-              />
-            )}
-          </div>
-        </Collapsible>
-
-        {showColor && (
-          <Collapsible
-            id="print-paper"
-            title="Color"
-            icon={<Palette className="h-4 w-4" aria-hidden="true" />}
-            summary={summarizeColor({ colorMode: caps.color ? colorMode : "bw" })}
-          >
-            <div className="flex flex-col gap-5">
-              <Segmented<"bw" | "color">
-                name="colorMode"
-                label="Color"
-                value={caps.color ? colorMode : "bw"}
-                onChange={setColorMode}
-                options={[
-                  { value: "bw", label: "Black & white" },
-                  { value: "color", label: "Color", disabledReason: caps.color ? null : "This printer can't print in color." },
-                ]}
-              />
-            </div>
-          </Collapsible>
-        )}
-
-        {(showPunch || remembered !== undefined) && (
-        <Collapsible
-          id="print-advanced"
-          title="Advanced"
-          icon={<SlidersHorizontal className="h-4 w-4" aria-hidden="true" />}
-          summary={summarizeAdvanced({ punchAvailable: showPunch, punch: effPunch })}
-        >
-          <div className="flex flex-col gap-4">
-            {showPunch && (
-              <Switch name="punch" label="Hole punch" description="Punches holes along the left edge." checked={effPunch} onChange={(e) => tap({ kind: "punch", value: e.target.checked })} />
-            )}
-            {remembered !== undefined && (
-              <div>
-                <p className="mb-2 text-[13px] text-[var(--color-muted)]">This page started from what you chose last time (your Profile setting). Start fresh to clear it.</p>
-                <Button type="button" variant="secondary" size="sm" onClick={resetChoices}>
-                  Start fresh
-                </Button>
-              </div>
-            )}
-          </div>
-        </Collapsible>
-        )}
-      </div>
-
-      {/* 4. The action bar. On a phone it floats just above the tab bar (--sticky-bottom, set by the member shell);
-          from sm up it is a card that sticks to the bottom of the window. */}
-      <div className="sticky bottom-[var(--sticky-bottom,0.75rem)] z-30 -mx-1 rounded-[1.25rem] border border-[var(--color-border)] bg-[var(--color-surface)]/95 p-3 shadow-[var(--shadow-pop)] backdrop-blur sm:static sm:mx-0 sm:p-4 sm:shadow-[var(--shadow-card)]">
-        <div aria-live="polite" className="flex items-baseline justify-between gap-3">
-          {fileName || estimatedPages ? (
-            <p className="min-w-0 text-sm font-medium leading-5 text-[var(--color-text)]">{liveLine}</p>
-          ) : (
-            <p className="text-sm text-[var(--color-muted)]">Choose a PDF or photo to get started.</p>
-          )}
-          {barSheets !== null && (
-            <p className="shrink-0 text-sm tabular-nums text-[var(--color-muted)]">
-              {barSheets} {barSheets === 1 ? "sheet" : "sheets"}
+              <span>{fileError}</span>
             </p>
           )}
         </div>
-        {tapNote && (
-          <p role="status" data-testid="choice-note" className="mt-1 text-sm font-medium text-[var(--color-warning-ink)]">
-            {tapNote}
-          </p>
-        )}
-        {summary && summary.blankPagesAdded > 0 && (
-          <p className="mt-0.5 text-xs text-[var(--color-muted)]">
-            Includes {summary.blankPagesAdded} blank {summary.blankPagesAdded === 1 ? "page" : "pages"} to fill the booklet.
-          </p>
-        )}
-        {!summary && fileName && rangeText && !estimatedPages && (
-          <p className="mt-0.5 text-xs text-[var(--color-muted)]">The page count is confirmed after you press Print.</p>
-        )}
 
-        {barError && (
-          <div className="mt-2">
-            <FormError message={barError} />
+        {Object.entries(layoutFieldValues).map(([k, v]) => (
+          <input key={k} type="hidden" name={k} value={v} />
+        ))}
+
+        {/* 2. The settings: a preset, the basics, then everything else one level down. */}
+        <div className="flex flex-col gap-5 lg:col-span-7 lg:col-start-6 lg:row-span-2 lg:row-start-1">
+          <QuickSettings
+            presets={quickPresets}
+            booklet={effBooklet}
+            layout={layoutUi}
+            onPick={pickPreset}
+            onClear={() => {
+              setLayoutUi(NO_LAYOUT);
+              if (effBooklet !== "none") tap({ kind: "booklet", value: "none" });
+            }}
+          />
+
+          <Card className="flex flex-col gap-4 sm:gap-5" data-tour="print-options">
+            {/* Always rendered (the tour points at it), but it only asks for a choice when there is one to make. */}
+            <fieldset className="flex min-w-0 flex-col gap-2 border-b border-[var(--color-border)] pb-4" data-tour="print-printer-fieldset">
+              <legend className={printerProfiles.length > 1 ? "mb-2 text-sm font-medium" : "sr-only"}>Printer</legend>
+              {!hasPrinters && (
+                <InlineNote tone="warning" icon={<AlertTriangle className="h-4 w-4" aria-hidden="true" />}>
+                  No printer is connected yet. You can still choose a file and set things up. Printing starts once an administrator adds a printer.
+                </InlineNote>
+              )}
+              {printerProfiles.length === 1 && profile && (
+                <>
+                  <input type="hidden" name="printerProfileId" value={profile.id} />
+                  <div className="flex min-h-11 items-center gap-3 text-sm">
+                    <Printer className="h-[18px] w-[18px] shrink-0 text-[var(--color-muted)]" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 truncate">
+                      <span className="font-medium text-[var(--color-text)]">{profile.label}</span>
+                      {profile.description && <span className="hidden text-[var(--color-muted)] sm:inline"> · {profile.description}</span>}
+                    </span>
+                    <StatusDot tone={statusFor(profile).tone}>{statusFor(profile).label}</StatusDot>
+                  </div>
+                </>
+              )}
+              {printerProfiles.length > 1 && (
+                <div className="flex flex-col divide-y divide-[var(--color-border)] overflow-hidden rounded-[var(--radius-control)] border border-[var(--color-border)]">
+                  {printerProfiles.map((p) => (
+                    <label
+                      key={p.id}
+                      className={`flex min-h-14 cursor-pointer items-center gap-3 px-3 py-2 text-sm transition-colors duration-150 has-[:focus-visible]:shadow-[inset_0_0_0_2px_var(--color-primary)] motion-reduce:transition-none ${
+                        profile?.id === p.id ? "bg-[var(--color-primary-soft)]/60" : "hover:bg-[var(--color-surface-2)]/60"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="printerProfileId"
+                        value={p.id}
+                        checked={profile?.id === p.id}
+                        onChange={() => setProfileId(p.id)}
+                        className="h-5 w-5 shrink-0 accent-[var(--color-primary)]"
+                      />
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="font-medium">{p.label}</span>
+                        {p.description && <span className="text-xs text-[var(--color-muted)]">{p.description}</span>}
+                      </span>
+                      <StatusDot tone={statusFor(p).tone}>{statusFor(p).label}</StatusDot>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </fieldset>
+
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <label htmlFor="copies" className="text-sm font-medium">
+                  Copies
+                </label>
+                <div className={`flex items-center gap-1 rounded-[var(--radius-control)] bg-[var(--color-surface-2)] p-1 ${copiesWellRing}`}>
+                  <button
+                    type="button"
+                    aria-label="Fewer copies"
+                    disabled={!copiesValid || copies <= 1}
+                    onClick={() => setCopiesText(String(clampCopies(copies - 1)))}
+                    className={STEPPER_BUTTON}
+                  >
+                    <Minus className="h-[18px] w-[18px]" aria-hidden="true" />
+                  </button>
+                  <input
+                    id="copies"
+                    name="copies"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    value={copiesText}
+                    aria-invalid={!copiesValid || undefined}
+                    aria-describedby={copiesValid ? undefined : "copies-error"}
+                    onChange={(e) => setCopiesText(e.target.value)}
+                    onBlur={() => copiesValid && setCopiesText(String(copies))}
+                    className="h-11 w-14 rounded-lg bg-transparent text-center text-lg font-semibold tabular-nums text-[var(--color-text)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]"
+                  />
+                  <button
+                    type="button"
+                    aria-label="More copies"
+                    disabled={copiesValid && copies >= MAX_COPIES}
+                    onClick={() => setCopiesText(String(clampCopies(copies + 1)))}
+                    className={STEPPER_BUTTON}
+                  >
+                    <Plus className="h-[18px] w-[18px]" aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+              {!copiesValid && (
+                <div id="copies-error" className="mt-1.5 text-right">
+                  <FieldError message={`Enter a number from 1 to ${MAX_COPIES}.`} />
+                </div>
+              )}
+            </div>
+
+            {/* Quick controls: one tap each. Nothing here is ever greyed out because of another choice: a tap switches what it
+                cannot live with and the live summary says what it switched (lib/print-choice-rules.ts). */}
+            <Segmented<SidesValue>
+              name="sides"
+              label="Sides"
+              value={effBooklet !== "none" ? "two" : effSides}
+              onChange={(v) => tap({ kind: "sides", value: v })}
+              options={[
+                { value: "one", label: "Single-sided" },
+                { value: "two", label: "Double-sided", disabledReason: caps.duplex ? null : "This printer can't print double-sided." },
+              ]}
+              hint={!caps.duplex ? "This printer prints single-sided only." : undefined}
+            />
+            {isRaw && effSides === "two" && effBooklet === "none" && (
+              <Segmented<EdgeValue>
+                name="flip"
+                label="Flip on"
+                value={eff.edge}
+                onChange={(v) => tap({ kind: "edge", value: v })}
+                options={[
+                  { value: "long", label: "Long edge (like a book)" },
+                  { value: "short", label: "Short edge (like a notepad)" },
+                ]}
+              />
+            )}
+          </Card>
+
+          {/* 3. One level down: one list, every group closed, each saying in one line what it is set to. */}
+          <div>
+            <h2 className="mb-2 text-[13px] font-medium text-[var(--color-muted)]">More options</h2>
+            <div className="divide-y divide-[var(--color-border)] overflow-hidden rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-card)]">
+              {isImage && <input type="hidden" name="pageRange" value="" />}
+              {!isImage && (
+                <SettingsGroup
+                  id="print-pages"
+                  title="Pages"
+                  icon={<ListOrdered className="h-[18px] w-[18px]" aria-hidden="true" />}
+                  summary={rangeError ? <span className="text-[var(--color-danger)]">{rangeError}</span> : summarizePages(rangeText, estimatedPages, selectedPages)}
+                  changed={pagesChanged}
+                  forceOpen={!!rangeError}
+                >
+                  <Segmented<"all" | "range">
+                    label="Which pages?"
+                    value={pagesMode === "all" && !rangeText ? "all" : "range"}
+                    onChange={(next) => {
+                      setPagesMode(next);
+                      if (next === "all") setPageRange("");
+                    }}
+                    options={[
+                      { value: "all", label: "All pages" },
+                      { value: "range", label: "Some pages" },
+                    ]}
+                  />
+                  {!(pagesMode === "range" || rangeText) && <input type="hidden" name="pageRange" value="" />}
+                  {(pagesMode === "range" || rangeText) && pickedBytes && estimatedPages && (
+                    <Segmented<"tap" | "type">
+                      label="How do you want to choose?"
+                      value={pickMode}
+                      onChange={setPickMode}
+                      options={[
+                        { value: "tap", label: "Tap pages" },
+                        { value: "type", label: "Type pages" },
+                      ]}
+                    />
+                  )}
+                  {(pagesMode === "range" || rangeText) && pickedBytes && estimatedPages && pickMode === "tap" && (
+                    <div>
+                      <input type="hidden" name="pageRange" value={pageRange} />
+                      <PagePicker bytes={pickedBytes} totalPages={estimatedPages} value={pageRange} onChange={setPageRange} />
+                      {rangeError && <FieldError message={rangeError} />}
+                    </div>
+                  )}
+                  {(pagesMode === "range" || rangeText) && !(pickedBytes && estimatedPages && pickMode === "tap") && (
+                    <div>
+                      <FieldLabel htmlFor="pageRange">Pages to print</FieldLabel>
+                      <Input
+                        id="pageRange"
+                        name="pageRange"
+                        type="text"
+                        autoComplete="off"
+                        placeholder="For example 1-5, 8"
+                        value={pageRange}
+                        invalid={!!rangeError}
+                        aria-describedby={rangeError ? "pageRange-error" : "pageRange-help"}
+                        onChange={(e) => setPageRange(e.target.value)}
+                      />
+                      {rangeError ? (
+                        <div id="pageRange-error">
+                          <FieldError message={rangeError} />
+                        </div>
+                      ) : (
+                        <p id="pageRange-help" className="mt-1.5 text-[13px] text-[var(--color-muted)]">
+                          Use commas and dashes. {estimatedPages ? `This file has ${estimatedPages} pages.` : ""}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </SettingsGroup>
+              )}
+
+              <LayoutOptions value={layoutUi} onChange={setLayoutUi} bookletOn={effBooklet !== "none"} pages={selectedPages} duplex={effSides === "two"} />
+
+              {caps.booklet && caps.duplex && (
+                <SettingsGroup
+                  id="print-booklet"
+                  title="Booklet"
+                  icon={<BookOpen className="h-[18px] w-[18px]" aria-hidden="true" />}
+                  summary={bookletSummary}
+                  changed={effBooklet !== "none"}
+                  forceOpen={bookletBusy}
+                >
+                  <Segmented<BookletValue>
+                    name="booklet"
+                    label="Booklet"
+                    value={effBooklet}
+                    onChange={(v) => tap({ kind: "booklet", value: v })}
+                    options={[
+                      { value: "none", label: "Off" },
+                      { value: "left", label: "Left binding", disabledReason: layoutActive ? LAYOUT_BOOKLET_REASON : null },
+                      { value: "right", label: "Right binding", disabledReason: layoutActive ? LAYOUT_BOOKLET_REASON : null },
+                    ]}
+                    hint={
+                      layoutActive
+                        ? LAYOUT_BOOKLET_REASON
+                        : effBooklet === "none"
+                          ? "Folds and staples the pages into a booklet. Left binding reads left to right. Right binding is for right-to-left languages such as Hebrew."
+                          : effBooklet === "left"
+                            ? "Bound on the left edge, like an English book."
+                            : "Bound on the right edge, like a Hebrew book."
+                    }
+                  />
+                  {effBooklet !== "none" && (
+                    <>
+                      {bookletNote && <InlineNote>{bookletNote}</InlineNote>}
+                      <Segmented<SizeValue>
+                        name="bookletSheet"
+                        label="Booklet size"
+                        value={eff.size}
+                        onChange={(v) => tap({ kind: "size", value: v })}
+                        options={[
+                          { value: "letter", label: "Regular (Letter sheet)" },
+                          { value: "tabloid", label: "11x17 (full-size pages)" },
+                        ]}
+                        hint={
+                          eff.size === "letter"
+                            ? "Each page is scaled to fit a statement-size page (half a Letter sheet), as big as it can be without being cut off."
+                            : "Letter pages stay about full size on an 11x17 sheet, folded and stapled in the middle. Not tested yet - may not come out right. Put 11x17 paper in the printer first."
+                        }
+                      />
+                      {eff.size === "letter" && (
+                        <Segmented<"fill" | "keep">
+                          name="bookletFit"
+                          label="Booklet fit"
+                          value={bookletFit}
+                          onChange={setBookletFit}
+                          options={[
+                            { value: "fill", label: "Fill the page (recommended)" },
+                            { value: "keep", label: "Keep original margins" },
+                          ]}
+                          hint={
+                            bookletFit === "fill"
+                              ? "Trims your document's own blank margins so the text fills each booklet page. Pages of the same size are trimmed the same, so the text stays one size. Scans of other sizes are fitted on their own."
+                              : "Shrinks the whole page, margins included, to fit. Text comes out smaller."
+                          }
+                        />
+                      )}
+                      <div>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          disabled={!fileName || !!fileError || !hasPrinters || !!rangeError}
+                          pending={preview.status === "loading"}
+                          pendingLabel="Building preview..."
+                          onClick={onPreviewBooklet}
+                        >
+                          <BookOpen className="h-4 w-4" aria-hidden="true" />
+                          Preview booklet
+                        </Button>
+                        {!fileName && <p className="mt-1.5 text-[13px] text-[var(--color-muted)]">Choose a file to preview the booklet.</p>}
+                        {preview.status === "error" && preview.error && <FormError message={preview.error} />}
+                        {preview.status === "ready" && preview.data && preview.signature === previewSignature && <BookletPreview data={preview.data} />}
+                        {preview.status === "ready" && preview.signature !== previewSignature && (
+                          <p className="mt-2 text-[13px] text-[var(--color-muted)]">Your choices changed. Press Preview booklet to see the new layout.</p>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </SettingsGroup>
+              )}
+
+              <SettingsGroup
+                id="print-finishing"
+                title="Finishing"
+                icon={<Paperclip className="h-[18px] w-[18px]" aria-hidden="true" />}
+                summary={finishingSummary}
+                changed={finishingChanged}
+              >
+                <Segmented<StapleValue>
+                  name="staple"
+                  label="Staple"
+                  value={effStaple}
+                  onChange={(v) => tap({ kind: "staple", value: v })}
+                  disabled={!caps.staple}
+                  options={
+                    isRaw
+                      ? [
+                          { value: "none", label: "None" },
+                          { value: "top-left", label: "Top-left" },
+                          { value: "top-right", label: "Top-right" },
+                          ...(caps.staple ? [{ value: "dual-left" as const, label: "Two staples, left" }] : []),
+                        ]
+                      : [
+                          { value: "none", label: "None" },
+                          { value: "top-left", label: "Staple" },
+                        ]
+                  }
+                  hint={!caps.staple ? "This printer can't staple." : undefined}
+                />
+                {showPunchFinishing && (
+                  <Switch
+                    name="punch"
+                    label="Hole punch (3 holes, left)"
+                    description="Punches 3 holes along the left edge."
+                    checked={effPunch}
+                    onChange={(e) => tap({ kind: "punch", value: e.target.checked })}
+                  />
+                )}
+              </SettingsGroup>
+
+              {showPaperGroup && (
+                <SettingsGroup
+                  id="print-paper"
+                  title={showColor ? "Paper and colour" : "Paper"}
+                  icon={<Palette className="h-[18px] w-[18px]" aria-hidden="true" />}
+                  summary={paperSummary}
+                  changed={paperChanged}
+                >
+                  {/* The hidden input carries the printer's own spelling of the size (a raw printer asks for "11x17"). */}
+                  <input type="hidden" name="paperSize" value={eff.size === "tabloid" ? tabloidValue : letterValue} />
+                  {offersTabloid && (
+                    <Segmented<SizeValue>
+                      label="Page size"
+                      value={eff.size}
+                      onChange={(v) => tap({ kind: "size", value: v })}
+                      options={[
+                        { value: "letter", label: "Letter" },
+                        { value: "tabloid", label: "Tabloid (11x17)" },
+                      ]}
+                      hint={effBooklet !== "none" ? "A booklet has its own size, set under Booklet." : undefined}
+                    />
+                  )}
+                  {isRaw && (
+                    <div>
+                      <Segmented<PaperValue>
+                        name="paperType"
+                        label="Paper type"
+                        value={eff.paper}
+                        onChange={(v) => tap({ kind: "paper", value: v })}
+                        options={[
+                          { value: "plain", label: "Plain" },
+                          { value: "cardstock", label: "Cardstock" },
+                        ]}
+                      />
+                      {eff.paper === "cardstock" && (
+                        <InlineNote tone="warning" className="mt-2" icon={<AlertTriangle className="h-4 w-4" aria-hidden="true" />}>
+                          {CARDSTOCK_WARNING}
+                        </InlineNote>
+                      )}
+                    </div>
+                  )}
+                  {showColor && (
+                    <Segmented<"bw" | "color">
+                      name="colorMode"
+                      label="Colour"
+                      value={effColor}
+                      onChange={setColorMode}
+                      options={[
+                        { value: "bw", label: "Black & white" },
+                        { value: "color", label: "Color", disabledReason: caps.color ? null : "This printer can't print in color." },
+                      ]}
+                    />
+                  )}
+                </SettingsGroup>
+              )}
+
+              {showAdvanced && (
+                <SettingsGroup
+                  id="print-advanced"
+                  title="Advanced"
+                  icon={<SlidersHorizontal className="h-[18px] w-[18px]" aria-hidden="true" />}
+                  summary={summarizeAdvanced({ punchAvailable: showPunch, punch: effPunch })}
+                  changed={showPunch && effPunch}
+                >
+                  {showPunch && (
+                    <Switch name="punch" label="Hole punch" description="Punches holes along the left edge." checked={effPunch} onChange={(e) => tap({ kind: "punch", value: e.target.checked })} />
+                  )}
+                  {remembered !== undefined && (
+                    <div>
+                      <p className="mb-2 text-[13px] text-[var(--color-muted)]">This page started from what you chose last time (your Profile setting). Start fresh to clear it.</p>
+                      <Button type="button" variant="secondary" size="sm" onClick={resetChoices}>
+                        Start fresh
+                      </Button>
+                    </div>
+                  )}
+                </SettingsGroup>
+              )}
+            </div>
           </div>
-        )}
-        {needsBookletConfirm ? (
-          <p className="mt-2 text-sm font-medium">Answer the question at the top of the page to continue.</p>
-        ) : (
-          <Button
-            type="submit"
-            size="lg"
-            data-tour="print-submit-button"
-            pending={pending || uploading}
-            pendingLabel={uploading ? "Uploading your file..." : "Sending..."}
-            disabled={!canSubmit || !fileName}
-            className="mt-3 min-h-14 w-full text-lg font-semibold"
-            title={hasPrinters ? undefined : "No printer is connected yet."}
+        </div>
+
+        {/* 4. The Print summary. On a phone it floats just above the tab bar (--sticky-bottom, set by the member shell);
+            from lg up it sits under the document and stays in view while the settings scroll. */}
+        <div className="contents lg:col-span-5 lg:col-start-1 lg:row-start-2 lg:block">
+          <PrintSummary
+            ready={!!(fileName || estimatedPages)}
+            line={liveLine}
+            sheets={barSheets}
+            className="lg:top-24 lg:self-start"
+            notes={
+              <>
+                {tapNote && (
+                  <InlineNote tone="warning" data-testid="choice-note" className="mt-2 font-medium">
+                    {tapNote}
+                  </InlineNote>
+                )}
+                {summary && summary.blankPagesAdded > 0 && (
+                  <InlineNote className="mt-2">
+                    Includes {summary.blankPagesAdded} blank {summary.blankPagesAdded === 1 ? "page" : "pages"} to fill the booklet.
+                  </InlineNote>
+                )}
+                {!summary && fileName && rangeText && !estimatedPages && <InlineNote className="mt-2">The page count is confirmed after you press Print.</InlineNote>}
+                {!needsBookletConfirm && summary && (
+                  <p className="mt-3 hidden text-center text-xs text-[var(--color-faint)] lg:block">Sheets and any approval needed are confirmed after you press Print.</p>
+                )}
+              </>
+            }
+            error={barError ? <FormError message={barError} /> : null}
           >
-            <Printer className="h-5 w-5" aria-hidden="true" />
-            Print
-          </Button>
-        )}
-        {!needsBookletConfirm && summary && (
-          <p className="mt-2 hidden text-center text-xs text-[var(--color-faint)] sm:block">Sheets and any approval needed are confirmed after you press Print.</p>
-        )}
+            {needsBookletConfirm ? (
+              <p className="text-sm font-medium">Answer the question at the top of the page to continue.</p>
+            ) : (
+              <Button
+                type="submit"
+                size="lg"
+                data-tour="print-submit-button"
+                pending={pending || uploading}
+                pendingLabel={uploading ? "Uploading your file..." : "Sending..."}
+                disabled={!canSubmit || !fileName}
+                className="min-h-12 px-6 text-base font-semibold lg:min-h-14 lg:w-full"
+                title={hasPrinters ? undefined : "No printer is connected yet."}
+              >
+                <Printer className="h-5 w-5" aria-hidden="true" />
+                Print
+              </Button>
+            )}
+          </PrintSummary>
+        </div>
       </div>
     </form>
   );
 }
 
 const STEPPER_BUTTON =
-  "flex min-h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[var(--color-text)] shadow-[var(--shadow-xs)] transition-colors hover:bg-[var(--color-surface-2)] focus-visible:outline-none focus-visible:shadow-[var(--ring)] active:bg-[var(--color-surface-2)] disabled:cursor-not-allowed disabled:opacity-45";
+  "flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[var(--color-surface)] text-[var(--color-text)] shadow-[var(--shadow-xs)] transition-colors duration-150 hover:bg-[var(--color-surface)]/70 focus-visible:outline-none focus-visible:shadow-[var(--ring)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none motion-reduce:transition-none motion-reduce:active:scale-100";
