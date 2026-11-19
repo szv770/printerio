@@ -1,5 +1,6 @@
 import { apiError } from "@/lib/api-errors";
 import { PREPARE_KIND, PREPARE_LEASE_SECONDS, PREPARE_QUEUE_EXPIRY_MS, requirePrepareAgent } from "@/lib/prepare/prepare-jobs";
+import { retryStuckFinishes } from "@/lib/prepare/retry";
 
 /** A lost race (another server of the same school took the job between our look and our update) is retried with the next-oldest job. */
 const CLAIM_ATTEMPTS = 3;
@@ -37,7 +38,11 @@ export async function POST(request: Request) {
       .limit(1)
       .maybeSingle();
     if (error) return apiError(500, "internal_error", "Failed to look for a job.");
-    if (!candidate) return new Response(null, { status: 204 });
+    if (!candidate) {
+      // Idle: a good moment to finish any of THIS school's jobs whose finish step crashed midway (best effort; never delays or fails the claim).
+      await retryStuckFinishes(db, { organizationId: agent.organizationId, limit: 2 }).catch(() => 0);
+      return new Response(null, { status: 204 });
+    }
 
     let update = db
       .from("server_jobs")

@@ -12,6 +12,7 @@ import type { JobOptions, JobSession } from "@/lib/jobs/create-print-job";
 import { intakePrintJob } from "./intake";
 import { finishPrepareJob, type PrepareJobRow } from "./finish";
 import { cancelPrepareJob } from "./cancel";
+import { retryStuckFinishes, STUCK_AFTER_MS } from "./retry";
 
 const ORG = "org-1";
 const OTHER_ORG = "org-2";
@@ -59,6 +60,7 @@ function match(row: Row, call: FakeCall): boolean {
   return call.filters.every(([name, ...a]) => {
     if (name === "eq") return row[a[0] as string] === a[1];
     if (name === "in") return (a[1] as unknown[]).includes(row[a[0] as string]);
+    if (name === "lt") return row[a[0] as string] != null && String(row[a[0] as string]) < String(a[1]);
     return true;
   });
 }
@@ -396,5 +398,95 @@ describe("cancelPrepareJob (safe, because preparing is fast)", () => {
     jobRow().organization_id = OTHER_ORG;
     jobRow().requested_by = OTHER_USER;
     expect(await cancel(id)).toEqual({ ok: false, reason: "not_found" });
+  });
+});
+
+describe("retryStuckFinishes (the website died after marking the job done and before creating the print job)", () => {
+  const OLD = () => new Date(Date.now() - 5 * 60_000).toISOString();
+  async function stuck(over: Record<string, unknown> = {}) {
+    const r = await intake();
+    if (!r.ok) throw new Error("intake failed");
+    Object.assign(jobRow(), { status: "done", finished_at: OLD(), result: preparedWire(r.prepareJobId), ...over });
+    return r.prepareJobId;
+  }
+  const retry = (opts: { organizationId?: string } = {}) => retryStuckFinishes(fake.client as never, opts);
+
+  it("finishes a job that was left half-done: the print job appears and the result records it", async () => {
+    const id = await stuck();
+    expect(await retry()).toBe(1);
+    expect(w.printJobs).toHaveLength(1);
+    expect(w.printJobs[0]).toMatchObject({ id, status: "approved" });
+    expect((jobRow().result as { printJobId?: string }).printJobId).toBe(id);
+  });
+
+  it("leaves a job alone that only just finished (a finish may still be running right now)", async () => {
+    await stuck({ finished_at: new Date(Date.now() - STUCK_AFTER_MS / 4).toISOString() });
+    expect(await retry()).toBe(0);
+    expect(w.printJobs).toHaveLength(0);
+  });
+
+  it("skips everything that is not stuck: already finished, an error, a booklet question, a rejection; and cancelled or failed jobs", async () => {
+    const id = await stuck();
+    jobRow().result = { ...preparedWire(id), printJobId: id };
+    expect(await retry()).toBe(0);
+    for (const result of [
+      { preparedPath: null, sourcePages: 0, error: { code: "bad_pdf", message: "Not a PDF." } },
+      { preparedPath: null, sourcePages: 5, needsBookletConfirm: { sourcePages: 5, paddedPages: 8, blankPagesAdded: 3 } },
+      { preparedPath: null, sourcePages: 0, rejectedReason: "Password protected." },
+    ]) {
+      jobRow().result = result;
+      expect(await retry()).toBe(0);
+    }
+    jobRow().result = preparedWire(id);
+    for (const status of ["cancelled", "failed", "queued", "claimed"]) {
+      jobRow().status = status;
+      expect(await retry()).toBe(0);
+    }
+    expect(w.printJobs).toHaveLength(0);
+  });
+
+  it("running it twice does not create a second job", async () => {
+    await stuck();
+    expect(await retry()).toBe(1);
+    expect(await retry()).toBe(0);
+    expect(w.printJobs).toHaveLength(1);
+  });
+
+  it("scoped to one school it never touches another school's job", async () => {
+    await stuck();
+    expect(await retry({ organizationId: OTHER_ORG })).toBe(0);
+    expect(w.printJobs).toHaveLength(0);
+    expect(await retry({ organizationId: ORG })).toBe(1);
+  });
+
+  it("RACE: a second finish that loses must NOT mark the job failed or touch the winner's files", async () => {
+    const id = await stuck();
+    // The winner has already created the print job and moved the files, but has not recorded its result yet.
+    w.printJobs.push({ id, status: "approved" });
+    w.objects.delete(STAGED);
+    w.objects.set(`org/${ORG}/jobs/${id}/original.pdf`, 1234);
+    // The loser's early "does the print job exist?" look happens a moment BEFORE the winner's insert, so it sees nothing...
+    let firstLook = true;
+    fake = fakeSupabase((c) => {
+      if (c.table === "print_jobs" && c.op === "select" && c.single === "maybeSingle" && firstLook) {
+        firstLook = false;
+        return ok(null);
+      }
+      return respond(c);
+    });
+    const out = await finish(preparedWire(id));
+    // ... so its insert collides on the primary key, and the failure path checks again and finds the winner.
+    expect(out).toEqual({ status: "already_finished", printJobId: id });
+    expect(jobRow().status).toBe("done");
+    expect(w.objects.has(`org/${ORG}/jobs/${id}/original.pdf`)).toBe(true);
+  });
+});
+
+describe("the print server's idle poll finishes its own school's stuck jobs", () => {
+  it("claim on an idle queue retries stuck finishes for that school only (covered end to end by retryStuckFinishes; wired in the claim route)", async () => {
+    const r = await intake();
+    if (!r.ok) throw new Error("intake failed");
+    Object.assign(jobRow(), { status: "done", finished_at: new Date(Date.now() - 5 * 60_000).toISOString(), result: preparedWire(r.prepareJobId) });
+    expect(await retryStuckFinishes(fake.client as never, { organizationId: ORG, limit: 2 })).toBe(1);
   });
 });

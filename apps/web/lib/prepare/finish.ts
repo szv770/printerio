@@ -35,6 +35,10 @@ async function removeObjects(db: Db, paths: Array<string | null | undefined>): P
 
 /** Marks the prepare job failed with a plain reason the sender will see, and clears what it left in storage. */
 async function failJob(db: Db, job: PrepareJobRow, error: string, wire: PrepareWire | null, cleanup: Array<string | null | undefined>): Promise<FinishOutcome> {
+  // Two finishes can race (the retry sweep and the print server's own call). The loser fails on the print job's primary key; it must NOT mark the
+  // job failed or remove files when the winner already created the print job.
+  const { data: winner } = await db.from("print_jobs").select("id").eq("id", job.id).maybeSingle();
+  if (winner) return { status: "already_finished", printJobId: job.id };
   const message = error.slice(0, MAX_REASON_CHARS);
   const { error: updateError } = await db
     .from("server_jobs")
