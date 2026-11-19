@@ -6,6 +6,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requireSessionOrRedirect, type SessionWithMembership } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
 import { parseChoices } from "@/lib/print-choices";
+import { parseLayoutForm } from "@/lib/print-layout-form";
 import { pipelineSettingsFromJob } from "@/lib/jobs/print-again";
 import { PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { readFormPdf } from "./form-pdf";
@@ -73,6 +74,10 @@ export async function submitPrintJobAction(_prev: SubmitJobState, formData: Form
   const parsedChoices = parseChoices((name) => formData.get(name));
   if (!parsedChoices.ok) return { error: parsedChoices.reason };
 
+  // Pages per sheet / one page repeated. A booklet is its own layout, so asking for both is refused here (the form mirrors this).
+  const parsedLayout = parseLayoutForm((name) => formData.get(name), parsedChoices.choices.booklet);
+  if (!parsedLayout.ok) return { error: parsedLayout.reason };
+
   const jobOptions: JobOptions = {
     printerProfileId: String(formData.get("printerProfileId") ?? ""),
     choices: parsedChoices.choices,
@@ -82,6 +87,7 @@ export async function submitPrintJobAction(_prev: SubmitJobState, formData: Form
     confirmBookletPadding: formData.get("confirmBookletPadding") === "true",
     bookletFit: formData.get("bookletFit") === "keep" ? "keep" : "fill",
     bookletSheet: bookletSheetChoice(formData.get("bookletSheet")),
+    ...(parsedLayout.layout ? { layout: parsedLayout.layout } : {}),
   };
   // "Remember my last print choices": only writes when the member switched it on (and never errors the submit).
   const afterCreated = () =>

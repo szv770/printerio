@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  detectUploadKind,
+  isImageKind,
+  precheckUploadHeader,
   CLIENT_PREVIEW_MAX_BYTES,
   DEFAULT_MAX_UPLOAD_BYTES,
   formatFileSize,
@@ -126,5 +129,35 @@ describe("shouldPreviewInBrowser", () => {
   it("skips a zero-length or nonsense size rather than trying to parse it", () => {
     expect(shouldPreviewInBrowser(0)).toBe(false);
     expect(shouldPreviewInBrowser(Number.NaN)).toBe(false);
+  });
+});
+
+describe("photos (JPEG / PNG) next to PDFs", () => {
+  const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10]);
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0]);
+  const PDF = new TextEncoder().encode("%PDF-1.7");
+
+  it("accepts a JPEG or PNG by name or type, within the same size limit", () => {
+    expect(precheckSelectedFile({ name: "photo.JPG", size: 2 * MB, type: "image/jpeg" }, DEFAULT_MAX_UPLOAD_BYTES)).toEqual({ ok: true });
+    expect(precheckSelectedFile({ name: "scan.png", size: 2 * MB, type: "image/png" }, DEFAULT_MAX_UPLOAD_BYTES)).toEqual({ ok: true });
+    expect(precheckSelectedFile({ name: "photo.jpeg", size: 90 * MB, type: "image/jpeg" }, 50 * MB).ok).toBe(false);
+    expect(precheckSelectedFile({ name: "pic.gif", size: MB, type: "image/gif" }, DEFAULT_MAX_UPLOAD_BYTES).ok).toBe(false);
+  });
+
+  it("decides by magic bytes, whatever the name or MIME type says (a shared file arrives typed application/pdf)", () => {
+    expect(detectUploadKind(PDF)).toBe("pdf");
+    expect(detectUploadKind(JPEG)).toBe("jpeg");
+    expect(detectUploadKind(PNG)).toBe("png");
+    expect(detectUploadKind(new TextEncoder().encode("PK\u0003\u0004zip"))).toBeNull();
+    expect(precheckUploadHeader(JPEG)).toEqual({ ok: true, kind: "jpeg" });
+    const bad = precheckUploadHeader(new Uint8Array([1, 2, 3, 4, 5]));
+    expect(bad.ok).toBe(false);
+  });
+
+  it("a shared photo goes through the same checks as a picked one: the handoff's forced PDF type changes nothing", () => {
+    // SharedFileHandoff builds File(blob, name, { type: "application/pdf" }) and fires the input's change event.
+    expect(precheckSelectedFile({ name: "IMG_1.jpg", size: MB, type: "application/pdf" }, DEFAULT_MAX_UPLOAD_BYTES)).toEqual({ ok: true });
+    const kind = precheckUploadHeader(JPEG);
+    expect(kind.ok && isImageKind(kind.kind)).toBe(true);
   });
 });

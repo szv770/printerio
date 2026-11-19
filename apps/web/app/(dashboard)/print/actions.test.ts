@@ -85,6 +85,22 @@ describe("submitPrintJobAction", () => {
     expect(Object.keys(opts).sort()).toEqual(["bookletFit", "bookletSheet", "choices", "colorMode", "confirmBookletPadding", "paperSize", "printerProfileId", "punch", "writeClient"]);
   });
 
+  it("passes a pages-per-sheet layout to the pipeline, and sends none when the form asks for none", async () => {
+    createPrintJob.mockResolvedValue({ ok: true, jobId: "job-9", jobNumber: "JOB-1", status: "approved", heldReason: null, policyReasons: [] });
+    await expect(submitPrintJobAction({}, form({ layoutMode: "nup", layoutCols: "2", layoutRows: "2" }))).rejects.toBeInstanceOf(RedirectSignal);
+    expect(createPrintJob.mock.calls[0]![4].layout).toEqual({ kind: "nup", cols: 2, rows: 2 });
+    await expect(submitPrintJobAction({}, form({ layoutMode: "repeat", layoutCols: "2", layoutRows: "1", layoutMarks: "true", layoutRepeatPages: "each" }))).rejects.toBeInstanceOf(RedirectSignal);
+    expect(createPrintJob.mock.calls[1]![4].layout).toEqual({ kind: "repeat", cols: 2, rows: 1, pages: "each", marks: true });
+    await expect(submitPrintJobAction({}, form({ layoutMode: "none" }))).rejects.toBeInstanceOf(RedirectSignal);
+    expect("layout" in createPrintJob.mock.calls[2]![4]).toBe(false);
+  });
+
+  it("refuses a layout together with a booklet, and an out-of-range layout, before the pipeline runs", async () => {
+    expect(await submitPrintJobAction({}, form({ booklet: "left", layoutMode: "nup", layoutCols: "2", layoutRows: "1" }))).toMatchObject({ error: expect.stringMatching(/booklet/i) });
+    expect(await submitPrintJobAction({}, form({ layoutMode: "nup", layoutCols: "9", layoutRows: "1" }))).toMatchObject({ error: expect.stringMatching(/1 to 4/) });
+    expect(createPrintJob).not.toHaveBeenCalled();
+  });
+
   it("returns an error as form state, with its field error", async () => {
     createPrintJob.mockResolvedValue({ ok: false, kind: "error", code: "invalid_page_range", error: "The document only has 3 pages.", fieldErrors: { pageRange: "The document only has 3 pages." } });
     expect(await submitPrintJobAction({}, form())).toEqual({ error: "The document only has 3 pages.", fieldErrors: { pageRange: "The document only has 3 pages." } });
