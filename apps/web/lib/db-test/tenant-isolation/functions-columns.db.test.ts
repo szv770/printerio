@@ -55,6 +55,7 @@ const FUNCTIONS: Record<string, { secdef: boolean; exposed: "service_role" | "pr
   "private.handle_new_auth_user()": { secdef: true, exposed: "private-schema", why: "Trigger: creates the profile row for a new login." },
   "private.prevent_platform_role_escalation()": { secdef: false, exposed: "private-schema", why: "Trigger: only the service role may change platform_role." },
   "private.set_updated_at()": { secdef: false, exposed: "private-schema", why: "Trigger helper." },
+  "private.protect_prepare_via_server()": { secdef: false, exposed: "private-schema", why: "Trigger: only the platform owner (SQL editor / service role) may switch preparing PDFs on the print server on for an organization (0058)." },
   "private.print_job_transition_allowed(from_status text, to_status text)": { secdef: false, exposed: "private-schema", why: "Job state machine rule." },
   "private.validate_print_job_transition()": { secdef: true, exposed: "private-schema", why: "Trigger: rejects illegal job state changes." },
   "private.prevent_last_authenticated_at_tampering()": { secdef: false, exposed: "private-schema", why: "Trigger (0016/0019)." },
