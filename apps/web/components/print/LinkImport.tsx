@@ -82,7 +82,7 @@ export function LinkImport({ maxUploadBytes }: { maxUploadBytes: number }) {
     setAdded(null);
     setCancelled(false);
     if (!text.trim()) {
-      setProblem({ message: "Paste a link to a PDF or a photo." });
+      setProblem({ message: "Paste a link to a PDF or a photo.", code: "invalid" });
       return;
     }
     const mine = ++run.current;
