@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
+import type { SourceKind } from "./link";
 import { fetchPdf, fileNameFrom, resolveWithRetry, type Resolver, type Transport, type TransportResponse } from "./fetch-pdf";
 
 const PDF = new TextEncoder().encode("%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n");
@@ -143,6 +144,131 @@ describe("fetchPdf: what is not a PDF, or not allowed", () => {
   });
 });
 
+describe("fetchPdf: photos (only when the caller allows them)", () => {
+  const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 2, 3]);
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 1, 2, 3]);
+  const get = (bytes: Uint8Array, headers: Record<string, string> = {}, path = "https://example.org/a", allowImages = true) =>
+    fetchPdf(url(path), "image", { allowImages, resolve: publicDns, transport: async () => reply(200, bytes, headers) });
+
+  it("accepts a JPEG and a PNG by their first bytes, and names them with their own extension", async () => {
+    expect(await get(JPEG, {}, "https://example.org/Flyer.jpeg")).toMatchObject({ ok: true, contentType: "image/jpeg", fileName: "Flyer.jpeg" });
+    expect(await get(PNG, {}, "https://example.org/pic.png")).toMatchObject({ ok: true, contentType: "image/png", fileName: "pic.png" });
+    expect(await get(JPEG, { "content-disposition": 'attachment; filename="scan"' })).toMatchObject({ fileName: "scan.jpg" });
+    expect(await get(PNG, { "content-disposition": 'attachment; filename="scan.pdf"' })).toMatchObject({ fileName: "scan.png" });
+  });
+  it("a PDF is still a PDF, whatever the name says", async () => {
+    expect(await get(PDF, { "content-type": "image/png" }, "https://example.org/x.png")).toMatchObject({ ok: true, contentType: "application/pdf", fileName: null });
+  });
+  it("ignores the content type the server claims: HTML called image/png is refused", async () => {
+    const res = await get(new TextEncoder().encode("<html><body>hi</body></html>"), { "content-type": "image/png" });
+    expect(res).toMatchObject({ ok: false, reason: "not_pdf" });
+  });
+  it("refuses other image types (GIF, WebP) and says what is accepted", async () => {
+    const gif = new TextEncoder().encode("GIF89a\x01\x00");
+    const res = await get(gif);
+    expect(res).toMatchObject({ ok: false, reason: "not_pdf" });
+    expect(!res.ok && res.message).toMatch(/PDF or a photo/i);
+  });
+  it("the library and other PDF-only callers do not get photos", async () => {
+    const res = await get(JPEG, {}, "https://example.org/a.jpg", false);
+    expect(res).toMatchObject({ ok: false, reason: "not_pdf" });
+    expect(!res.ok && res.message).toMatch(/not a PDF/i);
+  });
+  it("keeps the size cap for photos too", async () => {
+    const big = new Uint8Array(5000);
+    big.set(JPEG, 0);
+    expect(await fetchPdf(url("https://example.org/a.jpg"), "image", { allowImages: true, maxBytes: 1000, resolve: publicDns, transport: async () => reply(200, big) })).toMatchObject({ reason: "too_big" });
+  });
+});
+
+describe("fetchPdf: the hosts of the link types, and what happens when they redirect", () => {
+  const redirect = (to: string) => async () => reply(302, "", { location: to });
+  const dnsFor = (map: Record<string, string>): Resolver => async (h) => [map[h] ?? "8.8.8.8"];
+
+  // Each entry: where a link of this type starts, and the first hop's host. Every host is allowed on its own merits...
+  const starts: Array<[string, SourceKind, string]> = [
+    ["Dropbox", "dropbox", "https://www.dropbox.com/s/abc123xyz/a.pdf?dl=1"],
+    ["Dropbox (scl)", "dropbox", "https://www.dropbox.com/scl/fi/h2k3j4/a.pdf?rlkey=k&dl=1"],
+    ["OneDrive shares", "onedrive", "https://api.onedrive.com/v1.0/shares/u!aHR0cHM/root/content"],
+    ["OneDrive short link host", "onedrive", "https://1drv.ms/b/s!AbCd"],
+    ["a photo", "image", "https://cdn.example.org/pic.png"],
+  ];
+
+  it.each(starts)("%s follows a redirect to the file's own host and downloads", async (_name, kind, start) => {
+    const hosts: string[] = [];
+    const target = kind === "dropbox" ? "https://dl.dropboxusercontent.com/cd/0/get/abc/file?dl=1" : "https://my.microsoftpersonalcontent.com/personal/abc/file";
+    const res = await fetchPdf(url(start), kind, {
+      allowImages: true,
+      resolve: publicDns,
+      transport: async (r) => {
+        hosts.push(r.hostname);
+        return r.hostname === url(start).hostname ? reply(302, "", { location: target }) : reply(200, PDF, { "content-disposition": 'attachment; filename="Sicha.pdf"' });
+      },
+    });
+    expect(res).toMatchObject({ ok: true, fileName: "Sicha.pdf" });
+    expect(hosts).toEqual([url(start).hostname, url(target).hostname]);
+  });
+
+  // ...and an allowed host can never be used to reach a private one.
+  it.each(starts)("%s: a redirect to a private address is refused, without connecting to it", async (_name, kind, start) => {
+    const connected: string[] = [];
+    const res = await fetchPdf(url(start), kind, {
+      allowImages: true,
+      resolve: dnsFor({ "internal.attacker.example": "10.0.0.5" }),
+      transport: async (r) => {
+        connected.push(r.ip);
+        return redirect("https://internal.attacker.example/file.pdf")();
+      },
+    });
+    expect(res).toMatchObject({ ok: false, reason: "blocked" });
+    expect(connected).toEqual(["8.8.8.8"]);
+  });
+
+  it.each([
+    ["the cloud metadata address", "https://169.254.169.254/latest/meta-data"],
+    ["loopback", "https://127.0.0.1/a.pdf"],
+    ["localhost", "https://localhost/a.pdf"],
+    ["an IPv6 loopback", "https://[::1]/a.pdf"],
+    ["a plain http address", "http://dl.dropboxusercontent.com/a.pdf"],
+    ["another port", "https://dl.dropboxusercontent.com:8443/a.pdf"],
+    ["an address with a login", "https://user:pw@dl.dropboxusercontent.com/a.pdf"],
+  ])("a Dropbox or OneDrive redirect to %s is refused", async (_name, target) => {
+    for (const [kind, start] of [["dropbox", "https://www.dropbox.com/s/abc123xyz/a.pdf?dl=1"], ["onedrive", "https://api.onedrive.com/v1.0/shares/u!aHR0cHM/root/content"]] as const) {
+      const hosts: string[] = [];
+      const res = await fetchPdf(url(start), kind, {
+        resolve: publicDns,
+        transport: async (r) => {
+          hosts.push(r.hostname);
+          return redirect(target)();
+        },
+      });
+      expect(res.ok).toBe(false);
+      expect(hosts).toEqual([url(start).hostname]);
+    }
+  });
+
+  it("a host that resolves to a public and a private address together is refused (Dropbox download host)", async () => {
+    const res = await fetchPdf(url("https://dl.dropboxusercontent.com/a"), "dropbox", { resolve: async () => ["8.8.8.8", "192.168.1.9"], transport: vi.fn() });
+    expect(res).toMatchObject({ ok: false, reason: "blocked" });
+  });
+
+  it("still gives up after the redirect limit", async () => {
+    const res = await fetchPdf(url("https://www.dropbox.com/s/abc123xyz/a.pdf?dl=1"), "dropbox", { resolve: publicDns, transport: redirect("https://www.dropbox.com/s/abc123xyz/a.pdf?dl=1") });
+    expect(res).toMatchObject({ ok: false, reason: "http" });
+  });
+
+  it("explains a sign-in page from Dropbox or OneDrive in their own words", async () => {
+    const html = async () => reply(200, "<!DOCTYPE html><html>Sign in</html>");
+    const dropbox = await fetchPdf(url("https://www.dropbox.com/s/abc123xyz/a.pdf?dl=1"), "dropbox", { resolve: publicDns, transport: html });
+    expect(!dropbox.ok && dropbox.message).toMatch(/Dropbox.*Anyone with the link/i);
+    const onedrive = await fetchPdf(url("https://api.onedrive.com/v1.0/shares/u!x/root/content"), "onedrive", { resolve: publicDns, transport: html });
+    expect(!onedrive.ok && onedrive.message).toMatch(/OneDrive.*Anyone with the link/i);
+    const denied = await fetchPdf(url("https://api.onedrive.com/v1.0/shares/u!x/root/content"), "onedrive", { resolve: publicDns, transport: async () => reply(401) });
+    expect(denied).toMatchObject({ reason: "not_shared" });
+    expect(!denied.ok && denied.message).toMatch(/OneDrive/);
+  });
+});
+
 describe("fetchPdf: size and time limits", () => {
   it("refuses a file whose declared size is over the limit before reading it", async () => {
     const res = await fetchPdf(url("https://example.org/a"), "direct", {
@@ -214,6 +340,11 @@ describe("fileNameFrom", () => {
     // plain Latin-1 text that is not UTF-8 stays as it is
     const plain = Buffer.from("café.pdf", "latin1").toString("latin1");
     expect(fileNameFrom(`attachment; filename="${plain}"`, u("https://x.org/a"))).toBe(plain);
+  });
+  it("uses the extension of what the file really is", () => {
+    expect(fileNameFrom('attachment; filename="a.pdf"', u("https://x.org/a"), "image/jpeg")).toBe("a.jpg");
+    expect(fileNameFrom(undefined, u("https://x.org/p/Pic.PNG"), "image/png")).toBe("Pic.PNG");
+    expect(fileNameFrom(undefined, u("https://x.org/p/Pic.png"), "application/pdf")).toBeNull();
   });
   it("falls back to the end of the address when it is a .pdf, otherwise nothing", () => {
     expect(fileNameFrom(undefined, u("https://x.org/files/Booklet%201.pdf"))).toBe("Booklet 1.pdf");
