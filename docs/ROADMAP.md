@@ -29,6 +29,7 @@ first. "Needs you" means I cannot finish it without the owner at a device or a d
 | What | How |
 |---|---|
 | Guided tour, rebuilt | One page at a time, highlighting the real button and waiting for the click; checked on every page at phone width before it is switched back on. |
+| Share to Printio on iPhone | Not possible for now: iOS Safari has no Web Share Target API, so the share sheet cannot list Printio. iPhone uses Add to Home Screen + upload on the Print page, or the existing AirPrint profile. Revisit if Apple adds it. |
 | Short-edge flip on the website form | Add a "flip on the short edge" choice next to double-sided. |
 | Saved booklets ("My booklets") | Save a booklet project to edit and re-print later. |
 | Google sign-in | Diagnose the current failure; until then it is greyed out. |

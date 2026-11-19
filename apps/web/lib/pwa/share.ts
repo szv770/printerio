@@ -20,17 +20,35 @@ export const SHARE_TARGET_PATH = "/share-target";
 export type ShareFailure = "notpdf" | "toolarge" | "empty" | "many" | "nofile" | "storage" | "notready";
 export type ShareOutcome = { ok: true; id: string } | { ok: false; reason: ShareFailure };
 
-/** Accept by mime type OR a .pdf name (Android often labels a Drive/Files PDF "application/octet-stream" or ""). */
+/**
+ * Accept a PDF or a photo (JPEG, PNG) by mime type OR file name (Android often labels a Drive/Files document
+ * "application/octet-stream" or ""). The real type is then decided by the file's first bytes (`sniffSharedType`).
+ * The reason code stays "notpdf" (the Print page's ?share= reader knows it); its notice now says PDFs and photos.
+ */
 export function checkSharedFile(
   file: { name: string; size: number; type: string },
   maxBytes: number,
 ): { ok: true } | { ok: false; reason: "notpdf" | "empty" | "toolarge" } {
-  const byType = String(file.type || "").toLowerCase() === "application/pdf";
-  const byName = /\.pdf$/i.test(String(file.name || ""));
+  const type = String(file.type || "").toLowerCase();
+  const byType = type === "application/pdf" || type === "image/jpeg" || type === "image/png";
+  const byName = /\.(pdf|jpe?g|png)$/i.test(String(file.name || ""));
   if (!byType && !byName) return { ok: false, reason: "notpdf" };
   if (!(file.size > 0)) return { ok: false, reason: "empty" };
   if (file.size > maxBytes) return { ok: false, reason: "toolarge" };
   return { ok: true };
+}
+
+/** The real content type from the first bytes (PDF "%PDF-", JPEG FF D8 FF, PNG 89 50 4E 47 0D 0A 1A 0A), or null. */
+export function sniffSharedType(head: Uint8Array): "application/pdf" | "image/jpeg" | "image/png" | null {
+  var starts = function (sig: number[]) {
+    if (head.length < sig.length) return false;
+    for (var i = 0; i < sig.length; i++) if (head[i] !== sig[i]) return false;
+    return true;
+  };
+  if (starts([0x25, 0x50, 0x44, 0x46, 0x2d])) return "application/pdf";
+  if (starts([0xff, 0xd8, 0xff])) return "image/jpeg";
+  if (starts([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return "image/png";
+  return null;
 }
 
 /** A path only (never an absolute URL), so it works behind any host or proxy. */
@@ -44,6 +62,7 @@ export interface ShareDeps {
   now: () => number;
   uuid: () => string;
   check: typeof checkSharedFile;
+  sniff: typeof sniffSharedType;
   redirect: typeof buildShareRedirect;
   maxBytes: number;
 }
@@ -64,9 +83,18 @@ export async function handleShare(request: Request, deps: ShareDeps): Promise<Re
   if (others.length > 0) return see({ ok: false, reason: "many" });
   const verdict = deps.check(file, deps.maxBytes);
   if (!verdict.ok) return see({ ok: false, reason: verdict.reason });
+  // The file's own bytes decide the type (a renamed .exe or a mislabelled file is turned away). The stored blob carries
+  // the sniffed type, so the Print page can rebuild a correctly typed File from it.
+  let kind: ReturnType<typeof sniffSharedType>;
+  try {
+    kind = deps.sniff(new Uint8Array(await file.slice(0, 8).arrayBuffer()));
+  } catch {
+    return see({ ok: false, reason: "nofile" });
+  }
+  if (!kind) return see({ ok: false, reason: "notpdf" });
   const id = deps.uuid();
   try {
-    await deps.put({ id, name: file.name, size: file.size, blob: file, at: deps.now() });
+    await deps.put({ id, name: file.name, size: file.size, blob: file.slice(0, file.size, kind), at: deps.now() });
   } catch {
     return see({ ok: false, reason: "storage" });
   }
@@ -83,13 +111,13 @@ export function shareNotice(code: string | null, limitBytes: number): string | n
     case "toolarge":
       return `That file is too big to share into Printio (limit ${Math.round(limitBytes / (1024 * 1024))} MB). Choose it on this page instead.`;
     case "notpdf":
-      return "Printio only prints PDFs. Open it and choose Print > Save as PDF first.";
+      return "Printio can print PDFs and photos (JPEG or PNG). For anything else, open it and choose Print > Save as PDF first.";
     case "notready":
       return "Open Printio once, then share again.";
     case "empty":
-      return "That file is empty. Share a different PDF.";
+      return "That file is empty. Share a different file.";
     case "many":
-      return "Printio prints one PDF at a time. Share just one file.";
+      return "Printio prints one file at a time. Share just one PDF or photo.";
     case "nofile":
       return "Printio did not receive a file. Try sharing it again.";
     case "storage":

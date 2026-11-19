@@ -28,12 +28,12 @@ describe("web app manifest", () => {
     }
     expect(m.icons?.every((i) => i.purpose !== ("any maskable" as string))).toBe(true);
   });
-  it("accepts a shared PDF with a multipart POST to /share-target", () => {
+  it("accepts a shared PDF or photo (JPEG, PNG) with a multipart POST to /share-target", () => {
     expect(m.share_target).toEqual({
       action: "/share-target",
       method: "POST",
       enctype: "multipart/form-data",
-      params: { files: [{ name: "file", accept: ["application/pdf", ".pdf"] }] },
+      params: { files: [{ name: "file", accept: ["application/pdf", "image/jpeg", "image/png", ".pdf", ".jpg", ".jpeg", ".png"] }] },
     });
   });
   it("offers print and my jobs as shortcuts", () => {
