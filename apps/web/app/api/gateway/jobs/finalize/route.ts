@@ -96,6 +96,7 @@ export async function POST(request: Request) {
           paperSize: mapped.paperSize,
           punch: false,
           confirmBookletPadding: true,
+          ...(mapped.layout ? { layout: mapped.layout } : {}),
           ...(mapped.heldReason ? { forcedHeldReason: mapped.heldReason } : {}),
           source: "ipp",
           deviceId: device.id,
@@ -125,7 +126,7 @@ export async function POST(request: Request) {
     if (downloadError || !file) return gatewayError(404, "intake_not_found", "The uploaded document could not be found.");
     const bytes = new Uint8Array(await file.arrayBuffer());
 
-    const { choices, heldReason, paperSize } = mapIppChoices(ipp.attributes);
+    const { choices, heldReason, paperSize, layout } = mapIppChoices(ipp.attributes);
     const name = ippFileName(ipp.jobName ?? fileName);
     const session = { userId: member.userId, membership: { organization_id: member.organizationId, role: member.role, department: member.department } };
     const run = (forcedHeldReason: string | undefined): Promise<CreatePrintJobResult> =>
@@ -136,6 +137,7 @@ export async function POST(request: Request) {
         paperSize,
         punch: false,
         confirmBookletPadding: true,
+        ...(layout ? { layout } : {}),
         forcedHeldReason,
         source: "ipp",
         deviceId: device.id,

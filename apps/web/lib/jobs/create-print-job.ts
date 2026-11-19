@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
 import { preparePdf, type PreparePdfResult } from "@printio/pdf/prepare";
+import type { LayoutSpec } from "@printio/pdf/nup";
 import { withSizeAliases } from "@/lib/paper-sizes";
 import { bookletSheetChoice, type BookletSheet } from "@printio/pdf/booklet-build";
 import type { BookletFit } from "@printio/pdf/imposition";
@@ -41,6 +42,8 @@ export interface JobOptions {
   bookletFit?: BookletFit;
   /** Booklet jobs only. "tabloid" = Letter pages at full size on an 11x17 sheet (whole page kept, no crop); default "letter" = regular statement-size pages. Stored in print_jobs.finishing; the row's paper_size becomes tabloid. */
   bookletSheet?: BookletSheet;
+  /** Optional page layout (several pages per sheet / one page repeated), from a print preset. Absent = none; passed straight to preparePdf. */
+  layout?: LayoutSpec;
   /** Create the job as held with this plain-language reason (wins over the printer's own held reason). */
   forcedHeldReason?: string;
   /** Where the job came from. Default "web". */
@@ -360,6 +363,7 @@ export async function createPrintJob(
     forcedHeldReason: opts.forcedHeldReason,
     pageRangeText: choices.pageRange.trim() === "" ? null : choices.pageRange.trim(),
     booklet,
+    ...(opts.layout ? { layout: opts.layout } : {}),
     // The side the member chose for this booklet (else the printer's own default) is also stored on the job, so imposition, the Agent and a re-print all agree on it.
     bookletOptions: { paperSize, bindingSide: bindingSide ?? profileBindingSide, fit: bookletFit, sheet: bookletSheet },
     confirmBookletPadding,

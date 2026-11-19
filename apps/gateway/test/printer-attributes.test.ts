@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decodeIpp, encodeIpp, flatten, TAG } from "../src/ipp/codec.js";
+import { presetMediaTypeNames } from "@printio/shared";
 import { buildPrinterAttributes, DOCUMENT_FORMATS, filterRequested } from "../src/ipp/printer-attributes.js";
 
 const build = () =>
@@ -15,7 +16,7 @@ describe("printer attributes", () => {
     expect(p["print-color-mode-supported"]).toBe("monochrome");
     expect(p["print-color-mode-default"]).toBe("monochrome");
     expect(p["media-default"]).toBe("na_letter_8.5x11in");
-    expect(p["media-col-default"]).toEqual({ "media-size": { "x-dimension": 21590, "y-dimension": 27940 } });
+    expect(p["media-col-default"]).toEqual({ "media-size": { "x-dimension": 21590, "y-dimension": 27940 }, "media-type": "stationery" });
     expect(p["finishings-default"]).toBe(3);
     expect(p["copies-supported"]).toEqual([1, 99]);
     expect(p["sides-supported"]).toEqual(["one-sided", "two-sided-long-edge", "two-sided-short-edge"]);
@@ -61,14 +62,34 @@ describe("advertised paper sizes", () => {
     expect(p()["media-supported"]).toEqual(["na_letter_8.5x11in", "na_ledger_11x17in"]);
     expect(p()["media-ready"]).toEqual(["na_letter_8.5x11in", "na_ledger_11x17in"]);
     expect(p()["media-default"]).toBe("na_letter_8.5x11in");
-    expect(p()["media-col-database"]).toEqual([
-      { "media-size": { "x-dimension": 21590, "y-dimension": 27940 } },
-      { "media-size": { "x-dimension": 27940, "y-dimension": 43180 } },
-    ]);
-    expect(p()["media-col-ready"]).toEqual([
-      { "media-size": { "x-dimension": 21590, "y-dimension": 27940 } },
-      { "media-size": { "x-dimension": 27940, "y-dimension": 43180 } },
-    ]);
+    const letter = { "x-dimension": 21590, "y-dimension": 27940 };
+    const ledger = { "x-dimension": 27940, "y-dimension": 43180 };
+    const types = p()["media-type-supported"] as string[];
+    const combos = [letter, ledger].flatMap((size) => types.map((t) => ({ "media-size": size, "media-type": t })));
+    expect(p()["media-col-database"]).toEqual(combos);
+    expect(p()["media-col-ready"]).toEqual(combos);
+  });
+});
+
+describe("advertised paper types (presets)", () => {
+  const p = () => flatten({ tag: TAG.printer, attrs: build() });
+  it("lists stationery first, then every preset name", () => {
+    expect(p()["media-type-supported"]).toEqual(["stationery", ...presetMediaTypeNames()]);
+    expect((p()["media-type-supported"] as string[])[1]).toBe("Booklet - right edge, stapled");
+  });
+  it("offers every size with every type and puts media-size before media-type", () => {
+    const db = p()["media-col-database"] as Array<Record<string, unknown>>;
+    expect(db).toHaveLength(2 * presetMediaTypeNames().length + 2);
+    expect(Object.keys(db[0] as object)).toEqual(["media-size", "media-type"]);
+    expect(p()["media-col-supported"]).toEqual(["media-size", "media-type"]);
+  });
+  it("leaves every other attribute as before", () => {
+    const m = decodeIpp(encodeIpp({ code: 0, requestId: 1, groups: [{ tag: TAG.printer, attrs: build() }] }));
+    const names = m.groups[0]!.attrs.map((a) => a.name);
+    expect(names.filter((n) => n === "media-type-supported")).toHaveLength(1);
+    expect(p()["media-supported"]).toEqual(["na_letter_8.5x11in", "na_ledger_11x17in"]);
+    expect(p()["finishings-supported"]).toEqual([3, 4, 20, 22, 8, 13, 5, 28]);
+    expect(p()["sides-supported"]).toEqual(["one-sided", "two-sided-long-edge", "two-sided-short-edge"]);
   });
 });
 

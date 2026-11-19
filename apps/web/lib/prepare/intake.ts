@@ -86,6 +86,7 @@ export async function intakePrintJob(
       ...(opts.forcedHeldReason ? { forcedHeldReason: opts.forcedHeldReason } : {}),
       pageRangeText: opts.choices.pageRange.trim() === "" ? null : opts.choices.pageRange.trim(),
       booklet: plan.booklet,
+      ...(opts.layout ? { layout: opts.layout } : {}),
       bookletOptions: { paperSize: plan.paperSize, bindingSide: plan.bindingSide ?? plan.profileBindingSide, fit: plan.bookletFit, sheet: bookletSheetChoice(plan.bookletSheet) },
       confirmBookletPadding: opts.confirmBookletPadding,
       stamp,

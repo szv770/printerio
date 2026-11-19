@@ -152,6 +152,14 @@ describe("intakePrintJob (the website records the job without opening the PDF)",
     expect(JSON.stringify(p)).not.toMatch(/service|secret|token/i);
   });
 
+  it("carries an optional page layout into the print server's params, and leaves the key out without one", async () => {
+    await intake(baseOpts({ layout: { kind: "nup", cols: 2, rows: 1 } }));
+    expect(paramsOf().pdf.layout).toEqual({ kind: "nup", cols: 2, rows: 1 });
+    w = world();
+    await intake();
+    expect(paramsOf().pdf).not.toHaveProperty("layout");
+  });
+
   it("the person's limits are checked first and counted once, before anything is looked up", async () => {
     w.rateOk = false;
     expect(await intake()).toMatchObject({ ok: false, code: "rate_limited" });

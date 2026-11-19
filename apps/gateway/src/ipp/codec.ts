@@ -75,6 +75,8 @@ export interface IppAttr {
   name: string;
   tag: number;
   values: IppValue[];
+  /** Optional per-value tags (same length as `values`) for a 1setOf whose values need different syntaxes, e.g. media-type: keyword `stationery` plus name values. Encode only; absent = every value uses `tag`. */
+  valueTags?: number[];
 }
 
 export interface IppGroup {
@@ -282,7 +284,7 @@ function encodeValueRecord(tag: number, nameBuf: Buffer, value: IppValue): Buffe
 function encodeAttr(a: IppAttr): Buffer {
   const nameBuf = Buffer.from(a.name, "utf8");
   return Buffer.concat(
-    a.values.map((v, i) => encodeValueRecord(a.tag, i === 0 ? nameBuf : Buffer.alloc(0), v)),
+    a.values.map((v, i) => encodeValueRecord(a.valueTags?.[i] ?? a.tag, i === 0 ? nameBuf : Buffer.alloc(0), v)),
   );
 }
 

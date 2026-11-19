@@ -13,6 +13,7 @@
  * integers/enums are numbers, keywords/names are strings, a single value is unwrapped (several stay an array),
  * a rangeOfInteger is `[lo, hi]`, and a collection (media-col) is a nested object.
  */
+import { isStandardMediaType, presetForMediaType, type PresetLayout } from "@printio/shared";
 import { MAX_COPIES, type PrintChoices } from "@/lib/print-choices";
 
 export type IppAttributes = Record<string, unknown>;
@@ -23,6 +24,8 @@ export interface IppChoicesResult {
   paperSize: "letter" | "11x17";
   /** Plain-language reason the job must be held instead of printed, or null. */
   heldReason: string | null;
+  /** Set only when the dialog's paper type named a layout preset ("2 pages per sheet", ...). Absent otherwise. */
+  layout?: PresetLayout;
 }
 
 const LETTER_KEYWORD = "na_letter_8.5x11in";
@@ -264,6 +267,19 @@ export function ippFileName(jobName: unknown): string {
   return `${base || "Print job"}.pdf`;
 }
 
+/**
+ * The paper type the dialog sent: top-level `media-type`, else `media-type` inside the decoded `media-col` object
+ * (Windows sends it there as "stationery"). Null when absent or empty. Never throws.
+ */
+function readMediaType(attrs: IppAttributes): string | null {
+  let v: unknown = asList(attrs["media-type"])[0];
+  if (v === undefined) {
+    const col = asList(attrs["media-col"])[0];
+    if (col && typeof col === "object") v = asList((col as Record<string, unknown>)["media-type"])[0];
+  }
+  return typeof v === "string" && v.trim() !== "" ? v : null;
+}
+
 export function mapIppChoices(attributes: IppAttributes | null | undefined): IppChoicesResult {
   const attrs: IppAttributes = attributes && typeof attributes === "object" && !Array.isArray(attributes) ? attributes : {};
   const reasons: string[] = [];
@@ -271,23 +287,36 @@ export function mapIppChoices(attributes: IppAttributes | null | undefined): Ipp
   const copies = mapCopies(attrs["copies"], reasons);
   const pageRange = mapPageRanges(attrs["page-ranges"], reasons);
   const paperSize = mapMedia(attrs, reasons);
-  const fin = mapFinishings(attrs["finishings"], attrs["orientation-requested"], attrs["sides"], reasons);
+  // A paper type naming a print preset (docs/ipp-printing.md, "Presets via paper type") decides the finishing, sides and
+  // layout itself, so the dialog's finishings are not even read (they cannot contradict it or raise held reasons).
+  // A standard keyword or no paper type is today's behaviour exactly; an unknown custom name is held, never printed as a plain copy.
+  const mediaType = readMediaType(attrs);
+  const preset = presetForMediaType(mediaType);
+  if (mediaType !== null && !preset && !isStandardMediaType(mediaType)) {
+    reasons.push(`The paper type "${describe(mediaType)}" is not available any more. Open Printio > My jobs to choose how to print this.`);
+  }
+  const fin = preset
+    ? { staple: preset.choices.staple, booklet: preset.choices.booklet !== "none", punch: false }
+    : mapFinishings(attrs["finishings"], attrs["orientation-requested"], attrs["sides"], reasons);
   const mappedSides = mapSides(attrs["sides"], reasons);
   // orientation-requested, print-quality, print-color-mode, printer-resolution, print-scaling, document-format,
   // job-name and everything else: deliberately ignored here (printer defaults; the PDF carries its orientation).
 
+  const presetSides = preset?.choices.sides;
   return {
     paperSize,
     choices: {
       // A booklet is always double-sided whatever flip the dialog asked for (the short-edge flip is part of it).
-      sides: fin.booklet ? "two" : mappedSides.sides,
-      ...(!fin.booklet && mappedSides.flip ? { flip: mappedSides.flip } : {}),
+      sides: fin.booklet ? "two" : (presetSides ?? mappedSides.sides),
+      ...(!fin.booklet && !presetSides && mappedSides.flip ? { flip: mappedSides.flip } : {}),
       staple: fin.staple,
       ...(fin.punch ? { punch: true } : {}),
-      booklet: fin.booklet ? "profile" : "none",
+      // A preset names its binding side, so there is nothing to ask; a plain dialog booklet is held for left or right.
+      booklet: preset ? preset.choices.booklet : fin.booklet ? "profile" : "none",
       copies,
       pageRange,
     },
     heldReason: reasons.length > 0 ? reasons.join(" ") : null,
+    ...(preset?.layout ? { layout: preset.layout } : {}),
   };
 }

@@ -136,3 +136,13 @@ PCL XL page attribute, booklet is driver-side imposition; replay experiment pend
    table + migration, intake through the existing preflight/policy/quota pipeline, `source='ipp'`.
 5. Policy question for Phase 1: map Windows' `two-sided-short-edge` / Android's `two-sided-long-edge`
    to the existing duplex setting; paper size sent is Letter (we advertise A4 default).
+
+## Presets via paper type
+
+The OS print dialog has no "booklet" option, so Printio uses the dialog's PAPER TYPE list as a preset selector inside the one printer (no extra printers).
+
+- Advertised (`apps/gateway/src/ipp/printer-attributes.ts`): `media-type-supported` = `stationery` (default, plain paper), then the preset names from `packages/shared/src/print-presets.ts`: "Booklet - right edge, stapled", "Booklet - left edge, stapled", "2 pages per sheet", "4 pages per sheet", "Same page twice per sheet (cut in half)". `media-type` is also in `media-col-default`, `media-col-ready` and `media-col-database` (every size x every type) and in `job-creation-attributes-supported`. All values go out as IPP `name` (the codec writes one tag per attribute). Sizes and every other attribute are unchanged.
+- Mapped (`apps/web/lib/gateway/ipp-choices.ts`): the paper type is read from top-level `media-type` or from inside `media-col` (Windows already sends `media-type: stationery` there). A preset name (case/space-insensitive) forces booklet side, staple none, no punch and, for booklets, two sides; it overrides the dialog's finishings and sides. Copies, page range, orientation and paper size stay the dialog's. Layout presets return a `layout` that finalize passes to `createPrintJob` / `intakePrintJob` (`JobOptions.layout` -> `preparePdf`). No question about left or right binding is asked when a preset names the side.
+- Not a preset: a standard IPP keyword (`stationery`, `cardstock`, ...) or no media-type prints exactly as before. An unknown custom name (e.g. a preset renamed after a phone cached the old list) is HELD with "The paper type "X" is not available any more. Open Printio > My jobs to choose how to print this."
+- Logging: the `job_received` event detail now has `attributeNames` (what the OS sent) and `mediaType`, so the owner can see on a real device what arrives. `media-type` is part of the gateway's duplicate-job key.
+- UNTESTED per OS: whether Windows, macOS, iOS/iPadOS, ChromeOS or Android draws a paper-type list from this printer at all (guess: Mac, ChromeOS, Android yes; Windows and iOS probably not), and whether they send the chosen value as `media-type` or inside `media-col`. Both are handled. Check the `job_received` events after a real print from each device and update this list.
