@@ -122,15 +122,15 @@ export function Collapsible({
           aria-expanded={open}
           aria-controls={panelId}
           onClick={toggle}
-          className="flex min-h-14 w-full items-center gap-3 rounded-[var(--radius-card)] px-4 py-3 text-left transition-colors hover:bg-[var(--color-surface-2)] focus-visible:outline-none focus-visible:shadow-[var(--ring)] sm:px-5"
+          className="flex min-h-14 w-full items-center gap-3 rounded-[var(--radius-card)] px-4 py-3 text-left transition-colors hover:bg-[var(--color-surface-2)]/60 focus-visible:outline-none focus-visible:shadow-[var(--ring)] sm:px-5"
         >
           {icon && (
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--color-primary-soft)] text-[var(--color-primary)]">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-primary-soft)] text-[var(--color-primary)] ring-1 ring-inset ring-[var(--color-primary)]/10">
               {icon}
             </span>
           )}
           <span className="min-w-0 flex-1">
-            <span className="block text-base font-semibold leading-6 text-[var(--color-text)] [overflow-wrap:anywhere]">{title}</span>
+            <span className="block text-[15px] font-semibold leading-6 tracking-[-0.01em] text-[var(--color-text)] [overflow-wrap:anywhere]">{title}</span>
             {!open && summary && (
               <span className="mt-0.5 block text-[13px] leading-5 text-[var(--color-muted)]">{summary}</span>
             )}

@@ -63,7 +63,7 @@ function SetupRow({ setup, canConfirm }: { setup: SetupSummary; canConfirm: bool
           {setup.problems > 0 ? `, ${setup.problems} reported ${setup.problems === 1 ? "a problem" : "problems"}` : ""}.
         </p>
         {setup.problemNotes.length > 0 && (
-          <div className="rounded-xl bg-[var(--color-warning-soft)] p-3 text-sm text-[var(--color-warning-ink)]">
+          <div className="rounded-[var(--radius-control)] bg-[var(--color-warning-soft)] p-3 text-sm text-[var(--color-warning-ink)]">
             <p className="mb-1 flex items-center gap-2 font-medium">
               <TriangleAlert className="h-4 w-4" aria-hidden="true" />
               What people said went wrong

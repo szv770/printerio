@@ -76,7 +76,7 @@ export default async function JobsPage() {
         <ul className="mb-4 space-y-2" aria-label="Files being prepared">
           {cards.map((c) => (
             <li key={c.id}>
-              <Link href={routes.preparing(c.id)} className="block rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3 text-sm">
+              <Link href={routes.preparing(c.id)} className="block rounded-[var(--radius-control)] border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3 text-sm">
                 <span className="font-medium">{c.fileName}</span>
                 <span className="ml-2 text-[var(--color-muted)]">
                   {c.state === "preparing" ? "Preparing..." : c.state === "needs_booklet_confirm" ? "Needs your answer" : "Could not be prepared"}

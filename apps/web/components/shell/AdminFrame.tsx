@@ -13,7 +13,7 @@ export function AdminFrame({ children, ...nav }: ComponentProps<typeof AdminNav>
     <div className="min-h-dvh md:flex">
       <AdminNav {...nav} />
       <div className="min-w-0 flex-1">
-        <div className="mx-auto w-full max-w-5xl px-4 py-6 md:px-10 md:py-10 [&>main]:mx-0 [&>main]:px-0 [&>main]:py-0">
+        <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-8 md:py-10 lg:px-12 lg:py-12 [&>main]:mx-0 [&>main]:px-0 [&>main]:py-0">
           {children}
         </div>
       </div>

@@ -202,7 +202,7 @@ function Step1Plan({
           const archetype = PRINTER_ARCHETYPES[id];
           return (
             <li key={id}>
-              <label className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm">
+              <label className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-3 py-2 text-sm">
                 <input type="checkbox" checked={selected.has(id)} onChange={() => onToggle(id)} />
                 {archetype.checklistLabel}
               </label>
@@ -236,7 +236,7 @@ function RecipeCardPreview({ card }: { card: RecipeCard }) {
   const Icon = PRINTER_PROFILE_ICON_COMPONENTS[card.iconKey as PrinterProfileIconKey];
   const activeCaps = Object.entries(card.declaredCapabilities).filter(([, v]) => v);
   return (
-    <li className="rounded-lg border border-[var(--color-border)] p-3">
+    <li className="rounded-[var(--radius-sm)] border border-[var(--color-border)] p-3">
       <div className="flex items-center gap-2">
         {Icon && <Icon className="h-4 w-4 shrink-0 text-[var(--color-muted)]" />}
         <span className="font-medium">{card.label}</span>
@@ -312,7 +312,7 @@ function Step2RegisterMachine({
         </li>
       </ol>
 
-      <div className="mb-4 rounded-lg border border-[var(--color-border)] p-3">
+      <div className="mb-4 rounded-[var(--radius-sm)] border border-[var(--color-border)] p-3">
         {ready ? (
           <p className="flex items-center gap-2 text-sm text-[var(--color-success)]">
             <CheckCircle2 className="h-4 w-4" /> {status.text} ({onlineAgents.map((a) => a.name).join(", ")})
@@ -526,7 +526,7 @@ function Step3Finish({
             {recipeCards.map((card) => {
               const Icon = PRINTER_PROFILE_ICON_COMPONENTS[card.iconKey as PrinterProfileIconKey];
               return (
-                <li key={card.key} className="rounded-lg border border-[var(--color-border)] p-3">
+                <li key={card.key} className="rounded-[var(--radius-sm)] border border-[var(--color-border)] p-3">
                   <div className="mb-2 flex items-center gap-2">
                     {Icon && <Icon className="h-4 w-4 shrink-0 text-[var(--color-muted)]" />}
                     <span className="font-medium">{card.label}</span>

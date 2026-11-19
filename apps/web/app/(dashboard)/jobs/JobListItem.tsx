@@ -37,7 +37,7 @@ export function JobListItem({ job, eventTypes }: { job: JobRow; eventTypes?: str
         className="block rounded-[var(--radius-card)] p-4 focus-visible:outline-none focus-visible:shadow-[var(--ring)] sm:p-5"
       >
         <div className="flex items-start gap-3">
-          <span className="mt-0.5 hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--color-surface-2)] text-[var(--color-muted)] sm:flex">
+          <span className="mt-0.5 hidden h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] text-[var(--color-muted)] sm:flex">
             <FileText className="h-[18px] w-[18px]" aria-hidden="true" />
           </span>
           <div className="min-w-0 flex-1">

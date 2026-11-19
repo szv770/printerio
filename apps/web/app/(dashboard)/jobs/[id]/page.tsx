@@ -88,7 +88,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   // job), for a job whose file was purged, or to anyone but the job's own submitter.
   const actions =
     plan.retry || plan.cancel || plan.reprint || plan.atPrinter ? (
-      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
         {plan.retry && <RetryJobButton jobId={job.id} big />}
         {/* "Print again" opens the print page filled in (file + every choice, changeable); the small one-click button
          *  next to it re-sends exactly the same job without opening anything. */}
@@ -104,7 +104,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   const detail = (label: string, value: React.ReactNode) => (
     <div key={label}>
       <dt className="text-[13px] text-[var(--color-muted)]">{label}</dt>
-      <dd className="mt-0.5 text-[15px] font-medium">{value}</dd>
+      <dd className="mt-0.5 text-sm font-medium sm:text-[15px]">{value}</dd>
     </div>
   );
 
@@ -112,14 +112,14 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
     <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
       <Link
         href={routes.jobs}
-        className="-ml-2 mb-3 inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm font-medium text-[var(--color-muted)] hover:text-[var(--color-text)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]"
+        className="-ml-2 mb-3 inline-flex min-h-11 items-center gap-1 rounded-[var(--radius-sm)] px-2 text-sm font-medium text-[var(--color-muted)] hover:text-[var(--color-text)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]"
       >
         <ChevronLeft className="h-4 w-4" aria-hidden="true" />
         My jobs
       </Link>
 
       <div className="mb-5">
-        <h1 className="break-words text-xl font-semibold leading-7 sm:text-2xl sm:leading-8">{job.original_file_name}</h1>
+        <h1 className="break-words text-xl font-semibold leading-7 tracking-[-0.02em] sm:text-2xl sm:leading-8">{job.original_file_name}</h1>
         <p className="mt-0.5 text-sm text-[var(--color-muted)]">
           {job.job_number} · Sent <LocalTime iso={job.created_at} />
         </p>

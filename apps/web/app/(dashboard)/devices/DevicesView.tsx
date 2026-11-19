@@ -118,8 +118,8 @@ function StepMarker({ step, title }: { step: 1 | 2; title: string }) {
 /** Printing from the normal Print button is still being tested; devices added earlier hold old paper choices. */
 function BetaNote() {
   return (
-    <div role="note" className="rounded-[var(--radius-control)] bg-[var(--color-warning-soft)] px-4 py-3 text-sm text-[var(--color-warning-ink)]">
-      <p className="font-medium">Beta</p>
+    <div role="note" className="rounded-[var(--radius-control)] border border-[var(--color-warning)]/20 bg-[var(--color-warning-soft)] px-4 py-3 text-[13px] leading-5 text-[var(--color-warning-ink)]">
+      <p className="font-semibold">Beta</p>
       <p className="mt-1">
         Printing from the Print button is still being tested, so some choices may not work yet. If a job does not come out, use the Print page in
         this app. If you added a Printio printer on this device before, remove it and add it again so the device picks up the current paper
@@ -153,7 +153,7 @@ function AddFlow({ onClose }: { onClose: () => void }) {
             {TYPE_OPTIONS.map((o) => (
               <label
                 key={o.value}
-                className="flex min-h-16 cursor-pointer items-center gap-3 rounded-xl border-2 border-[var(--color-border)] p-3 text-sm font-medium transition-colors hover:border-[var(--color-border-strong)] has-[:checked]:border-[var(--color-primary)] has-[:checked]:bg-[var(--color-primary-soft)]/60 has-[:focus-visible]:shadow-[var(--ring)] has-[:disabled]:opacity-60"
+                className="flex min-h-16 cursor-pointer items-center gap-3 rounded-[var(--radius-control)] border-2 border-[var(--color-border)] p-3 text-sm font-medium transition-colors hover:border-[var(--color-border-strong)] has-[:checked]:border-[var(--color-primary)] has-[:checked]:bg-[var(--color-primary-soft)]/60 has-[:focus-visible]:shadow-[var(--ring)] has-[:disabled]:opacity-60"
               >
                 <input type="radio" name="deviceType" value={o.value} checked={type === o.value} onChange={() => setPicked(o.value)} className="sr-only" />
                 <o.Icon className="h-5 w-5 shrink-0 text-[var(--color-muted)]" aria-hidden="true" />
@@ -163,12 +163,12 @@ function AddFlow({ onClose }: { onClose: () => void }) {
           </div>
           {guessed && <p className="mt-2 text-[13px] text-[var(--color-muted)]">We picked the one that matches this device. Change it if you are adding a different one.</p>}
           {type === "mac" && (
-            <p className="mt-2 flex items-start gap-2 rounded-xl bg-[var(--color-warning-soft)] p-3 text-sm text-[var(--color-warning-ink)]">
+            <p className="mt-2 flex items-start gap-2 rounded-[var(--radius-control)] bg-[var(--color-warning-soft)] p-3 text-sm text-[var(--color-warning-ink)]">
               <FlaskConical className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               <span>Mac: not tested yet - being worked on. You can still set it up, but it may not work.</span>
             </p>
           )}
-          {NO_STEPS_TYPES.has(type) && <p className="mt-2 rounded-xl bg-[var(--color-surface-2)] p-3 text-sm">{noStepsMessage(type)}</p>}
+          {NO_STEPS_TYPES.has(type) && <p className="mt-2 rounded-[var(--radius-control)] bg-[var(--color-surface-2)] p-3 text-sm">{noStepsMessage(type)}</p>}
           <FieldError message={state.fieldErrors?.deviceType} />
         </fieldset>
         <Field label="Give it a name" hint="(so you can tell your devices apart)" htmlFor="name" error={state.fieldErrors?.name}>
@@ -254,7 +254,7 @@ function AddressCard({ created, onDone }: { created: NonNullable<AddDeviceState[
         <h2 ref={headingRef} tabIndex={-1} className="mt-2 break-words text-xl font-semibold leading-7 outline-none">
           Copy the address for {created.name}
         </h2>
-        <p role="alert" className="mt-3 flex items-start gap-2 rounded-xl bg-[var(--color-warning-soft)] p-3 text-sm text-[var(--color-warning-ink)]">
+        <p role="alert" className="mt-3 flex items-start gap-2 rounded-[var(--radius-control)] bg-[var(--color-warning-soft)] p-3 text-sm text-[var(--color-warning-ink)]">
           <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span>
             Copy it now. For your security we show it only once. If you lose it, turn this device off and add it again.
@@ -285,7 +285,7 @@ function AddressCard({ created, onDone }: { created: NonNullable<AddDeviceState[
               {guide.testStatus}
             </p>
           )}
-          {guide.note && <p className="mb-3 rounded-xl bg-[var(--color-surface-2)] p-3 text-sm font-medium">{guide.note}</p>}
+          {guide.note && <p className="mb-3 rounded-[var(--radius-control)] bg-[var(--color-surface-2)] p-3 text-sm font-medium">{guide.note}</p>}
           <ol className="flex flex-col gap-3">
             {guide.steps.map((s, i) => (
               <li key={i} className="flex items-start gap-3">
@@ -307,7 +307,7 @@ function AddressCard({ created, onDone }: { created: NonNullable<AddDeviceState[
             </form>
           )}
           {guide.command && (
-            <div className="mt-4 rounded-xl border-2 border-[var(--color-border)] p-3.5">
+            <div className="mt-4 rounded-[var(--radius-control)] border-2 border-[var(--color-border)] p-3.5">
               <p className="mb-1 text-[13px] font-medium text-[var(--color-muted)]">Line to paste into Terminal</p>
               <p className="mb-3 break-all font-mono text-sm leading-6">{guide.command}</p>
               <CopyButton value={guide.command} label="Copy line" />
@@ -329,7 +329,7 @@ function AddressCard({ created, onDone }: { created: NonNullable<AddDeviceState[
 
 function AddressBlock({ title, value, copyLabel, highlight }: { title: string; value: string; copyLabel: string; highlight: boolean }) {
   return (
-    <div className={`rounded-xl border-2 p-3.5 ${highlight ? "border-[var(--color-primary)] bg-[var(--color-primary-soft)]/40" : "border-[var(--color-border)]"}`}>
+    <div className={`rounded-[var(--radius-control)] border-2 p-3.5 ${highlight ? "border-[var(--color-primary)] bg-[var(--color-primary-soft)]/40" : "border-[var(--color-border)]"}`}>
       <p className="mb-1 text-[13px] font-medium text-[var(--color-muted)]">{title}</p>
       <p className="mb-3 break-all font-mono text-sm leading-6">{value}</p>
       <CopyButton value={value} label={copyLabel} />
@@ -387,7 +387,7 @@ function DeviceRowItem({ device }: { device: DeviceItem }) {
           </dl>
 
           {hasIssue && !reporting && (
-            <p className="rounded-xl bg-[var(--color-warning-soft)] p-3 text-sm text-[var(--color-warning-ink)]">
+            <p className="rounded-[var(--radius-control)] bg-[var(--color-warning-soft)] p-3 text-sm text-[var(--color-warning-ink)]">
               You told us about a problem with this device. Your administrator will look at it.
             </p>
           )}
@@ -405,7 +405,7 @@ function DeviceRowItem({ device }: { device: DeviceItem }) {
               {confirming ? (
                 <form
                   action={formAction}
-                  className="flex flex-col gap-3 rounded-xl bg-[var(--color-danger-soft)] p-3"
+                  className="flex flex-col gap-3 rounded-[var(--radius-control)] bg-[var(--color-danger-soft)] p-3"
                   onKeyDown={(e) => {
                     if (e.key === "Escape" && !pending) setConfirming(false);
                   }}
@@ -450,7 +450,7 @@ function DeleteDeviceForm({ deviceId, onClose }: { deviceId: string; onClose: ()
     <form
       action={formAction}
       aria-busy={pending}
-      className="flex flex-col gap-3 rounded-xl bg-[var(--color-danger-soft)] p-3"
+      className="flex flex-col gap-3 rounded-[var(--radius-control)] bg-[var(--color-danger-soft)] p-3"
       onKeyDown={(e) => {
         if (e.key === "Escape" && !pending) onClose();
       }}

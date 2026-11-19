@@ -60,7 +60,9 @@ export function MemberTabBar({
 
   const tabClass = (active: boolean) =>
     `relative flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-primary)] ${
-      active ? "text-[var(--color-primary)]" : "text-[var(--color-muted)]"
+      active
+        ? "text-[var(--color-primary)] before:absolute before:top-0 before:h-0.5 before:w-8 before:rounded-b-full before:bg-[var(--color-primary)]"
+        : "text-[var(--color-muted)] active:text-[var(--color-text)]"
     }`;
 
   return (
@@ -71,7 +73,7 @@ export function MemberTabBar({
         aria-hidden={!sheetOpen}
         aria-label="Close"
         onClick={() => setSheetPath(null)}
-        className={`fixed inset-0 z-40 bg-[#17150f]/40 transition-opacity duration-200 ${
+        className={`fixed inset-0 z-40 bg-[var(--color-scrim)] transition-opacity duration-200 ${
           sheetOpen ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
       />
@@ -79,7 +81,7 @@ export function MemberTabBar({
         role={sheetOpen ? "dialog" : undefined}
         aria-label="Me"
         inert={!sheetOpen}
-        className={`fixed inset-x-0 bottom-0 z-50 rounded-t-[1.75rem] bg-[var(--color-surface)] px-4 pt-3 pb-[calc(4.5rem+env(safe-area-inset-bottom))] shadow-[var(--shadow-pop)] transition-[transform,visibility] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${
+        className={`fixed inset-x-0 bottom-0 z-50 rounded-t-[1.5rem] bg-[var(--color-surface)] px-4 pt-3 pb-[calc(4.5rem+env(safe-area-inset-bottom))] shadow-[var(--shadow-pop)] transition-[transform,visibility] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${
           sheetOpen ? "visible translate-y-0" : "invisible translate-y-full"
         }`}
       >
@@ -126,7 +128,7 @@ export function MemberTabBar({
 
       <nav
         aria-label="Main menu"
-        className="fixed inset-x-0 bottom-0 z-[60] flex border-t border-[var(--color-border)] bg-[var(--color-surface)]/95 pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] backdrop-blur"
+        className="fixed inset-x-0 bottom-0 z-[60] flex border-t border-[var(--color-border)] bg-[var(--color-surface)]/95 shadow-[0_-4px_16px_-8px_rgb(40_30_10/0.12)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] backdrop-blur"
       >
         {TABS.map(({ href, label, Icon, tour }) => {
           const active = isActiveHref(href, pathname);
@@ -140,7 +142,7 @@ export function MemberTabBar({
               className={tabClass(active)}
             >
               {isPrint ? (
-                <span className="-mt-5 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-primary)] text-white shadow-[0_6px_16px_-4px_rgb(10_100_216/0.6)]">
+                <span className="-mt-5 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-primary)] text-white shadow-[0_0_0_4px_var(--color-surface),0_6px_16px_-4px_rgb(10_100_216/0.55)]">
                   <Icon className="h-5 w-5" strokeWidth={2} />
                 </span>
               ) : (

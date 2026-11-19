@@ -16,7 +16,7 @@ export { StatusDot, type StatusTone } from "./StatusDot";
 export { Badge } from "./Badge";
 export { PageHeader } from "./PageHeader";
 export { EmptyState } from "./EmptyState";
-export { Skeleton } from "./Skeleton";
+export { Skeleton, SkeletonHeader, SkeletonCard, SkeletonRows } from "./Skeleton";
 export { Spinner } from "./Spinner";
 export { Segmented, type SegmentedOption } from "./Segmented";
 export { Tabs, type TabItem } from "./Tabs";

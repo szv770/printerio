@@ -47,7 +47,7 @@ export function MemberHeader({
     <>
       <header className="sticky top-0 z-30 border-b border-[var(--color-border)] bg-[var(--color-surface)]/90 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-3xl items-center justify-between gap-4 px-4">
-          <Link href={routes.dashboard} aria-label="Printio home" className="flex min-h-11 items-center rounded-lg">
+          <Link href={routes.dashboard} aria-label="Printio home" className="flex min-h-11 items-center rounded-[var(--radius-sm)]">
             <Logo />
           </Link>
 
@@ -64,7 +64,7 @@ export function MemberHeader({
                       aria-current={active ? "page" : undefined}
                       className={`flex min-h-11 items-center rounded-[var(--radius-control)] px-3 [@media(pointer:fine)]:min-h-9 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:shadow-[var(--ring)] ${
                         active
-                          ? "bg-[var(--color-primary-soft)] text-[var(--color-primary)]"
+                          ? "bg-[var(--color-primary-soft)] font-semibold text-[var(--color-primary-hover)]"
                           : primary
                             ? "text-[var(--color-primary)] hover:bg-[var(--color-primary-soft)]"
                             : "text-[var(--color-text-2)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]"

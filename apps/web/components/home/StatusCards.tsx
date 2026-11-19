@@ -5,12 +5,12 @@ export function StatusCards({ cards }: { cards: StatusCard[] }) {
   return (
     <div className="mb-6 grid grid-cols-2 gap-3">
       {cards.map((c) => (
-        <Card key={c.id} className="p-4 sm:p-4" data-tour={c.id === "quota" ? "home-quota" : undefined}>
-          <p className="text-[13px] text-[var(--color-muted)]">{c.label}</p>
-          <p className="mt-1 text-2xl font-bold tracking-[-0.02em] tabular-nums">{c.value}</p>
+        <Card key={c.id} className="p-4 sm:p-5" data-tour={c.id === "quota" ? "home-quota" : undefined}>
+          <p className="text-[13px] font-medium text-[var(--color-muted)]">{c.label}</p>
+          <p className="mt-1.5 text-2xl font-semibold tracking-[-0.025em] tabular-nums">{c.value}</p>
           {c.percentLeft !== undefined && (
             <div
-              className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--color-surface-2)]"
+              className="mt-3 h-1.5 overflow-hidden rounded-full bg-[var(--color-surface-2)]"
               role="img"
               aria-label={`${c.percentLeft}% of your allowance left`}
             >

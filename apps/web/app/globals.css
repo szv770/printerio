@@ -15,6 +15,8 @@
   --color-bg: #f5f3ef;
   --color-surface: #fffefc;
   --color-surface-2: #efece6; /* wells, hovered rows, tracks */
+  --color-thead: #f8f6f2; /* table header band */
+  --color-scrim: rgb(23 21 15 / 0.4); /* behind drawers and sheets */
   --color-border: #e7e3da;
   --color-border-strong: #d3cec2;
   --color-text: #17150f;
@@ -45,18 +47,26 @@
   --color-danger-soft: #fdecec;
   --color-danger-ink: #7f1d1d;
 
-  /* radii: controls < cards < overlays */
-  --radius-control: 0.875rem;
-  --radius-card: 1.25rem;
+  /* radii scale: chips 6 < small 8 < controls 10 < cards 16 < overlays 20 */
+  --radius-chip: 0.375rem;
+  --radius-sm: 0.5rem;
+  --radius-control: 0.625rem;
+  --radius-card: 1rem;
+  --radius-overlay: 1.25rem;
   --radius-pill: 999px;
 
-  /* soft layered shadows */
-  --shadow-xs: 0 1px 2px rgb(40 30 10 / 0.06);
-  --shadow-card: 0 1px 2px rgb(40 30 10 / 0.04), 0 4px 14px -6px rgb(40 30 10 / 0.10);
+  /* soft layered shadows: a hairline, then a long faint lift */
+  --shadow-xs: 0 1px 1px rgb(40 30 10 / 0.05), 0 0 0 0.5px rgb(40 30 10 / 0.03);
+  --shadow-card: 0 1px 1px rgb(40 30 10 / 0.03), 0 2px 6px -2px rgb(40 30 10 / 0.05), 0 10px 24px -14px rgb(40 30 10 / 0.10);
+  --shadow-hover: 0 1px 1px rgb(40 30 10 / 0.04), 0 4px 10px -3px rgb(40 30 10 / 0.08), 0 16px 32px -16px rgb(40 30 10 / 0.16);
   --shadow-pop: 0 1px 2px rgb(40 30 10 / 0.06), 0 8px 24px -4px rgb(40 30 10 / 0.16), 0 24px 48px -12px rgb(40 30 10 / 0.18);
 
-  /* focus ring: 2px gap + 2px accent, visible on any surface */
+  /* focus ring: 2px gap + 2px brand blue, visible on any surface */
   --ring: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-primary);
+
+  /* motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 150ms;
 
   /* spacing rhythm for page sections (use with gap-/space-y-) */
   --space-section: 1.5rem;
@@ -89,7 +99,7 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-sans);
-  font-size: 0.9375rem; /* 15px body */
+  font-size: 0.9375rem; /* 15px body on phones, 14px from md up (below) */
   line-height: 1.55;
   font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
@@ -99,14 +109,21 @@ body {
   padding-right: env(safe-area-inset-right);
 }
 
+@media (min-width: 768px) {
+  body { font-size: 0.875rem; line-height: 1.5; }
+}
+
 /*
- * Type scale (line-height in brackets): 12/16 caption, 13/20 small, 15/24 body,
- * 17/26 lead, 20/28 h3, 24/30 h2, 30/36 h1 (tracking tightens as size grows).
+ * Type scale (line-height in brackets): 12/16 caption, 13/20 small, 14/21 body (15 on phones),
+ * 16/24 card title, 20/28 h3, 24/30 h2, 28/34 h1 (tracking tightens as size grows).
+ * Counts and money line up in columns: use the .num helper or tabular-nums.
  */
 h1, h2, h3 {
-  letter-spacing: -0.015em;
+  letter-spacing: -0.018em;
   text-wrap: balance;
 }
+h1 { letter-spacing: -0.025em; }
+.num, table, time { font-variant-numeric: tabular-nums; }
 p { text-wrap: pretty; }
 
 /* Form controls stay at 16px on phones so iOS Safari does not zoom on focus.
@@ -134,6 +151,15 @@ p { text-wrap: pretty; }
   outline-offset: 2px;
 }
 
+/* Smooth, short colour transitions on every interactive element (not on layout). */
+@layer base {
+  a, button, summary, [role="tab"] {
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+    transition-duration: var(--dur-fast);
+    transition-timing-function: ease-out;
+  }
+}
+
 ::selection {
   background: var(--color-primary-soft);
 }
@@ -145,11 +171,58 @@ p { text-wrap: pretty; }
 }
 .printio-rise { animation: printio-rise 180ms cubic-bezier(0.22, 1, 0.36, 1) both; }
 
+/*
+ * QUIET INLINE EDIT: inputs and selects inside a .printio-quiet-table look like plain text until the row is hovered or
+ * the control is focused, so an editable table is not a wall of boxes. They stay real, focusable form controls.
+ */
+.printio-quiet-table :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  background-color: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+.printio-quiet-table select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 1.75rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%238f897c' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 8 5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  background-size: 1rem;
+}
+.printio-quiet-table select:not(:hover):not(:focus-visible) { background-image: none; }
+.printio-quiet-table tr:hover :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  border-color: var(--color-border);
+  background-color: var(--color-surface);
+}
+.printio-quiet-table :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea):hover {
+  border-color: var(--color-border-strong);
+  background-color: var(--color-surface);
+}
+.printio-quiet-table :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea):focus-visible {
+  border-color: var(--color-primary);
+  background-color: var(--color-surface);
+  box-shadow: var(--ring);
+}
+.printio-quiet-table :is(input, textarea)::placeholder { color: var(--color-faint); }
+.printio-quiet-table [aria-invalid="true"] { border-color: var(--color-danger); background-color: var(--color-surface); }
+
+/* Skeleton shimmer (calmer than a pulse). */
+@keyframes printio-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+.printio-shimmer {
+  background-image: linear-gradient(90deg, var(--color-surface-2) 30%, rgb(255 255 255 / 0.65) 50%, var(--color-surface-2) 70%);
+  background-size: 200% 100%;
+  animation: printio-shimmer 1.6s ease-in-out infinite;
+}
+
 @keyframes printio-spin { to { transform: rotate(360deg); } }
 .printio-spin { animation: printio-spin 700ms linear infinite; }
 
 @media (prefers-reduced-motion: reduce) {
-  .printio-rise { animation: none; }
+  .printio-rise, .printio-shimmer { animation: none; }
+  *, *::before, *::after { transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
   .printio-spin { animation-duration: 1.6s; }
   html { scroll-behavior: auto; }
 }

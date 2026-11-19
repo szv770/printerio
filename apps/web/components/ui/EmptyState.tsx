@@ -22,15 +22,15 @@ export function EmptyState({
 }) {
   const body = description ?? message;
   return (
-    <div className="flex flex-col items-center gap-3 rounded-[var(--radius-card)] border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)] px-6 py-10 text-center">
+    <div className="flex flex-col items-center gap-4 rounded-[var(--radius-card)] border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 px-6 py-12 text-center">
       {Icon && (
-        <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--color-surface-2)] text-[var(--color-muted)]">
-          <Icon className="h-5 w-5" aria-hidden="true" />
+        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-primary-soft)] text-[var(--color-primary)] ring-8 ring-[var(--color-primary-soft)]/50">
+          <Icon className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
         </span>
       )}
       <div className="max-w-sm">
-        {title && <p className="text-base font-semibold">{title}</p>}
-        {body && <p className={`text-sm text-[var(--color-muted)] ${title ? "mt-1" : ""}`}>{body}</p>}
+        {title && <p className="text-[15px] font-semibold leading-6 tracking-[-0.01em]">{title}</p>}
+        {body && <p className={`text-sm leading-6 text-[var(--color-muted)] ${title ? "mt-1" : ""}`}>{body}</p>}
       </div>
       {action}
     </div>

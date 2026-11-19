@@ -32,7 +32,7 @@ export function CancelJobButton({ jobId, compact = false, big = false }: { jobId
   return (
     <div className={compact ? "text-right" : big ? "w-full sm:w-auto" : undefined}>
       {confirming ? (
-        <form action={formAction} className="flex flex-wrap items-center gap-2 rounded-xl bg-[var(--color-danger-soft)] p-3" aria-label="Confirm cancel">
+        <form action={formAction} className="flex flex-wrap items-center gap-2 rounded-[var(--radius-control)] bg-[var(--color-danger-soft)] p-3" aria-label="Confirm cancel">
           <input type="hidden" name="jobId" value={jobId} />
           <p className="w-full text-sm text-[var(--color-danger-ink)]">Cancel this job? Nothing will be printed and your quota is released.</p>
           <Button type="button" variant="outline" size={big ? "lg" : "sm"} className={big ? "flex-1" : ""} disabled={pending} onClick={() => setConfirming(false)}>

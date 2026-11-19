@@ -14,15 +14,15 @@ export function PageHeader({
   help?: ReactNode | false;
 }) {
   return (
-    <div className="mb-6 flex flex-wrap items-start justify-between gap-x-4 gap-y-3 sm:mb-8">
+    <div className="mb-6 flex flex-wrap items-start justify-between gap-x-6 gap-y-3 sm:mb-8">
       <div className="min-w-0">
-        <div className="flex items-start">
-          <h1 className="text-2xl font-semibold leading-8 sm:text-[1.75rem] sm:leading-9">{title}</h1>
-          <span className="mt-0.5 sm:mt-1">{help === undefined ? <HelpPopover /> : help}</span>
+        <div className="flex items-center">
+          <h1 className="text-[1.625rem] font-semibold leading-8 tracking-[-0.025em] sm:text-[1.75rem] sm:leading-9">{title}</h1>
+          <span className="">{help === undefined ? <HelpPopover /> : help}</span>
         </div>
-        {description && <p className="mt-1.5 max-w-xl text-[15px] leading-6 text-[var(--color-muted)]">{description}</p>}
+        {description && <p className="mt-1.5 max-w-xl text-sm leading-6 text-[var(--color-muted)] sm:text-[15px]">{description}</p>}
       </div>
-      {action}
+      {action && <div className="flex shrink-0 flex-wrap items-center gap-2 sm:pt-0.5">{action}</div>}
     </div>
   );
 }

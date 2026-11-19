@@ -130,7 +130,7 @@ function ApprovalCard({
   return (
     <li className="overflow-hidden rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-card)]">
       {/* The yellow edge is the "waiting" ink colour used for waiting states everywhere. */}
-      <div className="h-1.5 bg-[var(--ink-y)]" aria-hidden="true" />
+      <div className="h-1 bg-[var(--ink-y)]/80" aria-hidden="true" />
       <div className="flex flex-col gap-4 p-4 sm:p-5">
         <div className="flex items-center gap-3">
           <span
@@ -140,18 +140,18 @@ function ApprovalCard({
             {who.trim().charAt(0).toUpperCase() || "?"}
           </span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[17px] leading-6 font-semibold">{who}</p>
+            <p className="truncate text-base leading-6 font-semibold tracking-[-0.01em]">{who}</p>
             <p className="text-[13px] text-[var(--color-muted)]">
               Sent <LocalTime iso={job.created_at} />
             </p>
           </div>
-          <span className="shrink-0 text-xs text-[var(--color-faint)]">{job.job_number}</span>
+          <span className="shrink-0 rounded-[var(--radius-chip)] bg-[var(--color-surface-2)] px-2 py-0.5 text-xs tabular-nums text-[var(--color-muted)]">{job.job_number}</span>
         </div>
 
-        <div className="flex items-start gap-3 rounded-[var(--radius-control)] bg-[var(--color-surface-2)] px-3.5 py-3">
+        <div className="flex items-start gap-3 rounded-[var(--radius-control)] border border-[var(--color-border)] bg-[var(--color-surface-2)]/60 px-3.5 py-3">
           <FileText className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-muted)]" aria-hidden="true" />
           <div className="min-w-0">
-            <p className="text-base leading-6 font-medium break-words">{job.original_file_name}</p>
+            <p className="text-[15px] leading-6 font-medium break-words">{job.original_file_name}</p>
             <p className="text-[13px] text-[var(--color-muted)]">{formatFileSize(Number(job.file_size_bytes))}</p>
           </div>
         </div>
@@ -160,7 +160,7 @@ function ApprovalCard({
           {chipsFor(job, printerLabel).map((c) => (
             <li
               key={c}
-              className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1 text-[13px] leading-4 text-[var(--color-text-2)]"
+              className="rounded-full bg-[var(--color-surface-2)] px-2.5 py-1 text-[13px] leading-4 text-[var(--color-text-2)] ring-1 ring-inset ring-[var(--color-border-strong)]/50"
             >
               {c}
             </li>
@@ -168,7 +168,7 @@ function ApprovalCard({
         </ul>
 
         {job.policy_reasons.length > 0 && (
-          <div className="rounded-[var(--radius-control)] bg-[var(--color-warning-soft)] px-3.5 py-3 text-sm text-[var(--color-warning-ink)]">
+          <div className="rounded-[var(--radius-control)] border border-[var(--color-warning)]/20 bg-[var(--color-warning-soft)] px-3.5 py-3 text-sm text-[var(--color-warning-ink)]">
             <p className="font-medium">Why it needs approval</p>
             <ul className="mt-1 list-inside list-disc">
               {job.policy_reasons.map((r, i) => (
@@ -190,7 +190,7 @@ function ApprovalCard({
          *  race with the async draw, same as the submitter's own preview in
          *  app/(dashboard)/print/PrintForm.tsx. */}
         <div className="flex items-start gap-4" hidden={!previewOpen}>
-          <div className="flex min-h-[140px] w-[140px] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]">
+          <div className="flex min-h-[140px] w-[140px] shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)]">
             {previewPending && <span className="text-xs text-[var(--color-muted)]">Loading...</span>}
             <canvas ref={canvasRef} className="max-h-full max-w-full" hidden={!previewRendered} />
             {!previewPending && !previewRendered && (
@@ -238,7 +238,7 @@ function ApprovalCard({
             </div>
           </form>
         ) : (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:ml-auto sm:w-[26rem]">
             <Button type="button" variant="outline-danger" size="lg" onClick={() => setConfirmReject(true)}>
               <X className="h-4 w-4" aria-hidden="true" />
               Reject

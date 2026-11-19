@@ -71,7 +71,7 @@ export function StoragePanel({
     <div className="flex flex-col gap-4">
       <Card className="p-5 sm:p-6">
         <div className="flex items-start gap-4">
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--color-primary-soft)] text-[var(--color-primary)]">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-card)] bg-[var(--color-primary-soft)] text-[var(--color-primary)]">
             <HardDrive className="h-6 w-6" aria-hidden="true" />
           </span>
           <div className="min-w-0">
@@ -117,7 +117,7 @@ export function StoragePanel({
 
       <Card className="p-5 sm:p-6">
         <div className="flex items-start gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--color-warning-soft)] text-[var(--color-warning)]">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-[var(--color-warning-soft)] text-[var(--color-warning)]">
             <Sparkles className="h-[18px] w-[18px]" aria-hidden="true" />
           </span>
           <div className="min-w-0">

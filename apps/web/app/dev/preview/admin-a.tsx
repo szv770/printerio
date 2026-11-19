@@ -138,6 +138,7 @@ function agent(over: Record<string, unknown>) {
     name: "MLM Office",
     status: "active",
     paused: false,
+    poll_interval_seconds: null,
     paused_at: null,
     paused_by: null,
     hostname: "MLM-OFFICE-PC",
@@ -204,7 +205,7 @@ const BANNER_VARIANTS = ["checking", "available", "uptodate", "legacy_stale", "l
 export function UpdateBannerPreview() {
   return (
     <Frame path="/admin/agents/a1">
-      <div className="mx-auto flex max-w-3xl flex-col gap-4">
+      <div className="flex max-w-4xl flex-col gap-4">
         {BANNER_VARIANTS.map((v) => {
           const { commands, lastSeenAt } = updateRows(v === "legacy_none" ? "legacy_stale" : v);
           const legacy = v === "legacy_stale" || v === "legacy_none";
@@ -237,7 +238,7 @@ export function ServerDetailPreview({ variant }: { variant?: string } = {}) {
   const a = agent({ last_seen_at: lastSeenAt, ...(variant === "legacy" || variant === "legacy_stale" ? { version: "0.1.0" } : {}) });
   return (
     <Frame path="/admin/agents/a1">
-      <div className="mx-auto max-w-3xl">
+      <div className="max-w-4xl">
         <PageHeader title={a.name} description="MLM-OFFICE-PC, Checked in within the last 5 minutes and is taking print jobs." />
         <AgentDetail
           agent={a}
@@ -286,7 +287,7 @@ export function MemberAccessPreview({ variant }: { variant?: string }) {
   const empty = variant === "empty";
   return (
     <Frame path="/admin/users/u1">
-      <div className="mx-auto max-w-2xl">
+      <div className="max-w-3xl">
         <PageHeader title="Moshe Levi" description="moshe@school.org" />
         <MemberAccessCard
           firstName="Moshe"

@@ -23,10 +23,10 @@ export function Tabs({ items, label = "Sections" }: { items: TabItem[]; label?: 
             <Link
               href={t.href}
               aria-current={t.active ? "page" : undefined}
-              className={`relative -mb-px inline-flex min-h-11 items-center gap-2 rounded-t-lg px-3.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:shadow-[var(--ring)] ${
+              className={`relative -mb-px inline-flex min-h-11 items-center gap-2 rounded-t-[var(--radius-sm)] px-3.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:shadow-[var(--ring)] ${
                 t.active
-                  ? "border-b-2 border-[var(--color-primary)] text-[var(--color-primary)]"
-                  : "border-b-2 border-transparent text-[var(--color-muted)] hover:text-[var(--color-text)]"
+                  ? "text-[var(--color-text)] after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-[var(--color-primary)]"
+                  : "text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]/60 hover:text-[var(--color-text)]"
               }`}
             >
               {t.label}

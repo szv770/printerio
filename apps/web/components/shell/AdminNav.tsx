@@ -97,30 +97,30 @@ export function AdminNav({
 
   return (
     <>
-      <div className="sticky top-0 z-30 flex h-14 items-center gap-1 border-b border-[var(--color-border)] bg-[var(--color-surface)]/90 px-2 backdrop-blur md:hidden">
+      <div className="sticky top-0 z-30 flex h-14 items-center gap-1 border-b border-[var(--color-border)] bg-[var(--color-surface)]/90 px-2 shadow-[0_1px_0_rgb(255_255_255/0.6)] backdrop-blur md:hidden">
         <button
           type="button"
           onClick={() => setOpenedOnPath(pathname)}
           aria-label="Open the menu"
           aria-expanded={open}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-[var(--color-text-2)] transition-colors hover:bg-[var(--color-surface-2)]"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-2)] transition-colors hover:bg-[var(--color-surface-2)]"
         >
           <Menu className="h-5 w-5" />
         </button>
-        <Link href={routes.admin} aria-label="Printio home" className="min-w-0 flex-1 rounded-lg px-1 py-2">
+        <Link href={routes.admin} aria-label="Printio home" className="min-w-0 flex-1 rounded-[var(--radius-sm)] px-1 py-2">
           <Logo />
         </Link>
         {pendingApprovals > 0 && (
           <Link
             href={routes.adminApprovals}
-            className="flex h-11 min-w-11 shrink-0 items-center justify-center rounded-lg px-1 text-[13px] font-medium text-[var(--color-warning-ink)]"
+            className="flex h-11 min-w-11 shrink-0 items-center justify-center rounded-[var(--radius-sm)] px-1 text-[13px] font-medium text-[var(--color-warning-ink)]"
           >
-            <span aria-label={`${pendingApprovals} to approve`} className="rounded-full bg-[var(--color-warning-soft)] px-2.5 py-0.5">{pendingApprovals}<span className="hidden min-[420px]:inline"> to approve</span></span>
+            <span aria-label={`${pendingApprovals} to approve`} className="rounded-full bg-[var(--color-warning-soft)] px-2.5 py-0.5 tabular-nums ring-1 ring-inset ring-[var(--color-warning)]/25">{pendingApprovals}<span className="hidden min-[420px]:inline"> to approve</span></span>
           </Link>
         )}
         <Link
           href={PRINT_ITEM.href}
-          className="flex h-11 shrink-0 items-center gap-1.5 rounded-[var(--radius-control)] bg-[var(--color-primary)] px-3.5 text-sm font-medium text-[var(--color-primary-fg)] shadow-[var(--shadow-xs)] hover:bg-[var(--color-primary-hover)]"
+          className="flex h-11 shrink-0 items-center gap-1.5 rounded-[var(--radius-control)] bg-[var(--color-primary)] px-3.5 text-sm font-semibold text-[var(--color-primary-fg)] shadow-[inset_0_1px_0_rgb(255_255_255/0.2),var(--shadow-xs)] hover:bg-[var(--color-primary-hover)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]"
         >
           <Plus className="h-4 w-4" />
           Print
@@ -134,26 +134,26 @@ export function AdminNav({
         aria-hidden={!open}
         aria-label="Close the menu"
         onClick={closeDrawer}
-        className={`fixed inset-0 z-40 bg-[#0f1729]/40 backdrop-blur-[2px] transition-opacity duration-200 md:hidden ${
+        className={`fixed inset-0 z-40 bg-[var(--color-scrim)] backdrop-blur-[2px] transition-opacity duration-200 md:hidden ${
           open ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
       />
 
       <aside
         aria-label="Main menu"
-        className={`fixed inset-y-0 left-0 z-50 flex w-[17rem] max-w-[86vw] flex-col bg-[var(--color-surface)] shadow-[var(--shadow-pop)] transition-[transform,visibility] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none md:visible md:sticky md:top-0 md:z-auto md:h-screen md:w-60 md:max-w-none md:shrink-0 md:translate-x-0 md:self-start md:border-r md:border-[var(--color-border)] md:shadow-none ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-[17rem] max-w-[86vw] flex-col bg-[var(--color-surface)] shadow-[var(--shadow-pop)] transition-[transform,visibility] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none md:visible md:sticky md:top-0 md:z-auto md:h-screen md:w-60 md:max-w-none md:shrink-0 md:translate-x-0 md:self-start md:border-r md:border-[var(--color-border)] md:bg-[var(--color-surface)] md:shadow-none ${
           open ? "visible translate-x-0" : "invisible -translate-x-full"
         }`}
       >
         <div className="flex h-14 shrink-0 items-center justify-between px-4 md:h-16 md:px-5">
-          <Link href={routes.admin} aria-label="Printio home" className="flex min-h-11 items-center rounded-lg">
+          <Link href={routes.admin} aria-label="Printio home" className="flex min-h-11 items-center rounded-[var(--radius-sm)]">
             <Logo />
           </Link>
           <button
             type="button"
             onClick={closeDrawer}
             aria-label="Close the menu"
-            className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] md:hidden"
+            className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] md:hidden"
           >
             <X className="h-5 w-5" />
           </button>
@@ -167,7 +167,7 @@ export function AdminNav({
           <MenuGroups isOrgAdmin={isOrgAdmin} pathname={pathname} pendingApprovals={pendingApprovals} />
         </nav>
 
-        <div className="shrink-0 border-t border-[var(--color-border)] px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+        <div className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-bg)]/40 px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           {isSuperAdmin && (
             <Link href={routes.platform} className={`${ROW} text-[var(--color-text-2)] hover:bg-[var(--color-surface-2)]`}>
               <Server className="h-[18px] w-[18px] shrink-0 text-[var(--color-muted)]" strokeWidth={1.75} />
@@ -216,7 +216,7 @@ const ICONS: Record<NavIcon, LucideIcon> = {
 
 /** One 44px (touch) / 40px (pointer) row; every clickable row in the menu shares it. */
 const ROW =
-  "relative flex min-h-11 w-full items-center gap-3 rounded-[var(--radius-control)] px-2.5 text-sm font-medium transition-colors md:min-h-10";
+  "relative flex min-h-11 w-full items-center gap-3 rounded-[var(--radius-control)] px-3 text-sm font-medium transition-colors md:min-h-10";
 
 function PrintButton({ pathname }: { pathname: string }) {
   const active = activeItemHref(adminMenu(true), pathname) === PRINT_ITEM.href;
@@ -224,7 +224,7 @@ function PrintButton({ pathname }: { pathname: string }) {
     <Link
       href={PRINT_ITEM.href}
       aria-current={active ? "page" : undefined}
-      className="flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-control)] bg-[var(--color-primary)] px-3 text-sm font-medium text-[var(--color-primary-fg)] shadow-[inset_0_1px_0_rgb(255_255_255/0.18),var(--shadow-xs)] transition-colors hover:bg-[var(--color-primary-hover)] focus-visible:outline-none focus-visible:shadow-[var(--ring)] md:min-h-10"
+      className="flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-control)] bg-[var(--color-primary)] px-3 text-sm font-semibold text-[var(--color-primary-fg)] shadow-[inset_0_1px_0_rgb(255_255_255/0.2),0_1px_2px_rgb(10_100_216/0.35),0_4px_10px_-4px_rgb(10_100_216/0.45)] transition-[background-color,box-shadow] hover:bg-[var(--color-primary-hover)] focus-visible:outline-none focus-visible:shadow-[var(--ring)] md:min-h-10"
     >
       <Plus className="h-4 w-4" strokeWidth={2.25} />
       Print a document
@@ -259,7 +259,7 @@ function MenuGroups({
     <div className="flex flex-col gap-0.5">
       {groups.map((group) =>
         group.alwaysOpen || group.title === null ? (
-          <ul key={group.id} className="flex flex-col gap-0.5 pb-2">
+          <ul key={group.id} className="flex flex-col gap-0.5 pb-1">
             {links(group)}
           </ul>
         ) : (
@@ -291,12 +291,12 @@ function FoldGroup({
         onClick={onToggle}
         aria-expanded={open}
         aria-controls={panelId}
-        className={`${ROW} justify-between text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]`}
+        className={`${ROW} mt-1 justify-between text-[var(--color-faint)] hover:bg-transparent hover:text-[var(--color-text-2)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]`}
       >
-        <span className="text-[13px]">{group.title}</span>
+        <span className="text-[11px] font-semibold tracking-[0.06em] uppercase">{group.title}</span>
         <ChevronRight
           aria-hidden="true"
-          className={`h-4 w-4 transition-transform duration-200 motion-reduce:transition-none ${open ? "rotate-90" : ""}`}
+          className={`h-3.5 w-3.5 transition-transform duration-200 motion-reduce:transition-none ${open ? "rotate-90" : ""}`}
         />
       </button>
       <div
@@ -332,14 +332,14 @@ function NavLink({
         data-tour={item.tourAnchor}
         className={`${ROW} focus-visible:outline-none focus-visible:shadow-[var(--ring)] ${
           active
-            ? "bg-[var(--color-primary-soft)] text-[var(--color-primary)]"
+            ? "bg-[var(--color-primary-soft)] font-semibold text-[var(--color-primary-hover)]"
             : "text-[var(--color-text-2)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]"
         }`}
       >
         {active && (
           <span
             aria-hidden="true"
-            className="absolute top-1/2 -left-3 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-[var(--color-primary)]"
+            className="absolute top-1/2 -left-3 h-6 w-[3px] -translate-y-1/2 rounded-r-full bg-[var(--color-primary)]"
           />
         )}
         <Icon
@@ -351,7 +351,7 @@ function NavLink({
         {count > 0 && (
           <span
             aria-label={`${count} waiting`}
-            className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--color-warning-soft)] px-1.5 text-xs font-semibold text-[var(--color-warning-ink)]"
+            className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--color-warning-soft)] px-1.5 text-[11px] font-semibold tabular-nums text-[var(--color-warning-ink)] ring-1 ring-inset ring-[var(--color-warning)]/25"
           >
             {count}
           </span>

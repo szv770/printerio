@@ -95,7 +95,7 @@ export default async function MemberDetailPage({ params }: { params: Promise<{ u
   const email = member.profiles?.email ?? "(unknown)";
 
   return (
-    <div className="mx-auto max-w-2xl">
+    <div className="max-w-3xl">
       <Link
         href={routes.adminUsers}
         className="mb-4 inline-flex items-center gap-1 text-sm text-[var(--color-muted)] hover:underline"

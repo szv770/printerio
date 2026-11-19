@@ -215,7 +215,7 @@ export function MembersTable({ members, canEdit }: { members: Member[]; canEdit:
             placeholder={m.effectiveCode}
             maxLength={12}
             aria-label={`Print code for ${m.displayName ?? m.email}`}
-            className="ml-auto w-24 min-w-24 text-center font-mono text-base tracking-wider uppercase md:text-sm"
+            className="w-full min-w-24 text-center font-mono text-base tracking-wider uppercase sm:w-24 md:-ml-3 md:text-left md:text-sm"
             invalid={!!errors[m.userId]}
           />
         ) : (
@@ -230,7 +230,7 @@ export function MembersTable({ members, canEdit }: { members: Member[]; canEdit:
             value={draftOf(m).role}
             onChange={(e) => edit(m, { role: e.target.value })}
             aria-label={`Role for ${m.displayName ?? m.email}`}
-            className="ml-auto w-full min-w-36 text-base sm:w-32 sm:min-w-32 md:text-sm"
+            className="ml-auto w-full min-w-36 text-base sm:w-32 sm:min-w-32 md:-ml-3 md:text-sm"
           >
             {roleChoices().map((r) => (
               <option key={r.value} value={r.value}>
@@ -251,7 +251,7 @@ export function MembersTable({ members, canEdit }: { members: Member[]; canEdit:
             onChange={(e) => edit(m, { department: e.target.value })}
             placeholder="None"
             aria-label={`Department for ${m.displayName ?? m.email}`}
-            className="ml-auto w-full min-w-36 text-base sm:w-32 sm:min-w-32 md:text-sm"
+            className="ml-auto w-full min-w-36 text-base sm:w-32 sm:min-w-32 md:-ml-3 md:text-sm"
           />
         ) : (
           (m.department ?? "None")
@@ -346,7 +346,7 @@ function RemoveButton({ member }: { member: Member }) {
         disabled={pending}
         aria-label={`Remove ${name}`}
         title="Remove from this organization"
-        className="flex h-11 w-11 items-center justify-center rounded-full text-[var(--color-muted)] transition-colors hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] focus-visible:shadow-[var(--ring)] focus-visible:outline-none disabled:opacity-50"
+        className="flex h-11 w-11 items-center justify-center rounded-full text-[var(--color-muted)] transition-colors md:opacity-0 md:group-hover/row:opacity-100 md:focus-visible:opacity-100 hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] focus-visible:shadow-[var(--ring)] focus-visible:outline-none disabled:opacity-50"
       >
         <Trash2 className="h-4 w-4" aria-hidden="true" />
       </button>

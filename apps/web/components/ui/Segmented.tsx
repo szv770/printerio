@@ -65,7 +65,7 @@ export function Segmented<V extends string>({
         aria-describedby={hint || error ? hintId : undefined}
         // Up to three options sit in one row. More would be squeezed to a sliver on a phone, so they wrap two to a row there
         // (a last odd one takes the full row) and go to a single row from the sm breakpoint up.
-        className={`grid gap-1 rounded-xl bg-[var(--color-border)]/50 p-1 ${many ? "grid-cols-2 sm:[grid-template-columns:repeat(var(--cols),minmax(0,1fr))]" : ""}`}
+        className={`grid gap-1 rounded-[var(--radius-control)] bg-[var(--color-surface-2)] p-1 ring-1 ring-inset ring-[var(--color-border)] ${many ? "grid-cols-2 sm:[grid-template-columns:repeat(var(--cols),minmax(0,1fr))]" : ""}`}
         style={many ? ({ "--cols": options.length } as CSSProperties) : { gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
       >
         {options.map((o) => {
@@ -84,9 +84,9 @@ export function Segmented<V extends string>({
                 if (!off) onChange(o.value);
               }}
               onKeyDown={(e) => onKeyDown(e, o.value)}
-              className={`min-h-11 rounded-lg px-2 py-2 text-sm font-medium transition-colors ${many ? "[&:last-child:nth-child(odd)]:col-span-2 sm:[&:last-child:nth-child(odd)]:col-span-1" : ""} focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)] ${
+              className={`min-h-11 rounded-[var(--radius-sm)] px-2 py-2 text-sm font-medium transition-colors ${many ? "[&:last-child:nth-child(odd)]:col-span-2 sm:[&:last-child:nth-child(odd)]:col-span-1" : ""} focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)] ${
                 selected
-                  ? "bg-[var(--color-surface)] text-[var(--color-text)] shadow-sm ring-1 ring-[var(--color-border)]"
+                  ? "bg-[var(--color-surface)] text-[var(--color-text)] shadow-[var(--shadow-xs)] ring-1 ring-[var(--color-border-strong)]/70"
                   : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
               } ${off ? "cursor-not-allowed opacity-50 hover:text-[var(--color-muted)]" : ""}`}
             >
