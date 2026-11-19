@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
-import { preparePdf } from "@printio/pdf/prepare";
+import { preparePdf, type PreparePdfResult } from "@printio/pdf/prepare";
 import { withSizeAliases } from "@/lib/paper-sizes";
 import { bookletSheetChoice, type BookletSheet } from "@printio/pdf/booklet-build";
 import type { BookletFit } from "@printio/pdf/imposition";
@@ -100,24 +100,53 @@ function fail(error: string, code: CreatePrintJobErrorCode, fieldErrors?: { page
   return { ok: false, kind: "error", error, code, ...(fieldErrors ? { fieldErrors } : {}) };
 }
 
+
 /**
- * The actual job-creation pipeline - preflight, booklet imposition, print
- * math, policy evaluation, quota reservation, storage upload, the
- * print_jobs insert, and its event trail. Shared by the website's server
- * actions (a fresh upload, and "print again") and the IPP gateway routes, so
- * this logic - the actual money path - exists exactly once. It RETURNS a
- * result and never redirects or throws Next-only control flow; the callers
- * decide what success looks like.
+ * Everything decided BEFORE any PDF work: what the member's choices mean for this printer, the held reason, and the organization's limits. Plain data,
+ * so the PDF step can run somewhere else (the print server) and the job can be finished afterwards (docs/PREPARE-JOBS-DESIGN.md, plan P2b).
  */
-export async function createPrintJob(
-  supabase: SupabaseClient<Database>,
-  session: JobSession,
-  originalBytes: Uint8Array,
-  originalFileName: string,
-  opts: JobOptions,
-): Promise<CreatePrintJobResult> {
+export interface JobPlan {
+  organizationId: string;
+  printerProfile: PrinterProfileRow;
+  copies: number;
+  duplex: boolean;
+  staple: boolean;
+  booklet: boolean;
+  punch: boolean;
+  colorMode: "bw" | "color";
+  paperSize: string;
+  staplePosition: "top-left" | "top-right" | null;
+  bindingSide: BindingSide | null;
+  profileBindingSide: BindingSide;
+  duplexEdge: "short" | null;
+  stapleStyle: "dual-left" | null;
+  paperType: "cardstock" | null;
+  /** Non-null = the job is held (waits for its sender); the PDF step may add a hold of its own. */
+  heldReason: string | null;
+  quotaBasis: "pdf_pages" | "printed_sides" | "physical_sheets" | "color_weighted";
+  approvalExpiryHours: number;
+  maxUploadBytes: number;
+  settings: unknown;
+  memberRow: unknown;
+  bookletFit: BookletFit;
+  bookletSheet: BookletSheet;
+  source: "web" | "ipp";
+}
+
+type PrinterProfileRow = Database["public"]["Tables"]["printer_profiles"]["Row"] & { printers: { id: string; organization_id: string } };
+type PlanResult = { ok: true; plan: JobPlan } | { ok: false; result: CreatePrintJobResult };
+function planFail(error: string, code: CreatePrintJobErrorCode, fieldErrors?: { pageRange?: string }): PlanResult {
+  return { ok: false, result: fail(error, code, fieldErrors) };
+}
+export type PreparedForFinish = Extract<PreparePdfResult, { ok: true }>;
+
+/**
+ * Steps 1-3 of creating a job, with no PDF work: the printer-profile and settings lookups, the rate limit and open-jobs cap, what the member's
+ * choices mean for this printer, the held reason and the size cap. `originalSizeBytes` is only the size (the file itself is not needed here).
+ */
+export async function resolveJobPlan(supabase: SupabaseClient<Database>, session: JobSession, originalSizeBytes: number, opts: JobOptions): Promise<PlanResult> {
   const organizationId = session.membership.organization_id;
-  const { printerProfileId, choices, confirmBookletPadding } = opts;
+  const { printerProfileId, choices } = opts;
   const source = opts.source ?? "web";
   const bookletFit: BookletFit = opts.bookletFit === "keep" ? "keep" : "fill";
   const bookletSheet: BookletSheet = bookletSheetChoice(opts.bookletSheet);
@@ -127,7 +156,7 @@ export async function createPrintJob(
   // (migration 0034). organization_id and created_by below always come from `session`, never from `opts`.
   const writer = opts.writeClient ?? supabase;
 
-  if (!printerProfileId) return fail("Choose a printer.", "invalid_request");
+  if (!printerProfileId) return planFail("Choose a printer.", "invalid_request");
 
   // Fixed-window rate limit, checked before any expensive work (PDF parsing,
   // storage upload) - see supabase/migrations/0012_rate_limiting.sql for why
@@ -144,7 +173,7 @@ export async function createPrintJob(
   if (rateLimitError) {
     logger.error("rate limit check failed", { userId: session.userId, error: rateLimitError.message });
   } else if (!withinLimit) {
-    return fail("You're submitting jobs too quickly. Wait a few minutes and try again.", "rate_limited");
+    return planFail("You're submitting jobs too quickly. Wait a few minutes and try again.", "rate_limited");
   }
 
   // One person cannot stack up an endless queue (paper, toner and everyone else's waiting time). Checked before any
@@ -156,7 +185,7 @@ export async function createPrintJob(
     .eq("organization_id", organizationId)
     .in("status", OPEN_JOB_STATUSES);
   if ((openJobs ?? 0) >= MAX_OPEN_JOBS_PER_USER) {
-    return fail(`You already have ${MAX_OPEN_JOBS_PER_USER} jobs waiting or printing. Wait for some to finish, or cancel one, then try again.`, "rate_limited");
+    return planFail(`You already have ${MAX_OPEN_JOBS_PER_USER} jobs waiting or printing. Wait for some to finish, or cancel one, then try again.`, "rate_limited");
   }
 
   // Independent lookups - the profile doesn't gate the settings read or vice
@@ -175,7 +204,7 @@ export async function createPrintJob(
       .maybeSingle(),
   ]);
   if (profileError || !printerProfile || printerProfile.printers.organization_id !== organizationId) {
-    return fail("Selected printer is not available.", "printer_unavailable");
+    return planFail("Selected printer is not available.", "printer_unavailable");
   }
 
   // What the member's plain choices mean for THIS printer. A printer that prints on the raw port gets its
@@ -225,14 +254,14 @@ export async function createPrintJob(
     ({ colorMode, paperSize } = opts);
     punch = opts.punch || !!choices.punch;
     // A Windows queue staples at its own fixed corner: it cannot be told to staple twice on the left.
-    if (choices.staple === "dual-left") return fail("This printer can't do Two staples (left). Choose a corner staple or no staple.", "unsupported_option");
+    if (choices.staple === "dual-left") return planFail("This printer can't do Two staples (left). Choose a corner staple or no staple.", "unsupported_option");
     // The server is the authority on what a queue printer offers: refuse (inline, not held) anything the
     // profile does not declare, instead of sending it to a queue that would silently ignore it.
     const unsupported = checkQueueCapabilities(
       { duplex, staple, booklet, punch },
       printerProfile.declared_capabilities as { duplex?: boolean; staple?: boolean; booklet?: boolean; punch?: boolean } | null,
     );
-    if (unsupported) return fail(unsupported, "unsupported_option");
+    if (unsupported) return planFail(unsupported, "unsupported_option");
     // A Windows queue cannot be told which edge to flip on from here: hold it with a plain reason, never print it the wrong way.
     if (choices.flip === "short" && duplex && !booklet) heldReason = "This printer is not set up to flip on the short edge, so nothing was printed. Choose double-sided (long edge).";
     // Nor can it be told the paper type: only a raw-port printer can ask for the bypass tray's cardstock.
@@ -241,7 +270,6 @@ export async function createPrintJob(
   // The caller can force a hold with its own plain-language reason (the IPP gateway does this for anything the
   // print dialog asked for that the website pipeline cannot honour). It wins over the printer's own reason.
   if (opts.forcedHeldReason) heldReason = opts.forcedHeldReason;
-  let held = heldReason !== null;
 
   const maxUploadBytes = settings?.max_upload_size_bytes ?? 52428800;
   const quotaBasis = (settings?.quota_basis ?? "physical_sheets") as
@@ -254,10 +282,62 @@ export async function createPrintJob(
   // Re-checked here (not just at the original upload) since the org's limit
   // could have shrunk since - matters for reprintJobAction, a no-op re-check
   // for a fresh upload that already passed this in submitPrintJobAction.
-  if (originalBytes.byteLength > maxUploadBytes) {
+  if (originalSizeBytes > maxUploadBytes) {
     const maxMb = (maxUploadBytes / (1024 * 1024)).toFixed(0);
-    return fail(`File exceeds this organization's ${maxMb} MB upload limit.`, "too_large");
+    return planFail(`File exceeds this organization's ${maxMb} MB upload limit.`, "too_large");
   }
+
+  return {
+    ok: true,
+    plan: {
+      organizationId,
+      printerProfile,
+      copies,
+      duplex,
+      staple,
+      booklet,
+      punch,
+      colorMode,
+      paperSize,
+      staplePosition,
+      bindingSide,
+      profileBindingSide,
+      duplexEdge,
+      stapleStyle,
+      paperType,
+      heldReason,
+      quotaBasis,
+      approvalExpiryHours,
+      maxUploadBytes,
+      settings,
+      memberRow,
+      bookletFit,
+      bookletSheet,
+      source,
+    },
+  };
+}
+
+/**
+ * The actual job-creation pipeline - resolve the plan, do the PDF work, then finish (print math, policy evaluation, quota reservation, storage,
+ * the print_jobs insert and its event trail). Shared by the website's server actions (a fresh upload, and "print again") and the IPP gateway
+ * routes, so this logic - the actual money path - exists exactly once. It RETURNS a result and never redirects or throws Next-only control flow;
+ * the callers decide what success looks like. Run in sequence here (the synchronous path); the print-server path runs the same three parts in
+ * different places (docs/PREPARE-JOBS-DESIGN.md).
+ */
+export async function createPrintJob(
+  supabase: SupabaseClient<Database>,
+  session: JobSession,
+  originalBytes: Uint8Array,
+  originalFileName: string,
+  opts: JobOptions,
+): Promise<CreatePrintJobResult> {
+  const planned = await resolveJobPlan(supabase, session, originalBytes.byteLength, opts);
+  if (!planned.ok) return planned.result;
+  const { plan } = planned;
+  const { organizationId, colorMode, booklet, paperSize, bindingSide, profileBindingSide, bookletFit, bookletSheet, settings, memberRow } = plan;
+  const { printerProfileId, choices, confirmBookletPadding } = opts;
+  const writer = opts.writeClient ?? supabase;
 
   // The PDF half (preflight, Type 3 picture copy, page range, booklet imposition, stamp, text safeguard, last-line PJL guard) is one function in
   // @printio/pdf, so the same code can run on the organization's print server (docs/PREPARE-JOBS-DESIGN.md). It touches no database: the held decision
@@ -265,9 +345,9 @@ export async function createPrintJob(
   const stampSettings = normalizeStampSettings(settings as Record<string, unknown> | null);
   const prepared = await preparePdf({
     originalBytes,
-    maxUploadBytes,
+    maxUploadBytes: plan.maxUploadBytes,
     colorMode,
-    heldReason,
+    heldReason: plan.heldReason,
     forcedHeldReason: opts.forcedHeldReason,
     pageRangeText: choices.pageRange.trim() === "" ? null : choices.pageRange.trim(),
     booklet,
@@ -300,9 +380,25 @@ export async function createPrintJob(
     if (prepared.kind === "needs_booklet_confirm") return { ok: false, kind: "needs_booklet_confirm", needsBookletConfirm: prepared.needsBookletConfirm };
     return fail(prepared.error, prepared.code, prepared.fieldErrors);
   }
-  const { sourcePages, derivedBytes, effectivePageCount, blankPagesAdded, pageRangeText, pictureCopy, fileSizeBytes } = prepared;
-  heldReason = prepared.heldReason;
-  held = prepared.held;
+  return finishPrintJob(supabase, session, originalBytes, originalFileName, opts, plan, prepared);
+}
+
+/**
+ * The second half: print math and the sheet limit, cost, policy evaluation, quota reservation, storing the files, the print_jobs insert and the
+ * event trail, with the same rollback as ever. Takes the plan and what the PDF step returned.
+ */
+export async function finishPrintJob(
+  supabase: SupabaseClient<Database>,
+  session: JobSession,
+  originalBytes: Uint8Array,
+  originalFileName: string,
+  opts: JobOptions,
+  plan: JobPlan,
+  prepared: PreparedForFinish,
+): Promise<CreatePrintJobResult> {
+  const { organizationId, printerProfile, copies, duplex, staple, booklet, punch, colorMode, paperSize, staplePosition, bindingSide, duplexEdge, stapleStyle, paperType, quotaBasis, approvalExpiryHours, bookletFit, bookletSheet, source } = plan;
+  const writer = opts.writeClient ?? supabase;
+  const { sourcePages, derivedBytes, effectivePageCount, blankPagesAdded, pageRangeText, pictureCopy, fileSizeBytes, heldReason, held } = prepared;
 
   const printMath = computePrintMath({ pageCount: effectivePageCount, copies, duplex, booklet });
   if (printMath.physicalSheets > MAX_SHEETS_PER_JOB) {
@@ -577,4 +673,3 @@ export async function createPrintJob(
 
   return { ok: true, jobId, jobNumber: inserted?.job_number ?? "", status: jobStatus, heldReason, policyReasons };
 }
-
