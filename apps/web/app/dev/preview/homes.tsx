@@ -84,7 +84,7 @@ export function TeacherHomeSection({ variant = "quota" }: { variant?: "quota" | 
   return (
     <div className="min-h-screen pb-[calc(4.5rem+env(safe-area-inset-bottom))] sm:pb-0">
       <MemberHeader userId="preview-user" isSuperAdmin={false} user={{ ...USER, roleLabel: "Staff" }} pathnameOverride="/home" />
-      <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
+      <main className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
         <h1 className="mb-4 text-2xl font-bold tracking-[-0.03em]">Hi Dana</h1>
         <div className="mb-5">
           <BigPrintCard hint="Upload a PDF and choose your options." />

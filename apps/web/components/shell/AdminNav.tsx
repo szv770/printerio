@@ -178,7 +178,7 @@ export function AdminNav({
             <Info className="h-[18px] w-[18px] shrink-0 text-[var(--color-muted)]" strokeWidth={1.75} />
             About Printio
           </Link>
-          <div className={`${ROW} text-[var(--color-text-2)] hover:bg-[var(--color-surface-2)] [&_button]:min-h-11 [&_button]:w-full [&_button]:text-sm [&_button]:font-medium md:[&_button]:min-h-10`}>
+          <div className={`${ROW} text-[var(--color-text-2)] hover:bg-[var(--color-surface-2)] [&_button]:min-h-11 [&_button]:w-full [&_button]:gap-3 [&_button]:text-sm [&_button]:font-medium [&_button]:text-[var(--color-text-2)] [&_button>svg:first-child]:h-[18px] [&_button>svg:first-child]:w-[18px] md:[&_button]:min-h-10`}>
             <HelpMenu userId={userId} variant="admin" pathname={pathname} />
           </div>
           <InstallCard

@@ -299,7 +299,7 @@ function QuotaRow({
                 </Button>
               </form>
             ) : (
-              <Button type="button" variant="ghost" size="sm" onClick={() => setConfirming(true)} className="text-[var(--color-muted)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)]">
+              <Button type="button" variant="ghost" size="sm" onClick={() => setConfirming(true)} className="-mr-2 text-[var(--color-muted)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)]">
                 Remove
               </Button>
             )}

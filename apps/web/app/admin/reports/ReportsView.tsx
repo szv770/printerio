@@ -118,7 +118,7 @@ export function ReportsView(p: ReportsViewProps) {
   ];
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 [&>div:first-child]:mb-0 [&>nav]:mb-0">
       <PageHeader title="Reports" description="See how much your printers were used, and by whom." />
       <Tabs label="Reports" items={reportTabs("usage", p.isOrgAdmin)} />
 

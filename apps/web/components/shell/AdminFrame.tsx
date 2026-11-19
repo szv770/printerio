@@ -5,7 +5,7 @@ import { AdminNav } from "./AdminNav";
  * The admin page frame: phones get the top bar above the page; md and up a
  * sticky sidebar beside a centered content column. No data fetching, so the
  * dev preview renders the very same frame the real app does. The `[&>main]`
- * resets neutralize the member pages' own `<main mx-auto max-w-2xl px-4 py-10>`
+ * resets neutralize the member pages' own `<main mx-auto max-w-3xl px-4 py-10>`
  * wrapper so they do not double the shell's padding or float centered.
  */
 export function AdminFrame({ children, ...nav }: ComponentProps<typeof AdminNav> & { children: ReactNode }) {

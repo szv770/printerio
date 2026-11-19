@@ -69,9 +69,9 @@ function SuperAdminRow({ admin, isSelf }: { admin: SuperAdminListItem; isSelf: b
   const [state, formAction, pending] = useActionState(demoteSuperAdminAction, initialSuperAdminActionState);
 
   return (
-    <li className="rounded-lg border border-[var(--color-border)] p-3">
+    <li className="rounded-[var(--radius-control)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
+        <div className="min-w-0 [overflow-wrap:anywhere]">
           <p className="text-sm font-medium">
             {admin.displayName ?? admin.email}
             {isSelf && <span className="ml-1.5 text-xs font-normal text-[var(--color-muted)]">(you)</span>}

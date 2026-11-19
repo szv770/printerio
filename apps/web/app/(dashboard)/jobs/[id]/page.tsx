@@ -109,7 +109,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   );
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
+    <main className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
       <Link
         href={routes.jobs}
         className="-ml-2 mb-3 inline-flex min-h-11 items-center gap-1 rounded-[var(--radius-sm)] px-2 text-sm font-medium text-[var(--color-muted)] hover:text-[var(--color-text)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]"
