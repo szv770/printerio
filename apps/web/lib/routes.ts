@@ -21,6 +21,8 @@ export const routes = {
   dashboard: "/home",
   print: "/print",
   jobs: "/jobs",
+  /** "Preparing your file..." while the print server prepares the PDF. */
+  preparing: (prepareJobId: string) => `/print/preparing/${prepareJobId}`,
   job: (jobId: string) => `/jobs/${jobId}`,
   /** The print page filled in from an earlier job (its file and every choice). */
   printAgain: (jobId: string) => `/print?again=${encodeURIComponent(jobId)}`,

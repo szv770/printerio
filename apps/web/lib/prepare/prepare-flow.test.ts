@@ -12,6 +12,7 @@ import type { JobOptions, JobSession } from "@/lib/jobs/create-print-job";
 import { intakePrintJob } from "./intake";
 import { finishPrepareJob, type PrepareJobRow } from "./finish";
 import { cancelPrepareJob } from "./cancel";
+import { confirmBookletForPrepareJob } from "./confirm";
 import { retryStuckFinishes, STUCK_AFTER_MS } from "./retry";
 
 const ORG = "org-1";
@@ -488,5 +489,28 @@ describe("the print server's idle poll finishes its own school's stuck jobs", ()
     if (!r.ok) throw new Error("intake failed");
     Object.assign(jobRow(), { status: "done", finished_at: new Date(Date.now() - 5 * 60_000).toISOString(), result: preparedWire(r.prepareJobId) });
     expect(await retryStuckFinishes(fake.client as never, { organizationId: ORG, limit: 2 })).toBe(1);
+  });
+});
+
+describe("confirmBookletForPrepareJob (the 'yes, add the blank pages' button)", () => {
+  const NEEDS = { preparedPath: null, sourcePages: 5, needsBookletConfirm: { sourcePages: 5, paddedPages: 8, blankPagesAdded: 3 } };
+  const confirm = (user = session.userId) => confirmBookletForPrepareJob(fake.client as never, user, jobRow().id as string);
+
+  it("puts the same job back in the queue with the confirmation set, clearing the question", async () => {
+    const r = await intake();
+    if (!r.ok) throw new Error("intake failed");
+    Object.assign(jobRow(), { status: "done", result: NEEDS, claimed_by: "agent-1", finished_at: new Date().toISOString() });
+    expect(await confirm()).toBe(true);
+    expect(jobRow()).toMatchObject({ id: r.prepareJobId, status: "queued", result: null, claimed_by: null, finished_at: null });
+    expect((jobRow().params as { pdf: { confirmBookletPadding: boolean } }).pdf.confirmBookletPadding).toBe(true);
+  });
+  it("does nothing for a job that is not waiting on that question, or that is someone else's", async () => {
+    await intake();
+    expect(await confirm()).toBe(false); // queued, no question
+    Object.assign(jobRow(), { status: "done", result: NEEDS });
+    expect(await confirm("someone-else")).toBe(false);
+    expect(jobRow().status).toBe("done");
+    jobRow().status = "cancelled";
+    expect(await confirm()).toBe(false);
   });
 });

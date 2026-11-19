@@ -5,6 +5,8 @@ import { routes } from "@/lib/routes";
 import { ButtonLink, PageHeader } from "@/components/ui";
 import { Plus } from "lucide-react";
 import { JobsList } from "./JobsList";
+import Link from "next/link";
+import { cardsSince, preparingCards } from "@/lib/prepare/my-jobs";
 
 export default async function JobsPage() {
   const session = await requireSessionOrRedirect();
@@ -47,6 +49,18 @@ export default async function JobsPage() {
     }
   }
 
+  // Files still being prepared by the print server have no job yet. A failed read just shows nothing: this page works with every print server off.
+  const { data: prepareRows } = await supabase
+    .from("server_jobs")
+    .select("id, status, params, result")
+    .eq("kind", "prepare_pdf")
+    .eq("requested_by", session.userId)
+    .in("status", ["queued", "claimed", "done", "failed"])
+    .gte("created_at", cardsSince())
+    .order("created_at", { ascending: false })
+    .limit(10);
+  const cards = preparingCards(prepareRows ?? []);
+
   return (
     <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
       <PageHeader
@@ -58,6 +72,20 @@ export default async function JobsPage() {
           </ButtonLink>
         }
       />
+      {cards.length > 0 ? (
+        <ul className="mb-4 space-y-2" aria-label="Files being prepared">
+          {cards.map((c) => (
+            <li key={c.id}>
+              <Link href={routes.preparing(c.id)} className="block rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3 text-sm">
+                <span className="font-medium">{c.fileName}</span>
+                <span className="ml-2 text-[var(--color-muted)]">
+                  {c.state === "preparing" ? "Preparing..." : c.state === "needs_booklet_confirm" ? "Needs your answer" : "Could not be prepared"}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <JobsList initialJobs={jobRows} eventTypesByJob={eventTypesByJob} userId={session.userId} />
     </main>
   );
