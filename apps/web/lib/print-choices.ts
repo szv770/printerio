@@ -10,7 +10,7 @@
  * source of truth) or that the printer does not offer comes back as a
  * `heldReason`, and the caller holds the job instead of printing something else.
  */
-import { buildPjlSettings, computeBookletPadding, computePrintMath, parsePageRange, type RawPrintOptions } from "@printio/shared";
+import { buildPjlSettings, computeBookletPadding, computePrintMath, type RawPrintOptions } from "@printio/shared";
 
 export type SidesChoice = "one" | "two";
 /** "profile" is internal only (re-printing an old job that never stored a corner): use the printer's own default. */
@@ -77,23 +77,8 @@ export function parseChoices(get: (name: string) => FormDataEntryValue | null): 
   return { ok: true, choices: { sides, staple, booklet, copies, ...punch, ...flip, ...paper, pageRange: str("pageRange").trim() } };
 }
 
-export type PageSubsetPlan =
-  | { ok: true; sourcePages: number; /** Pages to pull out into a subset PDF, or null when no subset is needed (or the job is held). */ subsetPages: number[] | null }
-  | { ok: false; reason: string };
-
-/**
- * Decides what the page range means before any PDF work. A held job never builds a subset (it stores the
- * original only and the range text is re-applied on release) but its range is still validated and counted
- * so the estimate is right.
- */
-export function planPageSubset(input: { pageRangeText: string | null; pageCount: number; held: boolean }): PageSubsetPlan {
-  const { pageRangeText, pageCount, held } = input;
-  if (!pageRangeText) return { ok: true, sourcePages: pageCount, subsetPages: null };
-  const parsed = parsePageRange(pageRangeText, pageCount);
-  if (!parsed.ok) return { ok: false, reason: parsed.reason };
-  const whole = parsed.pages.length === pageCount && parsed.pages.every((p, i) => p === i + 1);
-  return { ok: true, sourcePages: parsed.pages.length, subsetPages: held || whole ? null : parsed.pages };
-}
+// Moved to @printio/shared (the PDF pipeline in @printio/pdf needs it too, and it must stay browser-safe).
+export { planPageSubset, type PageSubsetPlan } from "@printio/shared";
 
 /**
  * Windows-queue printers: the requested options must be declared by the profile. Returns a plain message for

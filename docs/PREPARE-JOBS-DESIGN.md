@@ -96,6 +96,8 @@ preparation. The phone's job number must stay stable, so the gateway keeps its o
 1. Migration file + route handlers + claim scoping tests (no behaviour change; nothing calls them yet).
 2. Agent prepare worker with a fake website in tests (off by default, like `PRINTIO_LIBRARY_WORKER`).
 3. Split `createPrintJob` into `intakePrintJob` and `finishPrintJob` behind `PREPARE_VIA_SERVER` (largest step; characterization tests first).
+   - **3a DONE 2026-11-19:** the PDF steps are one function, `preparePdf` in `packages/pdf/src/prepare.ts` (no database), and `createPrintJob` calls it; all existing tests pass unchanged.
+   - 3b: record the prepare job (choices, held reason, stamp text) instead of calling `preparePdf` inline, and add `finishPrintJob` (sheet limit, policy, quota, insert) for when the print server reports back. Plug `preparePdf` into the prepare worker as its pipeline.
 4. Callers: `submitPrintJobAction`, `reprintJobAction`, `finishHeldBookletAction`, the gateway `finalize`.
 5. UI: preparing card, offline message, hold reasons.
 6. Parity test against real PDFs, then a week on the owner's server.
