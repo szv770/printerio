@@ -12,7 +12,7 @@
 export interface FakeCall {
   /** The table, the rpc function name, or `storage:<bucket>`. */
   table: string;
-  op: "select" | "insert" | "update" | "delete" | "upsert" | "rpc" | "download" | "upload" | "remove" | "sign_upload" | "sign_download" | "move";
+  op: "select" | "insert" | "update" | "delete" | "upsert" | "rpc" | "download" | "upload" | "remove" | "sign_upload" | "sign_download" | "move" | "list";
   /** Insert/update payload, rpc args, upload path, or remove paths. */
   values?: unknown;
   /** Column list passed to select(). */
@@ -85,6 +85,7 @@ export function fakeSupabase(responder: Responder) {
           upload: (path: string, bytes: unknown) => builder({ table, op: "upload", values: { path, bytes }, filters: [] }),
           createSignedUrl: (path: string, ttl: number) => builder({ table, op: "sign_download", values: { path, ttl }, filters: [] }),
           createSignedUploadUrl: (path: string) => builder({ table, op: "sign_upload", values: path, filters: [] }),
+          list: (folder: string, options?: unknown) => builder({ table, op: "list", values: { folder, options }, filters: [] }),
           move: (from: string, to: string) => builder({ table, op: "move", values: { from, to }, filters: [] }),
           remove: (paths: string[]) => builder({ table, op: "remove", values: paths, filters: [] }),
         };

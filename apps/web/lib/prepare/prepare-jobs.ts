@@ -22,6 +22,8 @@ export const ORIGINAL_URL_TTL_SECONDS = 300;
 /** Longest plain-language reason kept on a failed job. */
 export const MAX_REASON_CHARS = 300;
 export const MAX_BODY_BYTES = 70_000;
+/** The longest `params` a prepare job may carry (the database allows 16000 bytes; this leaves headroom). */
+export const MAX_PARAMS_BYTES = 15_000;
 
 export type Db = ReturnType<typeof createServiceRoleClient>;
 
@@ -89,6 +91,26 @@ export const prepareResultSchema = z
     fidelity: z.enum(["same", "changed", "skipped"]).optional(),
     /** Set when the file cannot be printed; the sender sees this plain reason and no print job is created. */
     rejectedReason: z.string().max(MAX_REASON_CHARS).optional(),
+    // What the finish step needs from a successfully prepared job (packages/pdf/src/prepare-wire.ts):
+    held: z.boolean().optional(),
+    heldReason: z.string().max(600).nullable().optional(),
+    effectivePageCount: z.number().int().min(0).max(5000).optional(),
+    pageRangeText: z.string().max(200).nullable().optional(),
+    fileSizeBytes: z.number().int().min(0).max(2_000_000_000).optional(),
+    pictureCopy: z.boolean().optional(),
+    /** An inline error from the PDF steps, with the field it belongs next to. */
+    error: z
+      .object({
+        code: z.enum(["bad_pdf", "invalid_page_range", "subset_failed", "booklet_failed"]),
+        message: z.string().max(600),
+        fieldErrors: z.object({ pageRange: z.string().max(600).optional() }).strict().optional(),
+      })
+      .strict()
+      .optional(),
+    needsBookletConfirm: z
+      .object({ sourcePages: z.number().int().min(0).max(5000), paddedPages: z.number().int().min(0).max(5000), blankPagesAdded: z.number().int().min(0).max(8) })
+      .strict()
+      .optional(),
   })
   .strict();
 export type PrepareResult = z.infer<typeof prepareResultSchema>;

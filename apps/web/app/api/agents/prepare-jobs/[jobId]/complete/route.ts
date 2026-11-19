@@ -1,10 +1,12 @@
 import { apiError } from "@/lib/api-errors";
-import { loadPrepareLease, prepareResultSchema, preparedFolder, readJsonBody, requirePrepareAgent } from "@/lib/prepare/prepare-jobs";
+import { loadPrepareLease, prepareResultSchema, preparedFolder, readJsonBody, requirePrepareAgent, type PrepareResult } from "@/lib/prepare/prepare-jobs";
+import { finishPrepareJob } from "@/lib/prepare/finish";
 
 /**
- * POST /api/agents/prepare-jobs/[jobId]/complete { result }: the print server finished preparing. The result is stored on the job and
- * the job is marked done. (Creating the print job from the result is the next step, P2; nothing here prints anything.) A prepared
- * path must be inside this job's own folder. A job the sender cancelled answers 409 `cancelled` and the work is discarded.
+ * POST /api/agents/prepare-jobs/[jobId]/complete { result }: the print server finished preparing. The result is stored on the job and the job is marked
+ * done FIRST (that single conditional update is what shuts out a cancel: a cancel only works on a queued or claimed job). Then, for a real pipeline result,
+ * the website finishes the job: rules, quota and approval on the real page count, the files moved into place, the print job created (lib/prepare/finish.ts).
+ * A prepared path must be inside this job's own folder. A job the sender cancelled answers 409 `cancelled` and the work is discarded.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ jobId: string }> }) {
   const guard = await requirePrepareAgent(request);
@@ -34,5 +36,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ job
   if (error) return apiError(500, "internal_error", "Failed to store the result.");
   // The status changed between our check and the update (for example the sender cancelled): the work must be discarded.
   if (!data) return apiError(409, "wrong_state", "The job is no longer in progress. Discard your work.");
-  return Response.json({ ok: true });
+
+  // The older minimal result (page counts only) stops here; a pipeline result goes on to create the print job.
+  if (!isPipelineResult(result)) return Response.json({ ok: true });
+  const outcome = await finishPrepareJob(
+    db,
+    { id: lease.id, organization_id: lease.organizationId, requested_by: lease.requestedBy, source_path: lease.sourcePath, params: lease.params },
+    result,
+  );
+  return Response.json({ ok: true, outcome: outcome.status });
+}
+
+/** A result that carries a decision (a file that cannot print, an inline error, a booklet question) or the numbers the finish step needs. */
+function isPipelineResult(r: PrepareResult): boolean {
+  return r.rejectedReason !== undefined || r.error !== undefined || r.needsBookletConfirm !== undefined || r.effectivePageCount !== undefined || r.fileSizeBytes !== undefined;
 }

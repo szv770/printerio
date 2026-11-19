@@ -50,6 +50,9 @@ function simulate(call: FakeCall): FakeResult {
   return ok();
 }
 
+const finishPrepareJob = vi.fn(async (..._a: unknown[]) => ({ status: "finished", printJobId: "pj-1" }) as { status: string; printJobId?: string });
+vi.mock("@/lib/prepare/finish", () => ({ finishPrepareJob: (...a: unknown[]) => finishPrepareJob(...a) }));
+
 import { POST as claimPOST } from "./claim/route";
 import { POST as originalPOST } from "./[jobId]/original/route";
 import { POST as slotPOST } from "./[jobId]/upload-slot/route";
@@ -83,6 +86,7 @@ const claimed = (n: number, by: Agent = A1, over: Row = {}) => job(n, { status: 
 const rowOf = (n: number) => jobs.find((r) => r.id === id(n))!;
 
 beforeEach(() => {
+  finishPrepareJob.mockClear();
   process.env.NEXT_PUBLIC_SUPABASE_URL = "https://sb.test";
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "public-anon-key";
   agent = A1;
@@ -271,6 +275,52 @@ describe("complete", () => {
     agent = A1_OTHER;
     expect((await completePOST(post("/c", good(1)), ctx(1))).status).toBe(403);
     expect(rowOf(1).status).toBe("claimed");
+  });
+});
+
+describe("complete -> finish (the website creates the print job from the print server's report)", () => {
+  const pipeline = (n: number) => ({
+    result: { preparedPath: null, sourcePages: 3, bookletPaddingAdded: 0, held: false, heldReason: null, effectivePageCount: 3, pageRangeText: null, fileSizeBytes: 1234, pictureCopy: false, ...{} },
+  });
+
+  it("a real result (page counts and the finish fields) is stored and then finished, as the job's own sender and school", async () => {
+    jobs = [claimed(1)];
+    const res = await completePOST(post("/c", pipeline(1)), ctx(1));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, outcome: "finished" });
+    expect(rowOf(1).status).toBe("done");
+    expect(finishPrepareJob).toHaveBeenCalledOnce();
+    const [, row, wire] = finishPrepareJob.mock.calls[0] as unknown as [unknown, Record<string, unknown>, Record<string, unknown>];
+    expect(row).toMatchObject({ id: id(1), organization_id: ORG1, requested_by: USER, source_path: `intake/${ORG1}/${USER}/1.pdf` });
+    expect(wire).toMatchObject({ effectivePageCount: 3, fileSizeBytes: 1234 });
+  });
+
+  it("a rejection, an inline error and a booklet question are all finished too (that is where they are recorded for the sender)", async () => {
+    jobs = [claimed(1), claimed(2), claimed(3)];
+    await completePOST(post("/c", { result: { preparedPath: null, sourcePages: 0, rejectedReason: "Password protected." } }), ctx(1));
+    await completePOST(post("/c", { result: { preparedPath: null, sourcePages: 0, error: { code: "bad_pdf", message: "Not a PDF." } } }), ctx(2));
+    await completePOST(post("/c", { result: { preparedPath: null, sourcePages: 5, needsBookletConfirm: { sourcePages: 5, paddedPages: 8, blankPagesAdded: 3 } } }), ctx(3));
+    expect(finishPrepareJob).toHaveBeenCalledTimes(3);
+  });
+
+  it("the older minimal result (page counts only) is only stored", async () => {
+    jobs = [claimed(1)];
+    const res = await completePOST(post("/c", { result: { preparedPath: null, sourcePages: 3 } }), ctx(1));
+    expect(await res.json()).toEqual({ ok: true });
+    expect(finishPrepareJob).not.toHaveBeenCalled();
+  });
+
+  it("a job the sender cancelled is never finished", async () => {
+    jobs = [claimed(1, A1, { status: "cancelled" })];
+    expect((await completePOST(post("/c", pipeline(1)), ctx(1))).status).toBe(409);
+    expect(finishPrepareJob).not.toHaveBeenCalled();
+  });
+
+  it("a prepared path outside the job's own folder is refused before anything is finished", async () => {
+    jobs = [claimed(1)];
+    const bad = { result: { ...pipeline(1).result, preparedPath: `prepared/${ORG2}/${id(1)}/x.pdf` } };
+    expect((await completePOST(post("/c", bad), ctx(1))).status).toBe(400);
+    expect(finishPrepareJob).not.toHaveBeenCalled();
   });
 });
 

@@ -66,3 +66,17 @@ export async function loadStagedPdf(db: Db, userId: string, path: unknown, maxBy
   }
   return { ok: true, bytes: new Uint8Array(await blob.arrayBuffer()) };
 }
+
+/**
+ * The real size of a staged upload from the storage listing (no download), or null when it is not there (the browser's upload never finished) or
+ * is not this person's. Used where the file must not be pulled into memory at all (the print-server path, docs/PREPARE-JOBS-DESIGN.md).
+ */
+export async function stagedPdfSize(db: Db, userId: string, path: unknown): Promise<number | null> {
+  if (!isOwnStagedPath(userId, path)) return null;
+  const slash = path.lastIndexOf("/");
+  const folder = path.slice(0, slash);
+  const name = path.slice(slash + 1);
+  const { data: listed } = await db.storage.from(PRINT_JOBS_BUCKET).list(folder, { search: name, limit: 5 });
+  const size = (listed?.find((f) => f.name === name)?.metadata as { size?: number } | null | undefined)?.size;
+  return typeof size === "number" && size > 0 ? size : null;
+}
