@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 import { Button, Card } from "@/components/ui";
+import { ReportProblemLink } from "@/components/help/ReportProblemLink";
 import { routes } from "@/lib/routes";
 
 /**
@@ -35,6 +36,7 @@ export default function AgentDetailError({ error, reset }: { error: Error & { di
           >
             Back to print servers
           </Link>
+          <ReportProblemLink digest={error.digest} variant="ghost" />
         </div>
       </Card>
     </div>

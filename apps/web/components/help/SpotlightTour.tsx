@@ -1,20 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, X, MousePointerClick } from "lucide-react";
+import { ChevronLeft, ChevronRight, MousePointerClick, X } from "lucide-react";
 import type { TourSlide } from "@/lib/onboarding-content";
-import { computeArrowOffset, computeCalloutPlacement, padRect, buildSpotlightPath, type Rect } from "@/lib/tour-position";
+import { computeCalloutPlacement, padRect, buildSpotlightPath, type Rect } from "@/lib/tour-position";
 
 const HOLE_PADDING = 8;
-const HOLE_RADIUS = 12;
+const HOLE_RADIUS = 14;
 const CALLOUT_GAP = 18;
-// How long we keep polling for a late-mounting anchor (a Supabase realtime
-// row still loading, a client component still hydrating) before treating it
-// the same as "not present for this role" and falling back to a centered
-// callout - never pointing the spotlight at nothing.
+/** Below this width the card docks to the top or bottom edge instead of floating beside the target. */
+const PHONE_WIDTH = 640;
 const ANCHOR_POLL_ATTEMPTS = 20;
 const ANCHOR_POLL_INTERVAL_MS = 120;
+/** Above the Modal (z-100) and every shell element. */
+const TOUR_Z = "z-[110]";
 
 const SESSION_ACTIVE_KEY = "printio:onboarding:tour:variant";
 const SESSION_STEP_KEY = "printio:onboarding:tour:step";
@@ -32,8 +33,7 @@ function writeSession(key: string, value: string | null) {
     if (value === null) sessionStorage.removeItem(key);
     else sessionStorage.setItem(key, value);
   } catch {
-    // best-effort only - a lost in-flight step just means a hard refresh
-    // mid-tour restarts it, not a broken tour.
+    // best-effort only
   }
 }
 
@@ -45,19 +45,15 @@ function prefersReducedMotion(): boolean {
   }
 }
 
+const noopSubscribe = () => () => {};
+
 /**
- * The full-viewport guided-tour overlay: dims everything except the real
- * element a step is talking about, with a callout beside it. Mounted by
- * HelpMenu (both the "student" and "admin" variants) whenever a tour is
- * active - see components/help/HelpMenu.tsx for how it's launched and how
- * finishing is recorded.
+ * The guided walkthrough: dims the page, cuts a spotlight around the real element a step is about, and shows a card
+ * beside it. Each step names a `data-tour="<anchor>"` element and the route it lives on (lib/onboarding-content.ts).
+ * It navigates there itself, waits briefly for the element to appear, and falls back to a centred card when it
+ * never does, so it never points at nothing. Rendered through a portal above every other layer.
  *
- * Anchoring: each step optionally names a `data-tour="<anchor>"` element and
- * the route it lives on (lib/onboarding-content.ts). This component
- * navigates there itself when needed, polls briefly for the element to
- * mount, and - if it never shows up (not present for this role, an empty
- * state, still loading) - falls back to a centered callout with the same
- * copy rather than ever pointing at nothing.
+ * Keys: Right/Enter = next, Left = back, Escape = leave.
  */
 export function SpotlightTour({
   slides,
@@ -74,73 +70,56 @@ export function SpotlightTour({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
   const slide = slides[step];
   const isLast = step === slides.length - 1;
-  const reducedMotion = useMemo(() => prefersReducedMotion(), []);
+  const reducedMotion = mounted && prefersReducedMotion();
 
   const [targetRect, setTargetRect] = useState<Rect | null>(null);
-  // Anchor resolution has three states: "searching" (still polling, nothing
-  // rendered yet so we never flash the fallback for a split second), "found"
-  // (a real element is highlighted), and "missing" (gave up polling - render
-  // the centered fallback). A step with no anchor at all skips straight to
-  // "missing" (i.e. centered), which is exactly the fallback layout too.
   const [resolution, setResolution] = useState<"searching" | "found" | "missing">("searching");
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
-  const [calloutSize, setCalloutSize] = useState({ width: 320, height: 160 });
+  const [calloutSize, setCalloutSize] = useState({ width: 340, height: 180 });
   const [clicked, setClicked] = useState(false);
 
   const calloutRef = useRef<HTMLDivElement>(null);
   const pushedRouteRef = useRef<string | null>(null);
 
-  // Persist current step across a real navigation (see the route-mismatch
-  // effect below) or a hard refresh mid-tour, so resuming picks up where the
-  // user left off instead of restarting from step 0.
   useEffect(() => {
     writeSession(SESSION_ACTIVE_KEY, variant);
     writeSession(SESSION_STEP_KEY, String(step));
   }, [variant, step]);
 
-  const advance = useCallback(() => {
-    setClicked(false);
-    setResolution("searching");
-    setTargetRect(null);
-    setStep(Math.min(step + 1, slides.length - 1));
-  }, [step, slides.length, setStep]);
+  const goTo = useCallback(
+    (next: number) => {
+      setClicked(false);
+      setResolution("searching");
+      setTargetRect(null);
+      setStep(Math.min(Math.max(next, 0), slides.length - 1));
+    },
+    [setStep, slides.length],
+  );
+  const advance = useCallback(() => goTo(step + 1), [goTo, step]);
+  const goBack = useCallback(() => goTo(step - 1), [goTo, step]);
 
-  const goBack = useCallback(() => {
-    setClicked(false);
-    setResolution("searching");
-    setTargetRect(null);
-    setStep(Math.max(step - 1, 0));
-  }, [step, setStep]);
+  // Cross-page steps: go to the step's page first. The ref stops a second push before the address updates.
+  // The developer preview has no real routes to walk between, so it shows each step where it is.
+  const inPreview = process.env.NODE_ENV !== "production" && (pathname ?? "").startsWith("/dev/preview");
 
-  // Cross-page steps: if this step's anchor lives on a different route than
-  // the one we're currently on, navigate there ourselves. Guarded by a ref
-  // (not just state) so a render in-between the push and the pathname
-  // actually updating doesn't fire a second push.
   useEffect(() => {
-    if (!slide?.route || slide.route === pathname) {
+    if (inPreview || !slide?.route || slide.route === pathname) {
       pushedRouteRef.current = null;
       return;
     }
     if (pushedRouteRef.current === slide.route) return;
     pushedRouteRef.current = slide.route;
     router.push(slide.route);
-  }, [slide, pathname, router]);
+  }, [slide, pathname, router, inPreview]);
 
-  const onRoute = !slide?.route || slide.route === pathname;
+  const onRoute = inPreview || !slide?.route || slide.route === pathname;
 
-  // Locate the anchored element (polling briefly for one that mounts late),
-  // scroll it into view, and keep its rect fresh across scroll/resize.
+  // Find the element (it may mount late), scroll it into view, and follow it as the page scrolls or resizes.
   useEffect(() => {
-    if (!onRoute) return;
-    // No anchor at all -> render as the centered fallback. That's already
-    // what the default "searching" resolution looks like (spotlighted only
-    // ever turns true once a "found" element's rect is known), so there's
-    // nothing to set here - advance()/goBack() already reset resolution to
-    // "searching" for the new step before this effect runs.
-    if (!slide?.anchor) return;
-
+    if (!onRoute || !slide?.anchor) return;
     const anchor = slide.anchor;
     let cancelled = false;
     let attempts = 0;
@@ -154,7 +133,6 @@ export function SpotlightTour({
       setTargetRect({ top: r.top, left: r.left, width: r.width, height: r.height });
       setViewport({ width: window.innerWidth, height: window.innerHeight });
     }
-
     function scheduleUpdate() {
       if (rafId !== null) return;
       rafId = requestAnimationFrame(() => {
@@ -162,18 +140,20 @@ export function SpotlightTour({
         updateRect();
       });
     }
-
     function poll() {
       if (cancelled) return;
       element = document.querySelector(`[data-tour="${CSS.escape(anchor)}"]`);
-      if (element) {
+      // An element that is not on screen (hidden by the layout) cannot be spotlighted.
+      if (element && element.getClientRects().length > 0) {
         setResolution("found");
         element.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center", inline: "nearest" });
         updateRect();
         return;
       }
+      element = null;
       attempts += 1;
       if (attempts >= ANCHOR_POLL_ATTEMPTS) {
+        setViewport({ width: window.innerWidth, height: window.innerHeight });
         setResolution("missing");
         return;
       }
@@ -183,9 +163,11 @@ export function SpotlightTour({
     poll();
     window.addEventListener("scroll", scheduleUpdate, true);
     window.addEventListener("resize", scheduleUpdate);
-
+    // Smooth scrolling and late layout shifts move the element after the first measurement.
+    const settle = setInterval(scheduleUpdate, 250);
     return () => {
       cancelled = true;
+      clearInterval(settle);
       if (pollTimer) clearTimeout(pollTimer);
       if (rafId !== null) cancelAnimationFrame(rafId);
       window.removeEventListener("scroll", scheduleUpdate, true);
@@ -193,123 +175,164 @@ export function SpotlightTour({
     };
   }, [slide, onRoute, reducedMotion]);
 
-  // Click-driven steps: a real click on the target both does whatever it
-  // normally does (we never call preventDefault/stopPropagation) and
-  // advances the tour right after.
+  // Steps that wait for a real click: the click still does what it normally does; the tour moves on after it.
   useEffect(() => {
     if (resolution !== "found" || !slide?.clickToAdvance || !slide.anchor) return;
     const element = document.querySelector(`[data-tour="${CSS.escape(slide.anchor)}"]`);
     if (!element) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     function handleClick() {
       setClicked(true);
-      // Give the element's own click handler (e.g. a real navigation) a
-      // moment to start before we advance the tour underneath it.
-      setTimeout(advance, 50);
+      timer = setTimeout(advance, 50);
     }
     element.addEventListener("click", handleClick, { once: true });
-    return () => element.removeEventListener("click", handleClick);
+    return () => {
+      element.removeEventListener("click", handleClick);
+      if (timer) clearTimeout(timer);
+    };
   }, [resolution, slide, advance]);
 
-  // Track the callout's own rendered size (it varies with copy length) so
-  // the placement math can clamp it fully on-screen.
+  // The card's own size varies with its text; placement needs the real number.
   useEffect(() => {
-    if (!calloutRef.current) return;
     const el = calloutRef.current;
+    if (!el) return;
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
-      if (!entry) return;
-      setCalloutSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+      if (entry) setCalloutSize({ width: entry.contentRect.width, height: entry.contentRect.height });
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [resolution, step]);
+  }, [resolution, step, mounted, onRoute]);
 
-  // Escape always exits (and marks the tour seen, same as Skip).
+  // Keyboard, and focus on the card so keys and screen readers land in the tour.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onExit();
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onExit();
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        if (isLast) onExit();
+        else advance();
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        goBack();
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onExit]);
+  }, [onExit, advance, goBack, isLast]);
 
-  if (!slide || !onRoute) return null;
+  useEffect(() => {
+    if (mounted && onRoute) calloutRef.current?.focus({ preventScroll: true });
+  }, [mounted, onRoute, step]);
+
+  if (!mounted || !slide || !onRoute) return null;
 
   const spotlighted = resolution === "found" && targetRect !== null && viewport.width > 0;
-  const hole = spotlighted ? padRect(targetRect!, HOLE_PADDING) : null;
-  const placement = spotlighted
-    ? computeCalloutPlacement(hole!, viewport, calloutSize, CALLOUT_GAP)
-    : null;
-  const arrowOffset = spotlighted && placement ? computeArrowOffset(placement, hole!, calloutSize) : null;
-  const path = spotlighted ? buildSpotlightPath(hole!, viewport, HOLE_RADIUS) : null;
-
+  const hole = spotlighted ? padRect(targetRect, HOLE_PADDING) : null;
+  const phone = viewport.width > 0 && viewport.width < PHONE_WIDTH;
+  const placement = hole && !phone ? computeCalloutPlacement(hole, viewport, calloutSize, CALLOUT_GAP) : null;
+  const path = hole ? buildSpotlightPath(hole, viewport, HOLE_RADIUS) : null;
+  const dockTop = phone && hole ? hole.top + hole.height / 2 > viewport.height / 2 : false;
   const waitingOnClick = !!slide.clickToAdvance && spotlighted && !clicked;
 
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Printio tour: ${slide.title}`}
-      className="pointer-events-none fixed inset-0 z-[100]"
-    >
+  let cardStyle: React.CSSProperties;
+  let cardClass: string;
+  if (placement) {
+    cardStyle = { top: placement.top, left: placement.left };
+    cardClass = "w-[22rem]";
+  } else if (phone && spotlighted) {
+    cardStyle = dockTop ? { top: "max(0.75rem, env(safe-area-inset-top))", left: "0.75rem", right: "0.75rem" } : { bottom: "max(0.75rem, env(safe-area-inset-bottom))", left: "0.75rem", right: "0.75rem" };
+    cardClass = "";
+  } else {
+    cardStyle = { inset: 0, margin: "auto", height: "fit-content", width: "min(24rem, calc(100vw - 1.5rem))" };
+    cardClass = "";
+  }
+
+  return createPortal(
+    <div role="dialog" aria-modal="true" aria-labelledby="tour-title" className={`pointer-events-none fixed inset-0 ${TOUR_Z}`}>
+      <style>{`
+        @media (prefers-reduced-motion: no-preference) {
+          @keyframes printio-tour-pulse { 0%,100% { stroke-opacity: .95 } 50% { stroke-opacity: .45 } }
+          @keyframes printio-tour-in { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
+          [data-tour-ring] { animation: printio-tour-pulse 2.2s ease-in-out infinite }
+          [data-tour-card] { animation: printio-tour-in 220ms ease-out both }
+        }
+      `}</style>
       {spotlighted && path ? (
-        <svg
-          className="pointer-events-auto fixed inset-0 h-full w-full"
-          width={viewport.width}
-          height={viewport.height}
-        >
-          <path
-            d={path}
-            fillRule="evenodd"
-            fill="rgba(0,0,0,0.65)"
-            stroke="var(--color-primary)"
-            strokeWidth={2}
-            style={{ filter: "drop-shadow(0 0 14px var(--color-primary))" }}
-          />
+        <svg className="pointer-events-auto fixed inset-0 h-full w-full" width={viewport.width} height={viewport.height} aria-hidden="true">
+          <path d={path} fillRule="evenodd" fill="rgba(20,17,10,0.62)" />
+          {hole && (
+            <rect
+              data-tour-ring
+              x={hole.left}
+              y={hole.top}
+              width={hole.width}
+              height={hole.height}
+              rx={HOLE_RADIUS}
+              fill="none"
+              stroke="var(--color-primary)"
+              strokeWidth={2.5}
+              className="pointer-events-none"
+            />
+          )}
         </svg>
       ) : (
-        <div className="pointer-events-auto fixed inset-0 bg-black/65" />
+        <div className="pointer-events-auto fixed inset-0 bg-[#14110a]/60 backdrop-blur-[2px]" aria-hidden="true" />
       )}
 
       <div
         ref={calloutRef}
-        className={`pointer-events-auto fixed z-[101] flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 shadow-2xl ${
-          reducedMotion ? "" : "transition-[top,left] duration-200 ease-out"
+        data-tour-card
+        tabIndex={-1}
+        className={`pointer-events-auto fixed flex max-h-[calc(100dvh-1.5rem)] flex-col gap-3 overflow-y-auto rounded-[var(--radius-card)] bg-[var(--color-surface)] p-5 shadow-[var(--shadow-pop)] ring-1 ring-[var(--color-border)] outline-none focus-visible:outline-none ${cardClass} ${
+          reducedMotion ? "" : "transition-[top,left] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
         }`}
-        style={
-          spotlighted && placement
-            ? { top: placement.top, left: placement.left }
-            : { top: "50%", left: "50%", transform: "translate(-50%, -50%)" }
-        }
+        style={cardStyle}
       >
-        {spotlighted && placement && arrowOffset !== null && (
-          <Arrow side={placement.side} offset={arrowOffset} />
-        )}
-
-        <div className="flex items-start justify-between gap-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-muted)]">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[12px] font-semibold tracking-wide text-[var(--color-primary)] uppercase">
             Step {step + 1} of {slides.length}
           </p>
           <button
             type="button"
             onClick={onExit}
-            aria-label="Skip tour"
-            className="text-[var(--color-muted)] hover:text-[var(--color-text)]"
+            aria-label="Leave the walkthrough"
+            className="-mr-2 -mt-2 flex h-11 w-11 items-center justify-center rounded-full text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)] focus-visible:outline-none focus-visible:shadow-[var(--ring)] sm:h-9 sm:w-9"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
 
         <div>
-          <p className="text-base font-semibold">{slide.title}</p>
-          <p className="mt-1.5 text-sm text-[var(--color-muted)]">{slide.body}</p>
+          <h2 id="tour-title" className="text-[1.0625rem] leading-6 font-semibold text-[var(--color-text)]">
+            {slide.title}
+          </h2>
+          <p className="mt-1.5 text-[15px] leading-6 text-[var(--color-text-2)]">{slide.body}</p>
+          {waitingOnClick && (
+            <p className="mt-2 flex items-center gap-1.5 text-[13px] font-medium text-[var(--color-primary)]">
+              <MousePointerClick className="h-4 w-4" aria-hidden="true" />
+              Try it: tap the highlighted spot, or press Next.
+            </p>
+          )}
         </div>
 
-        <div className="mt-1 flex items-center justify-between gap-2">
+        <div className="flex justify-center gap-1.5" role="presentation">
+          {slides.map((s, i) => (
+            <span
+              key={s.title}
+              aria-hidden="true"
+              className={`h-1.5 rounded-full transition-all duration-300 motion-reduce:transition-none ${i === step ? "w-5 bg-[var(--color-primary)]" : i < step ? "w-1.5 bg-[var(--color-primary)]/40" : "w-1.5 bg-[var(--color-border-strong)]"}`}
+            />
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between gap-2">
           <button
             type="button"
             onClick={onExit}
-            className="text-sm text-[var(--color-muted)] hover:text-[var(--color-text)]"
+            className="min-h-11 rounded-[var(--radius-control)] px-2 text-sm text-[var(--color-muted)] hover:text-[var(--color-text)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]"
           >
             Skip
           </button>
@@ -318,52 +341,25 @@ export function SpotlightTour({
               <button
                 type="button"
                 onClick={goBack}
-                className="flex items-center gap-1 text-sm text-[var(--color-muted)] hover:text-[var(--color-text)]"
+                className="flex min-h-11 items-center gap-1 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] px-3 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-2)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]"
               >
-                <ChevronLeft className="h-4 w-4" /> Back
+                <ChevronLeft className="h-4 w-4" aria-hidden="true" /> Back
               </button>
             )}
-            {waitingOnClick ? (
-              <span className="flex items-center gap-1.5 rounded-lg bg-[var(--color-primary)]/10 px-3 py-2 text-sm font-medium text-[var(--color-primary)]">
-                <MousePointerClick className="h-4 w-4" />
-                Click the highlighted area to continue
-              </span>
-            ) : isLast ? (
-              <button
-                type="button"
-                onClick={onExit}
-                className="min-h-11 rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-[var(--color-primary-fg)] hover:opacity-90"
-              >
-                Done
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={advance}
-                className="flex min-h-11 items-center gap-1 rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-[var(--color-primary-fg)] hover:opacity-90"
-              >
-                Next <ChevronRight className="h-4 w-4" />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={isLast ? onExit : advance}
+              className="flex min-h-11 items-center gap-1 rounded-[var(--radius-control)] bg-[var(--color-primary)] px-4 text-sm font-medium text-[var(--color-primary-fg)] shadow-[var(--shadow-xs)] hover:bg-[var(--color-primary-hover)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]"
+            >
+              {isLast ? "Done" : "Next"}
+              {!isLast && <ChevronRight className="h-4 w-4" aria-hidden="true" />}
+            </button>
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
-}
-
-function Arrow({ side, offset }: { side: "top" | "bottom" | "left" | "right"; offset: number }) {
-  const base = "absolute h-3 w-3 rotate-45 border border-[var(--color-border)] bg-[var(--color-surface)]";
-  switch (side) {
-    case "right":
-      return <span className={`${base} -left-1.5 border-r-0 border-t-0`} style={{ top: offset - 6 }} />;
-    case "left":
-      return <span className={`${base} -right-1.5 border-l-0 border-b-0`} style={{ top: offset - 6 }} />;
-    case "bottom":
-      return <span className={`${base} -top-1.5 border-b-0 border-r-0`} style={{ left: offset - 6 }} />;
-    case "top":
-      return <span className={`${base} -bottom-1.5 border-t-0 border-l-0`} style={{ left: offset - 6 }} />;
-  }
 }
 
 /** Reads back a tour in progress (across a hard refresh / route push that remounted this component) - see the persistence effect above. Returns null when there's nothing to resume for this `variant`. */

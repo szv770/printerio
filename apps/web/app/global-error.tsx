@@ -3,6 +3,7 @@
 // <html>/<body> (and re-import globals.css, since layout.tsx is bypassed).
 
 import "./globals.css";
+import { ReportProblemLink } from "@/components/help/ReportProblemLink";
 
 export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
@@ -19,6 +20,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
           >
             Try again
           </button>
+          <ReportProblemLink digest={error.digest} variant="ghost" />
         </main>
       </body>
     </html>

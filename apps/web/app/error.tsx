@@ -1,6 +1,7 @@
 "use client"; // Error boundaries must be Client Components (Next.js requirement).
 
 import { useEffect } from "react";
+import { ReportProblemLink } from "@/components/help/ReportProblemLink";
 
 export default function Error({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   useEffect(() => {
@@ -23,6 +24,7 @@ export default function Error({ error, reset }: { error: Error & { digest?: stri
       >
         Try again
       </button>
+      <ReportProblemLink digest={error.digest} variant="ghost" />
     </main>
   );
 }

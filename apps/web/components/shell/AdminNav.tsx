@@ -179,7 +179,7 @@ export function AdminNav({
             About Printio
           </Link>
           <div className={`${ROW} text-[var(--color-text-2)] hover:bg-[var(--color-surface-2)] [&_button]:min-h-11 [&_button]:w-full [&_button]:text-sm [&_button]:font-medium md:[&_button]:min-h-10`}>
-            <HelpMenu userId={userId} variant="admin" />
+            <HelpMenu userId={userId} variant="admin" pathname={pathname} />
           </div>
           <InstallCard
             variant="row"

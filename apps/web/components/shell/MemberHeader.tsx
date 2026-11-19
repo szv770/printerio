@@ -91,7 +91,7 @@ export function MemberHeader({
 
           <div className="flex items-center gap-1">
             <div className="flex min-h-11 items-center text-sm font-medium [&_button]:min-h-11 [&_button]:px-2 [&_button]:text-sm sm:[@media(pointer:fine)]:min-h-9 sm:[@media(pointer:fine)]:[&_button]:min-h-9">
-              <HelpMenu userId={userId} variant="student" />
+              <HelpMenu userId={userId} variant="student" pathname={pathname} />
             </div>
             {/* Avatar + sign out only (the phone has the Me sheet instead). */}
             <div className="hidden sm:block [&>div]:p-0 [&>div>span:nth-child(2)]:hidden">
