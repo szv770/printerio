@@ -6,9 +6,9 @@ import { PDFDocument } from "pdf-lib";
 import { pageFonts } from "@/test/hebrew-fixtures";
 import { assembleBooklet, BuilderError } from "./assemble";
 import { addFrontMatter, drawBackPageText, frontMatterPageCount, type FrontMatterInput } from "./frontmatter";
-import { EZRA_SIL_REGULAR_BASE64 } from "./fonts/ezra-sil-regular";
-import { DAVID_LIBRE_REGULAR_BASE64 } from "./fonts/david-libre-regular";
-import { loadBundledEnglishFont } from "./fonts/english";
+import { EZRA_SIL_REGULAR_BASE64 } from "@printio/pdf/fonts/ezra-sil-regular";
+import { DAVID_LIBRE_REGULAR_BASE64 } from "@printio/pdf/fonts/david-libre-regular";
+import { loadBundledEnglishFont } from "@printio/pdf/fonts/english";
 
 // Ezra SIL stands in for a heavy Hebrew title font, David Libre for an uploaded body font; EB Garamond is a bundled English font.
 const EZRA = new Uint8Array(Buffer.from(EZRA_SIL_REGULAR_BASE64, "base64"));

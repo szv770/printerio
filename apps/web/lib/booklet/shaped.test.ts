@@ -2,8 +2,8 @@ import { inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, rgb } from "pdf-lib";
-import { EZRA_SIL_REGULAR_BASE64 } from "@/lib/booklet/fonts/ezra-sil-regular";
-import { DAVID_LIBRE_REGULAR_BASE64 } from "@/lib/booklet/fonts/david-libre-regular";
+import { EZRA_SIL_REGULAR_BASE64 } from "@printio/pdf/fonts/ezra-sil-regular";
+import { DAVID_LIBRE_REGULAR_BASE64 } from "@printio/pdf/fonts/david-libre-regular";
 import { nonAscii, pageTexts } from "@/test/hebrew-fixtures";
 import { drawShaped, widthOfShaped } from "./shaped";
 

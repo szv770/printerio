@@ -1,4 +1,3 @@
-import "server-only";
 import { checkPdfInflation } from "./inflate-guard";
 import { PDFDocument } from "pdf-lib";
 import { containsPjlEscape, PJL_ESCAPE_MESSAGE } from "@printio/shared";

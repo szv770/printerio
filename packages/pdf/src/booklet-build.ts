@@ -1,4 +1,3 @@
-import "server-only";
 import { createBookletPaddedPdf } from "./booklet";
 import { imposeBookletPdf, resolvePaperSizePoints, type BindingSide, type BookletFit } from "./imposition";
 

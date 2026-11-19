@@ -1,9 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("server-only", () => ({}));
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 120_000 });
 import { analyzePdfContent } from "./content-analysis";
-import { scanPdf } from "./test-scan";
+import { scanPdf } from "./test-support/test-scan";
 
 describe("analyzePdfContent on scans (one full-page image per page)", () => {
   it("finds where the ink really is, not the image's whole rectangle", async () => {

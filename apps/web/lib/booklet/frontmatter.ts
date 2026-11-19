@@ -3,8 +3,8 @@ import { drawShaped, widthOfShaped } from "@/lib/booklet/shaped";
 import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import { hasHebrew, paragraphDirection, visualRuns, type Direction } from "./bidi";
-import { DAVID_LIBRE_BOLD_BASE64 } from "./fonts/david-libre-bold";
-import { DAVID_LIBRE_REGULAR_BASE64 } from "./fonts/david-libre-regular";
+import { DAVID_LIBRE_BOLD_BASE64 } from "@printio/pdf/fonts/david-libre-bold";
+import { DAVID_LIBRE_REGULAR_BASE64 } from "@printio/pdf/fonts/david-libre-regular";
 
 /**
  * The cover and contents pages of a booklet built from several sources. Text is laid out in David Libre (Hebrew and

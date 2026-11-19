@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PDFDocument, StandardFonts, degrees } from "pdf-lib";
-import { pageContent, readStamp } from "@/test/read-stamp";
+import { pageContent, readStamp } from "./test-support/read-stamp";
 import { stampFirstPage, STAMP_FONT_SIZE_PT, STAMP_INSET_PT, STAMP_GREY } from "./stamp";
 import { imposeBookletPdf, resolvePaperSizePoints } from "./imposition";
 import { createBookletPaddedPdf } from "./booklet";

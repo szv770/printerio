@@ -1,4 +1,4 @@
-import "server-only";
+/// <reference path="./pdfjs-worker.d.ts" />
 import { bookletPageOrder } from "./imposition";
 
 /**

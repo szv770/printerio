@@ -1,9 +1,9 @@
 import "server-only";
-import { preflightPdf } from "@/lib/pdf/preflight";
-import { createPageSubsetPdf } from "@/lib/pdf/page-subset";
-import { stampFirstPage } from "@/lib/pdf/stamp";
-import { padAndImposeBooklet, type BookletSheet } from "@/lib/pdf/booklet-build";
-import type { BindingSide, BookletFit } from "@/lib/pdf/imposition";
+import { preflightPdf } from "@printio/pdf/preflight";
+import { createPageSubsetPdf } from "@printio/pdf/page-subset";
+import { stampFirstPage } from "@printio/pdf/stamp";
+import { padAndImposeBooklet, type BookletSheet } from "@printio/pdf/booklet-build";
+import type { BindingSide, BookletFit } from "@printio/pdf/imposition";
 import { planPageSubset } from "@/lib/print-choices";
 import type { StampStrength } from "@/lib/jobs/user-code";
 

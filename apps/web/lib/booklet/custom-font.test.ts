@@ -3,9 +3,9 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { fakeSupabase, failure, ok } from "@/test/fake-supabase";
-import { DAVID_LIBRE_BOLD_BASE64 } from "./fonts/david-libre-bold";
-import { EZRA_SIL_REGULAR_BASE64 } from "./fonts/ezra-sil-regular";
-import { DAVID_LIBRE_REGULAR_BASE64 } from "./fonts/david-libre-regular";
+import { DAVID_LIBRE_BOLD_BASE64 } from "@printio/pdf/fonts/david-libre-bold";
+import { EZRA_SIL_REGULAR_BASE64 } from "@printio/pdf/fonts/ezra-sil-regular";
+import { DAVID_LIBRE_REGULAR_BASE64 } from "@printio/pdf/fonts/david-libre-regular";
 import { MAX_FONT_BYTES, fontDisplayName, hebrewCoverage, inspectFont, judgeCoverage, latinCoverage, loadOrgFontBytes, sanitizeFontName } from "./custom-font";
 
 const bytesOf = (b64: string) => new Uint8Array(Buffer.from(b64, "base64"));

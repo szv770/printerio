@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { createTestPrintPdf, formatTestPrintTimestamp, toWinAnsiSafe } from "./test-print";
-import { preflightPdf } from "./preflight";
+import { preflightPdf } from "@printio/pdf/preflight";
 
 const BASE_INPUT = {
   profileLabel: "Booklet + Staple",

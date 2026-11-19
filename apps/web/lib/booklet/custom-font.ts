@@ -1,7 +1,7 @@
 import fontkit from "@pdf-lib/fontkit";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
-import { ENGLISH_FONT_CHOICES, loadBundledEnglishFont } from "@/lib/booklet/fonts/english";
+import { ENGLISH_FONT_CHOICES, loadBundledEnglishFont } from "@printio/pdf/fonts/english";
 
 /**
  * Checks a font an org admin uploads (a Hebrew font such as SBL Hebrew, or an English one) before Printio stores it, and loads it back from the private

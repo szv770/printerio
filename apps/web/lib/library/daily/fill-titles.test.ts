@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
-import { EZRA_SIL_REGULAR_BASE64 } from "@/lib/booklet/fonts/ezra-sil-regular";
-import { DAVID_LIBRE_REGULAR_BASE64 } from "@/lib/booklet/fonts/david-libre-regular";
-import { loadBundledEnglishFont } from "@/lib/booklet/fonts/english";
+import { EZRA_SIL_REGULAR_BASE64 } from "@printio/pdf/fonts/ezra-sil-regular";
+import { DAVID_LIBRE_REGULAR_BASE64 } from "@printio/pdf/fonts/david-libre-regular";
+import { loadBundledEnglishFont } from "@printio/pdf/fonts/english";
 import { pageFonts, pageTexts } from "@/test/hebrew-fixtures";
 import { buildFilledPdf, type FillInput } from "./fill";
 

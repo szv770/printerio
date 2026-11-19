@@ -11,7 +11,7 @@ import { PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { readFormPdf } from "./form-pdf";
 import { BOOKLET_BINDING_REASON } from "@/lib/gateway/ipp-choices";
 import { createPrintJob, type JobOptions } from "@/lib/jobs/create-print-job";
-import { bookletSheetChoice } from "@/lib/pdf/booklet-build";
+import { bookletSheetChoice } from "@printio/pdf/booklet-build";
 import { lastChoicesFromSubmit, writeLastChoices } from "@/lib/print-preferences";
 
 export interface SubmitJobState {

@@ -1,4 +1,3 @@
-import "server-only";
 import { PDFDocument, type PDFEmbeddedPage, type PDFPage } from "pdf-lib";
 import { computeCroppedSlotTransform, computeUniformCrop, type Box } from "./crop";
 import { analyzePdfContent } from "./content-analysis";

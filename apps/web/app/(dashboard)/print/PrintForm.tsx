@@ -7,7 +7,7 @@ import { parsePageRange } from "@printio/shared";
 import { bookletBlankPagesNote } from "@/lib/booklet-note";
 import { PagePicker } from "@/components/print/PagePicker";
 import { Button, Card, Collapsible, FieldError, FieldLabel, FormError, Input, Segmented, Spinner, StatusDot, Switch } from "@/components/ui";
-import { hasType3Fonts, PICTURE_COPY_MAX_PAGES, TYPE3_HELD_MESSAGE, TYPE3_PICTURE_NOTICE } from "@/lib/pdf/type3-fonts";
+import { hasType3Fonts, PICTURE_COPY_MAX_PAGES, TYPE3_HELD_MESSAGE, TYPE3_PICTURE_NOTICE } from "@printio/pdf/type3-fonts";
 import { formatFileSize, precheckPdfHeader, precheckSelectedFile, shouldPreviewInBrowser } from "@/lib/pdf/client-precheck";
 import { renderPdfPageToCanvas } from "@/lib/pdf/render-page";
 import { MAX_COPIES, buildSummary } from "@/lib/print-choices";

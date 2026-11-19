@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.setConfig({ testTimeout: 30_000 });
 import { PDFDocument } from "pdf-lib";
 import { bookletPageOrder } from "./imposition";
-import { fontsWithToUnicode, HEBREW_LINES, makeHebrewPdf, MIXED_LINES, nonAscii, pageFonts, pageTexts, type FixtureOptions } from "@/test/hebrew-fixtures";
+import { fontsWithToUnicode, HEBREW_LINES, makeHebrewPdf, MIXED_LINES, nonAscii, pageFonts, pageTexts, type FixtureOptions } from "./test-support/hebrew-fixtures";
 import { preflightPdf } from "./preflight";
 import { createPageSubsetPdf } from "./page-subset";
 import { padAndImposeBooklet } from "./booklet-build";

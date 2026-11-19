@@ -1,5 +1,5 @@
 import { PDFDocument, StandardFonts } from "pdf-lib";
-import { imposeBookletPdf } from "@/lib/pdf/imposition";
+import { imposeBookletPdf } from "@printio/pdf/imposition";
 import { BookletPreview } from "@/app/(dashboard)/print/BookletPreview";
 
 /** DEV-ONLY: the booklet preview panel on a generated 8-page, Word-style document (?section=booklet&side=right). */

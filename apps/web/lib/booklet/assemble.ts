@@ -2,7 +2,7 @@ import "server-only";
 import { PDFDocument } from "pdf-lib";
 import { parsePageRange } from "@printio/shared";
 import type { Direction } from "./bidi";
-import { checkPdfInflation } from "@/lib/pdf/inflate-guard";
+import { checkPdfInflation } from "@printio/pdf/inflate-guard";
 import { addFrontMatter, drawBackPageText, embedHebrewFont, embedLatinFont, frontMatterPageCount, type FrontEntry, type LatinFontBytes } from "./frontmatter";
 
 /** A refusal with a plain-language message that is safe to show the person as it is. */

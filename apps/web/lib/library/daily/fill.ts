@@ -1,5 +1,5 @@
 import { PDFDocument, rgb, type PDFFont } from "pdf-lib";
-import { EZRA_SIL_REGULAR_BASE64 } from "@/lib/booklet/fonts/ezra-sil-regular";
+import { EZRA_SIL_REGULAR_BASE64 } from "@printio/pdf/fonts/ezra-sil-regular";
 import { drawShaped, widthOfShaped } from "@/lib/booklet/shaped";
 import { drawableRuns, embedFonts, embedHebrewFont, embedLatinFont, type Fonts, type LatinFontBytes } from "@/lib/booklet/frontmatter";
 import { hasHebrew, paragraphDirection, type Direction } from "@/lib/booklet/bidi";

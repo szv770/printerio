@@ -1,6 +1,5 @@
-import "server-only";
 import { PDFDocument, StandardFonts, degrees, grayscale, type PDFPage } from "pdf-lib";
-import type { StampStrength } from "@/lib/jobs/user-code";
+import type { StampStrength } from "@printio/shared/user-code";
 
 /** Large enough to read at a glance (the owner found 6.5 pt too small), still faint and in the corner so it does not compete with content. */
 export const STAMP_FONT_SIZE_PT = 9;

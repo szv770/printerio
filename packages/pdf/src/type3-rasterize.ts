@@ -1,4 +1,4 @@
-import "server-only";
+/// <reference path="./pdfjs-worker.d.ts" />
 import { deflateSync } from "node:zlib";
 import { PICTURE_COPY_MAX_PAGES as RASTERIZE_MAX_PAGES } from "./type3-fonts";
 import { PDFDocument, PDFRawStream, concatTransformationMatrix, drawObject, popGraphicsState, pushGraphicsState } from "pdf-lib";

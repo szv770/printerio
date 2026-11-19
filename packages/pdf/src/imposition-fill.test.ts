@@ -5,7 +5,7 @@ vi.setConfig({ testTimeout: 60_000, hookTimeout: 120_000 });
 import { PDFDocument, StandardFonts, PDFArray, PDFRawStream, decodePDFRawStream, type PDFPage } from "pdf-lib";
 import { imposeBookletPdf, IMPOSITION_GUTTER_PT, IMPOSITION_MARGIN_PT } from "./imposition";
 import { analyzePdfContent } from "./content-analysis";
-import { scanPdf } from "./test-scan";
+import { scanPdf } from "./test-support/test-scan";
 
 const LETTER = { width: 612, height: 792 };
 

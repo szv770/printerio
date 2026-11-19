@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("server-only", () => ({}));
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 120_000 });
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { bookletSheetChoice, padAndImposeBooklet } from "./booklet-build";

@@ -15,7 +15,7 @@ import { checkRoleFontIds, loadRoleFonts } from "@/lib/booklet/custom-font";
 import { listOrgFonts, type OrgFontOption } from "@/lib/booklet/org-fonts";
 import { loadOrgFontFacts } from "@/lib/booklet/org-font-facts";
 import type { FontFacts } from "@/lib/booklet/font-families";
-import { ENGLISH_FONT_CHOICES } from "@/lib/booklet/fonts/english";
+import { ENGLISH_FONT_CHOICES } from "@printio/pdf/fonts/english";
 import { coverDates, mergeDays, type Arrange, type DayText } from "@/lib/library/daily/merge";
 import { datesBetween, DAILY_CREDIT, isOfferedStudy, longDate, MAX_BOOKLET_DAYS, OFFERED_STUDIES, STUDY_LABELS, type OfferedStudy } from "@/lib/library/daily/studies";
 

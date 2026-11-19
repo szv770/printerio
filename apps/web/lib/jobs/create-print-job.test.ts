@@ -4,7 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 vi.setConfig({ testTimeout: 30_000 });
 import { PDFDocument } from "pdf-lib";
 import { readStamp } from "@/test/read-stamp";
-import { findActiveContent } from "@/lib/pdf/active-content";
+import { findActiveContent } from "@printio/pdf/active-content";
 import { makeHebrewPdf } from "@/test/hebrew-fixtures";
 import { fakeSupabase, failure, ok, type FakeCall, type FakeResult } from "@/test/fake-supabase";
 
@@ -13,15 +13,15 @@ vi.mock("@/lib/policy/build-facts", () => ({ evaluateJobPolicy: (...a: unknown[]
 
 // Lets one test make the stamp step hand back poisoned bytes; every other test gets the real stamp.
 let stampOverride: (() => Uint8Array) | null = null;
-vi.mock("@/lib/pdf/stamp", async (importOriginal) => {
-  const real = await importOriginal<typeof import("@/lib/pdf/stamp")>();
+vi.mock("@printio/pdf/stamp", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@printio/pdf/stamp")>();
   return { ...real, stampFirstPage: (...a: Parameters<typeof real.stampFirstPage>) => (stampOverride ? Promise.resolve(stampOverride()) : real.stampFirstPage(...a)) };
 });
 
 // The pipeline's own tests do not need pdfjs (content analysis has its own tests): no analysis = pages stay whole.
-vi.mock("@/lib/pdf/content-analysis", () => ({ analyzePdfContent: async () => null }));
+vi.mock("@printio/pdf/content-analysis", () => ({ analyzePdfContent: async () => null }));
 
-import { TEXT_CHANGED_MESSAGE } from "@/lib/pdf/text-fidelity";
+import { TEXT_CHANGED_MESSAGE } from "@printio/pdf/text-fidelity";
 import { createPrintJob, type JobOptions, type JobSession } from "./create-print-job";
 import { pipelineSettingsFromJob } from "./print-again";
 

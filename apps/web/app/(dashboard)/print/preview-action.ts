@@ -7,7 +7,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requireSessionOrRedirect } from "@/lib/auth/session";
 import { parseChoices, mapRawChoices, mapQueueChoices, type BindingSide } from "@/lib/print-choices";
 import { buildBookletPreviewPdf } from "@/lib/jobs/booklet-preview";
-import { bookletSheetChoice } from "@/lib/pdf/booklet-build";
+import { bookletSheetChoice } from "@printio/pdf/booklet-build";
 import { buildStampText, normalizeStampSettings } from "@/lib/jobs/user-code";
 import { logger } from "@/lib/logger";
 import { PRINT_JOBS_BUCKET } from "@/lib/storage";

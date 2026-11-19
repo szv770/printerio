@@ -16,7 +16,7 @@ vi.mock("@/lib/auth/session", () => ({
   },
 }));
 vi.mock("@/lib/pdf/test-print", () => ({ createTestPrintPdf: async () => new Uint8Array([1, 2, 3]) }));
-vi.mock("@/lib/pdf/preflight", () => ({ preflightPdf: async () => ({ ok: true, pageCount: 1, fileSizeBytes: 3 }) }));
+vi.mock("@printio/pdf/preflight", () => ({ preflightPdf: async () => ({ ok: true, pageCount: 1, fileSizeBytes: 3 }) }));
 vi.mock("@/lib/remote-commands", () => ({ issueRemoteCommand: vi.fn() }));
 
 const profile = { id: "p1", label: "Office", agent_id: "ag1", declared_paper_sizes: ["letter"], windows_queue_name: "Q", raw_host: null, raw_port: null, pricing: null, printers: { id: "pr1", name: "Kyocera", organization_id: "org1" } };

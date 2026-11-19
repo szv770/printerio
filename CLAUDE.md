@@ -7,7 +7,7 @@ Currently a single-org prototype on a full multi-tenant schema. Start at `README
 
 ## Commands (pnpm 10, Node 22.13+; pdfjs-dist needs it)
 - `pnpm install --frozen-lockfile`, then `pnpm -r typecheck | lint | test | build` (CI runs exactly these).
-- One package: `pnpm --filter @printio/web test` (also `@printio/agent`, `@printio/shared`).
+- One package: `pnpm --filter @printio/web test` (also `@printio/agent`, `@printio/shared`, `@printio/pdf`).
 - New dependencies change `pnpm-lock.yaml`; CI uses `--frozen-lockfile`. Keep experiments outside
   `apps/*` / `packages/*` (workspace globs) unless they are meant to be workspace packages.
 - Supabase migrations in `supabase/migrations` (numbered, source of truth); `schema.sql` is a reference dump.
@@ -33,7 +33,7 @@ how the owner likes to work, practical gotchas). Then `docs/HANDOFF.md` (older: 
   table is service-role-only). Mirror each migration into `schema.sql` as before.
 - PRs: the repo's default branch is `claude/upcoming-large-project-3d2j9p` (there is no `main`).
 - pdf-lib stamps the current time into every PDF it writes: tests that compare PDF bytes must freeze Date
-  (see the "byte-identical" test in `apps/web/lib/pdf/imposition.test.ts`).
+  (see the "byte-identical" test in `packages/pdf/src/imposition.test.ts`).
 - Vercel bot comments on PRs are noise. Docs/tools-only PRs do not affect the web build.
 - Never commit secrets, tunnel tokens, or the spike's `spike-data/` (gitignored).
 

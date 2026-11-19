@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { fakeSupabase, ok, type FakeCall, type FakeResult } from "@/test/fake-supabase";
-import { findActiveContent } from "@/lib/pdf/active-content";
+import { findActiveContent } from "@printio/pdf/active-content";
 
 // The REAL createPrintJob + preflight run here; only the database and the policy lookup are faked.
 let fake: ReturnType<typeof fakeSupabase>;
