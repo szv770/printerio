@@ -100,7 +100,22 @@ preparation. The phone's job number must stay stable, so the gateway keeps its o
 5. UI: preparing card, offline message, hold reasons.
 6. Parity test against real PDFs, then a week on the owner's server.
 
-## Open questions for the owner
-- Expiry of a queued prepare job when no server is online: 24 hours?
-- Should the sender be able to cancel while preparing? (Recommended: yes, it simply cancels the prepare job.)
-- Is a few seconds to a minute of "Preparing..." acceptable for large files? (It replaces a request that today blocks for the same time.)
+## Decisions (owner, 2026-11-19)
+1. **Expiry:** a prepare job that waits with no print server online expires after **24 hours** (built: `PREPARE_QUEUE_EXPIRY_MS`).
+2. **Cancel while preparing: yes.** Because preparation is fast, the cancel window is short, so cancel must be race-safe: it marks the job
+   `cancelled`; a print server that finishes anyway gets `409 cancelled` from `renew`, `original`, `upload-slot`, `complete` and discards its
+   work (built and tested). The website will also delete any prepared file a cancelled job left behind (P2).
+3. **Speed: a few seconds is fine, a few minutes is not acceptable at all.** This is a hard requirement, so:
+   - **Target:** typical files (a few MB, under 50 pages) prepared in about 10 seconds including pickup.
+   - **Limit:** if a file cannot be prepared within about 60 seconds the print server stops and fails the job with a plain reason
+     ("This file is too large or complex to prepare quickly. Try a smaller or simpler PDF."), never a silent minutes-long wait. The limit is a
+     setting, not a promise: **measure real prepare times on the owner's print server (real PDFs: a scan, a Word export, a 100-page file, a
+     Hebrew booklet) before the switch is turned on**, and decide the numbers from that.
+   - **Pickup must be quick without burning the free plan's request budget.** The print server must not poll a second endpoint every few
+     seconds. Plan: the prepare claim rides on the existing once-per-cycle `jobs/claimable` call (the answer says "a prepare job is waiting"),
+     and the print server polls **fast (about 3 s) for a couple of minutes after any activity and slowly (10-15 s) when idle**, so a school that is
+     printing gets quick pickup while an idle server costs almost no requests. Until that is built the claim route can be called on the normal
+     poll. Direct-to-Supabase (phase D) with Realtime would make pickup instant and request-free; it is the long-term fix.
+   - Quick wins on the print server: skip the text-fidelity pass for small, non-Hebrew, non-booklet files only if the measurements show it is the slow
+     part (it is a safeguard, so this needs the owner's yes); prepare at most one file at a time so printing is never starved.
+

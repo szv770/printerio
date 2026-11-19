@@ -383,6 +383,9 @@ export type Database = {
           claimed_by: string | null
           lease_until: string | null
           result_key: string | null
+          source_path: string | null
+          result: Json | null
+          finished_at: string | null
           error: string | null
           created_at: string
           updated_at: string
@@ -398,6 +401,9 @@ export type Database = {
           claimed_by?: string | null
           lease_until?: string | null
           result_key?: string | null
+          source_path?: string | null
+          result?: Json | null
+          finished_at?: string | null
           error?: string | null
           created_at?: string
           updated_at?: string
@@ -413,6 +419,9 @@ export type Database = {
           claimed_by?: string | null
           lease_until?: string | null
           result_key?: string | null
+          source_path?: string | null
+          result?: Json | null
+          finished_at?: string | null
           error?: string | null
           created_at?: string
           updated_at?: string
