@@ -629,8 +629,10 @@ describe("rate limit goes through the service-role (write) client (security revi
     expect(res.ok).toBe(true);
     expect(member.calls.filter((c) => c.table === "check_rate_limit")).toHaveLength(0);
     const calls = service.calls.filter((c) => c.table === "check_rate_limit");
-    expect(calls).toHaveLength(1);
+    // The per-person limit first (unchanged key), then the school's daily cap.
+    expect(calls).toHaveLength(2);
     expect(calls[0]!.values).toEqual({ p_key: `print_submit:${USER}`, p_max_count: 20, p_window_seconds: 300 });
+    expect(calls[1]!.values).toEqual({ p_key: `org_daily_jobs:${ORG}`, p_max_count: 5000, p_window_seconds: 86400 });
   });
 
   it("still fails open (and carries on) when the limiter errors, and blocks when over the limit", async () => {

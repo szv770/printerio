@@ -23,8 +23,8 @@ Per-organization print speed (one print server, about 2-3 small jobs a minute, t
 | Bad migration | ALL | Medium (5 unapplied) | Branch dry run, apply one at a time, check after each |
 | Supabase connection limits | ALL | [U] | Check pooler on Pro (missing) |
 | Cron loops all orgs | ALL (slowdown) | Low | Already capped (500 per run, 45 s deadline) |
-| One org floods uploads | org, then ALL | Medium | **No per-org storage/upload cap exists** (per person only) |
-| One org's print server misbehaves | org, then shared website | Medium | **No per-server rate limit on poll/heartbeat** (poll interval is enforced, 2-300 s) |
+| One org floods uploads | org, then ALL | Medium | **Built (2026-11-19, on by default, untested live):** per-org daily JOB cap, 5,000 per UTC day. No bytes cap yet (see below) |
+| One org's print server misbehaves | org, then shared website | Medium | **Built (2026-11-19, on by default, untested live):** 120 requests/minute per print server on claimable, heartbeat and commands; 429 plus Retry-After |
 | One org floods Realtime | ALL | Low-medium | Unpublish heartbeat table, 60 s backstop (not done) |
 | Gateway flood | that school only | Medium | Per-IP/global limits exist |
 | Tunnel/DNS | one school | Medium | Wildcard DNS redesign planned |
@@ -34,7 +34,23 @@ Per-organization print speed (one print server, about 2-3 small jobs a minute, t
 ## Cheapest guards, ranked
 1. Apply migration 0054 after a branch dry run (owner's go needed).
 2. Supabase Pro plus one tested restore before org 2.
-3. Per-org daily upload/storage cap next to the per-user limit.
-4. Per-server rate limit on poll and heartbeat routes (reuse `check_rate_limit`).
+3. BUILT, not live-tested: per-org daily upload cap next to the per-user limit.
+4. BUILT, not live-tested: per-server rate limit on poll and heartbeat routes (reuses `check_rate_limit`).
 5. Move the website off the home PC or add an outside uptime ping and status message; $5 Cloudflare plan before school 4.
 6. Poll 10 s for every non-owner school; unpublish the heartbeat table from Realtime.
+
+## Guards built 2026-11-19 (on by default, NOT tested live, not committed yet)
+**Guard 1: per-organization daily job cap.** In `checkSubmitLimits` (`apps/web/lib/jobs/create-print-job.ts`), which every submit path shares (web upload, print again, prepare intake, gateway finalize). Runs LAST among the submit checks, before any quota is reserved, so nothing needs rolling back.
+- Default 5,000 jobs per organization per UTC day. Change with env `PRINTIO_ORG_DAILY_JOB_LIMIT` (whole number; `0` switches the guard off). No migration, so no per-org override yet.
+- Atomic: one `check_rate_limit` row per org (`org_daily_jobs:<orgId>`, 86400 s window = UTC day), so two simultaneous submits cannot both slip through.
+- Over the limit: "Your school has reached its daily print-upload limit. Try again tomorrow, or ask your admin." (code `rate_limited`) plus a `warn` log line "organization daily print-upload limit reached".
+- Fails OPEN if the counter errors or throws (error log, job goes through). No special case for any org, super-admin test org included.
+- Counts submit attempts (a job refused later for size or quota still used one). Refused attempts also count, so a flooded org stays blocked until midnight UTC.
+- **Not built: a bytes cap (5 GB).** `check_rate_limit` only adds 1 per call, and summing `print_jobs.file_size_bytes` per submit is too heavy. Follow-up needs a migration: a small `org_daily_usage` counter table with an atomic add-bytes RPC (with explicit grants, never anon), or an `organization_settings` limit column.
+
+**Guard 2: per print-server request limit.** `lib/agent-rate-limit.ts`, used by `agents/jobs/claimable` (which also carries the prepare hint and embedded commands), `agents/heartbeat` and `agents/commands`. After authentication, before any other work.
+- 120 requests per minute per agent, one shared budget (`agent_poll:<agentId>`). Normal use is about 32 a minute at a 2 s poll; the old three-calls-per-cycle rollback mode is 90 at 2 s. Over: 429, `Retry-After` set to the seconds left in the minute, a `warn` log line.
+- Fails OPEN on limiter error or throw.
+- Agent (`apps/agent/src/cloud-client.ts`, `orchestrator.ts`, `health-monitor.ts`): a 429 is not retried in the request, does not count as an auth or cloud failure (no outer back-off, no warning spam, one info line), and the poll loop sleeps at least the `Retry-After` time (default 30 s if absent, max 300 s).
+- Cost to know: each poll now makes one extra small database write (the counter row). At 2 s polls that is about 30 extra writes a minute per print server on the shared database. Watch it; raising the poll interval to 10 s for non-owner schools cuts it.
+- Tests: `apps/web/lib/jobs/org-daily-limit.test.ts`, `apps/web/lib/agent-rate-limit.test.ts`, `apps/agent/test/rate-limit-429.test.ts`.

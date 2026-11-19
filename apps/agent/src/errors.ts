@@ -10,13 +10,21 @@
 export class CloudApiError extends Error {
   readonly code: string;
   readonly status: number;
+  /** From a 429's Retry-After header (seconds); undefined otherwise. */
+  readonly retryAfterSeconds?: number;
 
-  constructor(message: string, code: string, status: number) {
+  constructor(message: string, code: string, status: number, retryAfterSeconds?: number) {
     super(message);
     this.name = "CloudApiError";
     this.code = code;
     this.status = status;
+    if (retryAfterSeconds !== undefined) this.retryAfterSeconds = retryAfterSeconds;
   }
+}
+
+/** True for the website's "you are asking too often, slow down" answer (HTTP 429): not a fault, just a request to back off. */
+export function isRateLimited(err: unknown): err is CloudApiError {
+  return err instanceof CloudApiError && err.status === 429;
 }
 
 /** fetch() itself failed (DNS, TCP, TLS, timeout) - no HTTP response at all. */

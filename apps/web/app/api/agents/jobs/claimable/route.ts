@@ -1,6 +1,7 @@
 import { apiError } from "@/lib/api-errors";
 import { authenticateAgentRequest } from "@/lib/agent-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { checkAgentPollLimit } from "@/lib/agent-rate-limit";
 import { recoverExpiredLeasesForAgent } from "@/lib/lease-recovery";
 import { listCommandsForAgent } from "@/lib/agent-commands";
 import { prepareJobWaiting } from "@/lib/prepare/waiting";
@@ -27,6 +28,8 @@ export async function GET(request: Request) {
 
   const withCommands = new URL(request.url).searchParams.get("commands") === "1";
   const supabase = createServiceRoleClient();
+  const limited = await checkAgentPollLimit(supabase, agent.id, "agents/jobs/claimable");
+  if (limited) return limited;
   const withPrepare = new URL(request.url).searchParams.get("prepare") === "1";
   const answer = async (jobs: Array<{ jobId: string; printerProfileId: string | null; jobNumber: string }>) => {
     const waiting = withPrepare ? await prepareJobWaiting(supabase, agent.organizationId) : null;

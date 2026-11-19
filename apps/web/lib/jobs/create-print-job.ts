@@ -59,6 +59,14 @@ export interface JobOptions {
 export const MAX_SHEETS_PER_JOB = 300;
 /** How many jobs one person may have waiting or printing at the same time. */
 export const MAX_OPEN_JOBS_PER_USER = 10;
+/** Default most jobs one organization may submit per UTC day (GUARD: docs/CAPACITY-AND-BLAST-RADIUS.md). Generous on purpose: it stops a runaway script or flood, not normal use. */
+export const DEFAULT_ORG_DAILY_JOB_LIMIT = 5000;
+/** The daily limit: env PRINTIO_ORG_DAILY_JOB_LIMIT (a whole number; 0 switches the guard off), else the default. No migration is needed to change it. */
+export function orgDailyJobLimit(env: Record<string, string | undefined> = process.env): number {
+  const raw = env.PRINTIO_ORG_DAILY_JOB_LIMIT?.trim();
+  if (!raw || !/^\d+$/.test(raw)) return DEFAULT_ORG_DAILY_JOB_LIMIT;
+  return Number(raw);
+}
 const OPEN_JOB_STATUSES = ["held", "pending_approval", "approved", "claimed", "downloading", "downloaded", "printing", "submitted_to_spooler"];
 
 export type CreatePrintJobErrorCode =
@@ -178,6 +186,28 @@ export async function checkSubmitLimits(writer: SupabaseClient<Database>, sessio
     .in("status", OPEN_JOB_STATUSES);
   if ((openJobs ?? 0) >= MAX_OPEN_JOBS_PER_USER) {
     return fail(`You already have ${MAX_OPEN_JOBS_PER_USER} jobs waiting or printing. Wait for some to finish, or cancel one, then try again.`, "rate_limited");
+  }
+
+  // The whole organization's daily cap (last, so a job refused above does not use up the school's allowance). One atomic counter row per
+  // organization per UTC day (the rate limiter's 86400 s windows start at midnight UTC), so two submits at once cannot both slip through.
+  // Checked before any quota is reserved, so nothing needs rolling back. Fails OPEN: if the counter breaks, printing carries on.
+  const dailyLimit = orgDailyJobLimit();
+  if (dailyLimit > 0) {
+    try {
+      const { data: orgWithin, error: orgError } = await writer.rpc("check_rate_limit", {
+        p_key: `org_daily_jobs:${organizationId}`,
+        p_max_count: dailyLimit,
+        p_window_seconds: 86400,
+      });
+      if (orgError) {
+        logger.error("organization daily limit check failed - letting the job through", { organizationId, error: orgError.message });
+      } else if (orgWithin === false) {
+        logger.warn("organization daily print-upload limit reached - job refused", { organizationId, userId: session.userId, dailyLimit });
+        return fail("Your school has reached its daily print-upload limit. Try again tomorrow, or ask your admin.", "rate_limited");
+      }
+    } catch (err) {
+      logger.error("organization daily limit check failed - letting the job through", { organizationId, error: err instanceof Error ? err.message : String(err) });
+    }
   }
   return null;
 }

@@ -3,6 +3,7 @@ import { logger } from "@/lib/logger";
 import { apiError } from "@/lib/api-errors";
 import { authenticateAgentRequest } from "@/lib/agent-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { checkAgentPollLimit } from "@/lib/agent-rate-limit";
 import { narrowProbeReports, printerUpdateFromReport, rawPrinterTargets } from "@/lib/printers/probe-report";
 
 interface HeartbeatBody {
@@ -141,6 +142,8 @@ export async function POST(request: Request) {
   }
 
   const supabase = createServiceRoleClient();
+  const limited = await checkAgentPollLimit(supabase, agent.id, "agents/heartbeat");
+  if (limited) return limited;
   const nowIso = new Date().toISOString();
 
   // discovered_queues is only ever overwritten wholesale here, mirroring the

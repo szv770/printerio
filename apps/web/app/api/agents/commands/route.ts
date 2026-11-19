@@ -1,6 +1,7 @@
 import { apiError } from "@/lib/api-errors";
 import { authenticateAgentRequest } from "@/lib/agent-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { checkAgentPollLimit } from "@/lib/agent-rate-limit";
 import { listCommandsForAgent } from "@/lib/agent-commands";
 
 /** See docs/agent-api.md. `command` is always one of the fixed allow-listed
@@ -11,7 +12,10 @@ export async function GET(request: Request) {
   const agent = await authenticateAgentRequest(request);
   if (!agent) return apiError(401, "unauthenticated", "Invalid or revoked agent credentials.");
 
-  const commands = await listCommandsForAgent(createServiceRoleClient(), agent.id);
+  const supabase = createServiceRoleClient();
+  const limited = await checkAgentPollLimit(supabase, agent.id, "agents/commands");
+  if (limited) return limited;
+  const commands = await listCommandsForAgent(supabase, agent.id);
   if (!commands) return apiError(500, "internal_error", "Failed to list commands.");
   return Response.json({ commands });
 }

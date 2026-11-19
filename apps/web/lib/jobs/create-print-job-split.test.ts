@@ -117,7 +117,7 @@ describe("resolveJobPlan (decisions only: no PDF work, nothing stored)", () => {
 describe("checkSubmitLimits (the per-person limits, counted once per submit)", () => {
   it("lets a normal submit through, and counts it against the rate limit exactly once", async () => {
     expect(await checkSubmitLimits(fake.client as never, session)).toBeNull();
-    expect(fake.calls.filter((c) => c.op === "rpc" && c.table === "check_rate_limit")).toHaveLength(1);
+    expect(fake.calls.filter((c) => c.op === "rpc" && c.table === "check_rate_limit" && String((c.values as { p_key?: string }).p_key).startsWith("print_submit:"))).toHaveLength(1);
   });
   it("refuses too many submits in a short time", async () => {
     use({ rate: false });

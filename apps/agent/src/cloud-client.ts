@@ -165,7 +165,13 @@ interface ApiErrorBody {
 interface RawResponse {
   status: number;
   json: unknown;
+  /** Retry-After header in seconds, when the server sent a usable one. */
+  retryAfterSeconds?: number;
 }
+
+/** How long to stay quiet after a 429 when the server gave no (or a silly) Retry-After. */
+const DEFAULT_RATE_LIMIT_BACKOFF_SECONDS = 30;
+const MAX_RATE_LIMIT_BACKOFF_SECONDS = 300;
 
 export class CloudClient {
   private apiUrl: string;
@@ -185,6 +191,14 @@ export class CloudClient {
   /** Consecutive 401/403 answers to the polls (heartbeat, commands, claimable); 0 after any other answer. The orchestrator backs off when this stays high. */
   consecutiveAuthFailures = 0;
 
+  /** Epoch ms until which the website asked this Agent to stay quiet (a 429 on a poll); 0 = no request outstanding. */
+  private rateLimitedUntilMs = 0;
+
+  /** Milliseconds the poll loop should still wait because the website answered 429, 0 when none. Not a failure: it only lengthens the next sleep. */
+  rateLimitBackoffMs(): number {
+    return Math.max(0, this.rateLimitedUntilMs - Date.now());
+  }
+
   /**
    * One of the three idempotent polls. NOT retried inside the request: the next cycle (60 s or more away) is the
    * retry, and an in-request retry loop against a struggling server multiplies the invocations it is already failing
@@ -196,6 +210,12 @@ export class CloudClient {
       this.consecutiveAuthFailures = 0;
       return res;
     } catch (err) {
+      if (err instanceof CloudApiError && err.status === 429) {
+        // "Slow down": remember how long, and leave the auth-failure counter alone (this is not a credentials problem).
+        const secs = Math.min(MAX_RATE_LIMIT_BACKOFF_SECONDS, Math.max(1, err.retryAfterSeconds ?? DEFAULT_RATE_LIMIT_BACKOFF_SECONDS));
+        this.rateLimitedUntilMs = Date.now() + secs * 1000;
+        throw err;
+      }
       if (err instanceof CloudApiError && (err.status === 401 || err.status === 403)) this.consecutiveAuthFailures += 1;
       else if (err instanceof CloudApiError) this.consecutiveAuthFailures = 0;
       throw err;
@@ -273,7 +293,8 @@ export class CloudClient {
         } catch {
           // Non-JSON body (e.g. a proxy error page) - leave json as {}, callers handle missing fields.
         }
-        return { status: res.status, json };
+        const retryAfter = Number(res.headers?.get?.("retry-after"));
+        return { status: res.status, json, ...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfterSeconds: Math.ceil(retryAfter) } : {}) };
       } catch (err) {
         clearTimeout(timer);
         const isAbort = err instanceof Error && err.name === "AbortError";
@@ -306,13 +327,14 @@ export class CloudClient {
     body: unknown | undefined,
     opts: { auth: boolean; retry: boolean; timeoutMs?: number },
   ): Promise<T> {
-    const { status, json } = await this.sendWithRetry(method, urlPath, body, opts);
+    const { status, json, retryAfterSeconds } = await this.sendWithRetry(method, urlPath, body, opts);
     if (status >= 200 && status < 300) return json as T;
     const errBody = (json ?? {}) as ApiErrorBody;
     throw new CloudApiError(
       errBody.error?.message ?? `request failed with status ${status}`,
       errBody.error?.code ?? `HTTP_${status}`,
       status,
+      retryAfterSeconds,
     );
   }
 

@@ -14,6 +14,7 @@
  */
 
 import type { CloudClient } from "./cloud-client.js";
+import { isRateLimited } from "./errors.js";
 import type { PrinterManager } from "./printer-manager.js";
 import type { Logger } from "./logger.js";
 import { AGENT_VERSION } from "./version.js";
@@ -129,6 +130,11 @@ export function createHealthMonitor(
         logger.debug("heartbeat ok", { serverTime: res.serverTime, queueCount: queues.length, paused });
         return true;
       } catch (err) {
+        if (isRateLimited(err)) {
+          // Asked to slow down: not a fault. The poll loop sleeps at least the Retry-After time; the next heartbeat follows its normal schedule.
+          logger.info("the website asked this print server to slow down - heartbeat skipped for now", { retryAfterSeconds: err.retryAfterSeconds ?? null });
+          return true;
+        }
         logger.warn("heartbeat failed - will retry next cycle", {
           error: err instanceof Error ? err.message : String(err),
         });

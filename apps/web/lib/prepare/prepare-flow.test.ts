@@ -168,7 +168,7 @@ describe("intakePrintJob (the website records the job without opening the PDF)",
     w = world();
     fake = fakeSupabase((c) => respond(c));
     await intake();
-    expect(fake.calls.filter((c) => c.op === "rpc" && c.table === "check_rate_limit")).toHaveLength(1);
+    expect(fake.calls.filter((c) => c.op === "rpc" && c.table === "check_rate_limit" && String((c.values as { p_key?: string }).p_key).startsWith("print_submit:"))).toHaveLength(1);
   });
 
   it("refuses a file that is not this person's upload, or that never finished uploading, and records nothing", async () => {
