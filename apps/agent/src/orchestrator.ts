@@ -42,6 +42,8 @@ import { CloudApiError, DownloadValidationError, PrintExecutionError, SpoolerErr
 import type { Logger } from "./logger.js";
 
 export interface OrchestratorDeps {
+  /** Set when the prepare worker is on: the poll then also asks the website whether a prepare job is waiting and records the answer here. */
+  prepareHint?: { set(waiting: boolean): void };
   config: AgentConfig;
   cloudClient: CloudClient;
   jobQueue: JobQueue;
@@ -771,9 +773,10 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     let embedded: RemoteCommandEnvelope[] | undefined;
     try {
       if (embedCommands) {
-        const res = await cloudClient.getClaimableAndCommands();
+        const res = await cloudClient.getClaimableAndCommands(deps.prepareHint ? { prepare: true } : {});
         jobs = res.jobs;
         embedded = res.commands;
+        if (deps.prepareHint && typeof res.prepareWaiting === "boolean") deps.prepareHint.set(res.prepareWaiting);
       } else {
         jobs = await cloudClient.getClaimableJobs();
       }

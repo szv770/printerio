@@ -24,7 +24,7 @@ import { checkRawTarget } from "./raw-host-policy.js";
 import { createHealthMonitor } from "./health-monitor.js";
 import { createOrchestrator } from "./orchestrator.js";
 import { startLibraryWorker } from "./library-worker.js";
-import { startPrepareWorker } from "./prepare-worker.js";
+import { createPrepareHint, startPrepareWorker } from "./prepare-worker.js";
 import { createPdfPipeline, nodeCanPrepare } from "./prepare-pipeline.js";
 import { installService, uninstallService } from "./windows-service.js";
 import { verifyStartupDependencies } from "./dependency-check.js";
@@ -151,9 +151,14 @@ async function runStart(): Promise<void> {
     checkTarget: (target) => checkRawTarget(target, { allowedHosts: config.rawAllowedHosts }),
   });
 
+  // The prepare worker (below) learns "a prepare job is waiting" from the print loop's own poll, so it makes no calls of its own while nothing is waiting.
+  const canPrepare = nodeCanPrepare();
+  const prepareHint = config.prepareWorker && canPrepare ? createPrepareHint() : undefined;
+
   const orchestrator = createOrchestrator({
     config,
     cloudClient,
+    ...(prepareHint ? { prepareHint } : {}),
     jobQueue,
     printerManager,
     spoolerMonitor,
@@ -167,7 +172,6 @@ async function runStart(): Promise<void> {
 
   // The optional prepare worker (PRINTIO_PREPARE_WORKER=1). Inert until the PDF pipeline is plugged in (docs/PREPARE-JOBS-DESIGN.md, P2):
   // with no pipeline it is never created. Own timer, never awaited here, cannot throw into the loops below; see prepare-worker.ts.
-  const canPrepare = nodeCanPrepare();
   if (config.prepareWorker && !canPrepare) logger.warn(`PRINTIO_PREPARE_WORKER is on, but Node ${process.versions.node} is too old for the PDF tools (22.13 or newer is needed), so the prepare worker stays off`);
   const prepareWorker = startPrepareWorker({
     enabled: config.prepareWorker,
@@ -175,6 +179,7 @@ async function runStart(): Promise<void> {
     logger,
     jobTimeoutMs: config.prepareTimeoutSeconds * 1000,
     ...(canPrepare ? { pipeline: createPdfPipeline(logger) } : {}),
+    ...(prepareHint ? { hint: prepareHint } : {}),
   });
 
   const shutdown = (signal: string) => {

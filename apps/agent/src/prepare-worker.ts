@@ -40,6 +40,50 @@ export const DEFAULT_MAX_ORIGINAL_BYTES = 120 * 1024 * 1024;
 /** Renew the lease at this interval (the website's lease is 120 s). */
 export const RENEW_EVERY_MS = 40_000;
 
+
+/** How long a hint from the website's answer is believed. The print loop asks every few seconds, so a hint older than this means the loop stalled or the website is older. */
+export const HINT_FRESH_MS = 30_000;
+
+/**
+ * "A prepare job is waiting", learned for free from the answer to the print loop's own poll (`prepareWaiting` on the claimable-jobs call), so the worker needs no
+ * polling of its own while nothing is waiting. `read()` is `null` when there is no hint or it is stale: the worker then falls back to its own timer, so nothing can
+ * get stuck (an older website never sends the field).
+ */
+export interface PrepareHint {
+  set(waiting: boolean): void;
+  read(): boolean | null;
+  /** Called when the hint turns to "waiting" from anything else, so the worker can look at once instead of waiting for its timer. */
+  subscribe(fn: () => void): void;
+}
+
+export function createPrepareHint(now: () => number = Date.now, freshMs: number = HINT_FRESH_MS): PrepareHint {
+  let waiting: boolean | null = null;
+  let at = 0;
+  const listeners: Array<() => void> = [];
+  return {
+    set(next) {
+      const was = waiting;
+      waiting = next;
+      at = now();
+      if (next && was !== true) {
+        for (const fn of listeners) {
+          try {
+            fn();
+          } catch {
+            /* a listener must never break the poll that told us */
+          }
+        }
+      }
+    },
+    read() {
+      return waiting !== null && now() - at <= freshMs ? waiting : null;
+    },
+    subscribe(fn) {
+      listeners.push(fn);
+    },
+  };
+}
+
 /** What the website needs back: the wire result defined with the PDF steps (packages/pdf/src/prepare-wire.ts, checked by `prepareResultSchema` on the website). */
 export type PrepareResultPayload = PrepareWire;
 
@@ -84,6 +128,8 @@ export interface PrepareWorkerDeps {
   hotMs?: number;
   hotWindowMs?: number;
   renewEveryMs?: number;
+  /** The website's "a prepare job is waiting" news, from the print loop's poll. Without it (or when stale) the worker uses its own timer. */
+  hint?: PrepareHint;
 }
 
 export interface PrepareWorker {
@@ -280,6 +326,8 @@ export function createPrepareWorker(deps: PrepareWorkerDeps): PrepareWorker {
 
   async function tick(): Promise<number> {
     if (stopped || running) return restMs();
+    // A fresh "nothing is waiting" from the website means no call at all this time.
+    if (deps.hint?.read() === false) return restMs();
     running = true;
     try {
       let job: PrepareJobEnvelope | null;
@@ -295,7 +343,10 @@ export function createPrepareWorker(deps: PrepareWorkerDeps): PrepareWorker {
         return backoffMs;
       }
       backoffMs = idleMs;
-      if (!job) return restMs();
+      if (!job) {
+        deps.hint?.set(false); // nothing was there after all: do not ask again until the next poll says otherwise
+        return restMs();
+      }
       await handle(job);
       hotUntil = clock() + hotWindowMs;
       return AFTER_JOB_MS;
@@ -334,6 +385,13 @@ export function createPrepareWorker(deps: PrepareWorkerDeps): PrepareWorker {
       try {
         if (started || stopped) return;
         started = true;
+        deps.hint?.subscribe(() => {
+          // A job is waiting: look now (only if the timer is pending; a running job's own follow-up look comes right after it).
+          if (stopped || running || !timer) return;
+          clearTimeout(timer);
+          timer = undefined;
+          schedule(0);
+        });
         schedule(INITIAL_DELAY_MS);
       } catch (err) {
         log("error", "prepare worker failed to start", { error: errText(err) });

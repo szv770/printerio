@@ -3,6 +3,7 @@ import { authenticateAgentRequest } from "@/lib/agent-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { recoverExpiredLeasesForAgent } from "@/lib/lease-recovery";
 import { listCommandsForAgent } from "@/lib/agent-commands";
+import { prepareJobWaiting } from "@/lib/prepare/waiting";
 
 /** The Agent processes jobs one at a time, so a longer list only costs a bigger response. */
 const CLAIMABLE_LIMIT = 50;
@@ -15,17 +16,24 @@ const CLAIMABLE_LIMIT = 50;
  *  Agents). The commands are looked up only AFTER the job list succeeded (handing a command out marks it picked up,
  *  so it must not be spent on an answer that turns into an error), and if that lookup fails the field is simply
  *  left out: the Agent then asks the commands route itself. A paused Agent still gets its commands (it does on the
- *  commands route too); only its jobs are withheld. */
+ *  commands route too); only its jobs are withheld.
+ *
+ *  Opt-in `?prepare=1` (an Agent whose prepare worker is on): the answer also carries `prepareWaiting` - true when a prepare job of this
+ *  organization is waiting for its print server (lib/prepare/waiting.ts) - so the worker needs no polling of its own. Left out when it could not be
+ *  worked out; never fails the call. Without the flag nothing changes. */
 export async function GET(request: Request) {
   const agent = await authenticateAgentRequest(request);
   if (!agent) return apiError(401, "unauthenticated", "Invalid or revoked agent credentials.");
 
   const withCommands = new URL(request.url).searchParams.get("commands") === "1";
   const supabase = createServiceRoleClient();
+  const withPrepare = new URL(request.url).searchParams.get("prepare") === "1";
   const answer = async (jobs: Array<{ jobId: string; printerProfileId: string | null; jobNumber: string }>) => {
-    if (!withCommands) return Response.json({ jobs });
+    const waiting = withPrepare ? await prepareJobWaiting(supabase, agent.organizationId) : null;
+    const extra = waiting === null ? {} : { prepareWaiting: waiting };
+    if (!withCommands) return Response.json({ jobs, ...extra });
     const commands = await listCommandsForAgent(supabase, agent.id).catch(() => null);
-    return Response.json(commands ? { jobs, commands } : { jobs });
+    return Response.json(commands ? { jobs, commands, ...extra } : { jobs, ...extra });
   };
 
   // A paused Agent is simply never offered work (agents.paused - see the

@@ -356,9 +356,14 @@ export class CloudClient {
    * include the field (an older website ignores the flag, or its commands lookup failed): the caller then asks
    * `getCommands()` itself, exactly as before.
    */
-  async getClaimableAndCommands(): Promise<{ jobs: ClaimableJob[]; commands: RemoteCommandEnvelope[] | undefined }> {
-    const res = await this.poll<{ jobs: ClaimableJob[]; commands?: unknown }>("GET", "/api/agents/jobs/claimable?commands=1");
-    return { jobs: res.jobs, commands: Array.isArray(res.commands) ? (res.commands as RemoteCommandEnvelope[]) : undefined };
+  async getClaimableAndCommands(opts: { prepare?: boolean } = {}): Promise<{ jobs: ClaimableJob[]; commands: RemoteCommandEnvelope[] | undefined; prepareWaiting?: boolean }> {
+    // `prepare=1` (only when this server's prepare worker is on) also asks "is a prepare job waiting?", so the worker needs no polling of its own.
+    const res = await this.poll<{ jobs: ClaimableJob[]; commands?: unknown; prepareWaiting?: unknown }>("GET", `/api/agents/jobs/claimable?commands=1${opts.prepare ? "&prepare=1" : ""}`);
+    return {
+      jobs: res.jobs,
+      commands: Array.isArray(res.commands) ? (res.commands as RemoteCommandEnvelope[]) : undefined,
+      ...(typeof res.prepareWaiting === "boolean" ? { prepareWaiting: res.prepareWaiting } : {}),
+    };
   }
 
   /**
