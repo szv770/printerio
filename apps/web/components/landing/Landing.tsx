@@ -1,115 +1,277 @@
 import Link from "next/link";
-import { Check, FlaskConical } from "lucide-react";
+import { ArrowRight, Check, ClipboardCheck, FlaskConical, LifeBuoy, Printer, ShieldCheck, Gauge } from "lucide-react";
 import { landingDevices } from "@/lib/landing-content";
 import { routes } from "@/lib/routes";
 import { BookletDemo } from "./BookletDemo";
 import { FeatureTabs } from "./FeatureTabs";
 import { HeroDemo } from "./HeroDemo";
+import { HeroPhone } from "./HeroPhone";
 import { displayFont } from "./landing-font";
 import styles from "./landing.module.css";
+import page from "./landing-page.module.css";
 
-const btnBase = "inline-flex min-h-12 items-center justify-center rounded-full px-6 text-[0.9375rem] font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2";
+const FAQ: { q: string; a: string }[] = [
+  {
+    q: "Do I need to install a driver or an app?",
+    a: "No. On Windows, iPhone and Android you add the school's printer once, then press the normal Print button like always. There is nothing to install on the device itself.",
+  },
+  {
+    q: "Does it work on iPhone?",
+    a: "Yes. It has printed from a real iPhone through the normal Print menu. Mac and Chromebook are built and still being tested, so we do not call them confirmed yet.",
+  },
+  {
+    q: "What about booklets and stapling?",
+    a: "Printio lays out the sheets for a real folded booklet, with the spine on the left for English or on the right for Hebrew, and can staple or print double-sided for you. Booklets, stapling and double-sided have all printed on the real printer.",
+  },
+  {
+    q: "Who can see my files?",
+    a: "Your job goes to your school's own private space in Printio and then to the small print server in your building, which talks to the printer directly. An admin sees the job list, with who sent it and why anything was held. Printio is built so each school's people, printers and jobs stay apart from other schools'.",
+  },
+  {
+    q: "Can I try it?",
+    a: "Printio is invite-only and early. If your school has sent you an invite link, open it to join. If not, you can still play with the demo on this page.",
+  },
+];
 
 /**
- * The public home page, for everyone (signed in or not). Deliberately short: a hero you can use, the devices that are
- * proven, a booklet you can flip through, what is inside, and a way in. Everything it claims comes from
- * lib/landing-content.ts.
+ * The public home page, for everyone (signed in or not). Story order: a confident hero, the devices that are proven,
+ * three steps, a demo you can press, booklets, what the office gets, how data stays separate, answers, a way in.
+ * Everything it claims comes from lib/landing-content.ts and docs/FEATURES.md.
  */
 export function Landing({ signedIn = false }: { signedIn?: boolean }) {
   const devices = landingDevices();
   // Signed-in people see the same page; their main button takes them to their own home instead of the sign-in page.
   const primary = signedIn ? { href: routes.start, label: "Open Printio" } : { href: routes.login, label: "Sign in" };
   return (
-    <div className={`${styles.root} ${displayFont.variable} min-h-dvh`}>
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
-        <Link href="/" className={`${styles.display} text-xl font-extrabold`} aria-label="Printio home">
-          Printio
-        </Link>
-        <nav aria-label="Sections" className="hidden items-center gap-6 text-sm font-medium text-[var(--ink-2)] md:flex">
-          <a href="#booklets" className="hover:text-[var(--ink)]">Booklets</a>
-          <a href="#inside" className="hover:text-[var(--ink)]">What&apos;s inside</a>
-        </nav>
-        <Link href={primary.href} className={`${btnBase} bg-[var(--ink)] text-white hover:bg-[#1c3358] focus-visible:outline-[var(--blue)]`}>
-          {primary.label}
-        </Link>
+    <div className={`${styles.root} ${page.page} ${displayFont.variable} min-h-dvh`}>
+      <a href="#main" className={page.skip}>Skip to content</a>
+      <header className={page.header}>
+        <div className={page.wrap}>
+          <div className={page.headerRow}>
+            <Link href="/" className={`${styles.display} ${page.logo}`} aria-label="Printio home">
+              <span className={page.dots} aria-hidden="true"><i /><i /><i /></span>
+              Printio
+            </Link>
+            <nav aria-label="Sections" className={page.nav}>
+              <a href="#how">How it works</a>
+              <a href="#booklets">Booklets</a>
+              <a href="#office">For offices</a>
+              <a href="#faq">Questions</a>
+            </nav>
+            <Link href={primary.href} className={`${page.btn} ${page.btnDark} ${page.btnSm}`}>
+              {primary.label}
+            </Link>
+          </div>
+        </div>
       </header>
 
       <main id="main">
-        <section className="relative overflow-hidden">
+        {/* HERO */}
+        <section className={page.hero}>
+          <div className={page.heroGlow} aria-hidden="true" />
           <div className={styles.halftone} aria-hidden="true" />
-          <div className="relative mx-auto grid max-w-6xl gap-6 px-4 pt-6 pb-14 sm:px-6 lg:grid-cols-[1.25fr_1fr] lg:gap-x-12 lg:gap-y-10 lg:pt-10 lg:pb-20">
-            <h1 className={`${styles.display} text-[clamp(2.3rem,6vw,4.25rem)] font-extrabold leading-[1.02] lg:col-start-1 lg:row-start-1 lg:self-end`}>
-              Press Print. It comes out of the right printer.
-            </h1>
-            {/* On a phone the demo comes straight after the headline, so the page is visible without scrolling. */}
-            <div className="order-2 lg:order-none lg:col-span-2 lg:row-start-2">
-              <HeroDemo />
-            </div>
-            <div className="order-3 lg:order-none lg:col-start-2 lg:row-start-1 lg:self-end">
-              <p className="max-w-md text-[1.0625rem] leading-7 text-[var(--ink-2)]">
-                Your school or office printer, in everyone&apos;s normal Print menu. With rules, approvals and real booklets.
+          <div className={`${page.wrap} ${page.heroGrid}`}>
+            <div className={page.heroText}>
+              <p className={page.eyebrow}>
+                <span className={page.dots} aria-hidden="true"><i /><i /><i /></span>
+                Printing for schools and offices
               </p>
-              <div className="mt-5 flex flex-wrap gap-3">
-                <Link href={primary.href} className={`${btnBase} bg-[var(--blue)] text-white hover:bg-[#0752b3] focus-visible:outline-[var(--blue)]`}>
+              <h1 className={`${styles.display} ${page.h1}`}>Press Print. It comes out of the right printer.</h1>
+              <p className={page.lead}>
+                Print from the normal Print button on any phone or laptop. No app, no driver. Booklets, stapling and double-sided are handled for you.
+              </p>
+              <div className={page.ctaRow}>
+                <Link href={primary.href} className={`${page.btn} ${page.btnPrimary}`}>
                   {primary.label}
+                  <ArrowRight className="h-5 w-5" aria-hidden="true" />
                 </Link>
                 {!signedIn && (
-                  <Link href="/join" className={`${btnBase} border border-[var(--line)] bg-white text-[var(--ink)] hover:border-[var(--ink)] focus-visible:outline-[var(--blue)]`}>
+                  <Link href="/join" className={`${page.btn} ${page.btnGhost}`}>
                     I have an invite
                   </Link>
                 )}
               </div>
+              <p className={page.fine}>
+                <Check className="h-4 w-4" aria-hidden="true" />
+                Printed from a real Windows 11 PC, Android phone and iPhone
+              </p>
             </div>
+            <HeroPhone />
           </div>
         </section>
 
-        <section id="devices" className="border-y border-[var(--line)] bg-white">
-          <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-4 py-5 sm:px-6">
-            <p className="text-sm font-semibold">Works on</p>
-            <ul className="flex flex-wrap gap-2 p-0">
+        {/* DEVICE PROOF */}
+        <section id="devices" className={page.proof} aria-labelledby="proof-h">
+          <div className={page.wrap}>
+            <h2 id="proof-h" className={page.proofTitle}>Works where people already are</h2>
+            <ul className={page.deviceList}>
               {devices.map((d) => (
-                <li key={d.name} className="inline-flex list-none items-center gap-1.5 rounded-full border border-[var(--line)] px-3 py-1.5 text-sm">
-                  {d.confirmed ? (
-                    <Check className="h-4 w-4 text-[var(--color-success)]" aria-hidden="true" />
-                  ) : (
-                    <FlaskConical className="h-4 w-4 text-[var(--color-warning)]" aria-hidden="true" />
-                  )}
-                  <span className="font-medium">{d.name}</span>
-                  <span className="text-[var(--ink-2)]">{d.confirmed ? "confirmed on a real device" : "still testing"}</span>
+                <li key={d.name} className={page.device} data-confirmed={d.confirmed}>
+                  <span className={page.deviceIcon} aria-hidden="true">
+                    {d.confirmed ? <Check className="h-5 w-5" /> : <FlaskConical className="h-5 w-5" />}
+                  </span>
+                  <span className={page.deviceName}>{d.name}</span>
+                  <span className={page.deviceNote}>{d.confirmed ? "confirmed on a real device" : "still testing"}</span>
                 </li>
               ))}
             </ul>
           </div>
         </section>
 
-        <section id="booklets" className="mx-auto grid max-w-6xl items-center gap-8 px-4 py-16 sm:px-6 lg:grid-cols-2 lg:gap-14 lg:py-24">
-          <div>
-            <h2 className={`${styles.display} text-[clamp(1.75rem,4vw,2.75rem)] font-extrabold leading-tight`}>Booklets that read the right way.</h2>
-            <p className="mt-4 max-w-md text-[1.0625rem] leading-7 text-[var(--ink-2)]">
-              English opens from the left, Hebrew from the right. Printio lays out every sheet for you. Flip through it.
-            </p>
+        {/* HOW IT WORKS */}
+        <section id="how" className={page.section} aria-labelledby="how-h">
+          <div className={page.wrap}>
+            <p className={page.kicker}>How it works</p>
+            <h2 id="how-h" className={`${styles.display} ${page.h2}`}>Three steps, and only the first one is yours.</h2>
+            <ol className={page.steps}>
+              <li className={page.stepCard}>
+                <span className={page.stepNum} data-ink="c">1</span>
+                <h3 className={page.h3}>Press Print</h3>
+                <p>Open the normal Print menu in any app and choose the school printer. Pick double-sided, a staple or a booklet if you want one.</p>
+              </li>
+              <li className={page.stepCard}>
+                <span className={page.stepNum} data-ink="m">2</span>
+                <h3 className={page.h3}>Printio prepares it</h3>
+                <p>It checks the rules, counts the pages, puts the sender&apos;s code on the page and lays out the sheets, all on its own.</p>
+              </li>
+              <li className={page.stepCard}>
+                <span className={page.stepNum} data-ink="y">3</span>
+                <h3 className={page.h3}>It comes out finished</h3>
+                <p>The pages arrive at the right printer, stapled or folded as asked. You can see whether your job is waiting, printing or printed.</p>
+              </li>
+            </ol>
           </div>
-          <BookletDemo />
         </section>
 
-        <section id="inside" className="border-t border-[var(--line)] bg-white">
-          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-24">
-            <h2 className={`${styles.display} mb-6 text-[clamp(1.75rem,4vw,2.75rem)] font-extrabold leading-tight`}>What&apos;s inside</h2>
-            <FeatureTabs />
+        {/* LIVE DEMO */}
+        <section id="demo" className={`${page.section} ${page.tint}`} aria-labelledby="demo-h">
+          <div className={page.wrap}>
+            <p className={page.kicker}>Try it</p>
+            <h2 id="demo-h" className={`${styles.display} ${page.h2}`}>Press the button. Watch it go.</h2>
+            <p className={page.sectionLead}>A small demo of the same journey. Pick a device and a finish, then press Print.</p>
+            <div className={page.demoBox}>
+              <HeroDemo />
+            </div>
           </div>
         </section>
 
-        <section className="bg-[var(--ink)] text-white">
-          <div className="mx-auto flex max-w-6xl flex-col items-start gap-6 px-4 py-14 sm:px-6 md:flex-row md:items-center md:justify-between">
-            <h2 className={`${styles.display} max-w-xl text-[clamp(1.6rem,4vw,2.25rem)] font-extrabold leading-tight`}>
+        {/* BOOKLETS */}
+        <section id="booklets" className={page.section} aria-labelledby="bk-h">
+          <div className={`${page.wrap} ${page.split}`}>
+            <div>
+              <p className={page.kicker}>Booklets</p>
+              <h2 id="bk-h" className={`${styles.display} ${page.h2}`}>Booklets that read the right way.</h2>
+              <p className={page.sectionLead}>
+                English opens from the left, Hebrew from the right. Printio lays out every sheet for you, and each page is printed as big as it fits.
+              </p>
+              <ul className={page.ticks}>
+                <li><Check className="h-5 w-5" aria-hidden="true" />Left or right binding</li>
+                <li><Check className="h-5 w-5" aria-hidden="true" />Pages in the right order for folding</li>
+                <li><Check className="h-5 w-5" aria-hidden="true" />Every page as big as it fits</li>
+              </ul>
+            </div>
+            <div className={page.bookBox}>
+              <BookletDemo />
+            </div>
+          </div>
+        </section>
+
+        {/* FOR OFFICES */}
+        <section id="office" className={`${page.section} ${page.tint}`} aria-labelledby="office-h">
+          <div className={page.wrap}>
+            <p className={page.kicker}>For the school office</p>
+            <h2 id="office-h" className={`${styles.display} ${page.h2}`}>You stay in charge, without the headache.</h2>
+            <div className={page.cards}>
+              <article className={page.card}>
+                <span className={page.cardIcon} data-ink="c"><ClipboardCheck className="h-6 w-6" aria-hidden="true" /></span>
+                <h3 className={page.h3}>Approvals</h3>
+                <p>Add an approval step if you want one, so a job waits for a yes before it prints.</p>
+              </article>
+              <article className={page.card}>
+                <span className={page.cardIcon} data-ink="m"><Gauge className="h-6 w-6" aria-hidden="true" /></span>
+                <h3 className={page.h3}>Rules and page limits</h3>
+                <p>Set groups and page limits. Invite your staff with one link, with no passwords to hand out.</p>
+              </article>
+              <article className={page.card}>
+                <span className={page.cardIcon} data-ink="y"><LifeBuoy className="h-6 w-6" aria-hidden="true" /></span>
+                <h3 className={page.h3}>Plain-language help</h3>
+                <p>Every job shows where it is, and if it was held you get a plain reason and a one-tap retry. Setup steps are written per device.</p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        {/* DATA + SERVER */}
+        <section id="data" className={page.section} aria-labelledby="data-h">
+          <div className={`${page.wrap} ${page.split}`}>
+            <div>
+              <p className={page.kicker}>Your school&apos;s data</p>
+              <h2 id="data-h" className={`${styles.display} ${page.h2}`}>Your school&apos;s files stay your school&apos;s.</h2>
+              <p className={page.sectionLead}>
+                Printio is built so each school has its own private space, kept apart from every other school. A small print server sits next to your printer and talks to it directly, so the printer never faces the internet.
+              </p>
+              <p className={page.honest}>
+                <ShieldCheck className="h-5 w-5" aria-hidden="true" />
+                <span>Printio is early and invite-only. Ask us how it is set up before you rely on it for anything sensitive.</span>
+              </p>
+            </div>
+            <figure className={page.chain} aria-label="A job goes from a phone, through Printio, to the print server in your building, then to the printer">
+              <div className={page.node} data-ink="c"><span className={page.nodeIcon}>1</span><div><strong>Your phone or laptop</strong><span>The normal Print button</span></div></div>
+              <div className={page.link} aria-hidden="true" />
+              <div className={page.node} data-ink="m"><span className={page.nodeIcon}>2</span><div><strong>Your school&apos;s private space</strong><span>Rules, approvals, job list</span></div></div>
+              <div className={page.link} aria-hidden="true" />
+              <div className={page.node} data-ink="y"><span className={page.nodeIcon}>3</span><div><strong>Print server in your building</strong><span>Talks to the printer directly</span></div></div>
+              <div className={page.link} aria-hidden="true" />
+              <div className={page.node} data-ink="k"><span className={page.nodeIcon}><Printer className="h-4 w-4" aria-hidden="true" /></span><div><strong>The printer</strong><span>Not open to the internet</span></div></div>
+            </figure>
+          </div>
+        </section>
+
+        {/* WHAT'S INSIDE */}
+        <section id="inside" className={`${page.section} ${page.white}`} aria-labelledby="inside-h">
+          <div className={page.wrap}>
+            <p className={page.kicker}>The full list</p>
+            <h2 id="inside-h" className={`${styles.display} ${page.h2}`}>What&apos;s inside</h2>
+            <p className={page.sectionLead}>Things marked &ldquo;still testing&rdquo; are built but have not yet been seen working on a real device.</p>
+            <div className="mt-6">
+              <FeatureTabs />
+            </div>
+          </div>
+        </section>
+
+        {/* FAQ */}
+        <section id="faq" className={page.section} aria-labelledby="faq-h">
+          <div className={`${page.wrap} ${page.faqWrap}`}>
+            <div>
+              <p className={page.kicker}>Questions</p>
+              <h2 id="faq-h" className={`${styles.display} ${page.h2}`}>Straight answers.</h2>
+            </div>
+            <div className={page.faqList}>
+              {FAQ.map((f) => (
+                <details key={f.q} className={page.faq}>
+                  <summary>
+                    <span>{f.q}</span>
+                    <span className={page.plus} aria-hidden="true" />
+                  </summary>
+                  <p>{f.a}</p>
+                </details>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* FINAL CTA */}
+        <section className={page.cta} aria-labelledby="cta-h">
+          <div className={`${page.wrap} ${page.ctaInner}`}>
+            <h2 id="cta-h" className={`${styles.display} ${page.ctaTitle}`}>
               {signedIn ? "You are signed in." : "Printio is invite-only for now."}
             </h2>
-            <div className="flex flex-wrap gap-3">
-              <Link href={primary.href} className={`${btnBase} bg-white text-[var(--ink)] hover:bg-[#e8eef9] focus-visible:outline-white`}>
+            <div className={page.ctaRow}>
+              <Link href={primary.href} className={`${page.btn} ${page.btnLight}`}>
                 {primary.label}
               </Link>
               {!signedIn && (
-                <Link href="/join" className={`${btnBase} border border-[#5b6f94] text-white hover:border-white focus-visible:outline-white`}>
+                <Link href="/join" className={`${page.btn} ${page.btnOutline}`}>
                   I have an invite
                 </Link>
               )}
@@ -118,9 +280,15 @@ export function Landing({ signedIn = false }: { signedIn?: boolean }) {
         </section>
       </main>
 
-      <footer className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-6 text-sm text-[var(--ink-2)] sm:px-6">
-        <span>Printio</span>
-        <span>Made by TachTach Screens</span>
+      <footer className={page.footer}>
+        <div className={`${page.wrap} ${page.footerRow}`}>
+          <span className={`${styles.display} ${page.footLogo}`}>Printio</span>
+          <nav aria-label="Legal" className={page.footNav}>
+            <Link href="/privacy">Privacy</Link>
+            <Link href="/terms">Terms</Link>
+          </nav>
+          <span>Made by TachTach Screens</span>
+        </div>
       </footer>
     </div>
   );
