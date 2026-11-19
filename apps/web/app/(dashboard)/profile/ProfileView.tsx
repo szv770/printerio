@@ -25,7 +25,7 @@ export function ProfileView({
   const shownName = displayName?.trim() || email;
   const initial = shownName.trim().charAt(0).toUpperCase() || "?";
   return (
-    <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
+    <main className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
       <PageHeader title="Profile" />
       <div className="flex flex-col gap-3">
         <Card className="flex flex-col gap-5 sm:p-6">

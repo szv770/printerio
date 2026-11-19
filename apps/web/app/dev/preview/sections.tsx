@@ -103,7 +103,7 @@ export function MemberSection({ path }: { path: string }) {
   return (
     <div className="min-h-screen">
       <MemberHeader userId={PREVIEW_USER_ID} isSuperAdmin={false} user={{ ...USER, roleLabel: "Staff" }} pathnameOverride={path} />
-      <main className="mx-auto max-w-2xl px-4 py-8 sm:py-10">
+      <main className="mx-auto max-w-3xl px-4 py-8 sm:py-10">
         <PageHeader
           title="My jobs"
           action={

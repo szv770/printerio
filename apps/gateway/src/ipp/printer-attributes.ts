@@ -2,6 +2,7 @@
 // (accepted by Windows 11 and Android). Contract changes vs the spike: Letter is the default size (Ledger 11x17 also offered),
 // `finishings` is "none" only, and the setup page / profile URLs are gone.
 import { createHash } from "node:crypto";
+import { presetMediaTypeNames } from "@printio/shared";
 import { attr, OP, TAG, type IppAttr } from "./codec.js";
 
 /** Same list the spike advertised by default. Only PDF is actually accepted (see handlers). */
@@ -18,7 +19,21 @@ export const FINISHINGS_SUPPORTED = [3, 4, 20, 22, 8, 13, 5, 28] as const;
 
 type MediaSize = (typeof MEDIA_SIZES)[number];
 
-function mediaCol(s: MediaSize): IppAttr[] {
+/** The plain-paper default shown first in the dialog's paper type list. */
+export const DEFAULT_MEDIA_TYPE = "stationery";
+
+/**
+ * `media-type-supported`: "stationery" first (the default; dialogs show it as plain paper), then each print preset name
+ * (packages/shared/src/print-presets.ts). `stationery` is sent as an IPP keyword and the preset names as IPP names (the codec's per-value tags). UNVERIFIED which OS draws this list.
+ */
+export function advertisedMediaTypes(): string[] {
+  return [DEFAULT_MEDIA_TYPE, ...presetMediaTypeNames()];
+}
+
+/** The standard keyword `stationery` is sent as an IPP keyword (what clients expect for plain paper); preset names are IPP names. */
+const mediaTypeTag = (t: string): number => (t === DEFAULT_MEDIA_TYPE ? TAG.keyword : TAG.name);
+
+function mediaCol(s: MediaSize, mediaType?: string): IppAttr[] {
   return [
     {
       name: "media-size",
@@ -30,6 +45,7 @@ function mediaCol(s: MediaSize): IppAttr[] {
         ],
       ],
     },
+    ...(mediaType === undefined ? [] : [attr(mediaTypeTag(mediaType), "media-type", mediaType)]),
   ];
 }
 
@@ -59,6 +75,8 @@ export function buildPrinterAttributes(input: PrinterAttrsInput): IppAttr[] {
   const secure = uri.startsWith("https");
   const dpi600 = { x: 600, y: 600, units: 3 };
   const letter = MEDIA_SIZES[0];
+  const types = advertisedMediaTypes();
+  const sizeByType = MEDIA_SIZES.flatMap((s) => types.map((t) => mediaCol(s, t)));
   return [
     attr(TAG.uri, "printer-uri-supported", uri),
     attr(TAG.keyword, "uri-security-supported", secure ? "tls" : "none"),
@@ -116,10 +134,11 @@ export function buildPrinterAttributes(input: PrinterAttrsInput): IppAttr[] {
     attr(TAG.keyword, "media-default", letter.key),
     attr(TAG.keyword, "media-supported", ...MEDIA_SIZES.map((s) => s.key)),
     attr(TAG.keyword, "media-ready", ...MEDIA_SIZES.map((s) => s.key)),
-    attr(TAG.begCollection, "media-col-default", mediaCol(letter)),
-    attr(TAG.begCollection, "media-col-ready", ...MEDIA_SIZES.map(mediaCol)),
-    attr(TAG.begCollection, "media-col-database", ...MEDIA_SIZES.map(mediaCol)),
-    attr(TAG.keyword, "media-col-supported", "media-size"),
+    { ...attr(TAG.name, "media-type-supported", ...types), valueTags: types.map(mediaTypeTag) },
+    attr(TAG.begCollection, "media-col-default", mediaCol(letter, DEFAULT_MEDIA_TYPE)),
+    attr(TAG.begCollection, "media-col-ready", ...sizeByType),
+    attr(TAG.begCollection, "media-col-database", ...sizeByType),
+    attr(TAG.keyword, "media-col-supported", "media-size", "media-type"),
     attr(
       TAG.keyword,
       "job-creation-attributes-supported",
@@ -127,6 +146,7 @@ export function buildPrinterAttributes(input: PrinterAttrsInput): IppAttr[] {
       "sides",
       "media",
       "media-col",
+      "media-type",
       "orientation-requested",
       "print-quality",
       "print-color-mode",

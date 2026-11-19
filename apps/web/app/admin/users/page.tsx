@@ -1,84 +1,56 @@
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
 import { PageHeader, Tabs } from "@/components/ui";
 import { peopleTabs } from "@/lib/admin/tabs";
-import { MembersTable } from "./MembersTable";
-import { ensureMemberUserCode } from "@/lib/jobs/ensure-user-code";
+import { PeopleBrowserLive } from "./PeopleBrowserLive";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { logger } from "@/lib/logger";
 import { findUnmatchedSignups, type UnmatchedSignup } from "@/lib/admin/unmatched-signups";
 import { UnmatchedSignups } from "./UnmatchedSignups";
+import { countMembersWithoutCode, fetchPeoplePage } from "@/lib/admin/people-list";
+import { pageCount, parsePeopleParams, peopleQueryToSearch } from "@/lib/admin/people-query";
+import { routes } from "@/lib/routes";
 
-export default async function UsersPage() {
+/** The People list. The filter, sort and page come from the URL (never trusted: parsePeopleParams cleans them); the
+ *  organization comes from the signed-in admin's session; the database sends one page and the exact match count. */
+export default async function UsersPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const session = await requireOrgRole(["org_admin", "approver"]);
   const supabase = await createClient();
+  const orgId = session.membership.organization_id;
+  const isOrgAdmin = session.membership.role === "org_admin";
+  const query = parsePeopleParams(await searchParams);
 
-  const { data: members } = await supabase
-    .from("organization_members")
-    .select("user_id, role, status, department, created_at, user_code, profiles(email, display_name)")
-    .eq("organization_id", session.membership.organization_id)
-    .order("created_at", { ascending: true })
-    .limit(1000);
-
-  // Everyone who prints gets a persistent, org-unique code. Give the ones without one theirs now (service role, after
-  // the requireOrgRole check above) so this page shows exactly what is stamped. A failure here is not fatal: that
-  // member just shows no code until the next load or their next print.
-  const memberRows = members ?? [];
-  const codes = new Map<string, string>();
-  for (const m of memberRows) if (m.user_code) codes.set(m.user_id, m.user_code);
-  const missing = memberRows.filter((m) => !m.user_code);
-  if (missing.length > 0) {
-    const writer = createServiceRoleClient();
-    await Promise.all(
-      missing.map(async (m) => {
-        try {
-          codes.set(
-            m.user_id,
-            await ensureMemberUserCode(writer, {
-              organizationId: session.membership.organization_id,
-              userId: m.user_id,
-              displayName: m.profiles?.display_name ?? null,
-              email: m.profiles?.email ?? null,
-              stored: null,
-            }),
-          );
-        } catch (err) {
-          logger.error("could not assign a user code", { userId: m.user_id, error: err instanceof Error ? err.message : String(err) });
-        }
-      }),
-    );
+  const result = await fetchPeoplePage(supabase, orgId, query);
+  if (result.outOfRange) {
+    // Someone kept an old link to a page that no longer exists (people were removed): show the last page instead.
+    const last = Math.max(1, pageCount(result.total, query.pageSize));
+    const search = peopleQueryToSearch({ ...query, page: last });
+    redirect(search ? `${routes.adminUsers}?${search}` : routes.adminUsers);
   }
 
-  const isOrgAdmin = session.membership.role === "org_admin";
-
-  // Admin-only: accounts with a sign-in but no membership anywhere (service role, after the org_admin check).
+  // Admin-only extras. Print codes are NOT written here any more (they used to be, on every page view): a person gets
+  // theirs when they first print, or when an admin presses "Give print codes now".
   let signups: UnmatchedSignup[] = [];
+  let missingCodes = 0;
   if (isOrgAdmin) {
     try {
       signups = await findUnmatchedSignups(createServiceRoleClient());
     } catch (err) {
       logger.error("could not list sign-ups without access", { error: err instanceof Error ? err.message : String(err) });
     }
+    missingCodes = await countMembersWithoutCode(supabase, orgId).catch(() => 0);
   }
+
+  const notes: string[] = [];
+  if (result.searchTruncated) notes.push("Lots of names match that. Type more of the name or email to narrow it down.");
+  if (result.sortFellBack) notes.push("Sorting by name is not available right now, so people are shown by date joined.");
 
   return (
     <div>
-      <PageHeader title="Users" description="Everyone who can print here. Change a role, department or print code, then save." />
+      <PageHeader title="Users" description="Everyone who can print here. Open a person to change their role, section or print code, or tick several to change them together." />
       <Tabs label="People" items={peopleTabs("users", isOrgAdmin)} />
-      <MembersTable
-        members={memberRows.map((m) => ({
-          userId: m.user_id,
-          // What gets stamped (assigned above when it was missing).
-          userCode: codes.get(m.user_id) ?? null,
-          effectiveCode: codes.get(m.user_id) ?? "",
-          email: m.profiles?.email ?? "(unknown)",
-          displayName: m.profiles?.display_name ?? null,
-          role: m.role,
-          status: m.status,
-          department: m.department,
-        }))}
-        canEdit={isOrgAdmin}
-      />
+      <PeopleBrowserLive query={query} page={{ rows: result.rows, total: result.total }} canEdit={isOrgAdmin} missingCodes={missingCodes} notes={notes} />
       {isOrgAdmin && <UnmatchedSignups signups={signups} />}
     </div>
   );

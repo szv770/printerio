@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./device-token": "./src/device-token.ts",
+    "./user-code": "./src/user-code.ts",
     "./library/labels": "./src/library/labels.ts",
     "./library/mafteiach-parse": "./src/library/mafteiach-parse.ts",
     "./library/mafteiach-fetch": "./src/library/mafteiach-fetch.ts",

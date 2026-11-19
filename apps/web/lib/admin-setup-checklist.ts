@@ -35,6 +35,8 @@ export interface SetupStep {
   /** Route key from lib/routes.ts - the page that step is done on. */
   href: string;
   done: boolean;
+  /** One plain line for when the step does not work the first time ("Stuck? Try this"). */
+  hint: string;
   /** Recommended rather than required: the system prints without it. */
   optional?: boolean;
 }
@@ -54,41 +56,46 @@ export function setupChecklist(counts: SetupCounts, routes: SetupRoutes): SetupS
   return [
     {
       id: "register_agent",
-      title: "Register the Windows Print Agent",
+      title: "Add your print server",
       description:
-        "Create an agent record here to get a 24-hour enrollment code, then run the Agent's register command with that code on the Windows machine next to the printer (docs/agent-install.md).",
+        "The print server is the Windows computer next to your printer. Create one here to get a one-time code, then enter that code on the computer.",
+      hint: "The code lasts 24 hours. If it ran out, create a new one. It is only needed once per computer.",
       href: routes.agents,
       done: counts.agents > 0,
     },
     {
       id: "agent_online",
-      title: "Wait for that Agent to check in",
+      title: "Wait for it to say Online",
       description:
-        "Once it's running, the Agent heartbeats every few minutes and shows as online. Until it does, nothing can reach a printer - no job will ever leave 'approved'.",
+        "Once it is running, the print server reports in every few minutes and shows as Online. Until then, nothing can reach the printer.",
+      hint: "Check that the computer is on, signed in and connected to the internet. Give it five minutes.",
       href: routes.agents,
       done: counts.onlineAgents > 0,
     },
     {
       id: "printer_profiles",
-      title: "Add a printer and its finishing profiles",
+      title: "Add your printer and how it prints",
       description:
-        "The guided setup wizard reads the print queues the Agent actually found on that machine, so you pick from a list instead of typing a Windows queue name by hand.",
+        "The guided setup finds the printers on that computer, so you pick from a list instead of typing a name.",
+      hint: "If your printer is not in the list, check it is installed on the printer computer, then try again in a minute.",
       href: routes.printersSetup,
       done: counts.printers > 0 && counts.printerProfiles > 0,
     },
     {
       id: "invite_users",
-      title: "Invite the people who will be printing",
+      title: "Invite the people who will print",
       description:
-        "Generate an enrollment code and share it. Everyone after you joins with a code - there is no self-signup, by design.",
+        "Create an invite link and send it to them. Everyone joins with a link, so there are no passwords to hand out.",
+      hint: "If a link does not work for someone, it may be switched off. Create a fresh one and send that.",
       href: routes.users,
       done: counts.members > 1,
     },
     {
       id: "rules",
-      title: "Decide what needs approval, and set print limits",
+      title: "Decide what needs approval, and set monthly limits",
       description:
-        "Without a policy every job falls through to your organization's default action, and without a quota nobody has a monthly limit. Both are safe to leave for later.",
+        "Without a rule, every job follows your organization default. Without a limit, nobody has a monthly cap. Both are safe to leave for later.",
+      hint: "Not sure? Skip this for now. You can add a rule or a limit any time, and nothing breaks without one.",
       href: routes.policies,
       done: counts.policies > 0 || counts.quotas > 0,
       optional: true,

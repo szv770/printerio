@@ -22,7 +22,7 @@
  */
 
 import os from "node:os";
-import { isGitCheckout, resolveRepoRoot } from "./self-update.js";
+import { isGitCheckout, resolveRepoRoot, runCommand, type CommandOutcome } from "./self-update.js";
 
 export interface MachineInfo {
   hostname: string;
@@ -30,7 +30,54 @@ export interface MachineInfo {
   ipAddresses: string[];
   /** Whether a CHECK_FOR_UPDATE would have anything to pull - see self-update.ts. */
   isGitCheckout: boolean;
+  /**
+   * The full git commit this process was started from (`git rev-parse HEAD`, read once), or null when it is not known
+   * (no git, not a checkout, not read yet). Lets the website tell "restarted on the new code" from "restarted on old code".
+   */
+  runningCommit: string | null;
 }
+
+type RunFn = (command: string, args: readonly string[], cwd: string, timeoutMs: number) => Promise<CommandOutcome>;
+
+const COMMIT_LOOKUP_TIMEOUT_MS = 5_000;
+const FULL_COMMIT = /^[0-9a-f]{7,40}$/;
+
+/**
+ * `git rev-parse HEAD` with a fixed argv (no shell), 5 s timeout. Resolves to null on ANY problem (git missing, not a
+ * checkout, timeout, odd output); never rejects.
+ */
+export async function readRunningCommit(run: RunFn = runCommand, cwd?: string): Promise<string | null> {
+  try {
+    const dir = cwd ?? resolveRepoRoot();
+    const out = await run("git", ["rev-parse", "HEAD"], dir, COMMIT_LOOKUP_TIMEOUT_MS);
+    if (out.exitCode !== 0) return null;
+    const hash = out.stdout.trim().toLowerCase();
+    return FULL_COMMIT.test(hash) ? hash : null;
+  } catch {
+    return null;
+  }
+}
+
+let cachedCommit: string | null = null;
+let commitLookupStarted = false;
+
+/** Starts the one-time commit lookup in the background (never awaited by a heartbeat). Later calls do nothing. */
+export function primeRunningCommit(run: RunFn = runCommand, cwd?: string): Promise<void> {
+  if (commitLookupStarted) return Promise.resolve();
+  commitLookupStarted = true;
+  return readRunningCommit(run, cwd).then((hash) => {
+    cachedCommit = hash;
+  });
+}
+
+/** Test hook: forget the cached lookup. */
+export function resetRunningCommitForTests(): void {
+  cachedCommit = null;
+  commitLookupStarted = false;
+}
+
+// Start reading at process start so the value is ready well before the first heartbeat (skipped under test runners).
+if (!process.env.VITEST) void primeRunningCommit();
 
 /** Non-internal (non-loopback) IPv4/IPv6 addresses across every interface, deduplicated and stably ordered. */
 export function collectIpAddresses(
@@ -92,5 +139,7 @@ export function collectMachineInfo(): MachineInfo {
     gitCheckout = false;
   }
 
-  return { hostname, osVersion, ipAddresses, isGitCheckout: gitCheckout };
+  void primeRunningCommit(); // no-op after the first call; the answer is cached, so this never delays a heartbeat
+
+  return { hostname, osVersion, ipAddresses, isGitCheckout: gitCheckout, runningCommit: cachedCommit };
 }

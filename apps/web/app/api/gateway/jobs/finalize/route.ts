@@ -3,6 +3,8 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { logger } from "@/lib/logger";
 import { PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { createPrintJob, type CreatePrintJobResult } from "@/lib/jobs/create-print-job";
+import { intakePrintJob } from "@/lib/prepare/intake";
+import { prepareViaServerEnabled } from "@/lib/prepare/submit";
 import { ippFileName, mapIppChoices } from "@/lib/gateway/ipp-choices";
 import { authenticateGateway, gatewayError, jobMessage, loadUsableDevice, parseBody } from "@/lib/gateway/http";
 
@@ -77,11 +79,54 @@ export async function POST(request: Request) {
       return gatewayError(503, "no_printer", "No printer is ready to receive jobs from the print dialog yet. Ask your administrator.");
     }
 
+    // A school switched on for it has its PDF prepared by its own print server (lib/prepare, docs/PREPARE-JOBS-DESIGN.md P2c): nothing is downloaded or
+    // opened here. The phone is answered at once with the prepare job's id (which is also the print job's id later) and the state "draft"
+    // (the gateway shows "Printio is getting this job ready"); status and cancel calls are answered from the prepare job until the print job exists.
+    if (await prepareViaServerEnabled(supabase, member.organizationId)) {
+      const mapped = mapIppChoices(ipp.attributes);
+      const intake = await intakePrintJob(
+        supabase,
+        { userId: member.userId, membership: { organization_id: member.organizationId, role: member.role, department: member.department } },
+        storagePath,
+        ippFileName(ipp.jobName ?? fileName),
+        {
+          printerProfileId: profile.id,
+          choices: mapped.choices,
+          colorMode: "bw",
+          paperSize: mapped.paperSize,
+          punch: false,
+          confirmBookletPadding: true,
+          ...(mapped.layout ? { layout: mapped.layout } : {}),
+          ...(mapped.heldReason ? { forcedHeldReason: mapped.heldReason } : {}),
+          source: "ipp",
+          deviceId: device.id,
+          ippUserAgent: ipp.userAgent,
+          writeClient: supabase,
+        },
+        deviceId, // the upload sits in this device's folder
+      );
+      if (intake.ok) return Response.json({ jobId: intake.prepareJobId, jobNumber: "Preparing", status: "draft" });
+      switch (intake.code) {
+        case "storage_failed":
+          return gatewayError(404, "intake_not_found", "The uploaded document could not be found.");
+        case "too_large":
+          await deleteIntake(supabase, storagePath);
+          return gatewayError(422, "bad_pdf", intake.error);
+        case "rate_limited":
+          await deleteIntake(supabase, storagePath);
+          return gatewayError(429, "rate_limited", intake.error);
+        case "printer_unavailable":
+          return gatewayError(503, "no_printer", "No printer is ready to receive jobs from the print dialog yet. Ask your administrator.");
+        default:
+          return gatewayError(500, "internal_error", "Something went wrong on our side. Try again.");
+      }
+    }
+
     const { data: file, error: downloadError } = await supabase.storage.from(PRINT_JOBS_BUCKET).download(storagePath);
     if (downloadError || !file) return gatewayError(404, "intake_not_found", "The uploaded document could not be found.");
     const bytes = new Uint8Array(await file.arrayBuffer());
 
-    const { choices, heldReason, paperSize } = mapIppChoices(ipp.attributes);
+    const { choices, heldReason, paperSize, layout } = mapIppChoices(ipp.attributes);
     const name = ippFileName(ipp.jobName ?? fileName);
     const session = { userId: member.userId, membership: { organization_id: member.organizationId, role: member.role, department: member.department } };
     const run = (forcedHeldReason: string | undefined): Promise<CreatePrintJobResult> =>
@@ -92,6 +137,7 @@ export async function POST(request: Request) {
         paperSize,
         punch: false,
         confirmBookletPadding: true,
+        ...(layout ? { layout } : {}),
         forcedHeldReason,
         source: "ipp",
         deviceId: device.id,

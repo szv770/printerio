@@ -1,5 +1,5 @@
 import { INBOX_DB_NAME, INBOX_MAX_AGE_MS, INBOX_STORE_NAME } from "./inbox";
-import { buildShareRedirect, checkSharedFile, handleShare, SHARE_TARGET_PATH } from "./share";
+import { buildShareRedirect, checkSharedFile, handleShare, sniffSharedType, SHARE_TARGET_PATH } from "./share";
 
 /**
  * The text of the service worker served at /sw.js (app/sw.js/route.ts).
@@ -8,7 +8,7 @@ import { buildShareRedirect, checkSharedFile, handleShare, SHARE_TARGET_PATH } f
  * and apart from POST /share-target every request goes straight to the network because the fetch handler does not
  * call respondWith. What it does:
  *   1. skipWaiting + clients.claim, so a new version takes over at once.
- *   2. POST /share-target: vet ONE shared PDF (lib/pwa/share.ts), keep it in IndexedDB, answer 303 -> /print?shared=<id>.
+ *   2. POST /share-target: vet ONE shared PDF or photo (JPEG/PNG, by its first bytes) (lib/pwa/share.ts), keep it in IndexedDB, answer 303 -> /print?shared=<id>.
  *
  * The share logic is the real, unit-tested functions: their source text is embedded below (they are written to be
  * self-contained for exactly this reason).
@@ -19,6 +19,7 @@ export function buildServiceWorkerSource({ maxBytes }: { maxBytes: number }): st
 var MAX_BYTES = ${JSON.stringify(maxBytes)};
 var MAX_AGE_MS = ${JSON.stringify(INBOX_MAX_AGE_MS)};
 var checkSharedFile = (${checkSharedFile.toString()});
+var sniffSharedType = (${sniffSharedType.toString()});
 var buildShareRedirect = (${buildShareRedirect.toString()});
 var handleShare = (${handleShare.toString()});
 
@@ -85,6 +86,7 @@ self.addEventListener("fetch", function (event) {
     now: function () { return Date.now(); },
     uuid: function () { return crypto.randomUUID(); },
     check: checkSharedFile,
+    sniff: sniffSharedType,
     redirect: buildShareRedirect,
     maxBytes: MAX_BYTES
   }));

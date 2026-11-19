@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { fakeSupabase, ok, type FakeCall, type FakeResult } from "@/test/fake-supabase";
-import { findActiveContent } from "@/lib/pdf/active-content";
+import { findActiveContent } from "@printio/pdf/active-content";
 
 // The REAL createPrintJob + preflight run here; only the database and the policy lookup are faked.
 let fake: ReturnType<typeof fakeSupabase>;
@@ -38,11 +38,11 @@ const respond = (call: FakeCall): FakeResult => {
   return ok();
 };
 
-const request = () =>
+const request = (attributes: Record<string, unknown> = {}) =>
   new Request("https://printio.test/api/gateway/jobs/finalize", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${SECRET}` },
-    body: JSON.stringify({ deviceId: DEVICE_ID, storagePath: INTAKE, fileName: "upload.pdf", sizeBytes: intake.byteLength, ipp: { jobName: "Android print", attributes: {} } }),
+    body: JSON.stringify({ deviceId: DEVICE_ID, storagePath: INTAKE, fileName: "upload.pdf", sizeBytes: intake.byteLength, ipp: { jobName: "Android print", attributes } }),
   });
 
 beforeEach(() => {
@@ -72,5 +72,37 @@ describe("POST /api/gateway/jobs/finalize with a PDF that has an embedded file",
     const res = await POST(request());
     expect(res.status).toBe(422);
     expect(await res.json()).toMatchObject({ error: "bad_pdf", message: expect.stringMatching(/couldn.t read/i) });
+  });
+});
+
+describe("POST /api/gateway/jobs/finalize with a preset chosen as the paper type", () => {
+  const fourPages = async () => {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 4; i++) doc.addPage([612, 792]);
+    return doc.save();
+  };
+  const row = () => fake.calls.find((c) => c.table === "print_jobs" && c.op === "insert")!.values as Record<string, unknown>;
+
+  it("'2 pages per sheet' makes a 2-up job: 4 pages count as 2 sides", async () => {
+    intake = await fourPages();
+    const res = await POST(request({ "media-type": "2 pages per sheet" }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: "approved" });
+    expect(row()).toMatchObject({ source_pdf_pages: 4, estimated_printed_sides: 2 });
+  });
+
+  it("'Booklet - right edge, stapled' makes a booklet bound on the right, with no question asked", async () => {
+    intake = await fourPages();
+    const res = await POST(request({ "media-col": { "media-type": "Booklet - right edge, stapled" }, finishings: 3 }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: "approved" });
+    expect(row()).toMatchObject({ finishing: expect.objectContaining({ booklet: true }), booklet_binding_side: "right", duplex: true });
+  });
+
+  it("an unknown custom paper type is held, not printed as a normal copy", async () => {
+    intake = await fourPages();
+    const res = await POST(request({ "media-type": "Booklet - sideways" }));
+    expect(await res.json()).toMatchObject({ status: "held" });
+    expect(row().held_reason).toContain("is not available any more");
   });
 });

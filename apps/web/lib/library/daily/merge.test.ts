@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { checkTextFidelity } from "@/lib/pdf/text-fidelity";
-import { padAndImposeBooklet } from "@/lib/pdf/booklet-build";
+import { checkTextFidelity } from "@printio/pdf/text-fidelity";
+import { padAndImposeBooklet } from "@printio/pdf/booklet-build";
 import { pageTexts } from "@/test/hebrew-fixtures";
 import { buildFilledPdf, type Language } from "./fill";
 import { coverDates, mergeDays, type DayRow, type DayText } from "./merge";

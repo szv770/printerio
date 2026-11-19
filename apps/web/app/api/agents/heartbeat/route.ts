@@ -1,7 +1,9 @@
 import type { Database } from "@/lib/database.types";
+import { logger } from "@/lib/logger";
 import { apiError } from "@/lib/api-errors";
 import { authenticateAgentRequest } from "@/lib/agent-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { checkAgentPollLimit } from "@/lib/agent-rate-limit";
 import { narrowProbeReports, printerUpdateFromReport, rawPrinterTargets } from "@/lib/printers/probe-report";
 
 interface HeartbeatBody {
@@ -15,7 +17,20 @@ interface HeartbeatBody {
     osVersion?: unknown;
     ipAddresses?: unknown;
     isGitCheckout?: unknown;
+    /** Full git commit the Agent runs (newer builds only). Validated, then stored by a separate best-effort update. */
+    runningCommit?: unknown;
   };
+}
+
+const COMMIT_PATTERN = /^[0-9a-f]{7,40}$/;
+/** What we last stored per agent in this process, so a steady-state heartbeat does not write it again. Best effort only. */
+const lastStoredCommit = new Map<string, string>();
+
+/** The reported running commit when it looks like a git hash, else null (ignored). */
+function validRunningCommit(machine: HeartbeatBody["machine"]): string | null {
+  if (!machine || typeof machine !== "object" || typeof machine.runningCommit !== "string") return null;
+  const value = machine.runningCommit.trim().toLowerCase();
+  return COMMIT_PATTERN.test(value) ? value : null;
 }
 
 const MAX_MACHINE_FIELD_LENGTH = 200;
@@ -127,6 +142,8 @@ export async function POST(request: Request) {
   }
 
   const supabase = createServiceRoleClient();
+  const limited = await checkAgentPollLimit(supabase, agent.id, "agents/heartbeat");
+  if (limited) return limited;
   const nowIso = new Date().toISOString();
 
   // discovered_queues is only ever overwritten wholesale here, mirroring the
@@ -148,6 +165,20 @@ export async function POST(request: Request) {
   }
   for (const [column, value] of Object.entries(buildMachineUpdate(body.machine))) {
     if (!reported || JSON.stringify(reported[column as keyof typeof reported]) !== JSON.stringify(value)) agentUpdate[column] = value;
+  }
+
+  // The running commit goes in its OWN update, never in agentUpdate: the column only exists once migration 0059 is
+  // applied, and a failure here (unknown column, hiccup) must never fail or delay the heartbeat itself. It is awaited
+  // BEFORE the main update so last_seen_at never advances ahead of a freshly restarted server's new commit.
+  const runningCommit = validRunningCommit(body.machine);
+  if (runningCommit && lastStoredCommit.get(agent.id) !== runningCommit) {
+    try {
+      const { error: commitError } = await supabase.from("agents").update({ running_commit: runningCommit }).eq("id", agent.id);
+      if (commitError) logger.warn("could not record the running commit", { agentId: agent.id, error: commitError.message });
+      else lastStoredCommit.set(agent.id, runningCommit);
+    } catch (err) {
+      logger.warn("could not record the running commit", { agentId: agent.id, error: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   // One read of this agent's profiles (with each printer's current status) serves both the queue-status updates and

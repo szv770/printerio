@@ -1,6 +1,6 @@
 import "server-only";
 import { PDFDocument, StandardFonts, rgb, type PDFFont } from "pdf-lib";
-import { resolvePaperSizePoints } from "./imposition";
+import { resolvePaperSizePoints } from "@printio/pdf/imposition";
 
 /**
  * The one-page PDF behind Admin → "Send test print" (see

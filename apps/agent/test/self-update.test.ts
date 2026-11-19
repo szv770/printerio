@@ -10,6 +10,7 @@ import {
   resolveRepoRoot,
   type SelfUpdateFs,
   type CommandOutcome,
+  nodeMeetsRequirement,
   type SelfUpdateDeps,
 } from "../src/self-update.js";
 import { AGENT_VERSION } from "../src/version.js";
@@ -130,8 +131,9 @@ describe("performSelfUpdate", () => {
       `Updated 3f2a1b9 -> 8c4d0e2. Restarted the gateway. ${WEB_STARTED} The print server is restarting and will be back in about a minute.`,
     );
     const order = run.mock.calls.map((c) => (c[0] === "git" ? `git ${c[1][0]}` : c[0]));
-    expect(order).toEqual(["git rev-parse", "git pull", "git rev-parse", NODE_EXE, "powershell.exe", "schtasks.exe"]);
-    expect(callsOf(run, NODE_EXE)[0]![1]).toEqual([PNPM_CJS_PF, ...INSTALL]);
+    expect(order).toEqual(["git fetch", "git show", "git rev-parse", "git pull", "git rev-parse", NODE_EXE, "powershell.exe", "schtasks.exe"]);
+    // The install uses a package store INSIDE the checkout, never the user profile (that was the EPERM on the first update).
+    expect(callsOf(run, NODE_EXE)[0]![1]).toEqual([PNPM_CJS_PF, ...INSTALL, "--store-dir", "\\fake\\repo\\.pnpm-store"]);
   });
 
   it("restarts the gateway with one fixed argv and a timeout, nothing variable in it", async () => {
@@ -370,5 +372,69 @@ describe("agent version manifest", () => {
     // two ever drift, that comparison silently starts lying - so the build
     // fails here instead. Bump both in the same commit.
     expect(LATEST_AGENT_VERSION).toBe(AGENT_VERSION);
+  });
+});
+
+describe("Node requirement check (before anything is changed)", () => {
+  /** Like scripted(), but `git show @{u}:package.json` answers with the given package.json text. */
+  function withUpstreamPackage(packageJson: string, fetchOutcome?: CommandOutcome) {
+    const base = scripted({});
+    return vi.fn<SelfUpdateDeps["run"]>(async (command, args, cwd, timeoutMs, options) => {
+      if (command === "git" && args[0] === "show") return ok(packageJson);
+      if (command === "git" && args[0] === "fetch" && fetchOutcome) return fetchOutcome;
+      return base(command, args, cwd, timeoutMs, options);
+    });
+  }
+  const needs = (range: string) => JSON.stringify({ engines: { node: range } });
+
+  it("nodeMeetsRequirement compares major.minor.patch and does not block on forms it does not understand", () => {
+    expect(nodeMeetsRequirement(">=22.13", "22.13.0")).toBe(true);
+    expect(nodeMeetsRequirement(">=22.13", "22.12.9")).toBe(false);
+    expect(nodeMeetsRequirement(">=22.13", "24.0.0")).toBe(true);
+    expect(nodeMeetsRequirement(">=22.13", "20.11.1")).toBe(false);
+    expect(nodeMeetsRequirement(">=20", "20.0.0")).toBe(true);
+    expect(nodeMeetsRequirement(">=22.13.1", "22.13.0")).toBe(false);
+    expect(nodeMeetsRequirement("^22 || ^24", "20.0.0")).toBeNull();
+    expect(nodeMeetsRequirement(">=22", "weird")).toBeNull();
+  });
+
+  it("stops BEFORE pulling or installing when the new code needs a newer Node than this machine has", async () => {
+    const run = withUpstreamPackage(needs(">=22.13"));
+    const result = await performSelfUpdate(makeDeps({ run, nodeVersion: "20.11.0" }));
+
+    expect(result.updated).toBe(false);
+    expect(result.reason).toBe("node_too_old");
+    expect(result.failedStep).toBe("checking");
+    expect(result.message).toContain(">=22.13");
+    expect(result.message).toContain("20.11.0");
+    expect(result.message).toContain("nothing was changed");
+    expect(run.mock.calls.some((c) => c[0] === "git" && c[1][0] === "pull")).toBe(false);
+    expect(callsOf(run, NODE_EXE)).toHaveLength(0);
+    expect(callsOf(run, "powershell.exe")).toHaveLength(0);
+  });
+
+  it("goes ahead when Node is new enough", async () => {
+    const run = withUpstreamPackage(needs(">=22.13"));
+    const result = await performSelfUpdate(makeDeps({ run, nodeVersion: "22.14.0" }));
+    expect(result.reason).toBe("updated");
+  });
+
+  it("never blocks on what it cannot read: unreadable package.json, no engines, or a failed fetch", async () => {
+    for (const run of [
+      withUpstreamPackage("not json at all"),
+      withUpstreamPackage(JSON.stringify({ name: "x" })),
+      withUpstreamPackage(needs(">=99"), { exitCode: 1, stdout: "", stderr: "fatal: could not resolve host" }),
+    ]) {
+      const result = await performSelfUpdate(makeDeps({ run, nodeVersion: "20.0.0" }));
+      expect(result.reason).toBe("updated");
+    }
+  });
+
+  it("runs only fixed git argv for the check", async () => {
+    const run = withUpstreamPackage(needs(">=20"));
+    await performSelfUpdate(makeDeps({ run, nodeVersion: "22.0.0" }));
+    const git = callsOf(run, "git").map((c) => c[1]);
+    expect(git).toContainEqual(["fetch", "--quiet"]);
+    expect(git).toContainEqual(["show", "@{u}:package.json"]);
   });
 });

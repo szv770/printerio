@@ -80,11 +80,39 @@ export function precheckSelectedFile(
   // The `accept` attribute only filters the picker's default view - a user can
   // still choose "All files", drag one in, or come from a Files app that
   // reports no MIME type at all, so an empty `type` is not treated as wrong.
-  const looksPdf = file.type === "application/pdf" || file.type === "" || /\.pdf$/i.test(file.name);
-  if (!looksPdf) {
-    return { ok: false, reason: "Only PDF files can be printed. Save or export your document as a PDF first." };
+  // A photo (JPEG or PNG) is accepted too; the bytes decide in precheckUploadHeader, so a renamed or wrongly-typed file is still caught there.
+  const looksPrintable =
+    file.type === "application/pdf" || file.type === "" || /\.pdf$/i.test(file.name) || IMAGE_MIME.has(file.type) || /\.(jpe?g|png)$/i.test(file.name);
+  if (!looksPrintable) {
+    return { ok: false, reason: "Only PDF, JPEG or PNG files can be printed. Save or export your document as a PDF first." };
   }
   return { ok: true };
+}
+
+const IMAGE_MIME = new Set(["image/jpeg", "image/png"]);
+
+export type UploadKind = "pdf" | "jpeg" | "png";
+
+/** What the leading bytes say the file is, whatever it was named or typed as; null when it is none of the printable kinds. Mirrors preparePdf's own sniffing. */
+export function detectUploadKind(headerBytes: Uint8Array): UploadKind | null {
+  const b = headerBytes;
+  if (b.length >= 5 && b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46 && b[4] === 0x2d) return "pdf";
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "jpeg";
+  if (b.length >= 8 && [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((v, i) => b[i] === v)) return "png";
+  return null;
+}
+
+/** A photo is one page, so the page count and the page picker do not apply. */
+export const isImageKind = (kind: UploadKind | null): boolean => kind === "jpeg" || kind === "png";
+export const IMAGE_PAGE_COUNT = 1;
+
+export type UploadHeaderResult = { ok: true; kind: UploadKind } | { ok: false; reason: string };
+
+/** The magic-byte check for a picked (or shared) file: a PDF, JPEG or PNG passes; anything else is explained. */
+export function precheckUploadHeader(headerBytes: Uint8Array): UploadHeaderResult {
+  const kind = detectUploadKind(headerBytes);
+  if (!kind) return { ok: false, reason: "That file isn't a PDF, JPEG or PNG, even though it may be named like one. Export it as a PDF and try again." };
+  return { ok: true, kind };
 }
 
 /**

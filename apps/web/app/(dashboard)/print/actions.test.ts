@@ -23,6 +23,14 @@ vi.mock("@/lib/supabase/server", () => ({ createClient: async () => supabase }))
 const serviceClient: Record<string, unknown> = { marker: "service-role-client" };
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: () => serviceClient }));
 
+// The print-server path (lib/prepare) is off by default; these tests pin the unchanged path. The switch-on path has its own describe at the bottom.
+const switchOn = vi.fn(async () => false);
+const submitViaPrintServer = vi.fn();
+vi.mock("@/lib/prepare/submit", () => ({
+  prepareViaServerEnabled: () => switchOn(),
+  submitViaPrintServer: (...a: unknown[]) => submitViaPrintServer(...a),
+}));
+
 import { submitPrintJobAction } from "./actions";
 
 function form(over: Record<string, string> = {}, file: File | null = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], "doc.pdf")) {
@@ -33,7 +41,11 @@ function form(over: Record<string, string> = {}, file: File | null = new File([n
   return fd;
 }
 
-beforeEach(() => createPrintJob.mockReset());
+beforeEach(() => {
+  createPrintJob.mockReset();
+  submitViaPrintServer.mockReset();
+  switchOn.mockResolvedValue(false);
+});
 
 describe("submitPrintJobAction", () => {
   it("passes the member's own client, session, bytes and the parsed form to the shared pipeline, then redirects to the job", async () => {
@@ -71,6 +83,22 @@ describe("submitPrintJobAction", () => {
     const [, sess, , , opts] = createPrintJob.mock.calls[0]!;
     expect(sess).toBe(session); // identity and organization come from the session only
     expect(Object.keys(opts).sort()).toEqual(["bookletFit", "bookletSheet", "choices", "colorMode", "confirmBookletPadding", "paperSize", "printerProfileId", "punch", "writeClient"]);
+  });
+
+  it("passes a pages-per-sheet layout to the pipeline, and sends none when the form asks for none", async () => {
+    createPrintJob.mockResolvedValue({ ok: true, jobId: "job-9", jobNumber: "JOB-1", status: "approved", heldReason: null, policyReasons: [] });
+    await expect(submitPrintJobAction({}, form({ layoutMode: "nup", layoutCols: "2", layoutRows: "2" }))).rejects.toBeInstanceOf(RedirectSignal);
+    expect(createPrintJob.mock.calls[0]![4].layout).toEqual({ kind: "nup", cols: 2, rows: 2 });
+    await expect(submitPrintJobAction({}, form({ layoutMode: "repeat", layoutCols: "2", layoutRows: "1", layoutMarks: "true", layoutRepeatPages: "each" }))).rejects.toBeInstanceOf(RedirectSignal);
+    expect(createPrintJob.mock.calls[1]![4].layout).toEqual({ kind: "repeat", cols: 2, rows: 1, pages: "each", marks: true });
+    await expect(submitPrintJobAction({}, form({ layoutMode: "none" }))).rejects.toBeInstanceOf(RedirectSignal);
+    expect("layout" in createPrintJob.mock.calls[2]![4]).toBe(false);
+  });
+
+  it("refuses a layout together with a booklet, and an out-of-range layout, before the pipeline runs", async () => {
+    expect(await submitPrintJobAction({}, form({ booklet: "left", layoutMode: "nup", layoutCols: "2", layoutRows: "1" }))).toMatchObject({ error: expect.stringMatching(/booklet/i) });
+    expect(await submitPrintJobAction({}, form({ layoutMode: "nup", layoutCols: "9", layoutRows: "1" }))).toMatchObject({ error: expect.stringMatching(/1 to 4/) });
+    expect(createPrintJob).not.toHaveBeenCalled();
   });
 
   it("returns an error as form state, with its field error", async () => {
@@ -215,5 +243,41 @@ describe("submitPrintJobAction and 'Remember my last print choices'", () => {
       createPrintJob.mockResolvedValue(ok);
       await expect(submitPrintJobAction({}, form())).rejects.toMatchObject({ to: "/jobs/job-9" });
     }
+  });
+});
+
+describe("submitPrintJobAction when the school is switched on for the print server", () => {
+  beforeEach(() => switchOn.mockResolvedValue(true));
+
+  it("records a prepare job instead of running the pipeline, then sends the person to the preparing page", async () => {
+    submitViaPrintServer.mockResolvedValue({ ok: true, prepareJobId: "prep-1" });
+    await expect(submitPrintJobAction({}, form())).rejects.toMatchObject({ to: "/print/preparing/prep-1" });
+    expect(createPrintJob).not.toHaveBeenCalled();
+    const [client, writer, sess, file, opts] = submitViaPrintServer.mock.calls[0]!;
+    expect(client).toBe(supabase);
+    expect(writer).toBe(serviceClient);
+    expect(sess).toBe(session);
+    expect(file.bytes).toBeInstanceOf(Uint8Array);
+    expect(file.stagedPath).toBeNull();
+    expect(file.fileName).toBe("doc.pdf");
+    expect(opts.printerProfileId).toBe("p1");
+  });
+
+  it("passes a staged (large) upload by path, never loading its bytes", async () => {
+    submitViaPrintServer.mockResolvedValue({ ok: true, prepareJobId: "prep-2" });
+    const fd = form({ stagedPath: "gateway-intake/u1/00000000-0000-4000-8000-000000000000.pdf", fileName: "big.pdf" }, null);
+    await expect(submitPrintJobAction({}, fd)).rejects.toMatchObject({ to: "/print/preparing/prep-2" });
+    const file = submitViaPrintServer.mock.calls[0]![3];
+    expect(file).toMatchObject({ stagedPath: "gateway-intake/u1/00000000-0000-4000-8000-000000000000.pdf", bytes: null, fileName: "big.pdf" });
+  });
+
+  it("shows an intake error on the form, with the page range next to its field", async () => {
+    submitViaPrintServer.mockResolvedValue({ ok: false, kind: "error", error: "Bad range.", code: "invalid_request", fieldErrors: { pageRange: "Use 1-3." } });
+    await expect(submitPrintJobAction({}, form())).resolves.toEqual({ error: "Bad range.", fieldErrors: { pageRange: "Use 1-3." } });
+  });
+
+  it("with no file at all asks for one", async () => {
+    submitViaPrintServer.mockResolvedValue({ ok: false, kind: "error", error: "Choose a PDF to upload.", code: "invalid_request" });
+    await expect(submitPrintJobAction({}, form({}, null))).resolves.toEqual({ error: "Choose a PDF to upload." });
   });
 });

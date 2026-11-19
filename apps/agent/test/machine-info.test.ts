@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type os from "node:os";
-import { collectIpAddresses, collectMachineInfo, describeOs } from "../src/machine-info.js";
+import { collectIpAddresses, collectMachineInfo, describeOs, primeRunningCommit, readRunningCommit, resetRunningCommitForTests } from "../src/machine-info.js";
 import { createHealthMonitor } from "../src/health-monitor.js";
 import { CloudClient } from "../src/cloud-client.js";
 import { createLogger } from "../src/logger.js";
@@ -55,8 +55,43 @@ describe("collectMachineInfo", () => {
     expect(typeof info.osVersion).toBe("string");
     expect(Array.isArray(info.ipAddresses)).toBe(true);
     expect(typeof info.isGitCheckout).toBe("boolean");
-    // No usernames, paths, MACs, or serials - the shape is exactly these four.
-    expect(Object.keys(info).sort()).toEqual(["hostname", "ipAddresses", "isGitCheckout", "osVersion"]);
+    // No usernames, paths, MACs, or serials - the shape is exactly these five.
+    expect(Object.keys(info).sort()).toEqual(["hostname", "ipAddresses", "isGitCheckout", "osVersion", "runningCommit"]);
+  });
+});
+
+describe("running commit", () => {
+  const FULL = "0123456789abcdef0123456789abcdef01234567";
+
+  it("reads the full commit with fixed argv and a 5 s timeout", async () => {
+    const run = vi.fn(async () => ({ exitCode: 0, stdout: `${FULL}\n`, stderr: "" }));
+    await expect(readRunningCommit(run, "/repo")).resolves.toBe(FULL);
+    expect(run).toHaveBeenCalledWith("git", ["rev-parse", "HEAD"], "/repo", 5000);
+  });
+
+  it("is null, without throwing, when git is missing, fails, or prints nonsense", async () => {
+    await expect(readRunningCommit(async () => { throw new Error("spawn git ENOENT"); }, "/repo")).resolves.toBeNull();
+    await expect(readRunningCommit(async () => ({ exitCode: 128, stdout: "", stderr: "not a git repository" }), "/repo")).resolves.toBeNull();
+    await expect(readRunningCommit(async () => ({ exitCode: 0, stdout: "fatal: weird output here", stderr: "" }), "/repo")).resolves.toBeNull();
+  });
+
+  it("collectMachineInfo reports the cached commit (null before the lookup finishes, the hash after), reading git only once", async () => {
+    resetRunningCommitForTests();
+    const run = vi.fn(async () => ({ exitCode: 0, stdout: FULL, stderr: "" }));
+    const pending = primeRunningCommit(run, "/repo");
+    expect(collectMachineInfo().runningCommit).toBeNull();
+    await pending;
+    expect(collectMachineInfo().runningCommit).toBe(FULL);
+    collectMachineInfo();
+    expect(run).toHaveBeenCalledTimes(1);
+    resetRunningCommitForTests();
+  });
+
+  it("collectMachineInfo still works when git fails", async () => {
+    resetRunningCommitForTests();
+    await primeRunningCommit(async () => { throw new Error("no git"); }, "/repo");
+    expect(collectMachineInfo().runningCommit).toBeNull();
+    resetRunningCommitForTests();
   });
 });
 

@@ -10,7 +10,7 @@ import { routes } from "@/lib/routes";
 import { issueRemoteCommand } from "@/lib/remote-commands";
 import { isPrinterProfileIconKey } from "@/lib/printer-profile-icons";
 import { createTestPrintPdf } from "@/lib/pdf/test-print";
-import { preflightPdf } from "@/lib/pdf/preflight";
+import { preflightPdf } from "@printio/pdf/preflight";
 import { jobFilePath, PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { logger } from "@/lib/logger";
 import { parseOutputTarget, type OutputTarget } from "@/lib/printers/raw-target";

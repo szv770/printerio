@@ -98,6 +98,18 @@ describe("service worker source", () => {
     expect(res.status).toBe(303);
     expect(res.headers.get("Location")).toBe("/print?share=storage");
 
+    const jpg = new FormData();
+    jpg.set("file", new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2])], "p.jpg", { type: "image/jpeg" }));
+    const fe3 = fetchEvent(new Request("https://printio.test/share-target", { method: "POST", body: jpg }));
+    listeners.fetch!(fe3.event);
+    expect((await fe3.responded!).headers.get("Location")).toBe("/print?share=storage"); // a photo passes the checks; only storage is missing here
+
+    const fake = new FormData();
+    fake.set("file", new File(["not really a pdf"], "x.pdf", { type: "application/pdf" }));
+    const fe4 = fetchEvent(new Request("https://printio.test/share-target", { method: "POST", body: fake }));
+    listeners.fetch!(fe4.event);
+    expect((await fe4.responded!).headers.get("Location")).toBe("/print?share=notpdf");
+
     const big = new FormData();
     big.set("file", new File([new Uint8Array(LIMIT + 1)], "big.pdf", { type: "application/pdf" }));
     const fe2 = fetchEvent(new Request("https://printio.test/share-target", { method: "POST", body: big }));

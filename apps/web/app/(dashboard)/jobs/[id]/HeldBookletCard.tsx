@@ -16,7 +16,7 @@ export function HeldBookletCard({ jobId, reason }: { jobId: string; reason: stri
   const [side, setSide] = useState<"" | "left" | "right">("");
 
   return (
-    <form action={formAction} className="mt-3 rounded-lg border border-[var(--color-border)] p-3">
+    <form action={formAction} className="mt-3 rounded-[var(--radius-sm)] border border-[var(--color-border)] p-3">
       <input type="hidden" name="jobId" value={jobId} />
       <p className="text-sm font-medium">{reason?.trim() || "Booklet: choose left or right binding."}</p>
       <div className="mt-3">

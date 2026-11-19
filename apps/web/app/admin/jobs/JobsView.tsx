@@ -39,14 +39,15 @@ export function JobsView({ rows, query, hasOlder }: { rows: JobListRow[]; query:
         </div>
       ),
     },
-    { header: "User", cell: (j) => j.who },
-    { header: "Status", cell: (j) => <StatusDot tone={jobStatusCell(j.status, j.errorMessage).tone}>{jobStatusCell(j.status, j.errorMessage).label}</StatusDot> },
+    { header: "User", nowrap: true, cell: (j) => j.who },
+    { header: "Status", nowrap: true, cell: (j) => <StatusDot tone={jobStatusCell(j.status, j.errorMessage).tone}>{jobStatusCell(j.status, j.errorMessage).label}</StatusDot> },
     {
       header: "Pages",
+      nowrap: true,
       align: "right",
       cell: (j) => (j.copies > 1 ? `${j.pages} x ${j.copies}` : String(j.pages)),
     },
-    { header: "Sent", cell: (j) => <LocalTime iso={j.createdAt} /> },
+    { header: "Sent", nowrap: true, cell: (j) => <LocalTime iso={j.createdAt} /> },
     { header: "", align: "right", cell: (j) => (j.isTest ? null : <PrintAgainLink jobId={j.id} />) },
   ];
 

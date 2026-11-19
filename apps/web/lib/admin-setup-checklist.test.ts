@@ -48,7 +48,7 @@ describe("setupChecklist", () => {
     expect(withOneOther.find((s) => s.id === "invite_users")?.done).toBe(true);
   });
 
-  it("treats a registered-but-never-seen Agent as registered, not online", () => {
+  it("treats a registered-but-never-seen print server as registered, not online", () => {
     const steps = setupChecklist({ ...EMPTY_ORG, agents: 1, onlineAgents: 0 }, ROUTES);
     expect(steps.find((s) => s.id === "register_agent")?.done).toBe(true);
     expect(steps.find((s) => s.id === "agent_online")?.done).toBe(false);
@@ -74,6 +74,17 @@ describe("setupChecklist", () => {
     const hrefs = Object.values(ROUTES);
     for (const step of setupChecklist(EMPTY_ORG, ROUTES)) {
       expect(hrefs).toContain(step.href);
+    }
+  });
+});
+
+describe("setup wording", () => {
+  it("gives every step a plain hint and no developer text", () => {
+    for (const step of setupChecklist(EMPTY_ORG, ROUTES)) {
+      expect(step.hint.trim().length).toBeGreaterThan(10);
+      const text = `${step.title} ${step.description} ${step.hint}`;
+      expect(text).not.toMatch(/\bAgents?\b/);
+      expect(text).not.toMatch(/docs\/|\.md\b|register command|enrollment code/i);
     }
   });
 });

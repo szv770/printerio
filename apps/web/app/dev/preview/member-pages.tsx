@@ -55,7 +55,7 @@ export function PrintPreview({ shell, variant }: { shell?: string; variant?: str
   const printers = variant === "raw" ? RAW_PRINTER : variant === "two" ? TWO_PRINTERS : ONE_PRINTER;
   return (
     <Framed shell={shell} path="/print">
-      <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
+      <main className="mx-auto max-w-5xl px-4 py-6 sm:py-10">
         <PageHeader title="Print a document" description="Choose a PDF, check the basics, press Print." />
         <PrintForm printerProfiles={printers} maxUploadBytes={25 * 1024 * 1024} />
       </main>
@@ -130,7 +130,7 @@ export function JobPreview({ shell, variant = "printing" }: { shell?: string; va
   );
   return (
     <Framed shell={shell} path="/jobs">
-      <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
+      <main className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
         <p className="-ml-2 mb-3 inline-flex min-h-11 items-center px-2 text-sm font-medium text-[var(--color-muted)]">&lsaquo; My jobs</p>
         <div className="mb-5">
           <h1 className="break-words text-xl font-semibold leading-7 sm:text-2xl sm:leading-8">{job.original_file_name}</h1>
@@ -163,7 +163,7 @@ const LIST: JobRow[] = [
 export function JobListPreview({ shell }: { shell?: string }) {
   return (
     <Framed shell={shell} path="/jobs">
-      <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
+      <main className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
         <PageHeader title="My jobs" />
         <ul className="flex flex-col gap-3">
           {LIST.map((j) => (
@@ -184,7 +184,7 @@ const DEVICES: DeviceItem[] = [
 export function DevicesPreview({ shell, variant }: { shell?: string; variant?: string }) {
   return (
     <Framed shell={shell} path="/devices">
-      <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
+      <main className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
         <PageHeader
           title="My devices"
           description="Add your phone, tablet or laptop to print from its normal Print button. Each device gets its own private address."

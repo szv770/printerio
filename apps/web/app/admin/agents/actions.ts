@@ -1,6 +1,7 @@
 "use server";
 
-import { agentSupportsCheckOnly } from "@/lib/update-progress";
+import { agentSupportsCheckOnly, UPDATE_RUN_GIVE_UP_MS } from "@/lib/update-progress";
+import { COMMAND_MAX_AGE_MS } from "@/lib/agent-commands";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireOrgRole } from "@/lib/auth/session";
@@ -243,6 +244,30 @@ export async function checkAgentForUpdateAction(
   const agentId = String(formData.get("agentId") ?? "");
 
   const supabase = await createClient();
+
+  // Never stack a second full update on top of one that is already waiting or running (repeated presses while the
+  // server is offline used to pile up duplicate rows that all ran later). Quick look-only checks do not count.
+  // Only rows that can still happen count: a pending row older than the delivery limit is never handed out any more,
+  // and an acknowledged one older than the "stuck" limit has been given up on (the page shows Try again).
+  const { data: open } = await supabase
+    .from("remote_commands")
+    .select("id, status, payload, created_at")
+    .eq("organization_id", session.membership.organization_id)
+    .eq("agent_id", agentId)
+    .eq("command", "CHECK_FOR_UPDATE")
+    .in("status", ["pending", "acknowledged"]);
+  const nowMs = Date.now();
+  const alreadyOpen = (open ?? []).some((row) => {
+    const payload = row.payload;
+    const checkOnly = typeof payload === "object" && payload !== null && !Array.isArray(payload) && (payload as Record<string, unknown>).mode === "check_only";
+    if (checkOnly) return false;
+    const age = nowMs - Date.parse(row.created_at);
+    return Number.isFinite(age) && age < (row.status === "pending" ? COMMAND_MAX_AGE_MS : UPDATE_RUN_GIVE_UP_MS);
+  });
+  if (alreadyOpen) {
+    return { error: "An update is already waiting or running for this print server. There is no need to press the button again." };
+  }
+
   const result = await issueRemoteCommand(supabase, {
     organizationId: session.membership.organization_id,
     issuedBy: session.userId,
@@ -250,6 +275,46 @@ export async function checkAgentForUpdateAction(
     command: "CHECK_FOR_UPDATE",
   });
   if (!result.ok) return { error: result.error };
+
+  revalidatePath(routes.adminAgentDetail(agentId));
+  return {};
+}
+
+/**
+ * Cancels an update that is still waiting (typically because the print server is offline). Only a `pending` row can be
+ * cancelled: the update itself is conditional on the row still being pending, so a command the print server has
+ * already picked up (`acknowledged`, i.e. running) is never touched. The row is set to `failed` with the result
+ * `{ message: "cancelled", cancelled: true }`, which the update banner reads as "nothing happened", not as a failure.
+ * Admin only, and only inside the admin's own school (organization and agent are both part of the filter).
+ */
+export async function cancelPendingUpdateAction(_prev: AgentActionState, formData: FormData): Promise<AgentActionState> {
+  const session = await requireOrgRole(["org_admin"]);
+  const agentId = String(formData.get("agentId") ?? "");
+  const commandId = String(formData.get("commandId") ?? "");
+  if (!agentId || !commandId) return { error: "Nothing to cancel." };
+
+  const supabase = await createClient();
+  const { data: cancelled, error } = await supabase
+    .from("remote_commands")
+    .update({ status: "failed", completed_at: new Date().toISOString(), result: { message: "cancelled", cancelled: true } })
+    .eq("id", commandId)
+    .eq("organization_id", session.membership.organization_id)
+    .eq("agent_id", agentId)
+    .eq("command", "CHECK_FOR_UPDATE")
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
+  if (error) return { error: describeDatabaseError(error, "Couldn't cancel that update.") };
+  if (!cancelled) return { error: "That update can no longer be cancelled: the print server has already started it, or it is already finished." };
+
+  await supabase.from("audit_logs").insert({
+    organization_id: session.membership.organization_id,
+    actor_id: session.userId,
+    action: "agent.update_cancelled",
+    target_type: "agents",
+    target_id: agentId,
+    metadata: { commandId },
+  });
 
   revalidatePath(routes.adminAgentDetail(agentId));
   return {};

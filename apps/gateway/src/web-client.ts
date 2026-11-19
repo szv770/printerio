@@ -59,6 +59,8 @@ export interface WebApi {
   /** Best effort: implementations must never throw. */
   postEvent(event: { deviceId: string; type: EventType; userAgent?: string; detail?: Record<string, unknown> }): Promise<void>;
   finalize(req: FinalizeRequest): Promise<FinalizeResult>;
+  /** A single-use upload token for exactly `storagePath` (gateway-intake/<deviceId>/<file>). Throws WebUnavailableError when the website refuses or is down. */
+  signIntakeUpload(storagePath: string): Promise<string>;
   getJob(jobId: string, deviceId: string): Promise<JobInfo | null>;
   cancelJob(jobId: string, deviceId: string): Promise<CancelResult>;
 }
@@ -180,6 +182,13 @@ export function createWebClient(opts: WebClientOptions): WebApi {
       } catch (err) {
         warn("could not post gateway event", { type: event.type, error: String(err) });
       }
+    },
+
+    async signIntakeUpload(storagePath) {
+      const { status, json } = await call("POST", "/api/gateway/intake/sign", { storagePath });
+      const token = str(json.token);
+      if (status === 200 && token) return token;
+      throw new WebUnavailableError(`intake/sign answered ${status}`);
     },
 
     async finalize(req) {

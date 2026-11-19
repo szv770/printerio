@@ -6,12 +6,14 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { requireSessionOrRedirect, type SessionWithMembership } from "@/lib/auth/session";
 import { routes } from "@/lib/routes";
 import { parseChoices } from "@/lib/print-choices";
+import { parseLayoutForm } from "@/lib/print-layout-form";
 import { pipelineSettingsFromJob } from "@/lib/jobs/print-again";
 import { PRINT_JOBS_BUCKET } from "@/lib/storage";
 import { readFormPdf } from "./form-pdf";
 import { BOOKLET_BINDING_REASON } from "@/lib/gateway/ipp-choices";
 import { createPrintJob, type JobOptions } from "@/lib/jobs/create-print-job";
-import { bookletSheetChoice } from "@/lib/pdf/booklet-build";
+import { bookletSheetChoice } from "@printio/pdf/booklet-build";
+import { prepareViaServerEnabled, submitViaPrintServer } from "@/lib/prepare/submit";
 import { lastChoicesFromSubmit, writeLastChoices } from "@/lib/print-preferences";
 
 export interface SubmitJobState {
@@ -60,15 +62,21 @@ export async function submitPrintJobAction(_prev: SubmitJobState, formData: Form
   const session = await requireSessionOrRedirect();
   if (!session.membership) return { error: "You are not a member of any organization yet." };
 
-  const pdf = await readFormPdf(formData, session as SessionWithMembership & { membership: { organization_id: string } });
-  if (!pdf.ok) return { error: pdf.error };
-
   const supabase = await createClient();
+  // A school switched on for it has its PDF prepared by its own print server (lib/prepare). Off (the default) = the unchanged path below.
+  const viaServer = await prepareViaServerEnabled(createServiceRoleClient(), session.membership.organization_id);
+
+  const pdf = viaServer ? null : await readFormPdf(formData, session as SessionWithMembership & { membership: { organization_id: string } });
+  if (pdf && !pdf.ok) return { error: pdf.error };
 
   // The form contract: sides / staple / booklet / copies / pageRange / printerProfileId. colorMode,
   // paperSize and punch are only sent for queue printers (raw printers derive them on the server).
   const parsedChoices = parseChoices((name) => formData.get(name));
   if (!parsedChoices.ok) return { error: parsedChoices.reason };
+
+  // Pages per sheet / one page repeated. A booklet is its own layout, so asking for both is refused here (the form mirrors this).
+  const parsedLayout = parseLayoutForm((name) => formData.get(name), parsedChoices.choices.booklet);
+  if (!parsedLayout.ok) return { error: parsedLayout.reason };
 
   const jobOptions: JobOptions = {
     printerProfileId: String(formData.get("printerProfileId") ?? ""),
@@ -79,6 +87,7 @@ export async function submitPrintJobAction(_prev: SubmitJobState, formData: Form
     confirmBookletPadding: formData.get("confirmBookletPadding") === "true",
     bookletFit: formData.get("bookletFit") === "keep" ? "keep" : "fill",
     bookletSheet: bookletSheetChoice(formData.get("bookletSheet")),
+    ...(parsedLayout.layout ? { layout: parsedLayout.layout } : {}),
   };
   // "Remember my last print choices": only writes when the member switched it on (and never errors the submit).
   const afterCreated = () =>
@@ -98,6 +107,33 @@ export async function submitPrintJobAction(_prev: SubmitJobState, formData: Form
         bookletSheet: jobOptions.bookletSheet ?? "letter",
       }),
     );
+  if (viaServer) {
+    const stagedPath = formData.get("stagedPath");
+    const name = formData.get("fileName");
+    const file = formData.get("file");
+    let bytes: Uint8Array | null = null;
+    if (!(typeof stagedPath === "string" && stagedPath !== "") && file instanceof File && file.size > 0) {
+      try {
+        bytes = new Uint8Array(await file.arrayBuffer());
+      } catch {
+        return { error: "Your file didn't finish uploading. Check your connection and submit again." };
+      }
+    }
+    const fileName = typeof stagedPath === "string" && stagedPath !== ""
+      ? (typeof name === "string" && name.trim() !== "" ? name.trim().slice(0, 200) : "upload.pdf")
+      : file instanceof File ? file.name : "upload.pdf";
+    const out = await submitViaPrintServer(
+      supabase,
+      createServiceRoleClient(),
+      session as SessionWithMembership,
+      { stagedPath: typeof stagedPath === "string" && stagedPath !== "" ? stagedPath : null, bytes, fileName },
+      jobOptions,
+    );
+    if (!out.ok) return { error: out.error, ...(out.fieldErrors ? { fieldErrors: out.fieldErrors } : {}) };
+    await afterCreated();
+    redirect(routes.preparing(out.prepareJobId));
+  }
+  if (!pdf || !pdf.ok) return { error: "Choose a PDF to upload." };
   return runPipeline(supabase, session as SessionWithMembership, pdf.bytes, pdf.fileName, jobOptions, afterCreated);
 }
 

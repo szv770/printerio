@@ -139,7 +139,7 @@ export function FontsPanel({ fonts, maxFonts }: { fonts: FontRowView[]; maxFonts
             {fonts.map((font) => (
               <li key={font.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:gap-4">
                 <div className="flex min-w-0 flex-1 items-start gap-3">
-                  <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--color-primary-soft)] text-[var(--color-primary)]">
+                  <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-[var(--color-primary-soft)] text-[var(--color-primary)]">
                     <Type className="h-4 w-4" aria-hidden="true" />
                   </span>
                   <div className="min-w-0">

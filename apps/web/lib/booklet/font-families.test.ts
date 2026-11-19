@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DAVID_LIBRE_BOLD_BASE64 } from "@/lib/booklet/fonts/david-libre-bold";
-import { DAVID_LIBRE_REGULAR_BASE64 } from "@/lib/booklet/fonts/david-libre-regular";
-import { EZRA_SIL_REGULAR_BASE64 } from "@/lib/booklet/fonts/ezra-sil-regular";
+import { DAVID_LIBRE_BOLD_BASE64 } from "@printio/pdf/fonts/david-libre-bold";
+import { DAVID_LIBRE_REGULAR_BASE64 } from "@printio/pdf/fonts/david-libre-regular";
+import { EZRA_SIL_REGULAR_BASE64 } from "@printio/pdf/fonts/ezra-sil-regular";
 import { failure, fakeSupabase, ok } from "@/test/fake-supabase";
 import { readFontFacts } from "./font-facts-read";
 import { loadOrgFontFacts } from "./org-font-facts";

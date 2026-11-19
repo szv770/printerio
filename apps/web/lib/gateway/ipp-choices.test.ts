@@ -300,3 +300,60 @@ describe("mapIppChoices: dual staple left and hole punch", () => {
     expect(mapIppChoices({ finishings: 100 }).heldReason).toMatch(/hole punch/i);
   });
 });
+
+describe("mapIppChoices: presets via paper type", () => {
+  const base = { copies: 3, "page-ranges": [2, 4], "orientation-requested": 4, "media-col": LETTER_COL };
+  const withType = (t: unknown, extra: Record<string, unknown> = {}) => mapIppChoices({ ...base, "media-type": t, ...extra });
+
+  it("booklet right: binding right, two sides, no held reason, dialog copies and page range kept", () => {
+    const r = withType("Booklet - right edge, stapled");
+    expect(r.choices).toEqual({ sides: "two", staple: "none", booklet: "right", copies: 3, pageRange: "2-4" });
+    expect(r.heldReason).toBeNull();
+    expect(r.layout).toBeUndefined();
+  });
+
+  it("booklet left", () => {
+    expect(withType("Booklet - left edge, stapled").choices).toMatchObject({ booklet: "left", sides: "two" });
+  });
+
+  it("reads the paper type from inside media-col too, case-insensitively", () => {
+    const r = mapIppChoices({ "media-col": { ...LETTER_COL, "media-type": " BOOKLET - right EDGE, stapled " } });
+    expect(r.choices.booklet).toBe("right");
+    expect(r.heldReason).toBeNull();
+  });
+
+  it("layout presets return their layout and keep the dialog's sides", () => {
+    const two = withType("2 pages per sheet", { sides: "two-sided-short-edge" });
+    expect(two.layout).toEqual({ kind: "nup", cols: 2, rows: 1 });
+    expect(two.choices).toMatchObject({ booklet: "none", sides: "two", flip: "short" });
+    const rep = withType("Same page twice per sheet (cut in half)");
+    expect(rep.layout).toEqual({ kind: "repeat", cols: 2, rows: 1, pages: "each", marks: true });
+    expect(rep.choices.sides).toBe("one");
+    expect(withType("4 pages per sheet").layout).toMatchObject({ cols: 2, rows: 2 });
+  });
+
+  it("overrides contradictory dialog choices (finishings, staple, sides) and does not raise the binding question", () => {
+    const r = withType("Booklet - left edge, stapled", { finishings: [22, 5], sides: "one-sided" });
+    expect(r.choices).toEqual({ sides: "two", staple: "none", booklet: "left", copies: 3, pageRange: "2-4" });
+    expect(r.heldReason).toBeNull();
+    const l = withType("2 pages per sheet", { finishings: 13 });
+    expect(l.choices.booklet).toBe("none");
+    expect(l.heldReason).toBeNull();
+  });
+
+  it("an unknown custom paper type is held with a plain reason (never a silent normal copy)", () => {
+    const r = withType("Booklet - up edge");
+    expect(r.heldReason).toBe('The paper type "Booklet - up edge" is not available any more. Open Printio > My jobs to choose how to print this.');
+    expect(r.layout).toBeUndefined();
+  });
+
+  it("standard keywords and a missing paper type behave exactly as before", () => {
+    const plain = mapIppChoices({ ...base });
+    for (const t of ["stationery", "Cardstock", "envelope"]) {
+      expect(withType(t)).toEqual(plain);
+      expect(mapIppChoices({ ...base, "media-col": { ...LETTER_COL, "media-type": t } })).toEqual(plain);
+    }
+    expect(plain.heldReason).toBeNull();
+    expect(withType("stationery", { finishings: 13 }).heldReason).toBe("Booklet: choose left or right binding.");
+  });
+});

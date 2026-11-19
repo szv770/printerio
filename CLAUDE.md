@@ -7,7 +7,7 @@ Currently a single-org prototype on a full multi-tenant schema. Start at `README
 
 ## Commands (pnpm 10, Node 22.13+; pdfjs-dist needs it)
 - `pnpm install --frozen-lockfile`, then `pnpm -r typecheck | lint | test | build` (CI runs exactly these).
-- One package: `pnpm --filter @printio/web test` (also `@printio/agent`, `@printio/shared`).
+- One package: `pnpm --filter @printio/web test` (also `@printio/agent`, `@printio/shared`, `@printio/pdf`).
 - New dependencies change `pnpm-lock.yaml`; CI uses `--frozen-lockfile`. Keep experiments outside
   `apps/*` / `packages/*` (workspace globs) unless they are meant to be workspace packages.
 - Supabase migrations in `supabase/migrations` (numbered, source of truth); `schema.sql` is a reference dump.
@@ -20,7 +20,7 @@ Next steps are listed at the bottom of `docs/ipp-printing.md` (Apple tests, Chro
 replay, then Phase 1 gateway).
 
 ## Where things stand (gateway build)
-Read `docs/STATE-2026-11-01.md` first (newest: where it runs now - the owner's own PC, not Vercel -, printer facts, what is built, what is next,
+Read `docs/STATE-2026-11-19.md` first (what is built vs LIVE: the big session's work is on branch `claude/members-onboarding`, draft PR #144, NOT live; how to go live safely). Then `docs/STATE-2026-11-01.md` (older: where it runs now - the owner's own PC, not Vercel -, printer facts, what is built, what is next,
 how the owner likes to work, practical gotchas). Then `docs/HANDOFF.md` (older: the gateway build) for what was built, what is untested and the follow-ups.
 
 ## Gotchas
@@ -33,7 +33,7 @@ how the owner likes to work, practical gotchas). Then `docs/HANDOFF.md` (older: 
   table is service-role-only). Mirror each migration into `schema.sql` as before.
 - PRs: the repo's default branch is `claude/upcoming-large-project-3d2j9p` (there is no `main`).
 - pdf-lib stamps the current time into every PDF it writes: tests that compare PDF bytes must freeze Date
-  (see the "byte-identical" test in `apps/web/lib/pdf/imposition.test.ts`).
+  (see the "byte-identical" test in `packages/pdf/src/imposition.test.ts`).
 - Vercel bot comments on PRs are noise. Docs/tools-only PRs do not affect the web build.
 - Never commit secrets, tunnel tokens, or the spike's `spike-data/` (gitignored).
 
@@ -50,3 +50,5 @@ more than has printed on a real device. `docs/ROADMAP.md` holds what is not buil
   big files, summarize results briefly. Prefer small tests that prove one thing.
 - The owner tests on real devices (Pi + Pixel 8 + Windows 11 + Chromebook; Apple only by borrowing):
   give exact copy-paste steps and say plainly what is untested.
+- Things only the owner can do are kept in `docs/OWNER-TODO.md`. **Start each message to the owner with the top 3 items from it** (one line each),
+  keep the list current, and nudge: the owner asked not to let these slide.

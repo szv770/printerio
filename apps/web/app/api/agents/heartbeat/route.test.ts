@@ -98,3 +98,38 @@ describe("heartbeat: write reduction", () => {
     expect(agentUpdates()[0]!.values).toMatchObject({ version: "2", hostname: "pc2", discovered_queues: [{ windowsQueueName: "Q1", status: "ready", reportedAt: expect.any(String) }] });
   });
 });
+
+describe("heartbeat: running commit", () => {
+  const FULL = "0123456789abcdef0123456789abcdef01234567";
+  const commitUpdates = () => fake.calls.filter((c) => c.table === "agents" && c.op === "update" && (c.values as Record<string, unknown>).running_commit !== undefined);
+
+  it("stores a valid commit with its own update, not inside the main agents update", async () => {
+    authed = { id: "agent-commit-ok", organizationId: "org-1", paused: false };
+    await post({ version: "1", machine: { hostname: "pc", runningCommit: FULL } });
+    expect(commitUpdates()).toHaveLength(1);
+    expect(commitUpdates()[0]!.values).toEqual({ running_commit: FULL });
+    const main = fake.calls.filter((c) => c.table === "agents" && c.op === "update" && "last_seen_at" in (c.values as object));
+    expect(main).toHaveLength(1);
+    expect(main[0]!.values).not.toHaveProperty("running_commit");
+  });
+
+  it("ignores a commit that is not a git hash", async () => {
+    authed = { id: "agent-commit-bad", organizationId: "org-1", paused: false };
+    for (const bad of ["not-a-hash", "abc", "g".repeat(40), "a".repeat(41), 12345, null, "abc1234; drop table agents"]) {
+      await post({ version: "1", machine: { runningCommit: bad } });
+    }
+    expect(commitUpdates()).toHaveLength(0);
+  });
+
+  it("still answers the normal heartbeat when the running_commit update fails (column not migrated yet)", async () => {
+    authed = { id: "agent-commit-fail", organizationId: "org-1", paused: false };
+    respond = (c) =>
+      c.table === "agents" && c.op === "update" && (c.values as Record<string, unknown>).running_commit !== undefined
+        ? { data: null, error: { message: 'column "running_commit" of relation "agents" does not exist' } }
+        : ok();
+    fake = fakeSupabase((c) => respond(c));
+    const res = await post({ version: "1", machine: { runningCommit: FULL } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, paused: false });
+  });
+});

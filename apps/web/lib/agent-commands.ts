@@ -5,6 +5,12 @@ import { logger } from "@/lib/logger";
 /** A command the Agent picked up (acknowledged) but never answered for this long is offered again (it crashed mid-way). */
 export const REDELIVER_ACKNOWLEDGED_AFTER_MS = 15 * 60_000;
 
+/**
+ * A command older than this is never handed out any more, so an update queued while the print server was off (or a
+ * command left over from a long outage) cannot suddenly run unattended in the middle of a school day.
+ */
+export const COMMAND_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
+
 const COMMANDS_LIMIT = 20;
 
 export interface AgentCommandEnvelope {
@@ -21,17 +27,24 @@ export interface AgentCommandEnvelope {
  */
 export async function listCommandsForAgent(supabase: SupabaseClient<Database>, agentId: string): Promise<AgentCommandEnvelope[] | null> {
   const staleIso = new Date(Date.now() - REDELIVER_ACKNOWLEDGED_AFTER_MS).toISOString();
+  const oldestAllowedMs = Date.now() - COMMAND_MAX_AGE_MS;
+  const oldestIso = new Date(oldestAllowedMs).toISOString();
   const { data: commands, error } = await supabase
     .from("remote_commands")
-    .select("id, command, payload, status")
+    .select("id, command, payload, status, created_at")
     .eq("agent_id", agentId)
-    .or(`status.eq.pending,and(status.eq.acknowledged,created_at.lt.${staleIso})`)
+    // The age limit is in the query too, so stale rows never use up the 20-row page ahead of fresh ones.
+    .or(`and(status.eq.pending,created_at.gte.${oldestIso}),and(status.eq.acknowledged,created_at.gte.${oldestIso},created_at.lt.${staleIso})`)
     .order("created_at", { ascending: true })
     // Bounded: the rest are offered on the next poll once these are answered.
     .limit(COMMANDS_LIMIT);
 
   if (error) return null;
-  const list = commands ?? [];
+  // Belt and braces: the age rule is also applied here, so it holds whatever the query returned.
+  const list = (commands ?? []).filter((c) => {
+    const created = Date.parse(c.created_at);
+    return !Number.isFinite(created) || created >= oldestAllowedMs;
+  });
 
   // Mark what we are handing out as picked up, so the admin page can say "Running..." instead of "waiting". A
   // conditional update (still pending) and best effort: failing to mark must never stop the Agent getting its work.

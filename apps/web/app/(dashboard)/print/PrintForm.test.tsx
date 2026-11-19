@@ -42,4 +42,21 @@ describe("PrintForm: the quick controls (static markup, the clean start)", () =>
     expect(q).not.toContain("Cardstock");
     expect(q).toContain("Single-sided");
   });
+
+  it("shows Quick settings (none selected at the clean start), the Layout section, and accepts photos", () => {
+    expect(html).toContain("Quick settings");
+    for (const label of ["Booklet - right edge, stapled", "2 pages per sheet", "4 pages per sheet", "Same page twice per sheet (cut in half)"]) expect(html, label).toContain(label);
+    expect(html).not.toContain('aria-pressed="true"');
+    expect(html).toContain("Pages per sheet");
+    expect(html).toContain("Repeat each page on the sheet");
+    expect(html).toContain('<input type="hidden" name="layoutMode" value="none"/>');
+    expect(html).toContain("image/jpeg,image/png");
+  });
+
+  it("a printer without booklet support offers no booklet quick settings", () => {
+    const nb = { ...raw, declaredCapabilities: { ...caps, booklet: false } };
+    const h = renderToStaticMarkup(<PrintForm printerProfiles={[nb]} maxUploadBytes={50 * 1024 * 1024} />);
+    expect(h).not.toContain("Booklet - right edge, stapled");
+    expect(h).toContain("2 pages per sheet");
+  });
 });

@@ -67,6 +67,7 @@ const PRINT_AFFECTING = [
   "sides",
   "media",
   "media-col",
+  "media-type",
   "page-ranges",
   "finishings",
   "finishings-col",
@@ -341,6 +342,17 @@ async function submitDocument(
   return { ok: true, entry };
 }
 
+/** The paper type the client sent (top-level `media-type`, else inside `media-col`), shortened; null when absent. */
+export function receivedMediaType(attributes: FlatObject): string | null {
+  const first = (v: unknown): unknown => (Array.isArray(v) ? v[0] : v);
+  let v = first(attributes["media-type"]);
+  if (v === undefined) {
+    const col = first(attributes["media-col"]);
+    if (col && typeof col === "object") v = first((col as Record<string, unknown>)["media-type"]);
+  }
+  return typeof v === "string" ? v.slice(0, 80) : null;
+}
+
 /** Event + upload to the intake bucket + finalize. Never throws for refusals; a web/storage outage becomes a temporary-error reply. */
 async function uploadAndFinalize(
   deps: GatewayDeps,
@@ -354,7 +366,14 @@ async function uploadAndFinalize(
     deviceId: device.deviceId,
     type: "job_received",
     userAgent: ctx.userAgent,
-    detail: { sizeBytes: p.doc.length, documentFormat: declared ?? null, jobName: p.jobName ?? null },
+    detail: {
+      sizeBytes: p.doc.length,
+      documentFormat: declared ?? null,
+      jobName: p.jobName ?? null,
+      // For the owner's real-device checks: which attributes this OS sends, and which paper type (preset) it chose.
+      attributeNames: Object.keys(attributes).slice(0, 80),
+      mediaType: receivedMediaType(attributes),
+    },
   });
 
   const storagePath = intakePath(device.deviceId);

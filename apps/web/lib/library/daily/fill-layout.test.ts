@@ -3,10 +3,10 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { parseStudyPage, type StudySection } from "@printio/shared/library/daily/page";
-import { DAVID_LIBRE_BOLD_BASE64 } from "@/lib/booklet/fonts/david-libre-bold";
-import { DAVID_LIBRE_REGULAR_BASE64 } from "@/lib/booklet/fonts/david-libre-regular";
-import { EZRA_SIL_REGULAR_BASE64 } from "@/lib/booklet/fonts/ezra-sil-regular";
-import { loadBundledEnglishFont } from "@/lib/booklet/fonts/english";
+import { DAVID_LIBRE_BOLD_BASE64 } from "@printio/pdf/fonts/david-libre-bold";
+import { DAVID_LIBRE_REGULAR_BASE64 } from "@printio/pdf/fonts/david-libre-regular";
+import { EZRA_SIL_REGULAR_BASE64 } from "@printio/pdf/fonts/ezra-sil-regular";
+import { loadBundledEnglishFont } from "@printio/pdf/fonts/english";
 import { pageFonts } from "@/test/hebrew-fixtures";
 import { buildFilledPdf, chooseHebrewShare, COLUMN_SHARES, type FillInput, type ParaWords, type SharePair } from "./fill";
 

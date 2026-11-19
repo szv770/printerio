@@ -3,6 +3,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { adjustMonthlyUsage } from "@/lib/quota";
 import { sweepRetention } from "@/lib/retention";
 import { logger } from "@/lib/logger";
+import { retryStuckFinishes } from "@/lib/prepare/retry";
 import { recoverExpiredLeases } from "@/lib/lease-recovery";
 import { collectRetryableFailed, filterAffectedRows, groupJobsByAttemptCount, groupQuotaReleases, jobsHoldingQuota } from "@/lib/cron-sweep";
 
@@ -57,7 +58,15 @@ export async function GET(request: Request) {
     autoRetried: 0,
     abandonedFailed: 0,
     filesDeleted: 0,
+    retriedPrepareFinishes: 0,
   };
+
+  // Prepare jobs whose finish step crashed midway (done, but no print job yet) are finished here as a backstop; the print server's idle poll does the same sooner.
+  try {
+    results.retriedPrepareFinishes = await retryStuckFinishes(supabase, { limit: 20 });
+  } catch (err) {
+    logger.error("prepare finish retry failed in the sweep", { error: err instanceof Error ? err.message : String(err) });
+  }
 
   // 1. Expire pending_approval AND held jobs past their deadline (held -> expired is legal; a held job waits
   //    for its sender). Only pending_approval jobs reserved quota, so only those are released below. Batched:

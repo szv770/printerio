@@ -11,6 +11,7 @@ vi.mock("@/lib/jobs/create-print-job", () => ({ createPrintJob: (...args: unknow
 
 import { POST as resolvePOST } from "./device/resolve/route";
 import { POST as eventsPOST } from "./events/route";
+import { POST as signPOST } from "./intake/sign/route";
 vi.mock("@/lib/jobs/ensure-user-code", () => ({ ensureMemberUserCode: async () => "SZV" }));
 import { POST as finalizePOST } from "./jobs/finalize/route";
 import { GET as statusGET } from "./jobs/[jobId]/route";
@@ -58,6 +59,7 @@ function standardResponder(over: Partial<{ device: typeof device | null; member:
     if (call.table === "storage:print-jobs" && call.op === "download") {
       return ok(new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d])]));
     }
+    if (call.table === "storage:print-jobs" && call.op === "sign_upload") return ok({ token: "signed-token-1", signedUrl: "https://x/y" });
     return ok();
   };
 }
@@ -551,5 +553,51 @@ describe("POST /api/gateway/jobs/<jobId>/cancel", () => {
     use(standardResponder({ device: { ...device, revoked_at: "2026-10-02T00:00:00Z" }, job: jobRow("held") }));
     expect((await cancelPOST(req(url, { deviceId: DEVICE_ID }), jobParams)).status).toBe(403);
     expect((await cancelPOST(req(url, { deviceId: "x" }), jobParams)).status).toBe(400);
+  });
+});
+
+describe("POST /api/gateway/intake/sign (the gateway uploads without the service-role key)", () => {
+  it("rejects a missing or wrong secret", async () => {
+    expect((await signPOST(req("/api/gateway/intake/sign", { storagePath: INTAKE }, { auth: null }))).status).toBe(401);
+    expect((await signPOST(req("/api/gateway/intake/sign", { storagePath: INTAKE }, { auth: "Bearer wrong" }))).status).toBe(401);
+  });
+
+  it("signs exactly the requested intake path for a usable device", async () => {
+    const res = await signPOST(req("/api/gateway/intake/sign", { storagePath: INTAKE }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ token: "signed-token-1" });
+    const signs = fake.calls.filter((c) => c.op === "sign_upload");
+    expect(signs).toHaveLength(1);
+    expect(signs[0]?.table).toBe("storage:print-jobs");
+    expect(signs[0]?.values).toBe(INTAKE);
+  });
+
+  it("refuses a path outside gateway-intake/<deviceId>/ and never signs it", async () => {
+    for (const storagePath of [
+      `jobs/${ORG_ID}/x.pdf`,
+      `gateway-intake/${DEVICE_ID}/../../x.pdf`,
+      `gateway-intake/${DEVICE_ID}/a/b.pdf`,
+      "gateway-intake/not-a-uuid/x.pdf",
+    ]) {
+      const res = await signPOST(req("/api/gateway/intake/sign", { storagePath }));
+      expect(res.status, storagePath).toBe(400);
+    }
+    expect(fake.calls.filter((c) => c.op === "sign_upload")).toHaveLength(0);
+  });
+
+  it("does not open an upload slot for an unknown or revoked device", async () => {
+    use(standardResponder({ device: null }));
+    expect((await signPOST(req("/api/gateway/intake/sign", { storagePath: INTAKE }))).status).toBe(404);
+    use(standardResponder({ device: { ...device, revoked_at: "2026-11-01T00:00:00Z" } }));
+    const revoked = await signPOST(req("/api/gateway/intake/sign", { storagePath: INTAKE }));
+    expect(revoked.status).toBeGreaterThanOrEqual(400);
+    expect(fake.calls.filter((c) => c.op === "sign_upload")).toHaveLength(0);
+  });
+
+  it("answers 500 when Supabase cannot sign", async () => {
+    const base = standardResponder();
+    use((call) => (call.op === "sign_upload" ? failure("storage down") : base(call)));
+    const res = await signPOST(req("/api/gateway/intake/sign", { storagePath: INTAKE }));
+    expect(res.status).toBe(500);
   });
 });

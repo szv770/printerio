@@ -97,6 +97,12 @@ export class FakeWeb implements WebApi {
     if (this.down) throw new WebUnavailableError("down");
     return this.jobs.get(jobId) ?? null;
   }
+  signCalls: string[] = [];
+  async signIntakeUpload(storagePath: string): Promise<string> {
+    this.signCalls.push(storagePath);
+    if (this.down) throw new WebUnavailableError("down");
+    return "fake-token";
+  }
   async cancelJob(jobId: string): Promise<CancelResult> {
     this.cancelCalls.push(jobId);
     if (this.cancelResult.kind === "ok") {

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeSupabase, failure, ok, type FakeCall } from "@/test/fake-supabase";
-import { EZRA_SIL_REGULAR_BASE64 } from "@/lib/booklet/fonts/ezra-sil-regular";
+import { EZRA_SIL_REGULAR_BASE64 } from "@printio/pdf/fonts/ezra-sil-regular";
 
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 let allowed = true;

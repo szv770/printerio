@@ -4,7 +4,13 @@ const schema = z.object({
   WEB_BASE_URL: z.string().url(),
   GATEWAY_SHARED_SECRET: z.string().min(32, "GATEWAY_SHARED_SECRET must be at least 32 characters"),
   SUPABASE_URL: z.string().url(),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+  /**
+   * The PUBLIC (anon/publishable) key. With it the gateway uploads through single-use signed URLs minted by the website
+   * (POST /api/gateway/intake/sign) and never holds a key that can read other organizations' data. Preferred.
+   */
+  SUPABASE_ANON_KEY: z.string().min(1).optional(),
+  /** LEGACY: the master key. Only used when SUPABASE_ANON_KEY is not set; remove it from the server's .env once the anon key is set. */
+  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
   BASE_DOMAIN: z.string().min(3),
   PORT: z.coerce.number().int().min(1).max(65535).default(8631),
   PRINTER_NAME: z.string().min(1).default("Printio"),
@@ -24,13 +30,18 @@ const schema = z.object({
   /** "basic" advertises only "no finishing" (what the spike sent). A diagnostic switch for clients that refuse the full list. */
   ADVERTISE_FINISHINGS: z.enum(["full", "basic"]).default("full"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
+}).refine((e) => Boolean(e.SUPABASE_ANON_KEY || e.SUPABASE_SERVICE_ROLE_KEY), {
+  path: ["SUPABASE_ANON_KEY"],
+  message: "set SUPABASE_ANON_KEY (the public key; recommended) or, for an old install, SUPABASE_SERVICE_ROLE_KEY",
 });
 
 export interface GatewayConfig {
   webBaseUrl: string;
   sharedSecret: string;
   supabaseUrl: string;
-  supabaseServiceRoleKey: string;
+  supabaseAnonKey?: string;
+  /** Legacy (see SUPABASE_SERVICE_ROLE_KEY); undefined once the server is moved to the anon key. */
+  supabaseServiceRoleKey?: string;
   baseDomain: string;
   port: number;
   printerName: string;
@@ -57,6 +68,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GatewayConfig 
     webBaseUrl: e.WEB_BASE_URL.replace(/\/+$/, ""),
     sharedSecret: e.GATEWAY_SHARED_SECRET,
     supabaseUrl: e.SUPABASE_URL,
+    supabaseAnonKey: e.SUPABASE_ANON_KEY,
     supabaseServiceRoleKey: e.SUPABASE_SERVICE_ROLE_KEY,
     baseDomain: e.BASE_DOMAIN.toLowerCase().replace(/^\.+/, ""),
     port: e.PORT,

@@ -577,7 +577,7 @@ function ProfileFields({
           <button
             type="button"
             onClick={() => setIconKey("")}
-            className={`rounded-lg border px-2 py-1.5 text-xs ${
+            className={`rounded-[var(--radius-sm)] border px-2 py-1.5 text-xs ${
               iconKey === "" ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10" : "border-[var(--color-border)]"
             }`}
           >
@@ -590,7 +590,7 @@ function ProfileFields({
                 key={key}
                 type="button"
                 onClick={() => setIconKey(key)}
-                className={`flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs ${
+                className={`flex items-center gap-1.5 rounded-[var(--radius-sm)] border px-2 py-1.5 text-xs ${
                   iconKey === key ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10" : "border-[var(--color-border)]"
                 }`}
               >

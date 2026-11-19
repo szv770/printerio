@@ -30,6 +30,7 @@ export type Database = {
           organization_id: string
           os_version: string | null
           poll_interval_seconds: number | null
+          running_commit: string | null
           paused: boolean
           paused_at: string | null
           paused_by: string | null
@@ -51,6 +52,7 @@ export type Database = {
           organization_id: string
           os_version?: string | null
           poll_interval_seconds?: number | null
+          running_commit?: string | null
           paused?: boolean
           paused_at?: string | null
           paused_by?: string | null
@@ -72,6 +74,7 @@ export type Database = {
           organization_id?: string
           os_version?: string | null
           poll_interval_seconds?: number | null
+          running_commit?: string | null
           paused?: boolean
           paused_at?: string | null
           paused_by?: string | null
@@ -383,6 +386,9 @@ export type Database = {
           claimed_by: string | null
           lease_until: string | null
           result_key: string | null
+          source_path: string | null
+          result: Json | null
+          finished_at: string | null
           error: string | null
           created_at: string
           updated_at: string
@@ -398,6 +404,9 @@ export type Database = {
           claimed_by?: string | null
           lease_until?: string | null
           result_key?: string | null
+          source_path?: string | null
+          result?: Json | null
+          finished_at?: string | null
           error?: string | null
           created_at?: string
           updated_at?: string
@@ -413,6 +422,9 @@ export type Database = {
           claimed_by?: string | null
           lease_until?: string | null
           result_key?: string | null
+          source_path?: string | null
+          result?: Json | null
+          finished_at?: string | null
           error?: string | null
           created_at?: string
           updated_at?: string
@@ -938,6 +950,7 @@ export type Database = {
       }
       organization_settings: {
         Row: {
+          prepare_via_server: boolean
           admins_bypass_restrictions: boolean
           auto_retry_failed_prints: boolean
           default_booklet_binding_side: string
@@ -957,6 +970,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          prepare_via_server?: boolean
           admins_bypass_restrictions?: boolean
           auto_retry_failed_prints?: boolean
           default_booklet_binding_side?: string
@@ -976,6 +990,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          prepare_via_server?: boolean
           admins_bypass_restrictions?: boolean
           auto_retry_failed_prints?: boolean
           default_booklet_binding_side?: string

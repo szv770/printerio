@@ -138,7 +138,7 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
   const live = hasActiveCommand(recentCommands, nowMs) || updateLive;
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="max-w-4xl">
       <Link
         href={`${routes.adminAgents}?manage=1`}
         className="mb-4 inline-flex items-center gap-1 text-sm text-[var(--color-muted)] hover:underline"

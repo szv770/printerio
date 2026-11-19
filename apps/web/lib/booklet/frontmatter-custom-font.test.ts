@@ -6,7 +6,7 @@ import { PDFDocument } from "pdf-lib";
 import { pageFonts } from "@/test/hebrew-fixtures";
 import { assembleBooklet, BuilderError } from "./assemble";
 import { addFrontMatter, drawBackPageText, frontMatterPageCount, type FrontMatterInput } from "./frontmatter";
-import { EZRA_SIL_REGULAR_BASE64 } from "./fonts/ezra-sil-regular";
+import { EZRA_SIL_REGULAR_BASE64 } from "@printio/pdf/fonts/ezra-sil-regular";
 
 // Ezra SIL stands in for an uploaded font; the built-in Hebrew and Latin font is David Libre.
 const EZRA = new Uint8Array(Buffer.from(EZRA_SIL_REGULAR_BASE64, "base64"));

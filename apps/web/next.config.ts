@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { NextConfig } from "next";
 import { version } from "./package.json";
 import { buildSecurityHeaders } from "./lib/security-headers";
@@ -22,7 +23,21 @@ const buildStamp: Record<string, string> = {
   PRINTIO_BUILD_REF: process.env.VERCEL_GIT_COMMIT_REF ?? process.env.GITHUB_REF_NAME ?? "",
 };
 
+/**
+ * Container build (Dockerfile): NEXT_OUTPUT=standalone makes `next build` write a self-contained server into
+ * .next/standalone (run with `node apps/web/server.js`). Off by default so the existing `next start` on the PC and
+ * local development behave exactly as before.
+ */
+const standalone = process.env.NEXT_OUTPUT === "standalone";
+
 const nextConfig: NextConfig = {
+  ...(standalone
+    ? {
+        output: "standalone" as const,
+        // pnpm workspace: trace dependencies from the repo root so @printio/shared and node_modules are included.
+        outputFileTracingRoot: path.join(process.cwd(), "../.."),
+      }
+    : {}),
   // INTERIM (delete when the website moves to Cloudflare, phase H/J in docs/TARGET-ARCHITECTURE.md): tools/self-host/update-web.ps1
   // builds the new site into a second folder while the old one keeps serving, then switches. Unset = the normal `.next`.
   distDir: process.env.NEXT_DIST_DIR || ".next",

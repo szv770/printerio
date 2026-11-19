@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { checkTextFidelity } from "@/lib/pdf/text-fidelity";
-import { padAndImposeBooklet } from "@/lib/pdf/booklet-build";
+import { checkTextFidelity } from "@printio/pdf/text-fidelity";
+import { padAndImposeBooklet } from "@printio/pdf/booklet-build";
 import { buildFilledPdf } from "./fill";
 
 vi.setConfig({ testTimeout: 60_000 });

@@ -58,3 +58,21 @@ export function parsePageRange(input: string, totalPages: number): PageRangeResu
   if (pages.length === 0) return fail("Enter at least one page.");
   return { ok: true, pages };
 }
+
+export type PageSubsetPlan =
+  | { ok: true; sourcePages: number; /** Pages to pull out into a subset PDF, or null when no subset is needed (or the job is held). */ subsetPages: number[] | null }
+  | { ok: false; reason: string };
+
+/**
+ * Decides what the page range means before any PDF work. A held job never builds a subset (it stores the
+ * original only and the range text is re-applied on release) but its range is still validated and counted
+ * so the estimate is right.
+ */
+export function planPageSubset(input: { pageRangeText: string | null; pageCount: number; held: boolean }): PageSubsetPlan {
+  const { pageRangeText, pageCount, held } = input;
+  if (!pageRangeText) return { ok: true, sourcePages: pageCount, subsetPages: null };
+  const parsed = parsePageRange(pageRangeText, pageCount);
+  if (!parsed.ok) return { ok: false, reason: parsed.reason };
+  const whole = parsed.pages.length === pageCount && parsed.pages.every((p, i) => p === i + 1);
+  return { ok: true, sourcePages: parsed.pages.length, subsetPages: held || whole ? null : parsed.pages };
+}

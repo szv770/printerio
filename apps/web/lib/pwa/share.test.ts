@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildShareRedirect, checkSharedFile, isValidShareId, shareNotice } from "./share";
+import { buildShareRedirect, checkSharedFile, isValidShareId, shareNotice, sniffSharedType } from "./share";
 
 const MB = 1024 * 1024;
 const LIMIT = 50 * MB;
@@ -12,8 +12,14 @@ describe("checkSharedFile", () => {
     expect(checkSharedFile({ name: "Quiz.PDF", size: 1000, type: "" }, LIMIT)).toEqual({ ok: true });
     expect(checkSharedFile({ name: "quiz.pdf", size: 1000, type: "application/octet-stream" }, LIMIT)).toEqual({ ok: true });
   });
-  it("rejects anything that is neither a PDF type nor a .pdf name", () => {
-    expect(checkSharedFile({ name: "photo.jpg", size: 1000, type: "image/jpeg" }, LIMIT)).toEqual({ ok: false, reason: "notpdf" });
+  it("accepts JPEG and PNG photos by mime type or name", () => {
+    expect(checkSharedFile({ name: "a", size: 1000, type: "image/jpeg" }, LIMIT)).toEqual({ ok: true });
+    expect(checkSharedFile({ name: "a", size: 1000, type: "image/png" }, LIMIT)).toEqual({ ok: true });
+    for (const n of ["a.jpg", "A.JPEG", "a.png"]) expect(checkSharedFile({ name: n, size: 1000, type: "" }, LIMIT)).toEqual({ ok: true });
+  });
+  it("rejects other types", () => {
+    expect(checkSharedFile({ name: "photo.gif", size: 1000, type: "image/gif" }, LIMIT)).toEqual({ ok: false, reason: "notpdf" });
+    expect(checkSharedFile({ name: "photo.heic", size: 1000, type: "image/heic" }, LIMIT)).toEqual({ ok: false, reason: "notpdf" });
     expect(checkSharedFile({ name: "notes.docx", size: 1000, type: "" }, LIMIT)).toEqual({ ok: false, reason: "notpdf" });
     expect(checkSharedFile({ name: "pdf", size: 1000, type: "text/plain" }, LIMIT)).toEqual({ ok: false, reason: "notpdf" });
   });
@@ -26,6 +32,22 @@ describe("checkSharedFile", () => {
   });
   it("reports the type problem before the size problem", () => {
     expect(checkSharedFile({ name: "a.mov", size: LIMIT * 2, type: "video/mp4" }, LIMIT)).toEqual({ ok: false, reason: "notpdf" });
+  });
+});
+
+describe("sniffSharedType", () => {
+  it("recognises PDF, JPEG and PNG by their first bytes", () => {
+    expect(sniffSharedType(new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31]))).toBe("application/pdf");
+    expect(sniffSharedType(new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0]))).toBe("image/jpeg");
+    expect(sniffSharedType(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))).toBe("image/png");
+  });
+  it("refuses everything else, including too-short and near-miss headers", () => {
+    expect(sniffSharedType(new Uint8Array([]))).toBeNull();
+    expect(sniffSharedType(new Uint8Array([0x25, 0x50, 0x44, 0x46]))).toBeNull(); // "%PDF" without "-"
+    expect(sniffSharedType(new Uint8Array([0xff, 0xd8]))).toBeNull();
+    expect(sniffSharedType(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a]))).toBeNull();
+    expect(sniffSharedType(new TextEncoder().encode("GIF89a...."))).toBeNull();
+    expect(sniffSharedType(new TextEncoder().encode("MZ\x90\x00"))).toBeNull();
   });
 });
 
@@ -55,10 +77,10 @@ describe("isValidShareId", () => {
 describe("shareNotice", () => {
   it("explains each problem in plain words", () => {
     expect(shareNotice("toolarge", 50 * MB)).toBe("That file is too big to share into Printio (limit 50 MB). Choose it on this page instead.");
-    expect(shareNotice("notpdf", LIMIT)).toBe("Printio only prints PDFs. Open it and choose Print > Save as PDF first.");
+    expect(shareNotice("notpdf", LIMIT)).toBe("Printio can print PDFs and photos (JPEG or PNG). For anything else, open it and choose Print > Save as PDF first.");
     expect(shareNotice("notready", LIMIT)).toBe("Open Printio once, then share again.");
     expect(shareNotice("empty", LIMIT)).toMatch(/empty/i);
-    expect(shareNotice("many", LIMIT)).toMatch(/one PDF/i);
+    expect(shareNotice("many", LIMIT)).toMatch(/one file/i);
   });
   it("returns null for unknown codes", () => {
     expect(shareNotice("whatever", LIMIT)).toBeNull();

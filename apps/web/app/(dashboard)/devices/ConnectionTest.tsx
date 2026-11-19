@@ -50,7 +50,7 @@ export function ConnectionTest({ deviceId, hostname }: { deviceId: string; hostn
   }
 
   return (
-    <div className="rounded-xl border-2 border-[var(--color-border)] p-3.5">
+    <div className="rounded-[var(--radius-control)] border-2 border-[var(--color-border)] p-3.5">
       <div className="flex items-start gap-3">
         <Wifi className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-primary)]" aria-hidden="true" />
         <div className="min-w-0 flex-1">
@@ -70,7 +70,7 @@ export function ConnectionTest({ deviceId, hostname }: { deviceId: string; hostn
         {summary && (
           <div
             role={summary.tone === "success" ? "status" : "alert"}
-            className={`mb-3 rounded-xl p-3 text-sm ${summary.tone === "success" ? "bg-[var(--color-success-soft)]" : "bg-[var(--color-warning-soft)] text-[var(--color-warning-ink)]"}`}
+            className={`mb-3 rounded-[var(--radius-control)] p-3 text-sm ${summary.tone === "success" ? "bg-[var(--color-success-soft)]" : "bg-[var(--color-warning-soft)] text-[var(--color-warning-ink)]"}`}
           >
             <p className="flex items-center gap-2 font-semibold">
               {summary.tone === "success" ? <Check className="h-4 w-4" aria-hidden="true" /> : <TriangleAlert className="h-4 w-4" aria-hidden="true" />}

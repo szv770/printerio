@@ -143,3 +143,21 @@ describe("web client: waiting for the printer", () => {
     expect((await c.getJob("j", "d"))?.waiting).toBeUndefined();
   });
 });
+
+describe("web client: signed intake upload", () => {
+  it("asks the website to sign exactly the path and returns the token", async () => {
+    const f = vi.fn(async () => json(200, { token: "tok-1" }));
+    const path = "gateway-intake/11111111-1111-4111-8111-111111111111/a.pdf";
+    expect(await client(f as unknown as typeof fetch).signIntakeUpload(path)).toBe("tok-1");
+    const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://web.test/api/gateway/intake/sign");
+    expect(JSON.parse(String(init.body))).toEqual({ storagePath: path });
+    expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${"s".repeat(32)}`);
+  });
+  it("throws (so the phone is told to retry) when the website refuses, is down, or sends no token", async () => {
+    for (const res of [json(404, { error: "unknown_device" }), json(401), json(500), json(200, {})]) {
+      const f = vi.fn(async () => res.clone());
+      await expect(client(f as unknown as typeof fetch).signIntakeUpload("gateway-intake/d/a.pdf")).rejects.toBeInstanceOf(WebUnavailableError);
+    }
+  });
+});

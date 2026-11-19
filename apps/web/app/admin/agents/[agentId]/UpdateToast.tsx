@@ -54,7 +54,7 @@ export function UpdateToast({ view }: { view: UpdateView }) {
     <div
       role="status"
       aria-live="polite"
-      className={`fixed right-4 bottom-4 z-50 w-[calc(100vw-2rem)] max-w-sm rounded-2xl border bg-[var(--color-surface)] p-4 shadow-xl sm:right-6 sm:bottom-6 ${TONE[summary.tone]}`}
+      className={`fixed right-4 bottom-4 z-50 w-[calc(100vw-2rem)] max-w-sm rounded-[var(--radius-card)] border bg-[var(--color-surface)] p-4 shadow-xl sm:right-6 sm:bottom-6 ${TONE[summary.tone]}`}
     >
       <div className="flex items-start gap-3">
         <span className="mt-0.5">{icon}</span>

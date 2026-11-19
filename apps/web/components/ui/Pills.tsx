@@ -28,8 +28,8 @@ export function Pills({ items, label }: { items: PillItem[]; label: string }) {
               aria-current={p.active ? "true" : undefined}
               className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-3.5 text-sm sm:px-4 font-medium whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:shadow-[var(--ring)] ${
                 p.active
-                  ? "border-[var(--color-text)] bg-[var(--color-text)] text-[var(--color-surface)]"
-                  : "border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[var(--color-text-2)] hover:bg-[var(--color-surface-2)]"
+                  ? "border-[var(--color-text)] bg-[var(--color-text)] text-[var(--color-surface)] shadow-[var(--shadow-xs)]"
+                  : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-2)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-2)]"
               }`}
             >
               {p.label}

@@ -22,7 +22,7 @@ export function UsageView({ used, limit, basis, period }: { used: number; limit:
   const summary = usageSummary({ used, limit, unit: BASIS_LABEL[basis] });
   const barColor = { success: "bg-[var(--ink-c)]", warning: "bg-[var(--ink-y)]", danger: "bg-[var(--ink-m)]" }[summary.tone];
   return (
-    <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
+    <main className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
       <PageHeader title="My usage" description={`This month (${period})`} />
       <div className="flex flex-col gap-3">
         <Card className="flex flex-col gap-4 sm:p-6">

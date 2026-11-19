@@ -38,10 +38,12 @@ import {
   validateQueueName,
   type DownloadUrlPolicy,
 } from "./input-validation.js";
-import { CloudApiError, DownloadValidationError, PrintExecutionError, SpoolerError, TransientDownloadError } from "./errors.js";
+import { CloudApiError, isRateLimited, DownloadValidationError, PrintExecutionError, SpoolerError, TransientDownloadError } from "./errors.js";
 import type { Logger } from "./logger.js";
 
 export interface OrchestratorDeps {
+  /** Set when the prepare worker is on: the poll then also asks the website whether a prepare job is waiting and records the answer here. */
+  prepareHint?: { set(waiting: boolean): void };
   config: AgentConfig;
   cloudClient: CloudClient;
   jobQueue: JobQueue;
@@ -771,13 +773,19 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     let embedded: RemoteCommandEnvelope[] | undefined;
     try {
       if (embedCommands) {
-        const res = await cloudClient.getClaimableAndCommands();
+        const res = await cloudClient.getClaimableAndCommands(deps.prepareHint ? { prepare: true } : {});
         jobs = res.jobs;
         embedded = res.commands;
+        if (deps.prepareHint && typeof res.prepareWaiting === "boolean") deps.prepareHint.set(res.prepareWaiting);
       } else {
         jobs = await cloudClient.getClaimableJobs();
       }
     } catch (err) {
+      if (isRateLimited(err)) {
+        // The website asked us to slow down: not a fault. Nothing to do this cycle; the loop sleeps at least the Retry-After time.
+        logger.info("the website asked this print server to slow down - waiting before the next poll", { retryAfterSeconds: err.retryAfterSeconds ?? null });
+        return { ok: true, ...(embedCommands ? { commandsOk: true } : {}) };
+      }
       logger.warn("could not fetch claimable jobs this cycle", {
         error: err instanceof Error ? err.message : String(err),
       });
@@ -826,6 +834,10 @@ export function createOrchestrator(deps: OrchestratorDeps) {
     try {
       commands = await cloudClient.getCommands();
     } catch (err) {
+      if (isRateLimited(err)) {
+        logger.info("the website asked this print server to slow down - waiting before asking for commands again", { retryAfterSeconds: err.retryAfterSeconds ?? null });
+        return true;
+      }
       logger.warn("could not fetch remote commands this cycle", {
         error: err instanceof Error ? err.message : String(err),
       });
@@ -1024,6 +1036,10 @@ export function createOrchestrator(deps: OrchestratorDeps) {
           });
           delayMs += jitterMs;
         }
+
+        // A 429 from the website: wait at least as long as it asked (never counted as a failure, so no outer backoff or error noise).
+        const rateLimitMs = typeof cloudClient.rateLimitBackoffMs === "function" ? cloudClient.rateLimitBackoffMs() : 0;
+        if (rateLimitMs > delayMs) delayMs = rateLimitMs;
 
         if (cloudClient.consecutiveAuthFailures >= AUTH_FAILURE_THRESHOLD) {
           logger.warn("the cloud keeps refusing this agent's credentials (revoked or re-enrolled?) - polling only every ~10 minutes until that changes", {

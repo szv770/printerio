@@ -7,7 +7,7 @@ import { DEFAULT_MAX_UPLOAD_BYTES } from "@/lib/pdf/client-precheck";
 import { canUseLinks } from "@/lib/sources/access";
 import { BookletBuilder } from "@/components/booklet/BookletBuilder";
 import { listOrgFonts } from "@/lib/booklet/org-fonts";
-import { ENGLISH_FONT_CHOICES } from "@/lib/booklet/fonts/english";
+import { ENGLISH_FONT_CHOICES } from "@printio/pdf/fonts/english";
 
 // Combining files and fetching links happen on the server and can take a while.
 export const maxDuration = 60;

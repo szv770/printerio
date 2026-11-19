@@ -27,6 +27,7 @@ import {
   agentCommandsSummary,
   agentMachineSummary,
   agentQueuesSummary,
+  agentRunningCommitLabel,
   agentVersionSummary,
   printerStatusWord,
   printerTone,
@@ -37,6 +38,7 @@ import { LocalTime } from "@/components/LocalTime";
 import { UpdatePanel } from "./UpdatePanel";
 import { setAgentPollIntervalAction } from "../actions";
 import { POLL_PRESETS } from "@/lib/poll-interval";
+import { pollSpeedLabel, pollSpeedSelectValue } from "./poll-speed";
 // "Send test print" is deliberately the SAME server action the Printers page
 // binds its own button to, imported rather than re-implemented here: one
 // authorization check, one pipeline, one place to change.
@@ -209,6 +211,11 @@ function MachineCard({ agent }: { agent: Tables<"agents"> }) {
           <dt className="text-[var(--color-muted)]">Operating system</dt>
           <dd className="font-medium">{agent.os_version ?? "Not reported yet"}</dd>
         </div>
+        <div>
+          <dt className="text-[var(--color-muted)]">Printio code</dt>
+          {/* running_commit is read with the row (select *); before its migration it is simply absent = "not reported". */}
+          <dd className="font-medium">{agentRunningCommitLabel(agent.running_commit)}</dd>
+        </div>
         <div className="sm:col-span-2">
           <dt className="flex items-center gap-1 text-[var(--color-muted)]">
             <Globe className="h-3.5 w-3.5" /> Network addresses
@@ -275,7 +282,7 @@ function VersionCard({ version, canManage }: { version: AgentVersionStatus; canM
 function PollSpeedCard({ agent }: { agent: Tables<"agents"> }) {
   const [state, action, pending] = useActionState(setAgentPollIntervalAction, initialAgentActionState);
   const current = agent.poll_interval_seconds;
-  const label = current === null ? "The PC's own setting" : (POLL_PRESETS.find((p) => p.seconds === current)?.label ?? `Every ${current} seconds`);
+  const label = pollSpeedLabel(current);
   return (
     <Collapsible id="speed" title="How fast it picks up jobs" icon={<Gauge className="h-4 w-4" />} summary={label} forceOpen={!!state.error}>
       <p className="text-sm text-[var(--color-text-2)]">
@@ -286,7 +293,7 @@ function PollSpeedCard({ agent }: { agent: Tables<"agents"> }) {
         <input type="hidden" name="agentId" value={agent.id} />
         <select
           name="seconds"
-          defaultValue={current === null ? "" : String(current)}
+          defaultValue={pollSpeedSelectValue(current)}
           aria-label="Speed"
           className="h-10 rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 text-base md:text-sm"
         >

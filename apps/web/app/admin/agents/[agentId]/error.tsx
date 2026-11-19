@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 import { Button, Card } from "@/components/ui";
+import { ReportProblemLink } from "@/components/help/ReportProblemLink";
 import { routes } from "@/lib/routes";
 
 /**
@@ -17,7 +18,7 @@ export default function AgentDetailError({ error, reset }: { error: Error & { di
   }, [error]);
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="max-w-4xl">
       <Card className="flex flex-col items-center gap-3 py-10 text-center">
         <AlertTriangle className="h-8 w-8 text-[var(--color-warning)]" aria-hidden />
         <h1 className="text-xl font-semibold">Something went wrong</h1>
@@ -35,6 +36,7 @@ export default function AgentDetailError({ error, reset }: { error: Error & { di
           >
             Back to print servers
           </Link>
+          <ReportProblemLink digest={error.digest} variant="ghost" />
         </div>
       </Card>
     </div>

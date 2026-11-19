@@ -59,6 +59,12 @@ export function agentVersionSummary(v: { reported: string | null; state: string 
   return `${v.reported}, up to date`;
 }
 
+/** "running abc1234" for the commit a print server reports, or "commit not reported" (an older server, or nothing stored yet). */
+export function agentRunningCommitLabel(commit: string | null | undefined): string {
+  const c = typeof commit === "string" ? commit.trim() : "";
+  return /^[0-9a-f]{7,40}$/i.test(c) ? `running ${c.slice(0, 7).toLowerCase()}` : "commit not reported";
+}
+
 export function agentQueuesSummary(n: number): string {
   return queueCountLabel(n);
 }

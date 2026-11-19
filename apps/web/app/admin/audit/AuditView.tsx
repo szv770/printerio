@@ -35,7 +35,7 @@ export function AuditView({ rows, truncated }: AuditViewProps) {
   ];
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 [&>div:first-child]:mb-0 [&>nav]:mb-0">
       <PageHeader title="Activity log" description="A record of changes made by admins and the system." />
       <Tabs label="Reports" items={reportTabs("audit", true)} />
 
@@ -43,11 +43,11 @@ export function AuditView({ rows, truncated }: AuditViewProps) {
         <EmptyState icon={History} title="Nothing here yet" description="Changes made by admins will show up here." />
       ) : (
         <>
-          <div className="-mt-3 grid grid-cols-2 gap-3 lg:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
             <StatCard label="Events" value={rows.length.toLocaleString("en-US")} icon={<History className="h-4 w-4" />} tone="cyan" />
             <StatCard
               label="Latest"
-              value={<LocalTime iso={rows[0]!.createdAt} />}
+              value={<span className="text-lg leading-6"><LocalTime iso={rows[0]!.createdAt} /></span>}
               icon={<Clock className="h-4 w-4" />}
             />
             <div className="col-span-2 lg:col-span-1">

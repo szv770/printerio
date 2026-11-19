@@ -33,7 +33,7 @@ export default async function DashboardHomePage() {
   const session = await requireSessionOrRedirect();
   if (!session.membership) {
     return (
-      <main className="mx-auto max-w-2xl px-4 py-10">
+      <main className="mx-auto max-w-3xl px-4 py-10">
         <p className="text-[var(--color-muted)]">You are not a member of any organization yet.</p>
       </main>
     );
@@ -92,7 +92,7 @@ export default async function DashboardHomePage() {
   }));
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
+    <main className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
       <AutoRefresh />
       <h1 className="mb-4 text-2xl font-bold tracking-[-0.03em]">Hi {firstName(session.profile.display_name, session.email)}</h1>
       <div className="mb-5">

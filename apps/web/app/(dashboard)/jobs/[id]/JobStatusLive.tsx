@@ -43,10 +43,10 @@ const HEADLINE_DOT = {
 } as const;
 
 const TONE_PANEL = {
-  neutral: "bg-[var(--color-surface-2)] text-[var(--color-text)]",
-  success: "bg-[var(--color-success-soft)] text-[var(--color-success-ink)]",
-  warning: "bg-[var(--color-warning-soft)] text-[var(--color-warning-ink)]",
-  danger: "bg-[var(--color-danger-soft)] text-[var(--color-danger-ink)]",
+  neutral: "border border-[var(--color-border)] bg-[var(--color-surface-2)] text-[var(--color-text)]",
+  success: "border border-[var(--color-success)]/20 bg-[var(--color-success-soft)] text-[var(--color-success-ink)]",
+  warning: "border border-[var(--color-warning)]/20 bg-[var(--color-warning-soft)] text-[var(--color-warning-ink)]",
+  danger: "border border-[var(--color-danger)]/20 bg-[var(--color-danger-soft)] text-[var(--color-danger-ink)]",
 } as const;
 
 export function JobStatusLive({
@@ -205,7 +205,7 @@ export function JobStatusLive({
               )}
               <span className={`relative h-3.5 w-3.5 rounded-full ${HEADLINE_DOT[headline.tone]}`} />
             </span>
-            <h2 className="text-2xl font-semibold leading-8 tracking-[-0.01em] sm:text-[1.75rem] sm:leading-9">{headline.sentence}</h2>
+            <h2 className="text-xl font-semibold leading-7 tracking-[-0.02em] sm:text-2xl sm:leading-8">{headline.sentence}</h2>
           </div>
           {(headline.detail || printerNote) && (
             <p className="mt-1.5 pl-[1.625rem] text-[13px] leading-5 text-[var(--color-muted)]">
@@ -230,7 +230,7 @@ export function JobStatusLive({
          *  admin's queue check for a person's print job - and so the two deliberately-skipped stages need no
          *  further explanation. */}
         {job.is_test_print && (
-          <div className={`rounded-xl p-3.5 text-sm ${TONE_PANEL.neutral}`}>
+          <div className={`rounded-[var(--radius-control)] p-3.5 text-sm ${TONE_PANEL.neutral}`}>
             <p className="font-medium">Test print</p>
             <p className="mt-1">
               Sent from Admin &rarr; Printers to check this printer from start to finish. Print rules, approval and quota are skipped on purpose, and it is
@@ -240,7 +240,7 @@ export function JobStatusLive({
         )}
 
         {explanation && (
-          <div className={`rounded-xl p-3.5 text-sm ${TONE_PANEL[display.tone]}`} role={display.tone === "danger" ? "alert" : undefined}>
+          <div className={`rounded-[var(--radius-control)] p-3.5 text-sm ${TONE_PANEL[display.tone]}`} role={display.tone === "danger" ? "alert" : undefined}>
             <div className="flex items-start gap-2.5">
               {(display.tone === "danger" || display.tone === "warning") && (
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
@@ -273,7 +273,7 @@ export function JobStatusLive({
         {/* Never silent about an override: this job's own policy_action/reasons say what the rules would otherwise
          *  have done - see lib/policy/admin-bypass.ts and Admin > Settings' "Admins bypass approval & quota" toggle. */}
         {job.policy_bypassed_for_admin && (
-          <div className={`rounded-xl p-3.5 text-sm ${TONE_PANEL.warning}`}>
+          <div className={`rounded-[var(--radius-control)] p-3.5 text-sm ${TONE_PANEL.warning}`}>
             <p className="font-semibold">Printed as an admin override</p>
             <p className="mt-1">This would normally have {job.policy_action === "deny" ? "been denied" : "required approval"}:</p>
             {policyReasons.length > 0 && (

@@ -8,12 +8,14 @@
  */
 
 /**
- * The guided spotlight tour is switched OFF (owner decision 2026-10-25): its layout was hard to follow after the UI
- * redesign and it started by itself for every new member. The code and slides are kept; set this to true only after
- * the tour has been rebuilt and checked on real pages (every anchor, phone width included). While false, Help opens
- * the glossary directly and nothing starts, resumes or replays a tour.
+ * The guided walkthrough has two switches (owner decision 2026-11-19: show screenshots before it starts for anyone).
+ *
+ * TOUR_REPLAY_ENABLED: the Walkthrough tab in the Help window can start it and replay it.
+ * TOUR_AUTOSTART: it starts by itself the first time someone signs in. Keep this false until the owner has seen the
+ * rebuilt walkthrough on real pages (every anchor, phone width included).
  */
-export const TOUR_ENABLED = false;
+export const TOUR_REPLAY_ENABLED = true;
+export const TOUR_AUTOSTART = false;
 
 export interface TourSlide {
   title: string;
@@ -48,143 +50,143 @@ export interface TourSlide {
   clickToAdvance?: boolean;
 }
 
-/** Shown to student/staff roles (displayed as "User" - the stored role stays 'student') - the people submitting print jobs. */
+/** Shown to staff and student roles: the people sending print jobs. */
 export const STUDENT_TOUR: TourSlide[] = [
   {
     title: "Welcome to Printio",
-    body: "This replaces walking up to a shared printer and hoping for the best. Upload a PDF, choose how it should print, and Printio routes it to the right printer for you - with a record of every job. This tour will walk you through the actual screen elements as you go - click along where it asks you to.",
+    body: "Send a document to the printer from your phone or computer, choose how it comes out, and see where it is. This takes about a minute. You can leave at any time.",
     route: "/home",
   },
   {
-    title: "Your quota",
-    body: "If your organization sets a monthly print quota, you'll always see how much you have left right here on Home.",
+    title: "Your monthly limit",
+    body: "If your organization sets a monthly limit, you can see how much you have left right here.",
     anchor: "home-quota",
     route: "/home",
   },
   {
-    title: "Print a document",
-    body: "Click here to start a new print job.",
+    title: "Start a print",
+    body: "Press this button whenever you want to print something.",
     anchor: "home-print-cta",
     route: "/home",
     clickToAdvance: true,
   },
   {
     title: "Choose your file",
-    body: "Pick your PDF here. Nothing uploads yet - this just reads the file in your own browser so the rest of the form can show you what you're about to print.",
+    body: "Pick your PDF here. Nothing is sent yet. Printio just reads it in your browser so you can check it.",
     anchor: "print-file-picker",
     route: "/print",
   },
   {
-    title: "Instant preview",
-    body: "As soon as you choose a file, you'll see a quick preview and page count right here - no upload required just to check you picked the right document.",
+    title: "Check the preview",
+    body: "You will see a small preview and the page count, so you know you picked the right document.",
     anchor: "print-preview",
     route: "/print",
   },
   {
     title: "Your printer",
-    body: "This is where your job will print. If your organization has more than one printer, you'll pick between them here; with just one, it's already chosen for you.",
+    body: "This is where your job will print. If there is more than one printer, you choose here.",
     anchor: "print-printer-fieldset",
     route: "/print",
   },
   {
     title: "Choose how it prints",
-    body: "Tap what you want: single or double-sided, a staple in the top-left or top-right corner, or a booklet bound on the left or right edge (right is for languages like Hebrew). You can also set the number of copies and print just some pages, for example 1-5, 8. Anything that can't be combined is greyed out with a note saying why. Printio remembers your choices for next time.",
+    body: "Pick one-sided or two-sided, a staple, or a booklet, and set how many copies. Anything that cannot go together is greyed out, with a note saying why. Printio remembers your choices for next time.",
     anchor: "print-options",
     route: "/print",
   },
   {
-    title: "Submit your job",
-    body: "The panel at the bottom always shows how many sheets your choices will use. Some jobs need an approver's OK first (large jobs, color, etc. - your organization sets the rules), which you'll see reflected on the job's status right after you submit. When you're ready, tap Print here.",
+    title: "Send it",
+    body: "The panel at the bottom shows how many sheets this will use. Some jobs need an approver to say yes first. You will see that on the job. When you are ready, press Print.",
     anchor: "print-submit-button",
     route: "/print",
   },
   {
-    title: "Track your job",
-    body: "Click My jobs to see everything you've ever submitted.",
+    title: "Follow your job",
+    body: "Open My jobs to see everything you have sent.",
     anchor: "nav-my-jobs",
     route: "/print",
     clickToAdvance: true,
   },
   {
     title: "Every job, live",
-    body: "This list updates live as each job moves from approved, to sent to the printer, to printing, right up to completed.",
+    body: "This list updates by itself as each job goes from waiting, to printing, to printed.",
     anchor: "jobs-list-container",
     route: "/jobs",
   },
   {
     title: "Need a reminder?",
-    body: "Click Help any time to replay this tour or look up what a term means.",
+    body: "Open Help at any time. It explains the page you are on, replays this walkthrough, and has a glossary.",
     anchor: "help-button",
     route: "/jobs",
   },
 ];
 
-/** Shown to org_admin/approver roles. */
+/** Shown to organization admins and approvers. */
 export const ADMIN_TOUR: TourSlide[] = [
   {
-    title: "Welcome to Printio Admin",
-    body: "You're set up as an administrator or approver. This is a quick tour of where things live and how they connect - it won't change anything, and you can replay it any time from Help. Click along where it asks you to.",
+    title: "Welcome to Printio for admins",
+    body: "A quick look at where things live. It will not change anything, and you can replay it any time from Help.",
     route: "/admin",
   },
   {
     title: "Overview",
-    body: "This dashboard only calls out things that need attention (pending approvals, offline agents, printers in error), not a wall of healthy stats - a quiet Overview page is a good sign.",
+    body: "This page only shows what needs you: jobs waiting for a yes or no, print servers that are offline, and printers with a problem. A quiet page is a good sign.",
     anchor: "admin-overview-stats",
     route: "/admin",
   },
   {
     title: "Approvals",
-    body: "Click here to open the approvals queue - jobs held for review show up here, with a live count badge in the sidebar.",
+    body: "When jobs are waiting for a yes or no, they appear here. Press it to open them.",
     anchor: "admin-stat-pending-approvals",
     route: "/admin",
     clickToAdvance: true,
   },
   {
-    title: "Reviewing a job",
-    body: "Approve or deny each job here - denying asks for a short reason, so the person who submitted it knows why.",
+    title: "Say yes or no",
+    body: "Approve or deny each job. If you deny one, add a short reason so the person knows why.",
     anchor: "admin-approvals-queue",
     route: "/admin/approvals",
   },
   {
-    title: "People",
-    body: "Users (under People in the sidebar) and Groups (here) are where you manage who can print - groups are the departments/classes/cohorts that policies and quotas can target as a whole instead of one user at a time.",
+    title: "Groups",
+    body: "Put people into departments or classes. Then a rule or a monthly limit can apply to the whole group at once. Add people from Users and Invites in the menu.",
     anchor: "admin-groups-panel",
     route: "/admin/groups",
   },
   {
     title: "Printers",
-    body: "Printers lists every printer and its print queues (double-sided, booklet, staple and so on). Print servers, in the tabs above, are the Windows computers that send approved jobs to each one.",
+    body: "Here are your printers and the print queues people send jobs to, such as double-sided or booklet. Print servers, in the menu, are the Windows computers that pass jobs on to each printer.",
     anchor: "admin-printers-panel",
     route: "/admin/printers",
   },
   {
-    title: "Setting up printers for the first time",
-    body: "Open Advanced, then the setup wizard. It walks through a first-time setup: plan which print queues you need, check the print server is online, then connect each one to a real Windows queue. (You can still add a single queue from this page any time.)",
+    title: "Set up a printer",
+    body: "The guided setup helps you choose which print options to offer, checks your print server is online, and connects each option to the printer. You can still add a single queue from this page later.",
     anchor: "admin-printers-wizard-link",
     route: "/admin/printers",
     clickToAdvance: true,
   },
   {
-    title: "Rules: Quotas",
-    body: "Monthly print limits, scoped to the whole organization, a role, a department, a group, or a single user - when someone matches more than one, the lowest limit wins.",
+    title: "Monthly limits",
+    body: "Set how much people can print each month, for everyone, a role, a group or one person. If someone fits more than one limit, the lowest one applies.",
     anchor: "admin-quotas-panel",
     route: "/admin/quotas",
   },
   {
-    title: "Rules: Policies",
-    body: "The rules that decide whether a job is automatically allowed, denied, or held for approval - a DENY rule always wins first, then REQUIRE_APPROVAL, then ALLOW, then your organization's default.",
+    title: "Print rules",
+    body: "Rules decide whether a job is allowed, needs approval, or is not allowed. Not allowed always wins first, then needs approval, then allowed. If nothing matches, your organization default applies.",
     anchor: "admin-policies-panel",
     route: "/admin/policies",
   },
   {
-    title: "Reports",
-    body: "Reports shows usage by user/department/printer and recently denied/failed jobs. Activity log (org admins only, in the sidebar) is a full record of every administrative action.",
+    title: "Usage reports",
+    body: "See how much was printed by person, department and printer, and which jobs were denied or failed. The Activity log in the menu keeps a record of every change an admin made.",
     anchor: "admin-reports-stats",
     route: "/admin/reports",
   },
   {
     title: "Need a reminder?",
-    body: "Click Help any time to replay this tour or look up what a term means.",
+    body: "Open Help at any time. It explains the page you are on, replays this walkthrough, and has a glossary.",
     anchor: "help-button",
     route: "/admin/reports",
   },
@@ -196,13 +198,19 @@ export interface GlossaryEntry {
 }
 
 export const GLOSSARY: GlossaryEntry[] = [
-  { term: "Quota", definition: "A monthly limit on how much you (or your role, department, or group) can print, measured in pages, sides, sheets, or color-weighted sheets depending on how your organization configured it. Shown on Home and Usage." },
-  { term: "Approval", definition: "Some jobs need a human OK before they print - based on rules your organization set (e.g. color jobs, large jobs, certain roles always require approval). You'll see \"Awaiting approval\" as the job's status until an approver decides." },
-  { term: "Policy / rule", definition: "The configured rules that decide whether a job is automatically allowed, denied, or held for approval - things like page count, color, or role can each have their own rule." },
-  { term: "Booklet", definition: "Pages arranged and folded like a small book (2 pages per sheet side, saddle-stitched). Printio scales each page independently to best fill its own space, rather than shrinking every page to match whichever one needs the most room." },
-  { term: "Duplex", definition: "Double-sided printing - both sides of the physical sheet are used." },
-  { term: "Printer profile", definition: "A specific set of finishing options (e.g. \"Booklet + Staple\") configured for a printer - a single physical printer can have several profiles for different jobs." },
-  { term: "Agent", definition: "The small program running on-site that receives approved jobs from Printio and actually sends them to the printer over the local network." },
-  { term: "Job status", definition: "The stage a job is at: Draft → Awaiting approval → Approved → Sent to printer → Preparing → Printing → Completed (or Denied/Failed/Expired/Cancelled if something stops it early)." },
-  { term: "Enrollment code", definition: "A one-time code an administrator generates to connect a new Agent (or a new user, via an invitation code) to your organization." },
+  { term: "Approval", definition: "Some jobs need a person to say yes before they print, for example big jobs or colour. Until then the job says Waiting for approval." },
+  { term: "Approvals page", definition: "Where an approver or admin sees jobs held back by a rule and says yes or no to each one." },
+  { term: "Booklet", definition: "Pages arranged so that, folded in half and stapled, they read like a small book. Choose the left or right edge for the spine." },
+  { term: "Device", definition: "A phone, tablet or laptop you added so you can print from its normal Print button." },
+  { term: "Duplex", definition: "Two-sided printing: both sides of the sheet are used." },
+  { term: "Enrollment", definition: "Connecting a new print server to your organization using a one-time code. You only do it once per computer." },
+  { term: "Invite code", definition: "A link or code an admin sends so someone can join. There is no sign-up without one." },
+  { term: "Job status", definition: "Where a job is: Waiting, Approved, Sent to printer, Printing, Printed. If something stops it you will see Denied, Failed or Cancelled, with a reason." },
+  { term: "Monthly limit", definition: "How much you can print each month. It is shown on Home and on My usage." },
+  { term: "Print rule", definition: "A rule that decides if a job is allowed, needs approval, or is not allowed, such as colour jobs need approval." },
+  { term: "Print server", definition: "The Windows computer next to your printer. It receives approved jobs from Printio and sends them to the printer." },
+  { term: "Printer profile", definition: "One way of printing on a printer, such as Booklet and staple. One printer can have several." },
+  { term: "Queue", definition: "A named line of jobs waiting for a printer on the printer computer. Each printer profile is connected to one queue." },
+  { term: "Quota", definition: "Another word for a monthly limit: how many pages or sheets someone can print in a month." },
+  { term: "Test my connection", definition: "A button that checks your device can reach the printer through Printio, and sends a test page." },
 ];

@@ -4,6 +4,7 @@ import { GroupsPreview, InvitesPreview, SetupStatusPreview, MemberAccessPreview,
 import { ActivityPreview, AllJobsPreview, ApprovalsPreview, FilesPreview, LimitsPreview, ReportsPreview, RulesPreview } from "./admin-b";
 import { SetupWizard } from "@/app/admin/printers/setup/SetupWizard";
 import { JoinCard } from "@/app/join/JoinCard";
+import { PlatformPreview } from "./platform";
 import { PwaPreviewSection } from "./pwa";
 import { DailyStudyPreview } from "./daily";
 import { BookletPreviewSection } from "./booklet";
@@ -20,7 +21,7 @@ import {
  * DEV-ONLY visual preview: every shell/page-chrome piece with hard-coded
  * sample data and no auth or database calls, so the UI can be looked at (and
  * screenshotted) without signing in. 404s everywhere except `next dev`.
- * Pick a section with ?section=admin|adminhome|teacher|member|settings|primitives|jobs|print|job|joblist|devices|usage|profile|users|groups|invites|printers|servers|serverdetail|updatebanner|userdevices|rules|limits|reports|activity|approvals|files|alljobs (+ &shell=admin, &variant=...).
+ * Pick a section with ?section=admin|adminhome|teacher|member|settings|primitives|jobs|print|job|joblist|devices|usage|profile|users|groups|invites|printers|servers|serverdetail|updatebanner|userdevices|rules|limits|reports|activity|approvals|files|alljobs|platform (variants: new|admins|empty) (+ &shell=admin, &variant=...).
  * Admin/member accept ?path=/admin/reports to pretend to be on that page.
  */
 export default async function PreviewPage({
@@ -60,7 +61,7 @@ export default async function PreviewPage({
     case "users":
       return <UsersPreview variant={variant} />;
     case "groups":
-      return <GroupsPreview />;
+      return <GroupsPreview variant={variant} />;
     case "setupstatus":
       return <SetupStatusPreview />;
     case "memberaccess":
@@ -91,6 +92,8 @@ export default async function PreviewPage({
       return <FilesPreview variant={variant} />;
     case "alljobs":
       return <AllJobsPreview variant={variant} />;
+    case "platform":
+      return <PlatformPreview variant={variant} />;
     case "adminhome":
       return <AdminHomeSection />;
     case "adminclear":

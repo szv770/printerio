@@ -264,7 +264,7 @@ function QuotaRow({
       <Card className="p-4 sm:p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <p className="text-base leading-6 font-semibold">{who}</p>
+            <p className="text-[15px] leading-6 font-semibold tracking-[-0.01em]">{who}</p>
             <p className="text-[13px] text-[var(--color-muted)]">can print up to</p>
           </div>
           <div className="flex items-center gap-3">
@@ -279,9 +279,9 @@ function QuotaRow({
                 className="w-28 text-right tabular-nums"
               />
             ) : (
-              <span className="text-xl font-bold tabular-nums">{quota.limit_value.toLocaleString("en-US")}</span>
+              <span className="text-xl font-semibold tabular-nums">{quota.limit_value.toLocaleString("en-US")}</span>
             )}
-            <span className="text-sm text-[var(--color-text-2)]">{unit} a month</span>
+            <span className="text-sm whitespace-nowrap text-[var(--color-muted)]">{unit} a month</span>
           </div>
         </div>
         <FieldError message={error} />
@@ -299,7 +299,7 @@ function QuotaRow({
                 </Button>
               </form>
             ) : (
-              <Button type="button" variant="ghost" size="sm" onClick={() => setConfirming(true)}>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setConfirming(true)} className="-mr-2 text-[var(--color-muted)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)]">
                 Remove
               </Button>
             )}

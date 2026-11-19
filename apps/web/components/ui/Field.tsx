@@ -2,7 +2,7 @@ import { Check, AlertCircle } from "lucide-react";
 import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 
 const FIELD_CLASSES =
-  "block w-full min-h-11 rounded-[var(--radius-control)] border bg-[var(--color-surface)] px-3 py-2 text-[var(--color-text)] shadow-[var(--shadow-xs)] placeholder:text-[var(--color-faint)] transition-[border-color,box-shadow] duration-150 focus-visible:outline-none focus-visible:shadow-[var(--ring)] disabled:cursor-not-allowed disabled:bg-[var(--color-surface-2)] disabled:text-[var(--color-muted)] [@media(pointer:fine)]:min-h-10";
+  "block w-full min-h-11 rounded-[var(--radius-control)] border bg-[var(--color-surface)] px-3 py-2 text-[var(--color-text)] shadow-[var(--shadow-xs)] placeholder:text-[var(--color-faint)] transition-[border-color,box-shadow,background-color] duration-150 focus-visible:border-[var(--color-primary)] focus-visible:outline-none focus-visible:shadow-[var(--ring)] disabled:cursor-not-allowed disabled:bg-[var(--color-surface-2)] disabled:text-[var(--color-muted)] [@media(pointer:fine)]:min-h-10";
 
 function borderFor(invalid?: boolean) {
   return invalid ? "border-[var(--color-danger)]" : "border-[var(--color-border-strong)] hover:border-[var(--color-faint)]";
@@ -12,7 +12,7 @@ function borderFor(invalid?: boolean) {
  *  Textarea/a custom control, or standalone with `htmlFor`. */
 export function FieldLabel({ children, htmlFor, hint }: { children: ReactNode; htmlFor?: string; hint?: string }) {
   return (
-    <label htmlFor={htmlFor} className="mb-1.5 block text-[13px] font-medium leading-5 text-[var(--color-text)]">
+    <label htmlFor={htmlFor} className="mb-1.5 block text-[13px] font-medium leading-5 text-[var(--color-text-2)]">
       {children}
       {hint && <span className="ml-1.5 font-normal text-[var(--color-muted)]">{hint}</span>}
     </label>
@@ -96,7 +96,7 @@ export function Checkbox({
       <input
         {...rest}
         type="checkbox"
-        className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer rounded-md border-[var(--color-border-strong)] accent-[var(--color-primary)] disabled:cursor-not-allowed"
+        className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer rounded-[var(--radius-chip)] border-[var(--color-border-strong)] accent-[var(--color-primary)] disabled:cursor-not-allowed"
       />
       <span className="min-w-0">
         <span className="block text-sm font-medium leading-5 text-[var(--color-text)]">{label}</span>
@@ -122,7 +122,7 @@ export function Switch({
       </span>
       <span className="relative mt-0.5 inline-flex h-6 w-11 shrink-0">
         <input {...rest} type="checkbox" role="switch" className="peer absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed" />
-        <span className="absolute inset-0 rounded-full bg-[var(--color-border-strong)] transition-colors duration-150 peer-checked:bg-[var(--color-primary)] peer-focus-visible:shadow-[var(--ring)]" />
+        <span className="absolute inset-0 rounded-full bg-[var(--color-border-strong)] shadow-[inset_0_1px_2px_rgb(40_30_10/0.12)] transition-colors duration-150 peer-checked:bg-[var(--color-primary)] peer-hover:brightness-95 peer-focus-visible:shadow-[var(--ring)]" />
         <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-[var(--shadow-card)] transition-transform duration-150 motion-reduce:transition-none peer-checked:translate-x-5" />
       </span>
     </label>

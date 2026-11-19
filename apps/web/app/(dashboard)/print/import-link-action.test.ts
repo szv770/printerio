@@ -42,7 +42,7 @@ beforeEach(() => {
   rateOk = true;
   uploadError = null;
   requireSessionOrRedirect.mockResolvedValue(admin);
-  fetchPdf.mockResolvedValue({ ok: true, bytes: new Uint8Array([37, 80, 68, 70, 45, 49]), fileName: "Sicha.pdf" });
+  fetchPdf.mockResolvedValue({ ok: true, bytes: new Uint8Array([37, 80, 68, 70, 45, 49]), fileName: "Sicha.pdf", contentType: "application/pdf" });
 });
 
 describe("importLinkAction", () => {
@@ -59,6 +59,25 @@ describe("importLinkAction", () => {
     expect(url.hostname).toBe("drive.usercontent.google.com");
     expect(kind).toBe("drive");
     expect(opts.maxBytes).toBe(10_000_000);
+    expect((opts as { allowImages?: boolean }).allowImages).toBe(true);
+  });
+
+  it("stores a photo under its own extension and content type", async () => {
+    fetchPdf.mockResolvedValue({ ok: true, bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), fileName: "Flyer.jpg", contentType: "image/jpeg" });
+    const res = await importLinkAction(form("https://example.org/Flyer.jpg"));
+    expect(res.imported).toMatchObject({ fileName: "Flyer.jpg", contentType: "image/jpeg" });
+    expect(uploads[0]!.path).toMatch(/\.jpg$/);
+    expect(uploads[0]!.contentType).toBe("image/jpeg");
+    expect((fetchPdf.mock.calls[0] as [URL, string])[1]).toBe("image");
+  });
+
+  it("fetches Dropbox and OneDrive links through their direct addresses", async () => {
+    await importLinkAction(form("https://www.dropbox.com/scl/fi/abc123/Sicha.pdf?rlkey=k&dl=0"));
+    const [dropbox, dropboxKind] = fetchPdf.mock.calls[0] as [URL, string];
+    expect([dropbox.searchParams.get("dl"), dropboxKind]).toEqual(["1", "dropbox"]);
+    await importLinkAction(form("https://1drv.ms/b/s!AbCdEfGh"));
+    const [onedrive, onedriveKind] = fetchPdf.mock.calls[1] as [URL, string];
+    expect([onedrive.hostname, onedriveKind]).toEqual(["api.onedrive.com", "onedrive"]);
   });
 
   it("is only for admins for now, and nothing is fetched for anyone else", async () => {
@@ -86,11 +105,24 @@ describe("importLinkAction", () => {
     expect(fetchPdf).not.toHaveBeenCalled();
   });
 
-  it("passes the fetcher's plain message through, and stores nothing, when the fetch fails", async () => {
+  it("passes the fetcher's plain message through with a reason code, and stores nothing, when the fetch fails", async () => {
     fetchPdf.mockResolvedValue({ ok: false, reason: "not_shared", message: "Share the file with Anyone with the link." });
     const res = await importLinkAction(form("https://example.org/a.pdf"));
-    expect(res).toEqual({ error: "Share the file with Anyone with the link." });
+    expect(res).toEqual({ error: "Share the file with Anyone with the link.", code: "needs_signin" });
     expect(uploads).toHaveLength(0);
+  });
+
+  it("shows the organization's own size limit when the file is too large", async () => {
+    fetchPdf.mockResolvedValue({ ok: false, reason: "too_big", message: "That file is larger than the 50 MB limit." });
+    const res = await importLinkAction(form("https://example.org/a.pdf"));
+    expect(res.code).toBe("too_big");
+    expect(res.error).toMatch(/9\.5 MB limit/);
+  });
+
+  it("tells a folder from other bad links by code", async () => {
+    const res = await importLinkAction(form("https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrStUvWxYz"));
+    expect(res.code).toBe("folder");
+    expect(fetchPdf).not.toHaveBeenCalled();
   });
 
   it("says so plainly when the file cannot be held on to", async () => {
@@ -101,7 +133,7 @@ describe("importLinkAction", () => {
   });
 
   it("falls back to a plain file name when the link has none", async () => {
-    fetchPdf.mockResolvedValue({ ok: true, bytes: new Uint8Array([37, 80, 68, 70, 45]), fileName: null });
+    fetchPdf.mockResolvedValue({ ok: true, bytes: new Uint8Array([37, 80, 68, 70, 45]), fileName: null, contentType: "application/pdf" });
     expect((await importLinkAction(form("https://example.org/a"))).imported?.fileName).toBe("From a link.pdf");
   });
 });

@@ -18,7 +18,7 @@ export function buildManifest() {
     id: "/",
     name: "Printio",
     short_name: "Printio",
-    description: "Print from your phone: pick or share a PDF, choose the options, press Print.",
+    description: "Print from your phone: pick or share a PDF or photo, choose the options, press Print.",
     start_url: "/home",
     scope: "/",
     display: "standalone",
@@ -39,7 +39,7 @@ export function buildManifest() {
       action: SHARE_TARGET_PATH,
       method: "POST",
       enctype: "multipart/form-data",
-      params: { files: [{ name: "file", accept: ["application/pdf", ".pdf"] }] },
+      params: { files: [{ name: "file", accept: ["application/pdf", "image/jpeg", "image/png", ".pdf", ".jpg", ".jpeg", ".png"] }] },
     } as unknown as MetadataRoute.Manifest["share_target"], // Next types `files` as DOM File[]; the manifest spec wants {name, accept}[]
   };
   return manifest;

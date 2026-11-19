@@ -2,6 +2,8 @@ import { z } from "zod";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { logger } from "@/lib/logger";
 import { adjustMonthlyUsage, usageAmountsForJob } from "@/lib/quota";
+import { cancelPrepareJob } from "@/lib/prepare/cancel";
+import { loadGatewayPrepareJob } from "@/lib/prepare/gateway";
 import { authenticateGateway, gatewayError, loadUsableDevice, parseBody } from "@/lib/gateway/http";
 
 const bodySchema = z.object({ deviceId: z.string().uuid() });
@@ -32,15 +34,28 @@ export async function POST(request: Request, { params }: { params: Promise<{ job
     const lookup = await loadUsableDevice(supabase, body.data.deviceId);
     if (!lookup.ok) return lookup.response;
 
-    const { data: job, error } = await supabase
-      .from("print_jobs")
-      .select("id, status, organization_id, created_by, source_pdf_pages, copies, estimated_printed_sides, estimated_physical_sheets, color_mode, is_test_print")
-      .eq("id", jobId)
-      .eq("device_id", lookup.device.id)
-      .eq("source", "ipp")
-      .maybeSingle();
+    const selectJob = () =>
+      supabase
+        .from("print_jobs")
+        .select("id, status, organization_id, created_by, source_pdf_pages, copies, estimated_printed_sides, estimated_physical_sheets, color_mode, is_test_print")
+        .eq("id", jobId)
+        .eq("device_id", lookup.device.id)
+        .eq("source", "ipp")
+        .maybeSingle();
+    let { data: job, error } = await selectJob();
     if (error) return gatewayError(500, "internal_error", "Could not look up the job.");
-    if (!job) return gatewayError(404, "unknown_job", "Job not found.");
+    if (!job) {
+      // Still being prepared by the print server? Cancel that (race-safe: the print server drops its work). Anything else is unknown.
+      const preparing = await loadGatewayPrepareJob(supabase, jobId, lookup.device.id);
+      if (!preparing) return gatewayError(404, "unknown_job", "Job not found.");
+      const out = await cancelPrepareJob(supabase, lookup.member.userId, jobId);
+      if (out.ok) return Response.json({ status: "cancelled" });
+      if (out.reason !== "too_late") return gatewayError(404, "unknown_job", "Job not found.");
+      // It finished first: the print job exists now (or the preparing ended some other way). Carry on with the normal cancel.
+      ({ data: job, error } = await selectJob());
+      if (error) return gatewayError(500, "internal_error", "Could not look up the job.");
+      if (!job) return gatewayError(409, "not_cancellable", "This job can no longer be cancelled.");
+    }
 
     if (!(CANCELLABLE as readonly string[]).includes(job.status)) {
       return gatewayError(409, "not_cancellable", "This job can no longer be cancelled.");

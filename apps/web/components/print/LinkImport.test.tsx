@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 vi.mock("@/app/(dashboard)/print/import-link-action", () => ({ importLinkAction: vi.fn() }));
 
 import { LinkImport } from "./LinkImport";
+import { failureTitle } from "@/lib/sources/messages";
 
 describe("LinkImport", () => {
   it("starts as one quiet button, so the Print page is not busier for the people who see it", () => {
@@ -12,5 +13,10 @@ describe("LinkImport", () => {
     expect(html).toContain("Print from a link instead");
     expect(html).not.toContain("Link to a PDF");
     expect(html).not.toContain("<input");
+  });
+
+  it("is honest about what it takes, and does not claim more than it does", () => {
+    // The open form is only reachable after a click, so the wording is checked in the source of truth: the heading helper.
+    expect(failureTitle("needs_signin")).toMatch(/sign-in/i);
   });
 });

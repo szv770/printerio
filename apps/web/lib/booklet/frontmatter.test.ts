@@ -4,7 +4,7 @@ vi.mock("server-only", () => ({}));
 import fontkit from "@pdf-lib/fontkit";
 import { drawableRuns } from "./frontmatter";
 import { visualOrder } from "./bidi";
-import { DAVID_LIBRE_REGULAR_BASE64 } from "./fonts/david-libre-regular";
+import { DAVID_LIBRE_REGULAR_BASE64 } from "@printio/pdf/fonts/david-libre-regular";
 
 // The font library reverses Hebrew runs itself. What lands on the page is whatever its layout returns for the text we
 // hand to drawText, so this checks the glyphs that really get drawn, left to right, against the visual order we want.

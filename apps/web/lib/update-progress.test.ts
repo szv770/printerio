@@ -234,3 +234,54 @@ describe("update progress - elapsed time and the Installing hint", () => {
     expect(installingHint(downloading.steps)).toBeNull();
   });
 });
+
+describe("deriveUpdateView - queued update for an offline server", () => {
+  const stale = row({ createdAt: ago(900) });
+  it("an update nobody picked up while the server is offline is queued, not failed", () => {
+    const v = view([stale], ago(3600));
+    expect(v).toEqual({ kind: "queued", message: "This server is offline. The update will start when it comes back.", startedAt: stale.createdAt });
+    expect(view([stale], null).kind).toBe("queued");
+  });
+  it("an online server that still did not pick it up keeps the 'did not pick up' failure", () => {
+    const v = view([stale], ago(10));
+    expect(v.kind).toBe("failed");
+    if (v.kind === "failed") expect(v.message).toMatch(/did not pick this up/);
+  });
+  it("a young pending update is still just waiting, even if the server is offline", () => {
+    expect(view([row({ createdAt: ago(30) })], ago(3600)).kind).toBe("updating");
+  });
+  it("a cancelled update is not shown as a failure", () => {
+    expect(view([row({ status: "failed", createdAt: ago(900), completedAt: ago(5), result: { message: "cancelled", cancelled: true } })]).kind).toBe("idle");
+  });
+  it("never polls fast or auto-checks while queued", () => {
+    const v = view([stale], ago(3600));
+    expect(isUpdateLive(v)).toBe(false);
+  });
+});
+
+describe("deriveUpdateView - which commit is really running", () => {
+  const FULL = "8c4d0e2aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const OLD = "3f2a1b9bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const finished = row({ status: "completed", createdAt: ago(100), completedAt: ago(40), result: { updated: true, reason: "updated", from: "3f2a1b9", to: "8c4d0e2" } });
+  const withCommit = (runningCommit: string | null | undefined) => deriveUpdateView({ commands: [finished], lastSeenAt: ago(5), nowMs: NOW, runningCommit });
+
+  it("done when the running commit starts with the update's target", () => {
+    expect(withCommit(FULL)).toMatchObject({ kind: "done", to: "8c4d0e2", runningCommit: FULL });
+  });
+  it("restarted but still running the old commit is a calm failure that names the commit", () => {
+    const v = withCommit(OLD);
+    expect(v.kind).toBe("failed");
+    if (v.kind === "failed") {
+      expect(v.message).toMatch(/restarted, but it is still running 3f2a1b9, not 8c4d0e2/);
+      expect(v.message).not.toMatch(/broken/i);
+    }
+  });
+  it("an older agent that reports no commit behaves exactly as before", () => {
+    expect(withCommit(undefined)).toMatchObject({ kind: "done", to: "8c4d0e2" });
+    expect(withCommit(null)).toMatchObject({ kind: "done", to: "8c4d0e2" });
+    expect(withCommit(undefined)).not.toHaveProperty("runningCommit");
+  });
+  it("garbage in the reported commit counts as not reported", () => {
+    expect(withCommit("nope")).toMatchObject({ kind: "done" });
+  });
+});

@@ -14,7 +14,7 @@ export function UserChip({ user }: { user: ShellUser }) {
     <div className="flex items-center gap-2.5 rounded-[var(--radius-control)] p-1.5">
       <span
         aria-hidden="true"
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary-soft)] text-sm font-semibold text-[var(--color-primary)]"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary-soft)] text-sm font-semibold text-[var(--color-primary)] ring-1 ring-inset ring-[var(--color-primary)]/15"
       >
         {avatarInitial(user.name, user.email)}
       </span>
@@ -27,7 +27,7 @@ export function UserChip({ user }: { user: ShellUser }) {
           type="submit"
           title="Sign out"
           aria-label="Sign out"
-          className="flex h-11 w-11 items-center justify-center rounded-lg text-[var(--color-muted)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)] md:[@media(pointer:fine)]:h-9 md:[@media(pointer:fine)]:w-9"
+          className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-control)] text-[var(--color-muted)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)] focus-visible:outline-none focus-visible:shadow-[var(--ring)] md:[@media(pointer:fine)]:h-9 md:[@media(pointer:fine)]:w-9"
         >
           <LogOut className="h-4 w-4" aria-hidden="true" />
         </button>

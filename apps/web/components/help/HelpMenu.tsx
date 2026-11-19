@@ -1,78 +1,83 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { HelpCircle, X, PlayCircle } from "lucide-react";
-import { STUDENT_TOUR, ADMIN_TOUR, GLOSSARY, TOUR_ENABLED } from "@/lib/onboarding-content";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import { BookOpen, FileQuestion, HelpCircle, LifeBuoy, PlayCircle, Search } from "lucide-react";
+import { Modal } from "@/components/ui/Modal";
+import { buttonClass } from "@/components/ui/Button";
+import { ADMIN_TOUR, GLOSSARY, STUDENT_TOUR, TOUR_AUTOSTART, TOUR_REPLAY_ENABLED } from "@/lib/onboarding-content";
+import { GENERIC_HELP, helpForPath } from "@/lib/help-content";
 import { SpotlightTour, readTourSession, clearTourSession } from "./SpotlightTour";
+import { PageHelp } from "./PageHelp";
+import { ReportProblemLink } from "./ReportProblemLink";
+import { OPEN_HELP_EVENT, type HelpTab } from "./open-help";
 
 function storageKey(userId: string): string {
   return `printio:onboarding:${userId}:done`;
 }
 
+const TABS: Array<{ id: HelpTab; label: string }> = [
+  { id: "page", label: "This page" },
+  { id: "walkthrough", label: "Walkthrough" },
+  { id: "glossary", label: "Glossary" },
+  { id: "report", label: "Report a problem" },
+];
+
 /**
- * Mounted once in each layout shell ((dashboard)/layout.tsx and
- * admin/layout.tsx) - shows the first-login tour automatically (tracked in
- * localStorage, per-user, so a shared machine or multiple accounts don't
- * collide; a real cross-device "seen" flag would need a DB column, left as
- * a follow-up rather than racing this against unrelated in-flight schema
- * work), and is always reachable afterward via the Help button to replay
- * the tour or look up a term in the glossary.
- *
- * The tour itself is a full-viewport spotlight walkthrough (SpotlightTour)
- * that highlights the real element each step is about, rather than a plain
- * slideshow - this component just owns *when* it's showing (first login,
- * "Replay tour", resuming one already in progress after a cross-page
- * navigation) and records that the user has seen it.
+ * The Help button and window, mounted once in each shell. The window is a Modal (portal, so no header or drawer can
+ * squash it) with four tabs: help for this page, the guided walkthrough, a glossary, and "Report a problem".
+ * It also owns when the walkthrough is showing: replay from here, resume after a page change, and (only when
+ * TOUR_AUTOSTART is on) the first sign-in.
  */
-export function HelpMenu({ userId, variant }: { userId: string; variant: "student" | "admin" }) {
+export function HelpMenu({ userId, variant, pathname: pathnameProp }: { userId: string; variant: "student" | "admin"; pathname?: string }) {
+  const realPathname = usePathname();
+  const pathname = pathnameProp ?? realPathname;
   const slides = variant === "admin" ? ADMIN_TOUR : STUDENT_TOUR;
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<"tour" | "glossary">(TOUR_ENABLED ? "tour" : "glossary");
+  const [tab, setTab] = useState<HelpTab>("page");
   const [tourActive, setTourActive] = useState(false);
   const [tourStep, setTourStep] = useState(0);
 
   useEffect(() => {
-    if (!TOUR_ENABLED) {
-      // Tour switched off: drop any half-finished tour left in this browser so it can never resume.
+    if (!TOUR_REPLAY_ENABLED && !TOUR_AUTOSTART) {
       clearTourSession();
       return;
     }
-    // Reads browser-only APIs not available during SSR/hydration, so this
-    // can only run as an effect (not a lazy useState initializer) without
-    // risking a hydration mismatch - every piece of state above is already
-    // at a safe default, so only these two need setting here.
+    // Browser-only reads, so they run after hydration.
     const resumeStep = readTourSession(variant);
-    if (resumeStep !== null) {
+    if (resumeStep !== null && TOUR_REPLAY_ENABLED) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setTourStep(resumeStep);
       setTourActive(true);
       return;
     }
+    if (!TOUR_AUTOSTART) return;
     try {
-      if (!localStorage.getItem(storageKey(userId))) {
-        // First login: jump straight into the spotlight tour, not the plain
-        // Help dialog.
-        setTourActive(true);
-      }
+      if (!localStorage.getItem(storageKey(userId))) setTourActive(true);
     } catch {
-      // localStorage unavailable (private browsing, blocked cookies/storage)
-      // - just skip auto-start; Help is still reachable manually below.
+      // storage blocked: skip the automatic start; Help still works
     }
   }, [userId, variant]);
 
-  function markSeen() {
+  useEffect(() => {
+    function onOpen(e: Event) {
+      const wanted = (e as CustomEvent<HelpTab>).detail;
+      setTab(wanted ?? "page");
+      setOpen(true);
+    }
+    window.addEventListener(OPEN_HELP_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_HELP_EVENT, onOpen);
+  }, []);
+
+  const endTour = useCallback(() => {
     try {
       localStorage.setItem(storageKey(userId), "1");
     } catch {
-      // best-effort only - not worth surfacing an error over a UI nicety
+      // best effort
     }
-  }
-
-  function endTour() {
-    markSeen();
     clearTourSession();
     setTourActive(false);
-  }
+  }, [userId]);
 
   function startTour() {
     setOpen(false);
@@ -80,13 +85,17 @@ export function HelpMenu({ userId, variant }: { userId: string; variant: "studen
     setTourActive(true);
   }
 
-  function close() {
-    setOpen(false);
-  }
-
-  function openHelp(startTab: "tour" | "glossary") {
-    setTab(startTab);
-    setOpen(true);
+  const baseId = useId();
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  function onTabKey(e: React.KeyboardEvent, i: number) {
+    const delta = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+    if (!delta) return;
+    e.preventDefault();
+    const next = (i + delta + TABS.length) % TABS.length;
+    const target = TABS[next];
+    if (!target) return;
+    setTab(target.id);
+    tabRefs.current[next]?.focus();
   }
 
   return (
@@ -94,94 +103,158 @@ export function HelpMenu({ userId, variant }: { userId: string; variant: "studen
       <button
         type="button"
         data-tour="help-button"
-        onClick={() => openHelp(tab)}
+        onClick={() => {
+          setTab("page");
+          setOpen(true);
+        }}
         className="flex items-center gap-1.5 text-sm text-[var(--color-muted)] hover:text-[var(--color-text)]"
       >
-        <HelpCircle className="h-4 w-4" />
+        <HelpCircle className="h-4 w-4" aria-hidden="true" />
         Help
       </button>
 
-      {open && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={close}
-        >
-          <div
-            className="flex max-h-[85vh] w-full max-w-md flex-col rounded-xl bg-[var(--color-surface)] p-6 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-4 flex items-center justify-between">
-              <div className="flex gap-4 text-sm font-medium">
-                {TOUR_ENABLED && (
-                  <button
-                    type="button"
-                    onClick={() => setTab("tour")}
-                    className={tab === "tour" ? "text-[var(--color-primary)]" : "text-[var(--color-muted)]"}
-                  >
-                    Tour
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setTab("glossary")}
-                  className={tab === "glossary" || !TOUR_ENABLED ? "text-[var(--color-primary)]" : "text-[var(--color-muted)]"}
-                >
-                  Glossary
-                </button>
-              </div>
-              <button type="button" onClick={close} aria-label="Close help">
-                <X className="h-4 w-4 text-[var(--color-muted)]" />
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Help"
+        description="Plain answers for the page you are on."
+        header={
+          <div role="tablist" aria-label="Help topics" className="grid grid-cols-2 gap-1 rounded-[var(--radius-control)] bg-[var(--color-surface-2)] p-1 sm:grid-cols-4">
+            {TABS.map((t, i) => (
+              <button
+                key={t.id}
+                ref={(el) => {
+                  tabRefs.current[i] = el;
+                }}
+                type="button"
+                role="tab"
+                id={`${baseId}-tab-${t.id}`}
+                aria-selected={tab === t.id}
+                aria-controls={`${baseId}-panel`}
+                tabIndex={tab === t.id ? 0 : -1}
+                onClick={() => setTab(t.id)}
+                onKeyDown={(e) => onTabKey(e, i)}
+                className={`min-h-10 rounded-[calc(var(--radius-control)-4px)] px-2 text-[13px] font-medium whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:shadow-[var(--ring)] ${
+                  tab === t.id ? "bg-[var(--color-surface)] text-[var(--color-text)] shadow-[var(--shadow-xs)]" : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
+                }`}
+              >
+                {t.label}
               </button>
-            </div>
-
-            {TOUR_ENABLED && tab === "tour" ? <TourLauncher onStart={startTour} /> : <GlossaryPanel />}
+            ))}
           </div>
+        }
+      >
+        <div role="tabpanel" id={`${baseId}-panel`} aria-labelledby={`${baseId}-tab-${tab}`} className="min-h-[18rem]">
+          {tab === "page" && <ThisPage pathname={pathname} />}
+          {tab === "walkthrough" && <Walkthrough steps={slides.length} onStart={startTour} />}
+          {tab === "glossary" && <GlossaryPanel />}
+          {tab === "report" && <ReportPanel />}
         </div>
-      )}
+      </Modal>
 
-      {tourActive && (
-        <SpotlightTour
-          slides={slides}
-          variant={variant}
-          step={tourStep}
-          setStep={setTourStep}
-          onExit={endTour}
-        />
-      )}
+      {tourActive && <SpotlightTour slides={slides} variant={variant} step={tourStep} setStep={setTourStep} onExit={endTour} />}
     </>
   );
 }
 
-function TourLauncher({ onStart }: { onStart: () => void }) {
+function ThisPage({ pathname }: { pathname: string | null }) {
+  const [search, setSearch] = useState("");
+  useEffect(() => {
+    // Only the developer preview reads the address bar, so every page can be looked at without signing in.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSearch(window.location.search);
+  }, []);
+  const page = helpForPath(pathname, search);
   return (
-    <div className="flex flex-1 flex-col items-start justify-center gap-4 py-6 text-sm">
-      <p className="text-[var(--color-muted)]">
-        A guided walkthrough of the real screens and buttons you&apos;ll use - it highlights each one as it goes,
-        and you can click along as it explains.
-      </p>
-      <button
-        type="button"
-        onClick={onStart}
-        className="flex min-h-11 items-center gap-2 rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-[var(--color-primary-fg)] hover:opacity-90"
-      >
-        <PlayCircle className="h-4 w-4" />
-        Replay tour
-      </button>
+    <div>
+      <h3 className="mb-3 text-[1.0625rem] font-semibold text-[var(--color-text)]">{page ? page.title : GENERIC_HELP.title}</h3>
+      <PageHelp page={page ?? GENERIC_HELP} generic={!page} />
+    </div>
+  );
+}
+
+function Walkthrough({ steps, onStart }: { steps: number; onStart: () => void }) {
+  return (
+    <div className="flex flex-col items-start gap-4">
+      <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--color-primary-soft)] text-[var(--color-primary)]">
+        <PlayCircle className="h-6 w-6" aria-hidden="true" />
+      </span>
+      <div>
+        <h3 className="text-[1.0625rem] font-semibold text-[var(--color-text)]">A guided walkthrough</h3>
+        <p className="mt-1 text-[15px] leading-6 text-[var(--color-text-2)]">
+          It highlights the real buttons and screens one at a time and explains each in a sentence or two. {steps} short steps, about a minute. You can go back, skip, or leave at any time.
+        </p>
+      </div>
+      {TOUR_REPLAY_ENABLED ? (
+        <button type="button" onClick={onStart} className={buttonClass("primary", "default")}>
+          <PlayCircle className="h-4 w-4" aria-hidden="true" />
+          Start the walkthrough
+        </button>
+      ) : (
+        <p className="text-sm text-[var(--color-muted)]">The walkthrough is not available yet.</p>
+      )}
     </div>
   );
 }
 
 function GlossaryPanel() {
+  const [q, setQ] = useState("");
+  const needle = q.trim().toLowerCase();
+  const entries = [...GLOSSARY]
+    .sort((a, b) => a.term.localeCompare(b.term))
+    .filter((e) => !needle || e.term.toLowerCase().includes(needle) || e.definition.toLowerCase().includes(needle));
   return (
-    <dl className="flex flex-1 flex-col gap-3 overflow-y-auto text-sm">
-      {GLOSSARY.map((entry) => (
-        <div key={entry.term}>
-          <dt className="font-medium">{entry.term}</dt>
-          <dd className="text-[var(--color-muted)]">{entry.definition}</dd>
-        </div>
-      ))}
-    </dl>
+    <div className="flex flex-col gap-4">
+      <label className="relative block">
+        <span className="sr-only">Search the glossary</span>
+        <Search className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-[var(--color-faint)]" aria-hidden="true" />
+        <input
+          type="search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search words, like quota or queue"
+          className="min-h-11 w-full rounded-[var(--radius-control)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] pr-3 pl-10 text-[15px] placeholder:text-[var(--color-faint)] focus-visible:outline-none focus-visible:shadow-[var(--ring)]"
+        />
+      </label>
+      {entries.length === 0 ? (
+        <p className="flex items-center gap-2 py-6 text-sm text-[var(--color-muted)]">
+          <FileQuestion className="h-4 w-4" aria-hidden="true" />
+          No word matches that. Try a shorter search.
+        </p>
+      ) : (
+        <dl className="flex flex-col divide-y divide-[var(--color-border)]">
+          {entries.map((e) => (
+            <div key={e.term} className="py-3 first:pt-0">
+              <dt className="text-[15px] font-semibold text-[var(--color-text)]">{e.term}</dt>
+              <dd className="mt-0.5 text-[14px] leading-6 text-[var(--color-muted)]">{e.definition}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  );
+}
+
+function ReportPanel() {
+  return (
+    <div className="flex flex-col items-start gap-4">
+      <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--color-warning-soft)] text-[var(--color-warning)]">
+        <LifeBuoy className="h-6 w-6" aria-hidden="true" />
+      </span>
+      <div>
+        <h3 className="text-[1.0625rem] font-semibold text-[var(--color-text)]">Something not working?</h3>
+        <p className="mt-1 text-[15px] leading-6 text-[var(--color-text-2)]">Tell us what you were trying to do. We add four small details to help us find the cause:</p>
+        <ul className="mt-2 flex flex-col gap-1 text-[14px] text-[var(--color-muted)]">
+          {["The page you are on", "The Printio version", "Your browser", "An error reference, if one was shown"].map((t) => (
+            <li key={t} className="flex gap-2">
+              <BookOpen className="mt-1 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              {t}
+            </li>
+          ))}
+        </ul>
+        <p className="mt-2 text-[14px] text-[var(--color-muted)]">Nothing else about you is included.</p>
+      </div>
+      <ReportProblemLink variant="primary" />
+    </div>
   );
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
-import { DAVID_LIBRE_REGULAR_BASE64 } from "@/lib/booklet/fonts/david-libre-regular";
-import { EZRA_SIL_REGULAR_BASE64 } from "@/lib/booklet/fonts/ezra-sil-regular";
+import { DAVID_LIBRE_REGULAR_BASE64 } from "@printio/pdf/fonts/david-libre-regular";
+import { EZRA_SIL_REGULAR_BASE64 } from "@printio/pdf/fonts/ezra-sil-regular";
 import { nonAscii, pageFonts, pageTexts } from "@/test/hebrew-fixtures";
 import { buildFilledPdf, findMissingMarks, type FillInput } from "./fill";
 import type { StudySection } from "@printio/shared/library/daily/page";

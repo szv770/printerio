@@ -52,6 +52,8 @@ export interface HeartbeatMachineInfo {
   osVersion: string;
   ipAddresses: string[];
   isGitCheckout: boolean;
+  /** Full git commit this process runs (null/absent when unknown). Optional: older call sites and tests omit it. */
+  runningCommit?: string | null;
 }
 
 /** What the printer itself said when asked (apps/agent/src/printer-probe.ts); display only. */
@@ -163,7 +165,13 @@ interface ApiErrorBody {
 interface RawResponse {
   status: number;
   json: unknown;
+  /** Retry-After header in seconds, when the server sent a usable one. */
+  retryAfterSeconds?: number;
 }
+
+/** How long to stay quiet after a 429 when the server gave no (or a silly) Retry-After. */
+const DEFAULT_RATE_LIMIT_BACKOFF_SECONDS = 30;
+const MAX_RATE_LIMIT_BACKOFF_SECONDS = 300;
 
 export class CloudClient {
   private apiUrl: string;
@@ -183,6 +191,14 @@ export class CloudClient {
   /** Consecutive 401/403 answers to the polls (heartbeat, commands, claimable); 0 after any other answer. The orchestrator backs off when this stays high. */
   consecutiveAuthFailures = 0;
 
+  /** Epoch ms until which the website asked this Agent to stay quiet (a 429 on a poll); 0 = no request outstanding. */
+  private rateLimitedUntilMs = 0;
+
+  /** Milliseconds the poll loop should still wait because the website answered 429, 0 when none. Not a failure: it only lengthens the next sleep. */
+  rateLimitBackoffMs(): number {
+    return Math.max(0, this.rateLimitedUntilMs - Date.now());
+  }
+
   /**
    * One of the three idempotent polls. NOT retried inside the request: the next cycle (60 s or more away) is the
    * retry, and an in-request retry loop against a struggling server multiplies the invocations it is already failing
@@ -194,6 +210,12 @@ export class CloudClient {
       this.consecutiveAuthFailures = 0;
       return res;
     } catch (err) {
+      if (err instanceof CloudApiError && err.status === 429) {
+        // "Slow down": remember how long, and leave the auth-failure counter alone (this is not a credentials problem).
+        const secs = Math.min(MAX_RATE_LIMIT_BACKOFF_SECONDS, Math.max(1, err.retryAfterSeconds ?? DEFAULT_RATE_LIMIT_BACKOFF_SECONDS));
+        this.rateLimitedUntilMs = Date.now() + secs * 1000;
+        throw err;
+      }
       if (err instanceof CloudApiError && (err.status === 401 || err.status === 403)) this.consecutiveAuthFailures += 1;
       else if (err instanceof CloudApiError) this.consecutiveAuthFailures = 0;
       throw err;
@@ -271,7 +293,8 @@ export class CloudClient {
         } catch {
           // Non-JSON body (e.g. a proxy error page) - leave json as {}, callers handle missing fields.
         }
-        return { status: res.status, json };
+        const retryAfter = Number(res.headers?.get?.("retry-after"));
+        return { status: res.status, json, ...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfterSeconds: Math.ceil(retryAfter) } : {}) };
       } catch (err) {
         clearTimeout(timer);
         const isAbort = err instanceof Error && err.name === "AbortError";
@@ -304,13 +327,14 @@ export class CloudClient {
     body: unknown | undefined,
     opts: { auth: boolean; retry: boolean; timeoutMs?: number },
   ): Promise<T> {
-    const { status, json } = await this.sendWithRetry(method, urlPath, body, opts);
+    const { status, json, retryAfterSeconds } = await this.sendWithRetry(method, urlPath, body, opts);
     if (status >= 200 && status < 300) return json as T;
     const errBody = (json ?? {}) as ApiErrorBody;
     throw new CloudApiError(
       errBody.error?.message ?? `request failed with status ${status}`,
       errBody.error?.code ?? `HTTP_${status}`,
       status,
+      retryAfterSeconds,
     );
   }
 
@@ -356,9 +380,14 @@ export class CloudClient {
    * include the field (an older website ignores the flag, or its commands lookup failed): the caller then asks
    * `getCommands()` itself, exactly as before.
    */
-  async getClaimableAndCommands(): Promise<{ jobs: ClaimableJob[]; commands: RemoteCommandEnvelope[] | undefined }> {
-    const res = await this.poll<{ jobs: ClaimableJob[]; commands?: unknown }>("GET", "/api/agents/jobs/claimable?commands=1");
-    return { jobs: res.jobs, commands: Array.isArray(res.commands) ? (res.commands as RemoteCommandEnvelope[]) : undefined };
+  async getClaimableAndCommands(opts: { prepare?: boolean } = {}): Promise<{ jobs: ClaimableJob[]; commands: RemoteCommandEnvelope[] | undefined; prepareWaiting?: boolean }> {
+    // `prepare=1` (only when this server's prepare worker is on) also asks "is a prepare job waiting?", so the worker needs no polling of its own.
+    const res = await this.poll<{ jobs: ClaimableJob[]; commands?: unknown; prepareWaiting?: unknown }>("GET", `/api/agents/jobs/claimable?commands=1${opts.prepare ? "&prepare=1" : ""}`);
+    return {
+      jobs: res.jobs,
+      commands: Array.isArray(res.commands) ? (res.commands as RemoteCommandEnvelope[]) : undefined,
+      ...(typeof res.prepareWaiting === "boolean" ? { prepareWaiting: res.prepareWaiting } : {}),
+    };
   }
 
   /**
@@ -456,6 +485,61 @@ export class CloudClient {
   /** POST /api/agents/server-jobs/:jobId/fail with `{ error }` (a short plain-English reason; the website shows it to people). */
   async failLibraryJob(jobId: string, error: string): Promise<void> {
     await this.request<{ ok: true }>("POST", `/api/agents/server-jobs/${encodeURIComponent(jobId)}/fail`, { error }, { auth: true, retry: false });
+  }
+
+  /**
+   * Prepare jobs (docs/PREPARE-JOBS-DESIGN.md): the optional prepare worker's calls. Like the library calls they are NOT routed through
+   * `poll()` (a refusal here must never count toward `consecutiveAuthFailures`, which slows printing down) and are not retried here: the
+   * worker has its own limits, and the website's 120 s lease is what protects a job. All of them only ever concern this print server's own school.
+   *
+   * POST /api/agents/prepare-jobs/claim. `null` = 204, nothing waiting.
+   */
+  async claimPrepareJob(): Promise<{ jobId: string; params: unknown; leaseSeconds: number } | null> {
+    const { status, json } = await this.sendWithRetry("POST", "/api/agents/prepare-jobs/claim", undefined, { auth: true, retry: false });
+    if (status === 204) return null;
+    if (status === 200) {
+      const body = (json ?? {}) as { jobId?: unknown; params?: unknown; leaseSeconds?: unknown };
+      if (typeof body.jobId === "string") return { jobId: body.jobId, params: body.params, leaseSeconds: typeof body.leaseSeconds === "number" ? body.leaseSeconds : 120 };
+      throw new CloudApiError("prepare-jobs/claim answered 200 without a job", "BAD_RESPONSE", 200);
+    }
+    const errBody = (json ?? {}) as ApiErrorBody;
+    throw new CloudApiError(errBody.error?.message ?? `prepare claim failed with status ${status}`, errBody.error?.code ?? `HTTP_${status}`, status);
+  }
+
+  /** POST .../prepare-jobs/:jobId/original: a short-lived signed download link for the job's own original file. */
+  async getPrepareOriginalUrl(jobId: string): Promise<string> {
+    const body = await this.request<{ url?: unknown }>("POST", `/api/agents/prepare-jobs/${encodeURIComponent(jobId)}/original`, undefined, { auth: true, retry: false });
+    if (typeof body?.url !== "string") throw new CloudApiError("prepare original answered without a link", "BAD_RESPONSE", 200);
+    return body.url;
+  }
+
+  /** POST .../prepare-jobs/:jobId/upload-slot: where to PUT the prepared file (the website chooses the path). */
+  async getPrepareUploadSlot(jobId: string): Promise<{ path: string; uploadUrl: string; apikey: string }> {
+    const body = await this.request<{ path?: unknown; uploadUrl?: unknown; apikey?: unknown }>(
+      "POST",
+      `/api/agents/prepare-jobs/${encodeURIComponent(jobId)}/upload-slot`,
+      undefined,
+      { auth: true, retry: false },
+    );
+    if (typeof body?.path !== "string" || typeof body.uploadUrl !== "string" || typeof body.apikey !== "string") {
+      throw new CloudApiError("prepare upload-slot answered without a slot", "BAD_RESPONSE", 200);
+    }
+    return { path: body.path, uploadUrl: body.uploadUrl, apikey: body.apikey };
+  }
+
+  /** POST .../prepare-jobs/:jobId/renew: another 120 s on the lease. */
+  async renewPrepareJob(jobId: string): Promise<void> {
+    await this.request<{ leaseUntil?: string }>("POST", `/api/agents/prepare-jobs/${encodeURIComponent(jobId)}/renew`, undefined, { auth: true, retry: false });
+  }
+
+  /** POST .../prepare-jobs/:jobId/complete with exactly `{ result }`. */
+  async completePrepareJob(jobId: string, result: unknown): Promise<void> {
+    await this.request<{ ok: true }>("POST", `/api/agents/prepare-jobs/${encodeURIComponent(jobId)}/complete`, { result }, { auth: true, retry: false, timeoutMs: 30_000 });
+  }
+
+  /** POST .../prepare-jobs/:jobId/fail with `{ reason }` (a short plain-English reason; the sender sees it). */
+  async failPrepareJob(jobId: string, reason: string): Promise<void> {
+    await this.request<{ ok: true }>("POST", `/api/agents/prepare-jobs/${encodeURIComponent(jobId)}/fail`, { reason }, { auth: true, retry: false });
   }
 
   /**

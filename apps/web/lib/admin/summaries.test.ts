@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agentCommandsSummary,
+  agentRunningCommitLabel,
   agentMachineSummary,
   agentQueuesSummary,
   agentVersionSummary,
@@ -66,5 +67,14 @@ describe("deviceTone", () => {
     expect(deviceTone({ statusKey: "printed", openIssues: 0, stuck: null })).toBe("success");
     expect(deviceTone({ statusKey: "revoked", openIssues: 0, stuck: null })).toBe("neutral");
     expect(deviceTone({ statusKey: "created", openIssues: 0, stuck: null })).toBe("neutral");
+  });
+});
+
+describe("agentRunningCommitLabel", () => {
+  it("shows the first seven characters of a reported commit", () => {
+    expect(agentRunningCommitLabel("8C4D0E2aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")).toBe("running 8c4d0e2");
+  });
+  it("says 'commit not reported' for nothing, nonsense, or a missing column", () => {
+    for (const v of [null, undefined, "", "not a hash"]) expect(agentRunningCommitLabel(v)).toBe("commit not reported");
   });
 });

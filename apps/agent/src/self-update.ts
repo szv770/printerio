@@ -101,7 +101,8 @@ export type SelfUpdateReason =
   | "git_unavailable"
   | "git_failed"
   | "install_failed"
-  | "pnpm_not_found";
+  | "pnpm_not_found"
+  | "node_too_old";
 
 export interface SelfUpdateResult {
   /** True only when the checkout actually advanced AND dependencies were re-installed successfully - i.e. a restart is warranted. */
@@ -157,6 +158,8 @@ export interface SelfUpdateFs {
 }
 
 export interface SelfUpdateDeps {
+  /** Test seam: the Node version this Agent runs on (default process.versions.node). */
+  nodeVersion?: string;
   repoRoot: string;
   logger: Logger;
   /** Injected so tests can drive every branch without a real git remote; production passes `runCommand`. */
@@ -309,6 +312,17 @@ function envGet(env: NodeJS.ProcessEnv, name: string): string | undefined {
 export const PNPM_INSTALL_ARGS = ["install", "--frozen-lockfile", "--ignore-scripts"] as const;
 
 /**
+ * The package store used by the update's `pnpm install`: PRINTIO_PNPM_STORE_DIR when set, otherwise `.pnpm-store`
+ * inside the checkout (gitignored). See `storeDir` on resolvePnpmLauncher for why it is not pnpm's default.
+ */
+export function pnpmStoreDir(repoRoot: string, platform: string, env: NodeJS.ProcessEnv): string {
+  const P = platform === "win32" ? path.win32 : path.posix;
+  const override = envGet(env, "PRINTIO_PNPM_STORE_DIR");
+  if (override && P.isAbsolute(override)) return override;
+  return P.join(repoRoot, ".pnpm-store");
+}
+
+/**
  * Finds a way to run `pnpm install` that works from a Windows service and on
  * Linux/mac, without a shell wherever possible. Everything comes from the
  * local filesystem and environment; no cloud value is involved. Pure apart
@@ -319,11 +333,20 @@ export function resolvePnpmLauncher(opts: {
   env: NodeJS.ProcessEnv;
   execPath: string;
   fs: SelfUpdateFs;
+  /**
+   * Where pnpm keeps its package store for this install. The default pnpm store lives in the user profile
+   * (`AppData\\Local\\pnpm\\store`), which the limited service account cannot walk: that is the EPERM that made
+   * the first update fail on the owner's server. A store inside the repo folder is always writable by the account that
+   * can already write the checkout. Left out (pnpm's own default) when the path is not usable.
+   */
+  storeDir?: string;
 }): PnpmResolution {
   const { platform, env, execPath, fs } = opts;
   const win = platform === "win32";
   const P = win ? path.win32 : path.posix;
   const rejected: string[] = [];
+  const storeDir = opts.storeDir && P.isAbsolute(opts.storeDir) && !CMD_UNSAFE.test(opts.storeDir) ? opts.storeDir : undefined;
+  const installArgs: string[] = storeDir ? [...PNPM_INSTALL_ARGS, "--store-dir", storeDir] : [...PNPM_INSTALL_ARGS];
   const nodeDir = P.dirname(execPath);
 
   const childEnv = (): Record<string, string> => {
@@ -350,7 +373,7 @@ export function resolvePnpmLauncher(opts: {
     }
     return {
       command: "cmd.exe",
-      args: ["/d", "/s", "/c", `""${shim}" ${PNPM_INSTALL_ARGS.join(" ")}"`],
+      args: ["/d", "/s", "/c", `""${shim}" ${PNPM_INSTALL_ARGS.join(" ")}${storeDir ? ` --store-dir "${storeDir}"` : ""}"`],
       kind: "cmd-shim",
       env: childEnv(),
       windowsVerbatimArguments: true,
@@ -364,9 +387,9 @@ export function resolvePnpmLauncher(opts: {
     let found: PnpmLauncher | null = null;
     if (!P.isAbsolute(override)) rejected.push("PRINTIO_PNPM_PATH is not an absolute path");
     else if (!fs.exists(override)) rejected.push("PRINTIO_PNPM_PATH does not exist");
-    else if (base === "pnpm.cjs") found = viaNode(override, "node-cjs", [...PNPM_INSTALL_ARGS]);
+    else if (base === "pnpm.cjs") found = viaNode(override, "node-cjs", installArgs);
     else if (base === "pnpm.exe" || (!win && base === "pnpm")) {
-      found = { command: override, args: [...PNPM_INSTALL_ARGS], kind: "exe", env: childEnv() };
+      found = { command: override, args: installArgs, kind: "exe", env: childEnv() };
     } else if (base === "pnpm.cmd" && win) found = cmdShim(override);
     if (found) return { launcher: found, rejected };
     if (rejected.length === 0) {
@@ -378,7 +401,7 @@ export function resolvePnpmLauncher(opts: {
     for (const dir of (envGet(env, "PATH") ?? "").split(":")) {
       if (!dir || !P.isAbsolute(dir)) continue;
       const exe = P.join(dir, "pnpm");
-      if (fs.exists(exe)) return { launcher: { command: exe, args: [...PNPM_INSTALL_ARGS], kind: "exe", env: childEnv() }, rejected };
+      if (fs.exists(exe)) return { launcher: { command: exe, args: installArgs, kind: "exe", env: childEnv() }, rejected };
     }
     return { launcher: null, rejected };
   }
@@ -398,7 +421,7 @@ export function resolvePnpmLauncher(opts: {
 
   for (const prefix of prefixes) {
     const cjs = P.join(prefix, "node_modules", "pnpm", "bin", "pnpm.cjs");
-    if (fs.exists(cjs)) return { launcher: viaNode(cjs, "node-cjs", [...PNPM_INSTALL_ARGS]), rejected };
+    if (fs.exists(cjs)) return { launcher: viaNode(cjs, "node-cjs", installArgs), rejected };
   }
   // only a .cmd shim exists
   for (const prefix of prefixes) {
@@ -408,7 +431,7 @@ export function resolvePnpmLauncher(opts: {
   // corepack, last resort (ships next to node.exe)
   const corepack = P.join(nodeDir, "node_modules", "corepack", "dist", "corepack.js");
   if (fs.exists(corepack)) {
-    const l = viaNode(corepack, "corepack", ["pnpm", ...PNPM_INSTALL_ARGS]);
+    const l = viaNode(corepack, "corepack", ["pnpm", ...installArgs]);
     l.env = { ...(l.env ?? {}), COREPACK_ENABLE_DOWNLOAD_PROMPT: "0" };
     return { launcher: l, rejected };
   }
@@ -486,6 +509,40 @@ async function currentVersion(deps: SelfUpdateDeps): Promise<string> {
 }
 
 /** Restarts the sibling IPP gateway service. Never throws; returns null on success or a plain reason on failure. */
+/** `>=22.13` style requirement against a version like `22.1.0`. null = a form we do not understand (then do not block). */
+export function nodeMeetsRequirement(requirement: string, nodeVersion: string): boolean | null {
+  const m = /^>=\s*v?(\d+)(?:\.(\d+))?(?:\.(\d+))?\s*$/.exec(requirement.trim());
+  const v = /^v?(\d+)\.(\d+)\.(\d+)/.exec(nodeVersion.trim());
+  if (!m || !v) return null;
+  const need = [Number(m[1]), Number(m[2] ?? 0), Number(m[3] ?? 0)];
+  const have = [Number(v[1]), Number(v[2]), Number(v[3])];
+  for (let i = 0; i < 3; i++) {
+    if (have[i]! !== need[i]!) return have[i]! > need[i]!;
+  }
+  return true;
+}
+
+/**
+ * Before anything is changed: does the NEW code need a newer Node than this machine has? Reads package.json from the
+ * upstream commit (after a plain `git fetch`; fixed argv). Never blocks on anything it cannot read: a failed fetch is
+ * left for `git pull` to report in its own words.
+ */
+async function nodeRequirementProblem(deps: SelfUpdateDeps): Promise<{ requirement: string; have: string } | null> {
+  const { repoRoot } = deps;
+  try {
+    const fetched = await deps.run("git", ["fetch", "--quiet"], repoRoot, GIT_TIMEOUT_MS);
+    if (fetched.exitCode !== 0) return null;
+    const shown = await deps.run("git", ["show", "@{u}:package.json"], repoRoot, GIT_TIMEOUT_MS);
+    if (shown.exitCode !== 0) return null;
+    const requirement = (JSON.parse(shown.stdout) as { engines?: { node?: unknown } }).engines?.node;
+    if (typeof requirement !== "string") return null;
+    const have = deps.nodeVersion ?? process.versions.node;
+    return nodeMeetsRequirement(requirement, have) === false ? { requirement, have } : null;
+  } catch {
+    return null;
+  }
+}
+
 async function restartGateway(deps: SelfUpdateDeps): Promise<string | null> {
   if ((deps.platform ?? process.platform) !== "win32") {
     return "only Windows print servers run the gateway as a service.";
@@ -554,6 +611,7 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
     env: deps.env ?? process.env,
     execPath: deps.execPath ?? process.execPath,
     fs: deps.fs ?? realFs,
+    storeDir: pnpmStoreDir(repoRoot, deps.platform ?? process.platform, deps.env ?? process.env),
   });
   const launcher = resolution.launcher;
   if (!launcher) {
@@ -566,6 +624,20 @@ export async function performSelfUpdate(deps: SelfUpdateDeps): Promise<SelfUpdat
         "pnpm was not found on that machine; set PRINTIO_PNPM_PATH in apps/agent/.env (the full path to pnpm.cjs, pnpm.cmd or pnpm.exe) and press Update again. " +
         "Nothing was changed." +
         (resolution.rejected.length ? ` (${resolution.rejected.join("; ")}.)` : ""),
+      repoRoot,
+    };
+  }
+
+  const nodeProblem = await nodeRequirementProblem(deps);
+  if (nodeProblem) {
+    logger.warn("CHECK_FOR_UPDATE: the new code needs a newer Node.js than this machine has", nodeProblem);
+    return {
+      updated: false,
+      reason: "node_too_old",
+      failedStep: "checking",
+      message:
+        `This update needs Node.js ${nodeProblem.requirement} but this print server runs Node ${nodeProblem.have}, so it was NOT started and nothing was changed. ` +
+        "Install the current LTS version of Node.js (nodejs.org) on that machine, then press Update again.",
       repoRoot,
     };
   }

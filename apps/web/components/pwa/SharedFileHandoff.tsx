@@ -76,7 +76,7 @@ export function SharedFileHandoff({
       }
 
       const { entry } = result;
-      const file = new File([entry.blob], entry.name, { type: "application/pdf", lastModified: entry.at });
+      const file = new File([entry.blob], entry.name, { type: entry.blob.type, lastModified: entry.at });
       // The form's picker rejects oversized / empty files with its own message; say the same thing here rather than
       // announcing a file the form will refuse.
       const verdict = precheckSelectedFile(file, maxUploadBytes);

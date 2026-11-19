@@ -33,7 +33,7 @@ const initialRemoveState: RemoveMemberState = {};
  *  "Remove from organization", which the roster row also has but which reads
  *  clearer with its own confirm copy here. Read-only (canEdit false, i.e. an
  *  approver viewing the page) just shows the values as plain badges/text. */
-export function MemberDetailControls({ member, canEdit }: { member: DetailMember; canEdit: boolean }) {
+export function MemberDetailControls({ member, canEdit, onRemoved }: { member: DetailMember; canEdit: boolean; onRemoved?: () => void }) {
   const router = useRouter();
   const [roleState, roleAction] = useActionState(changeMemberRoleAction, initialRoleState);
   const [deptState, deptAction] = useActionState(changeMemberDepartmentAction, initialDeptState);
@@ -44,8 +44,10 @@ export function MemberDetailControls({ member, canEdit }: { member: DetailMember
   // next fetch of it 404s - so navigate back to the roster right away rather
   // than leaving the admin looking at a page for someone who's already gone.
   useEffect(() => {
-    if (removeState.success) router.replace(routes.adminUsers);
-  }, [removeState.success, router]);
+    if (!removeState.success) return;
+    if (onRemoved) onRemoved();
+    else router.replace(routes.adminUsers);
+  }, [removeState.success, router, onRemoved]);
 
   if (!canEdit) {
     return (
@@ -55,7 +57,7 @@ export function MemberDetailControls({ member, canEdit }: { member: DetailMember
           <Badge>{roleLabel(member.role)}</Badge>
         </div>
         <div>
-          <p className="mb-1 text-[var(--color-muted)]">Department</p>
+          <p className="mb-1 text-[var(--color-muted)]">Section</p>
           <p className="font-medium">{member.department ?? "—"}</p>
         </div>
         <div>
@@ -88,7 +90,7 @@ export function MemberDetailControls({ member, canEdit }: { member: DetailMember
       <form action={deptAction} className="flex items-end gap-2">
         <input type="hidden" name="userId" value={member.userId} />
         <div>
-          <FieldLabel htmlFor="department">Department</FieldLabel>
+          <FieldLabel htmlFor="department">Section</FieldLabel>
           <Input id="department" name="department" defaultValue={member.department ?? ""} placeholder="—" className="w-full sm:w-40" />
         </div>
         <Button type="submit" size="sm">

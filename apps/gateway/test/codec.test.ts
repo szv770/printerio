@@ -89,3 +89,16 @@ describe("IPP codec", () => {
     expect(() => decodeIpp(open)).toThrow(IppParseError);
   });
 });
+
+describe("per-value tags (a 1setOf with mixed syntaxes, e.g. media-type: keyword + names)", () => {
+  it("encodes each value with its own tag; without valueTags every value uses the attribute's tag", () => {
+    const mixed = { ...attr(TAG.name, "media-type-supported", "stationery", "Booklet"), valueTags: [TAG.keyword, TAG.name] };
+    const bytes = encodeIpp({ code: 0, requestId: 1, groups: [{ tag: TAG.printer, attrs: [mixed] }] });
+    const first = bytes.indexOf(Buffer.from("media-type-supported"));
+    expect(bytes[first - 3]).toBe(TAG.keyword); // tag byte of the first value record (tag, u16 name length, name)
+    const second = bytes.indexOf(Buffer.from("Booklet"));
+    expect(bytes[second - 5]).toBe(TAG.name); // tag, u16 0 (empty name), u16 value length, then the value
+    const plain = encodeIpp({ code: 0, requestId: 1, groups: [{ tag: TAG.printer, attrs: [attr(TAG.name, "x", "a", "b")] }] });
+    expect(plain.filter((b) => b === TAG.name).length).toBeGreaterThanOrEqual(2);
+  });
+});
