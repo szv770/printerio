@@ -147,7 +147,7 @@ export function layoutSummary(layout: PresetLayout | undefined, pages: number | 
   if (layout.kind === "nup") {
     if (sides === null || !pages) return `Each sheet holds ${cells} pages.`;
     const sheets = duplex ? Math.ceil(sides / 2) : sides;
-    return `${plural(pages, "page", "pages")} become ${plural(sheets, "sheet", "sheets")}`;
+    return `${plural(pages, "page", "pages")} ${pages === 1 ? "becomes" : "become"} ${plural(sheets, "sheet", "sheets")}`;
   }
   const what = layout.pages === "first" ? "The first page is" : "Each page is";
   if (sides === null || !pages) return `${what} printed ${cells} times on one sheet.`;
