@@ -141,23 +141,12 @@ function planFail(error: string, code: CreatePrintJobErrorCode, fieldErrors?: { 
 export type PreparedForFinish = Extract<PreparePdfResult, { ok: true }>;
 
 /**
- * Steps 1-3 of creating a job, with no PDF work: the printer-profile and settings lookups, the rate limit and open-jobs cap, what the member's
- * choices mean for this printer, the held reason and the size cap. `originalSizeBytes` is only the size (the file itself is not needed here).
+ * The two cheap per-person limits, checked before any expensive work: the fixed-window rate limit and the cap on jobs waiting or printing.
+ * Its own function so a job that is finished LATER (the print-server path, docs/PREPARE-JOBS-DESIGN.md) counts once, at submit, not twice.
+ * Returns the refusal, or null when the person may submit.
  */
-export async function resolveJobPlan(supabase: SupabaseClient<Database>, session: JobSession, originalSizeBytes: number, opts: JobOptions): Promise<PlanResult> {
+export async function checkSubmitLimits(writer: SupabaseClient<Database>, session: JobSession): Promise<CreatePrintJobResult | null> {
   const organizationId = session.membership.organization_id;
-  const { printerProfileId, choices } = opts;
-  const source = opts.source ?? "web";
-  const bookletFit: BookletFit = opts.bookletFit === "keep" ? "keep" : "fill";
-  const bookletSheet: BookletSheet = bookletSheetChoice(opts.bookletSheet);
-  // Reads go through `supabase`; every WRITE (quota reserve/release, storage upload/remove, the print_jobs insert,
-  // the event trail) goes through `writer`. The website passes the service-role client here after its own session
-  // checks, so members need no INSERT/UPDATE rights on print_jobs, monthly_usage or the print-jobs bucket
-  // (migration 0034). organization_id and created_by below always come from `session`, never from `opts`.
-  const writer = opts.writeClient ?? supabase;
-
-  if (!printerProfileId) return planFail("Choose a printer.", "invalid_request");
-
   // Fixed-window rate limit, checked before any expensive work (PDF parsing,
   // storage upload) - see supabase/migrations/0012_rate_limiting.sql for why
   // this has to be DB-backed rather than in-memory on Vercel. Scoped per
@@ -173,7 +162,7 @@ export async function resolveJobPlan(supabase: SupabaseClient<Database>, session
   if (rateLimitError) {
     logger.error("rate limit check failed", { userId: session.userId, error: rateLimitError.message });
   } else if (!withinLimit) {
-    return planFail("You're submitting jobs too quickly. Wait a few minutes and try again.", "rate_limited");
+    return fail("You're submitting jobs too quickly. Wait a few minutes and try again.", "rate_limited");
   }
 
   // One person cannot stack up an endless queue (paper, toner and everyone else's waiting time). Checked before any
@@ -185,8 +174,24 @@ export async function resolveJobPlan(supabase: SupabaseClient<Database>, session
     .eq("organization_id", organizationId)
     .in("status", OPEN_JOB_STATUSES);
   if ((openJobs ?? 0) >= MAX_OPEN_JOBS_PER_USER) {
-    return planFail(`You already have ${MAX_OPEN_JOBS_PER_USER} jobs waiting or printing. Wait for some to finish, or cancel one, then try again.`, "rate_limited");
+    return fail(`You already have ${MAX_OPEN_JOBS_PER_USER} jobs waiting or printing. Wait for some to finish, or cancel one, then try again.`, "rate_limited");
   }
+  return null;
+}
+
+/**
+ * Steps 2-3 of creating a job, with no PDF work: the printer-profile and settings lookups, what the member's
+ * choices mean for this printer, the held reason and the size cap. `originalSizeBytes` is only the size (the file itself is not needed here).
+ */
+export async function resolveJobPlan(supabase: SupabaseClient<Database>, session: JobSession, originalSizeBytes: number, opts: JobOptions): Promise<PlanResult> {
+  const organizationId = session.membership.organization_id;
+  const { printerProfileId, choices } = opts;
+  const source = opts.source ?? "web";
+  const bookletFit: BookletFit = opts.bookletFit === "keep" ? "keep" : "fill";
+  const bookletSheet: BookletSheet = bookletSheetChoice(opts.bookletSheet);
+  // Reads only: every WRITE (quota, storage, the print_jobs insert, events) happens in finishPrintJob through the write client.
+
+  if (!printerProfileId) return planFail("Choose a printer.", "invalid_request");
 
   // Independent lookups - the profile doesn't gate the settings read or vice
   // versa - so they overlap instead of costing two sequential round trips
@@ -332,6 +337,10 @@ export async function createPrintJob(
   originalFileName: string,
   opts: JobOptions,
 ): Promise<CreatePrintJobResult> {
+  const writerForLimits = opts.writeClient ?? supabase;
+  if (!opts.printerProfileId) return fail("Choose a printer.", "invalid_request");
+  const limited = await checkSubmitLimits(writerForLimits, session);
+  if (limited) return limited;
   const planned = await resolveJobPlan(supabase, session, originalBytes.byteLength, opts);
   if (!planned.ok) return planned.result;
   const { plan } = planned;
@@ -390,11 +399,17 @@ export async function createPrintJob(
 export async function finishPrintJob(
   supabase: SupabaseClient<Database>,
   session: JobSession,
-  originalBytes: Uint8Array,
+  originalBytes: Uint8Array | null,
   originalFileName: string,
   opts: JobOptions,
   plan: JobPlan,
   prepared: PreparedForFinish,
+  /**
+   * The print-server path: the files are ALREADY in storage (the upload, and the file the print server prepared), so they are MOVED to their usual
+   * `org/<org>/jobs/<jobId>/...` paths instead of uploaded, and the print job gets the prepare job's id (finishing twice then hits the primary key).
+   * `originalBytes` is null in that case.
+   */
+  stored?: { jobId: string; originalPath: string; derivedPath: string | null },
 ): Promise<CreatePrintJobResult> {
   const { organizationId, printerProfile, copies, duplex, staple, booklet, punch, colorMode, paperSize, staplePosition, bindingSide, duplexEdge, stapleStyle, paperType, quotaBasis, approvalExpiryHours, bookletFit, bookletSheet, source } = plan;
   const writer = opts.writeClient ?? supabase;
@@ -507,9 +522,9 @@ export async function finishPrintJob(
     }
   }
 
-  const jobId = crypto.randomUUID();
+  const jobId = stored?.jobId ?? crypto.randomUUID();
   const originalPath = jobFilePath(organizationId, jobId, "original");
-  const derivedPath = derivedBytes ? jobFilePath(organizationId, jobId, "derived") : null;
+  const derivedPath = (stored ? stored.derivedPath !== null : derivedBytes) ? jobFilePath(organizationId, jobId, "derived") : null;
 
   /**
    * Undoes the side effects this function has already committed when a later
@@ -546,12 +561,18 @@ export async function finishPrintJob(
   // Both objects are independent writes to distinct keys, so they upload
   // concurrently rather than one after the other - on a booklet job that
   // halves the storage wait the user sits through after submitting.
-  const [originalUpload, derivedUpload] = await Promise.all([
-    writer.storage.from(PRINT_JOBS_BUCKET).upload(originalPath, originalBytes, { contentType: "application/pdf" }),
-    derivedBytes && derivedPath
-      ? writer.storage.from(PRINT_JOBS_BUCKET).upload(derivedPath, derivedBytes, { contentType: "application/pdf" })
-      : Promise.resolve({ error: null }),
-  ]);
+  const bucket = writer.storage.from(PRINT_JOBS_BUCKET);
+  const [originalUpload, derivedUpload] = stored
+    ? await Promise.all([
+        bucket.move(stored.originalPath, originalPath),
+        stored.derivedPath && derivedPath ? bucket.move(stored.derivedPath, derivedPath) : Promise.resolve({ error: null }),
+      ])
+    : await Promise.all([
+        bucket.upload(originalPath, originalBytes ?? new Uint8Array(), { contentType: "application/pdf" }),
+        derivedBytes && derivedPath
+          ? bucket.upload(derivedPath, derivedBytes, { contentType: "application/pdf" })
+          : Promise.resolve({ error: null }),
+      ]);
   // A failed derived upload used to be swallowed entirely: the row was still
   // written pointing at a derived_file_path that did not exist, so the job
   // looked fine here and then failed at the Agent with nothing explaining why.
