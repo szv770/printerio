@@ -97,6 +97,11 @@ export interface TextFidelityInput {
   sourcePages: readonly number[] | null;
   /** The derived file is an imposed booklet (two source pages per sheet side). */
   booklet: boolean;
+  /**
+   * The derived file is a page layout (n-up, step and repeat): for each derived page, the 1-based pages of the page-range result it must hold
+   * (a repeated page is listed once per copy). Takes the place of `booklet`; the page order inside a sheet does not matter (characters are sorted).
+   */
+  groups?: readonly (readonly number[])[];
   budgetMs?: number;
 }
 
@@ -112,7 +117,9 @@ export async function checkTextFidelity(input: TextFidelityInput): Promise<TextF
     // The text each derived page must carry, from the original's pages.
     const sources = sourcePages ? sourcePages.map((p) => originalChars[p - 1] ?? "") : originalChars;
     let expected: string[];
-    if (booklet) {
+    if (input.groups) {
+      expected = input.groups.map((g) => [...g.map((p) => sources[p - 1] ?? "").join("")].sort().join(""));
+    } else if (booklet) {
       const padded = [...sources];
       while (padded.length % 4 !== 0 || padded.length === 0) padded.push("");
       expected = bookletPageOrder(padded.length)

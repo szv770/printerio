@@ -63,3 +63,16 @@ describe("prepare wire format", () => {
     expect(readWire({ preparedPath: null, sourcePages: 3 })).toEqual({ kind: "incomplete" });
   });
 });
+
+describe("prepare wire: layout and picture options", () => {
+  it("an absent layout adds no keys; a present one travels to preparePdf unchanged", () => {
+    expect(prepareInputFromParams(params)).not.toHaveProperty("layout");
+    expect(prepareInputFromParams(params)).not.toHaveProperty("imageOptions");
+    const layout = { kind: "repeat" as const, cols: 4, rows: 5, pages: "first" as const, marks: true };
+    const withLayout: PrepareJobParams = { ...params, pdf: { ...params.pdf, layout, imageOptions: { fit: "fill", paperSize: "a4" } } };
+    const input = prepareInputFromParams(JSON.parse(JSON.stringify(withLayout)) as PrepareJobParams);
+    expect(input.layout).toEqual(layout);
+    expect(input.imageOptions).toEqual({ fit: "fill", paperSize: "a4" });
+  });
+});
+

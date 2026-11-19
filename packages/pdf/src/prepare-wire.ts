@@ -1,5 +1,7 @@
 import type { BookletFit } from "./imposition";
-import type { BookletSheet } from "./booklet-build";
+import type { BookletSheet } from "./booklet-sheet";
+import type { ImageFit } from "./image-to-pdf";
+import type { LayoutSpec } from "./nup";
 import type { PreparePdfErrorCode, PreparePdfInput, PreparePdfResult, StampPlan } from "./prepare";
 
 /**
@@ -41,6 +43,10 @@ export interface PrepareJobParams {
     /** Built by the website at intake (it needs the member's code from the database); null = no stamp. */
     stamp: StampPlan | null;
     allowType3Fonts: boolean;
+    /** Optional page layout (n-up / step and repeat); absent = none. Cannot be combined with `booklet`. */
+    layout?: LayoutSpec;
+    /** Optional: how a picture upload (JPEG/PNG) is placed on the page. */
+    imageOptions?: { fit?: ImageFit; paperSize?: string; margin?: number };
     logContext: Record<string, unknown>;
   };
   /** For the website's finish step. */
@@ -61,6 +67,8 @@ export function prepareInputFromParams(params: PrepareJobParams): Omit<PreparePd
     confirmBookletPadding: p.confirmBookletPadding,
     stamp: p.stamp,
     allowType3Fonts: p.allowType3Fonts,
+    ...(p.layout ? { layout: p.layout } : {}),
+    ...(p.imageOptions ? { imageOptions: p.imageOptions } : {}),
     logContext: p.logContext,
   };
 }
