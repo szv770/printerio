@@ -8,7 +8,10 @@ import { bookletBlankPagesNote } from "@/lib/booklet-note";
 import { PagePicker } from "@/components/print/PagePicker";
 import { Button, Card, Collapsible, FieldError, FieldLabel, FormError, Input, Segmented, Spinner, StatusDot, Switch } from "@/components/ui";
 import { hasType3Fonts, PICTURE_COPY_MAX_PAGES, TYPE3_HELD_MESSAGE, TYPE3_PICTURE_NOTICE } from "@printio/pdf/type3-fonts";
-import { formatFileSize, precheckPdfHeader, precheckSelectedFile, shouldPreviewInBrowser } from "@/lib/pdf/client-precheck";
+import { IMAGE_PAGE_COUNT, formatFileSize, isImageKind, precheckSelectedFile, precheckUploadHeader, shouldPreviewInBrowser } from "@/lib/pdf/client-precheck";
+import { PRINT_PRESETS, type PrintPreset } from "@printio/shared";
+import { NO_LAYOUT, layoutFields, layoutFromUi, layoutSides, presetFormState, type LayoutUi } from "@/lib/print-layout-form";
+import { LayoutOptions, QuickSettings } from "./layout-options";
 import { renderPdfPageToCanvas } from "@/lib/pdf/render-page";
 import { MAX_COPIES, buildSummary } from "@/lib/print-choices";
 import {
@@ -70,6 +73,8 @@ const THUMBNAIL_MAX_WIDTH_PX = 200;
 /** The key the page used to remember choices under in the browser. It no longer remembers anything there; the key is just cleaned up. */
 const LEGACY_STORAGE_KEY = "printio.print-choices.v1";
 
+const LAYOUT_BOOKLET_REASON = "Turn off Pages per sheet below to make a booklet.";
+
 const STAGED_REUSE_MS = 20 * 60 * 1000;
 const stagedNow = () => Date.now();
 /** The path of an earlier direct upload of this very file, while it is fresh enough that the weekly cleanup cannot have taken it. */
@@ -121,6 +126,11 @@ export function PrintForm({
   const [fileNotice, setFileNotice] = useState<string | null>(null);
   const [thumbnailReady, setThumbnailReady] = useState(false);
   const [thumbnailLoading, setThumbnailLoading] = useState(false);
+  /** True when the picked (or shared) file is a JPEG or PNG: one page, shown as a picture, no page picker. Decided by the file's bytes, never its name or type. */
+  const [isImage, setIsImage] = useState(false);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  /** The Layout section (pages per sheet / repeat). Sent as the layout* fields; the server (lib/print-layout-form.ts) checks them again. */
+  const [layoutUi, setLayoutUi] = useState<LayoutUi>(NO_LAYOUT);
   /** Set when a file is too large to parse/render safely in the browser (see shouldPreviewInBrowser) - the upload itself is unaffected. */
   const [previewSkipped, setPreviewSkipped] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -212,6 +222,13 @@ export function PrintForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The picture preview is an object URL: let go of it when it changes or the page closes.
+  useEffect(() => {
+    return () => {
+      if (imageUrl) URL.revokeObjectURL(imageUrl);
+    };
+  }, [imageUrl]);
+
   const copiesNumber = /^\d+$/.test(copiesText.trim()) ? parseInt(copiesText, 10) : NaN;
   const copiesValid = Number.isInteger(copiesNumber) && copiesNumber >= 1 && copiesNumber <= MAX_COPIES;
   const copies = copiesValid ? copiesNumber : 1;
@@ -231,6 +248,18 @@ export function PrintForm({
   const effBooklet: BookletValue = eff.booklet;
   const effStaple: StapleValue = eff.staple;
   const effSides: SidesValue = eff.sides;
+  // Pages per sheet and a booklet are exclusive: the server refuses both, so the form never sends both.
+  const layoutActive = layoutUi.mode !== "none" && effBooklet === "none";
+  const submitLayout = layoutActive ? layoutUi : NO_LAYOUT;
+  const layoutFieldValues = layoutFields(submitLayout);
+  const quickPresets = PRINT_PRESETS.filter((p) => p.choices.booklet === "none" || (caps.booklet && caps.duplex));
+  /** A quick setting fills the booklet and Layout controls; the person can still change any of them afterwards. */
+  function pickPreset(p: PrintPreset) {
+    const f = presetFormState(p);
+    setLayoutUi(f.layout);
+    if (f.booklet !== effBooklet) tap({ kind: "booklet", value: f.booklet });
+    else setTapNote(null);
+  }
   /** One tap on a quick control: the rules decide what else must switch and say so in plain words. Taps start from what is shown. */
   function tap(t: ChoiceTap) {
     const r = applyTap(eff, t, ruleCtx);
@@ -270,6 +299,8 @@ export function PrintForm({
     setEstimatedPages(null);
     setThumbnailReady(false);
     setPreviewSkipped(false);
+    setIsImage(false);
+    setImageUrl(null);
     setFileError(reason);
   }
 
@@ -287,6 +318,8 @@ export function PrintForm({
     setFileSizeLabel(file ? formatFileSize(file.size) : null);
     setThumbnailReady(false);
     setPreviewSkipped(false);
+    setIsImage(false);
+    setImageUrl(null);
     if (!file) return;
 
     // Advisory only - lib/pdf/preflight.ts re-runs all of this server-side on the real bytes and stays the only
@@ -294,6 +327,32 @@ export function PrintForm({
     const metaCheck = precheckSelectedFile(file, maxUploadBytes);
     if (!metaCheck.ok) {
       rejectSelectedFile(input, metaCheck.reason);
+      return;
+    }
+
+    // What the file really is comes from its first bytes (a PDF, JPEG or PNG), so a shared file the handoff typed as a PDF, a
+    // renamed file and a file with no type all take the same road. Read before the size gate: a big photo is still one page.
+    let kind: ReturnType<typeof precheckUploadHeader>;
+    try {
+      kind = precheckUploadHeader(new Uint8Array(await file.slice(0, 16).arrayBuffer()));
+    } catch {
+      return; // can't read it here - let the server have the final say
+    }
+    if (!kind.ok) {
+      rejectSelectedFile(input, kind.reason);
+      return;
+    }
+    if (isImageKind(kind.kind)) {
+      // A photo is one page: no page count to find, no page picker, and any page range typed for an earlier file is dropped.
+      setIsImage(true);
+      setEstimatedPages(IMAGE_PAGE_COUNT);
+      setPagesMode("all");
+      setPageRange("");
+      if (!shouldPreviewInBrowser(file.size)) {
+        setPreviewSkipped(true);
+        return;
+      }
+      setImageUrl(URL.createObjectURL(file));
       return;
     }
 
@@ -312,11 +371,6 @@ export function PrintForm({
       return; // can't read it here - let the server have the final say
     }
 
-    const headerCheck = precheckPdfHeader(new Uint8Array(bytes.slice(0, 5)));
-    if (!headerCheck.ok) {
-      rejectSelectedFile(input, headerCheck.reason);
-      return;
-    }
     // Its own copy: pdf.js takes ownership of (empties) any buffer it is given, and the form hands this one to it next.
     setPickedBytes(bytes.slice(0));
 
@@ -439,7 +493,7 @@ export function PrintForm({
     const data = new FormData(form);
     const picked = data.get("file");
     if (!(picked instanceof File) || picked.size === 0) {
-      setPreview({ status: "error", error: "Choose a PDF first." });
+      setPreview({ status: "error", error: "Choose a file first." });
       return;
     }
     const signature = previewSignature;
@@ -505,7 +559,10 @@ export function PrintForm({
     edge: isRaw ? eff.edge : "long",
     size: eff.size,
     paper: isRaw ? eff.paper : "plain",
-  });
+  }) + (layoutActive ? ` · ${layoutUi.mode === "nup" ? `${layoutUi.perSheet} per sheet` : `each page ${layoutUi.copies} times`}` : "");
+  const layoutSideCount = layoutActive ? layoutSides(layoutFromUi(layoutUi), selectedPages) : null;
+  const layoutSheets = layoutSideCount === null ? null : (effSides === "two" ? Math.ceil(layoutSideCount / 2) : layoutSideCount) * copies;
+  const barSheets = layoutActive ? layoutSheets : (summary?.sheets ?? null);
   const barError = needsBookletConfirm ? null : (clientError ?? serverError);
 
   return (
@@ -581,10 +638,10 @@ export function PrintForm({
             id="file"
             type="file"
             name="file"
-            accept="application/pdf"
+            accept="application/pdf,image/jpeg,image/png"
             required
             onChange={onFileChange}
-            aria-label="Choose a PDF to print"
+            aria-label="Choose a PDF or photo to print"
             aria-describedby={fileError ? "file-error" : undefined}
             aria-invalid={!!fileError || undefined}
             className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
@@ -598,7 +655,11 @@ export function PrintForm({
           >
             {thumbnailLoading && <Spinner />}
             <canvas ref={canvasRef} className="max-h-full max-w-full" hidden={!thumbnailReady} />
-            {!thumbnailLoading && !thumbnailReady && fileName && (
+            {imageUrl && (
+              // eslint-disable-next-line @next/next/no-img-element -- a local object URL of the picked photo; next/image cannot optimise it
+              <img src={imageUrl} alt="Preview of your photo" className="max-h-full max-w-full object-contain" />
+            )}
+            {!thumbnailLoading && !thumbnailReady && !imageUrl && fileName && (
               <FileText className="h-6 w-6 text-[var(--color-faint)]" aria-hidden="true" />
             )}
           </div>
@@ -607,14 +668,14 @@ export function PrintForm({
               <p className="truncate text-base font-semibold leading-6">{fileName}</p>
               {!fileError && estimatedPages !== null && (
                 <p className="text-sm text-[var(--color-muted)]">
+                  {isImage ? "Photo · " : ""}
                   {estimatedPages} {estimatedPages === 1 ? "page" : "pages"}
                   {fileSizeLabel ? ` · ${fileSizeLabel}` : ""}
                 </p>
               )}
               {!fileError && previewSkipped && (
                 <p className="text-sm text-[var(--color-muted)]">
-                  {fileSizeLabel ? `${fileSizeLabel} · ` : ""}Too large to preview. It will still print, and the page count is confirmed after you press
-                  Print.
+                  {fileSizeLabel ? `${fileSizeLabel} · ` : ""}Too large to preview. It will still print{isImage ? "" : ", and the page count is confirmed after you press Print"}.
                 </p>
               )}
               <p className="mt-1 text-sm font-medium text-[var(--color-primary)]">Choose a different file</p>
@@ -625,7 +686,7 @@ export function PrintForm({
                 <FileUp className="h-7 w-7" aria-hidden="true" />
               </span>
               <div>
-                <p className="text-lg font-semibold leading-6">{fileError ? "Choose another PDF" : "Choose a PDF"}</p>
+                <p className="text-lg font-semibold leading-6">{fileError ? "Choose another file" : "Choose a PDF or photo"}</p>
                 <p className="mt-0.5 text-sm text-[var(--color-muted)]">Tap here, or drop a file. Up to {formatFileSize(maxUploadBytes)}.</p>
               </div>
             </>
@@ -644,6 +705,11 @@ export function PrintForm({
           </p>
         )}
       </div>
+
+      {Object.entries(layoutFieldValues).map(([k, v]) => (
+        <input key={k} type="hidden" name={k} value={v} />
+      ))}
+      <QuickSettings presets={quickPresets} booklet={effBooklet} layout={layoutUi} onPick={pickPreset} />
 
       {/* 2. The basics: printer (only a choice when there is one), copies, sides. Everything else is one level down. */}
       <Card className="flex flex-col gap-5" data-tour="print-options">
@@ -810,11 +876,13 @@ export function PrintForm({
               onChange={(v) => tap({ kind: "booklet", value: v })}
               options={[
                 { value: "none", label: "Off" },
-                { value: "left", label: "Left binding" },
-                { value: "right", label: "Right binding" },
+                { value: "left", label: "Left binding", disabledReason: layoutActive ? LAYOUT_BOOKLET_REASON : null },
+                { value: "right", label: "Right binding", disabledReason: layoutActive ? LAYOUT_BOOKLET_REASON : null },
               ]}
               hint={
-                effBooklet === "none"
+                layoutActive
+                  ? LAYOUT_BOOKLET_REASON
+                  : effBooklet === "none"
                   ? "Folds and staples the pages into a booklet. Left binding reads left to right. Right binding is for right-to-left languages such as Hebrew."
                   : effBooklet === "left"
                     ? "Bound on the left edge, like an English book."
@@ -873,7 +941,7 @@ export function PrintForm({
                     <BookOpen className="h-4 w-4" aria-hidden="true" />
                     Preview booklet
                   </Button>
-                  {!fileName && <p className="mt-1 text-xs text-[var(--color-muted)]">Choose a PDF to preview the booklet.</p>}
+                  {!fileName && <p className="mt-1 text-xs text-[var(--color-muted)]">Choose a file to preview the booklet.</p>}
                   {preview.status === "error" && preview.error && <FormError message={preview.error} />}
                   {preview.status === "ready" && preview.data && preview.signature === previewSignature && <BookletPreview data={preview.data} />}
                   {preview.status === "ready" && preview.signature !== previewSignature && (
@@ -886,8 +954,12 @@ export function PrintForm({
         )}
       </Card>
 
+      <LayoutOptions value={layoutUi} onChange={setLayoutUi} bookletOn={effBooklet !== "none"} pages={selectedPages} duplex={effSides === "two"} />
+
       {/* 3. One level down. Every section starts closed and says in one line what it is set to. */}
       <div className="flex flex-col gap-3">
+        {isImage && <input type="hidden" name="pageRange" value="" />}
+        {!isImage && (
         <Collapsible
           id="print-pages"
           title="Pages"
@@ -954,6 +1026,7 @@ export function PrintForm({
             )}
           </div>
         </Collapsible>
+        )}
 
         <Collapsible
           id="print-finishing"
@@ -1048,11 +1121,11 @@ export function PrintForm({
           {fileName || estimatedPages ? (
             <p className="min-w-0 text-sm font-medium leading-5 text-[var(--color-text)]">{liveLine}</p>
           ) : (
-            <p className="text-sm text-[var(--color-muted)]">Choose a PDF to get started.</p>
+            <p className="text-sm text-[var(--color-muted)]">Choose a PDF or photo to get started.</p>
           )}
-          {summary && (
+          {barSheets !== null && (
             <p className="shrink-0 text-sm tabular-nums text-[var(--color-muted)]">
-              {summary.sheets} {summary.sheets === 1 ? "sheet" : "sheets"}
+              {barSheets} {barSheets === 1 ? "sheet" : "sheets"}
             </p>
           )}
         </div>

@@ -65,3 +65,22 @@ describe("the form's Layout section mirrors the server", () => {
     expect(layoutSummary(undefined, 4, false)).toBeNull();
   });
 });
+
+import { presetFormState, presetIsSelected } from "./print-layout-form";
+
+describe("quick settings", () => {
+  it("each preset fills the booklet choice and the layout, and then reads as selected (and no other does)", () => {
+    for (const p of PRINT_PRESETS) {
+      const f = presetFormState(p);
+      expect(f.booklet).toBe(p.choices.booklet);
+      expect(presetIsSelected(p, f.booklet, f.layout), p.id).toBe(true);
+      for (const other of PRINT_PRESETS) if (other.id !== p.id) expect(presetIsSelected(other, f.booklet, f.layout), `${p.id} vs ${other.id}`).toBe(false);
+    }
+  });
+  it("changing a control by hand clears the selected look", () => {
+    const four = PRINT_PRESETS.find((p) => p.id === "4-up")!;
+    const f = presetFormState(four);
+    expect(presetIsSelected(four, f.booklet, { ...f.layout, perSheet: 2 })).toBe(false);
+    expect(presetIsSelected(four, "left", f.layout)).toBe(false);
+  });
+});

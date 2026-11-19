@@ -154,3 +154,21 @@ export function layoutSummary(layout: PresetLayout | undefined, pages: number | 
   const sheets = duplex ? Math.ceil(sides / 2) : sides;
   return `${what} printed ${cells} times: ${plural(sheets, "sheet", "sheets")} in all`;
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Quick settings (the built-in presets) as form state.
+
+export interface PresetFormState {
+  booklet: "none" | "left" | "right";
+  layout: LayoutUi;
+}
+
+/** What tapping a quick setting puts into the form: the booklet choice and the Layout section. Everything else stays as the person had it. */
+export function presetFormState(preset: { choices: { booklet: "none" | "left" | "right" }; layout?: PresetLayout }): PresetFormState {
+  return { booklet: preset.choices.booklet, layout: layoutUiFromPreset(preset.layout) };
+}
+
+/** Whether the form currently matches a quick setting (drives the selected look, so it also clears when the person changes a control by hand). */
+export function presetIsSelected(preset: { choices: { booklet: "none" | "left" | "right" }; layout?: PresetLayout }, booklet: string, ui: LayoutUi): boolean {
+  return preset.choices.booklet === booklet && sameLayout(preset.layout, layoutFromUi(ui));
+}
