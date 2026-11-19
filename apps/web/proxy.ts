@@ -12,7 +12,8 @@ export const config = {
   matcher: [
     // Skip static assets and image optimization; every route that could read
     // the session runs through here so it always sees a fresh token. The Agent and gateway APIs use bearer
-    // secrets (never cookies), so they skip the Supabase getUser round trip.
-    "/((?!_next/static|_next/image|favicon.ico|pdfjs/|api/agents/|api/gateway/|sw\\.js$|manifest[^/]*$|share-target$|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|json|webmanifest|js|css|woff|woff2|map|txt|xml|pdf|wasm|mjs|avif)$).*)",
+    // secrets (never cookies), so they skip the Supabase getUser round trip. /api/health skips it too so it answers
+    // even when Supabase auth is down.
+    "/((?!_next/static|_next/image|favicon.ico|pdfjs/|api/agents/|api/gateway/|api/health$|sw\\.js$|manifest[^/]*$|share-target$|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|json|webmanifest|js|css|woff|woff2|map|txt|xml|pdf|wasm|mjs|avif)$).*)",
   ],
 };
