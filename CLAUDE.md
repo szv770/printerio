@@ -50,3 +50,5 @@ more than has printed on a real device. `docs/ROADMAP.md` holds what is not buil
   big files, summarize results briefly. Prefer small tests that prove one thing.
 - The owner tests on real devices (Pi + Pixel 8 + Windows 11 + Chromebook; Apple only by borrowing):
   give exact copy-paste steps and say plainly what is untested.
+- Things only the owner can do are kept in `docs/OWNER-TODO.md`. **Start each message to the owner with the top 3 items from it** (one line each),
+  keep the list current, and nudge: the owner asked not to let these slide.
