@@ -14,6 +14,17 @@ function mockFetch(impl: (url: Parameters<typeof fetch>[0], init?: Parameters<ty
   return vi.fn(impl);
 }
 
+describe("CloudClient heartbeat machine info", () => {
+  it("sends machine.runningCommit through untouched", async () => {
+    const fetchImpl = mockFetch(async () => jsonResponse(200, { ok: true, serverTime: "2026-01-01T00:00:00Z" }));
+    const client = new CloudClient({ apiUrl: "https://cloud.example", agentId: "a", deviceSecret: "s", logger, fetchImpl: fetchImpl as unknown as typeof fetch });
+    const commit = "0123456789abcdef0123456789abcdef01234567";
+    await client.heartbeat("1.0.0", [], { hostname: "pc", osVersion: "x", ipAddresses: [], isGitCheckout: true, runningCommit: commit });
+    const body = JSON.parse(String(fetchImpl.mock.calls[0]![1]?.body));
+    expect(body.machine.runningCommit).toBe(commit);
+  });
+});
+
 describe("CloudClient auth header shaping", () => {
   it("sends no Authorization header for register()", async () => {
     const fetchImpl = mockFetch(async () => jsonResponse(200, { agentId: "a1", deviceSecret: "s1", organizationId: "org1" }));

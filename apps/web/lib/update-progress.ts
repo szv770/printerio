@@ -53,7 +53,9 @@ export type UpdateView =
   | { kind: "check_failed"; message: string }
   | { kind: "updating"; steps: StepView[]; message: string | null; /** When Update now was pressed (ISO), for the elapsed clock. */ startedAt: string | null }
   | { kind: "restarting"; steps: StepView[]; to: string | null }
-  | { kind: "done"; steps: StepView[]; from: string | null; to: string | null }
+  | { kind: "done"; steps: StepView[]; from: string | null; to: string | null; /** The commit the server reports it is running (first 7 characters shown), when it reported one. */ runningCommit?: string | null }
+  /** A full update nobody has picked up because the print server is offline. It stays pending and starts when the server returns (an admin can cancel it). */
+  | { kind: "queued"; message: string; startedAt: string | null }
   | { kind: "failed"; steps: StepView[]; message: string };
 
 /** A check nobody answered for this long is shown as "could not check" instead of spinning. */
@@ -120,13 +122,34 @@ function deriveFromCheck(row: UpdateCommandRow, nowMs: number): UpdateView {
   return { kind: "check_failed", message: str(r.message, 400) ?? "The print server could not check for updates right now." };
 }
 
-function deriveFromUpdate(row: UpdateCommandRow, lastSeenAt: string | null, nowMs: number): UpdateView {
+/** A git commit shown the short way ("abc1234"). */
+export function shortCommit(commit: string): string {
+  return commit.slice(0, 7);
+}
+
+const COMMIT_RE = /^[0-9a-f]{7,40}$/;
+/** Normalises a reported commit; anything that is not a git hash counts as "not reported". */
+function cleanCommit(v: string | null | undefined): string | null {
+  const c = typeof v === "string" ? v.trim().toLowerCase() : "";
+  return COMMIT_RE.test(c) ? c : null;
+}
+
+function isOffline(lastSeenAt: string | null, nowMs: number): boolean {
+  const seen = ms(lastSeenAt);
+  return !Number.isFinite(seen) || nowMs - seen > AUTO_CHECK_ONLINE_MS;
+}
+
+function deriveFromUpdate(row: UpdateCommandRow, lastSeenAt: string | null, nowMs: number, runningCommit: string | null = null): UpdateView {
   const created = ms(row.createdAt);
   const age = Number.isFinite(created) ? nowMs - created : 0;
   const r = isRecord(row.result) ? row.result : {};
   const step = stepOf(row.result);
 
   if (row.status === "pending") {
+    if (age > UPDATE_PICKUP_GIVE_UP_MS && isOffline(lastSeenAt, nowMs)) {
+      // Still pending: the command runs when the server comes back, unless an admin cancels it.
+      return { kind: "queued", message: "This server is offline. The update will start when it comes back.", startedAt: row.createdAt };
+    }
     if (age > UPDATE_PICKUP_GIVE_UP_MS) {
       return failed("The print server did not pick this up. It may be switched off or offline. Switch it on and try again.", "checking");
     }
@@ -139,6 +162,8 @@ function deriveFromUpdate(row: UpdateCommandRow, lastSeenAt: string | null, nowM
     return { kind: "updating", steps: buildSteps(step && step !== "done" ? step : "checking"), message: str(r.message, 200), startedAt: row.createdAt };
   }
   if (row.status === "failed") {
+    // An admin cancelled it before the server picked it up: nothing went wrong, so it is not a failure.
+    if (r.cancelled === true) return { kind: "idle" };
     return failed(str(r.message, 400) ?? "The update did not complete. Try again.", step ?? "checking");
   }
 
@@ -149,7 +174,15 @@ function deriveFromUpdate(row: UpdateCommandRow, lastSeenAt: string | null, nowM
     const completed = ms(row.completedAt);
     const seen = ms(lastSeenAt);
     if (Number.isFinite(completed) && Number.isFinite(seen) && seen > completed) {
-      return { kind: "done", steps: buildSteps("done", "all_done"), from, to };
+      // A server that reports its commit must be running the update's target; older servers send nothing and keep the old rule.
+      const target = cleanCommit(to);
+      if (runningCommit && target && !runningCommit.startsWith(target)) {
+        return failed(
+          `The print server restarted, but it is still running ${shortCommit(runningCommit)}, not ${shortCommit(target)}. Press Try again, or check the print server computer.`,
+          "restarting",
+        );
+      }
+      return { kind: "done", steps: buildSteps("done", "all_done"), from, to, ...(runningCommit ? { runningCommit } : {}) };
     }
     if (Number.isFinite(completed) && nowMs - completed > RESTART_GIVE_UP_MS) {
       return failed("The update was installed, but the print server did not come back within a few minutes. Check that its computer is on, then press Try again.", "restarting");
@@ -185,6 +218,11 @@ export interface DeriveInput {
    */
   agentVersion?: string | null;
   latestVersion?: string;
+  /**
+   * The full git commit the print server reports it is running. `undefined`/`null` = not reported (an older server, or the
+   * column is not there yet): "done" then only needs a check-in after the update, exactly as before.
+   */
+  runningCommit?: string | null;
 }
 
 function isOutdated(version: string | null | undefined, latest: string): boolean {
@@ -237,7 +275,7 @@ export function deriveUpdateView(input: DeriveInput): UpdateView {
   } else {
     // An agent that cannot do check_only ran any such request as a FULL update, so read its row as one.
     const asCheck = update.checkOnly && capable;
-    view = asCheck ? deriveFromCheck(update, input.nowMs) : deriveFromUpdate(update, input.lastSeenAt, input.nowMs);
+    view = asCheck ? deriveFromCheck(update, input.nowMs) : deriveFromUpdate(update, input.lastSeenAt, input.nowMs, cleanCommit(input.runningCommit));
   }
 
   if (versionAware && view.kind === "up_to_date" && isOutdated(version, latestVersion)) {
@@ -253,6 +291,7 @@ export function shouldAutoCheck(input: DeriveInput & { agentVersion: string | nu
   if (!Number.isFinite(seen) || input.nowMs - seen > AUTO_CHECK_ONLINE_MS) return false;
   const view = deriveUpdateView(input);
   if (view.kind === "idle") return true;
+  if (view.kind === "queued") return false;
   if (view.kind === "checking" || view.kind === "updating" || view.kind === "restarting") return false;
   const latest = input.commands.find((c) => c.command === "CHECK_FOR_UPDATE");
   if (!latest) return true;

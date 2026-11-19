@@ -52,6 +52,8 @@ export interface HeartbeatMachineInfo {
   osVersion: string;
   ipAddresses: string[];
   isGitCheckout: boolean;
+  /** Full git commit this process runs (null/absent when unknown). Optional: older call sites and tests omit it. */
+  runningCommit?: string | null;
 }
 
 /** What the printer itself said when asked (apps/agent/src/printer-probe.ts); display only. */

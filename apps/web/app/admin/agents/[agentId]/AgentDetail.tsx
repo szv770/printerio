@@ -27,6 +27,7 @@ import {
   agentCommandsSummary,
   agentMachineSummary,
   agentQueuesSummary,
+  agentRunningCommitLabel,
   agentVersionSummary,
   printerStatusWord,
   printerTone,
@@ -208,6 +209,11 @@ function MachineCard({ agent }: { agent: Tables<"agents"> }) {
         <div>
           <dt className="text-[var(--color-muted)]">Operating system</dt>
           <dd className="font-medium">{agent.os_version ?? "Not reported yet"}</dd>
+        </div>
+        <div>
+          <dt className="text-[var(--color-muted)]">Printio code</dt>
+          {/* running_commit is read with the row (select *); before its migration it is simply absent = "not reported". */}
+          <dd className="font-medium">{agentRunningCommitLabel(agent.running_commit)}</dd>
         </div>
         <div className="sm:col-span-2">
           <dt className="flex items-center gap-1 text-[var(--color-muted)]">

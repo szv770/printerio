@@ -30,6 +30,7 @@ export type Database = {
           organization_id: string
           os_version: string | null
           poll_interval_seconds: number | null
+          running_commit: string | null
           paused: boolean
           paused_at: string | null
           paused_by: string | null
@@ -51,6 +52,7 @@ export type Database = {
           organization_id: string
           os_version?: string | null
           poll_interval_seconds?: number | null
+          running_commit?: string | null
           paused?: boolean
           paused_at?: string | null
           paused_by?: string | null
@@ -72,6 +74,7 @@ export type Database = {
           organization_id?: string
           os_version?: string | null
           poll_interval_seconds?: number | null
+          running_commit?: string | null
           paused?: boolean
           paused_at?: string | null
           paused_by?: string | null

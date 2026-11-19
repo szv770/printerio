@@ -3861,3 +3861,9 @@ drop trigger if exists organization_settings_protect_prepare_via_server on publi
 create trigger organization_settings_protect_prepare_via_server
   before update on public.organization_settings
   for each row execute function private.protect_prepare_via_server();
+
+-- 0059_agents_running_commit.sql: the commit the print server is running (self-reported, display only).
+alter table public.agents add column if not exists running_commit text;
+
+comment on column public.agents.running_commit is
+  'Full git commit hash this Agent process was started from (git rev-parse HEAD at process start), as self-reported in its heartbeat. Null for an older Agent, a machine without git, or before it first reports. Display only.';
