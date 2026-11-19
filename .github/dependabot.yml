@@ -1,0 +1,23 @@
+# Weekly dependency updates, opened as pull requests for the owner to review. Nothing here merges by itself.
+# Security fixes are raised by GitHub separately as soon as an advisory exists (when Dependabot security updates are on in the repository settings).
+# One grouped pull request per week for the workspace keeps the noise low; major version bumps are left out of the groups so they arrive on their own.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    target-branch: "claude/upcoming-large-project-3d2j9p"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    labels: ["dependencies"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "claude/upcoming-large-project-3d2j9p"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 2
+    labels: ["dependencies"]
