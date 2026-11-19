@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { logger } from "@/lib/logger";
+import { gatewayStatusOfPrepare, loadGatewayPrepareJob } from "@/lib/prepare/gateway";
 import { authenticateGateway, gatewayError, jobMessage, jobWaitingKind } from "@/lib/gateway/http";
 
 const idSchema = z.string().uuid();
@@ -29,7 +30,25 @@ export async function GET(request: Request, { params }: { params: Promise<{ jobI
       .eq("source", "ipp")
       .maybeSingle();
     if (error) return gatewayError(500, "internal_error", "Could not look up the job.");
-    if (!job) return gatewayError(404, "unknown_job", "Job not found.");
+    if (!job) {
+      // No print job yet: it may still be being prepared by the print server (same id), or it never existed.
+      const preparing = await loadGatewayPrepareJob(supabase, jobId, deviceId as string);
+      const view = preparing ? gatewayStatusOfPrepare(preparing) : null;
+      if (view) return Response.json({ jobId, status: view.status, ...(view.message ? { message: view.message } : {}) });
+      if (!preparing) return gatewayError(404, "unknown_job", "Job not found.");
+      // The print job was created between the two reads: read it again.
+      const { data: created } = await supabase
+        .from("print_jobs")
+        .select("id, status, held_reason, policy_reasons, error_message")
+        .eq("id", jobId)
+        .eq("device_id", deviceId as string)
+        .eq("source", "ipp")
+        .maybeSingle();
+      if (!created) return Response.json({ jobId, status: "draft" });
+      const createdMessage = jobMessage({ status: created.status, heldReason: created.held_reason, policyReasons: created.policy_reasons, errorMessage: created.error_message });
+      const createdWaiting = jobWaitingKind({ status: created.status, errorMessage: created.error_message });
+      return Response.json({ jobId: created.id, status: created.status, ...(createdMessage ? { message: createdMessage } : {}), ...(createdWaiting ? { waiting: createdWaiting } : {}) });
+    }
 
     const message = jobMessage({
       status: job.status,

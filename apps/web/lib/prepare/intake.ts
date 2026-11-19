@@ -32,6 +32,8 @@ export async function intakePrintJob(
   stagedPath: string,
   originalFileName: string,
   opts: JobOptions,
+  /** Whose folder the staged file is in: the member for a browser upload (the default), the device for a phone print-dialog upload. */
+  stagedOwnerId: string = session.userId,
 ): Promise<IntakeResult> {
   const writer = opts.writeClient ?? supabase;
   const organizationId = session.membership.organization_id;
@@ -41,7 +43,7 @@ export async function intakePrintJob(
   if (limited && !limited.ok && limited.kind === "error") return { ok: false, kind: "error", error: limited.error, code: limited.code };
 
   // The file is already in storage: only its size is looked at, never its bytes.
-  const size = await stagedPdfSize(writer, session.userId, stagedPath);
+  const size = await stagedPdfSize(writer, stagedOwnerId, stagedPath);
   if (size === null) return fail(NOT_THERE, "storage_failed");
 
   const planned = await resolveJobPlan(supabase, session, size, opts);
