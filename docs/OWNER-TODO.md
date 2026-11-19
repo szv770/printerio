@@ -18,8 +18,20 @@ moves to "Done" below. Last updated 2026-11-19.
 
 ## Waiting for your answer or a click
 - **Database migrations 0054, 0055, 0057, 0058** (live database). Claude checked everything first and is ready. The tool asked for a confirmation click while you were away and timed out; **nothing was applied**. Reply "retry" and press **Allow** when the card appears. 0054 is a security fix; the others add tables and a switch that stays OFF.
-- **Admin dashboard plan** (`docs/ADMIN-DASHBOARD-PLAN.md`, being written): a few questions for you to answer before anything is built.
-- **Printer-leasing partnership idea** and **ideas for scaling** (`docs/SAAS-IDEAS-AND-PARTNERSHIPS.md`, being written): read it, tell Claude which ideas you like.
+- **Admin dashboard plan** (`docs/ADMIN-DASHBOARD-PLAN.md`): read the proposed 7-section menu and the home-screen sketch, then answer these 6 before anything is built:
+  1. Is **"Print server"** the one word everywhere, with "Agent" gone from the screen?
+  2. What should the first-run **"I'm stuck"** button do (email you, open a help page, start a chat)?
+  3. What should **approvers** be able to see and change?
+  4. Do schools **charge for printing**, and how (per page, per sheet, by group)?
+  5. Which **email alerts** matter most, and who gets them?
+  6. What goes on the **billing placeholder** page (payment is outside the app for now)?
+- **Ideas for scaling and the printer-leasing partnership** (`docs/SAAS-IDEAS-AND-PARTNERSHIPS.md`): read it, then tell Claude which ideas you like and answer these 6:
+  1. Partnership shape: a **referral** or a **per-device monthly add-on** (the document recommends starting with one of these, not revenue share)?
+  2. Which **dealer** and which printer models would you approach first?
+  3. How many **hand-installs** can you personally support in the first 3 months?
+  4. Would you ship a small **mini-PC box** for the print server instead of relying on a school's Windows PC?
+  5. Take **student accounts** in year one, or staff only?
+  6. Who **owns the customer data** (school, dealer, you)?
 
 ## Later (not urgent, but do not forget)
 - **Real-device tests** (you test on real devices; Apple only by borrowing): Pi, Pixel 8, Windows 11, Chromebook, an iPhone/Mac. Checklist in `docs/ipp-printing.md`.
